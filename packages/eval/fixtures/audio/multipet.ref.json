@@ -1,0 +1,386 @@
+[
+  {
+    "speaker": "tech",
+    "start": 0.0,
+    "end": 7.0695,
+    "text": "Hi, I'm Jordan, I'll be helping Doctor Okafor today. So we have Pickles and Olive. Who's here for what?"
+  },
+  {
+    "speaker": "client",
+    "start": 7.8695,
+    "end": 13.6915,
+    "text": "Olive is here for her yearly checkup and vaccines. Pickles is the older one, and he's been limping on his back leg."
+  },
+  {
+    "speaker": "tech",
+    "start": 14.4915,
+    "end": 23.85475,
+    "text": "Okay. Let me get weights on both. Olive first. Olive is three point nine kilos. And Pickles is six point three kilos."
+  },
+  {
+    "speaker": "tech",
+    "start": 24.65475,
+    "end": 26.79225,
+    "text": "How long has Pickles been limping?"
+  },
+  {
+    "speaker": "client",
+    "start": 27.59225,
+    "end": 33.385937,
+    "text": "About two weeks. It's his right back leg. It's worse in the morning, and he doesn't jump onto the bed anymore."
+  },
+  {
+    "speaker": "tech",
+    "start": 34.185936,
+    "end": 39.81475,
+    "text": "Got it. Any vomiting, diarrhea, or changes in appetite for either of them?"
+  },
+  {
+    "speaker": "client",
+    "start": 40.61475,
+    "end": 45.099438,
+    "text": "No, both are eating fine. Pickles might be eating a bit less, but he's also less active."
+  },
+  {
+    "speaker": "tech",
+    "start": 45.899437,
+    "end": 48.894936,
+    "text": "Okay. Doctor Okafor will be right in."
+  },
+  {
+    "speaker": "dvm",
+    "start": 49.69494,
+    "end": 57.52569,
+    "text": "Hello! Nice to meet you. Jordan filled me in. Let's start with Olive, since she's the easy one, and then spend some time on Pickles."
+  },
+  {
+    "speaker": "client",
+    "start": 58.325687,
+    "end": 59.29619,
+    "text": "Sounds good."
+  },
+  {
+    "speaker": "dvm",
+    "start": 60.096188,
+    "end": 61.70619,
+    "text": "How old is Olive now?"
+  },
+  {
+    "speaker": "client",
+    "start": 62.506187,
+    "end": 64.962814,
+    "text": "She's four. She's spayed, indoor only."
+  },
+  {
+    "speaker": "dvm",
+    "start": 65.76281,
+    "end": 70.12363,
+    "text": "Any concerns with her at all? Litter box, coughing, sneezing, scratching?"
+  },
+  {
+    "speaker": "client",
+    "start": 70.92362,
+    "end": 73.955185,
+    "text": "Nothing. She's perfect. Maybe a little chubby."
+  },
+  {
+    "speaker": "dvm",
+    "start": 74.75519,
+    "end": 84.26519,
+    "text": "Let's see. Her temperature is thirty-eight point four, heart rate is one hundred eighty. Her ears are clean, eyes clear. Her teeth look good, no tartar to speak of."
+  },
+  {
+    "speaker": "dvm",
+    "start": 85.065186,
+    "end": 93.00494,
+    "text": "Heart sounds normal, lungs clear. Her belly is soft. I'd say her body condition is five out of nine, so she's actually right where she should be."
+  },
+  {
+    "speaker": "client",
+    "start": 93.80494,
+    "end": 96.50862,
+    "text": "Oh good. I'll tell my partner she's not chubby."
+  },
+  {
+    "speaker": "dvm",
+    "start": 97.308624,
+    "end": 108.49587,
+    "text": "She's fluffy, not chubby. For vaccines, she's due for her F V R C P booster today, which covers the upper respiratory viruses and panleukopenia. Her rabies is good until next spring."
+  },
+  {
+    "speaker": "client",
+    "start": 109.295876,
+    "end": 111.414185,
+    "text": "Okay, let's do the F V R C P."
+  },
+  {
+    "speaker": "dvm",
+    "start": 112.21419,
+    "end": 114.56425,
+    "text": "Jordan, could you draw that up for Olive?"
+  },
+  {
+    "speaker": "tech",
+    "start": 115.36425,
+    "end": 120.63425,
+    "text": "Sure. F V R C P for Olive, right front leg, under the skin?"
+  },
+  {
+    "speaker": "dvm",
+    "start": 121.43425,
+    "end": 123.41075,
+    "text": "Yes, please, right front leg."
+  },
+  {
+    "speaker": "tech",
+    "start": 124.21075,
+    "end": 126.45238,
+    "text": "Done. She didn't even notice."
+  },
+  {
+    "speaker": "dvm",
+    "start": 127.25237,
+    "end": 130.45924,
+    "text": "Good girl. Now, Pickles. How old is he?"
+  },
+  {
+    "speaker": "client",
+    "start": 131.25925,
+    "end": 134.30824,
+    "text": "He's fourteen. Neutered. Also indoors."
+  },
+  {
+    "speaker": "dvm",
+    "start": 135.10825,
+    "end": 139.284,
+    "text": "Has he ever had a problem with that leg before? Any falls you know of?"
+  },
+  {
+    "speaker": "client",
+    "start": 140.084,
+    "end": 145.09557,
+    "text": "Not that I know of. He jumped down from the top of the fridge a while ago, but that was months back."
+  },
+  {
+    "speaker": "dvm",
+    "start": 145.89557,
+    "end": 148.76544,
+    "text": "Does the limp improve once he's been moving for a while?"
+  },
+  {
+    "speaker": "client",
+    "start": 149.56544,
+    "end": 155.36537,
+    "text": "Yes, actually. After he's walked around for ten minutes he seems a lot better. In the morning he's really stiff."
+  },
+  {
+    "speaker": "dvm",
+    "start": 156.16537,
+    "end": 165.77469,
+    "text": "That pattern sounds like arthritis. Is he still using his litter box normally? Sometimes cats with sore joints start going outside the box because the sides are too high."
+  },
+  {
+    "speaker": "client",
+    "start": 166.57469,
+    "end": 170.06581,
+    "text": "Now that you mention it, he peed next to the box twice last week."
+  },
+  {
+    "speaker": "dvm",
+    "start": 170.86581,
+    "end": 175.75394,
+    "text": "That fits. Is he drinking more water than usual, or peeing larger amounts?"
+  },
+  {
+    "speaker": "client",
+    "start": 176.55394,
+    "end": 179.65718,
+    "text": "Maybe a little more water. I've been filling his bowl more often."
+  },
+  {
+    "speaker": "dvm",
+    "start": 180.45718,
+    "end": 189.42912,
+    "text": "Okay, I'll keep that in mind. Let me look at him. His temperature is thirty-eight point two. Heart rate is one hundred sixty, respiratory rate is twenty-eight."
+  },
+  {
+    "speaker": "dvm",
+    "start": 190.22913,
+    "end": 197.85106,
+    "text": "I hear a soft heart murmur, grade two out of six, on the left side. I don't think we've recorded that before. His lungs sound clear."
+  },
+  {
+    "speaker": "client",
+    "start": 198.65106,
+    "end": 200.59406,
+    "text": "A murmur? Is that serious?"
+  },
+  {
+    "speaker": "dvm",
+    "start": 201.39406,
+    "end": 211.74168,
+    "text": "Not necessarily. In older cats it can be from thickened heart muscle or high blood pressure, or it can be harmless. We'll check his blood pressure today, and I'll talk about further tests in a moment."
+  },
+  {
+    "speaker": "dvm",
+    "start": 212.54169,
+    "end": 221.2528,
+    "text": "His body condition is four out of nine, and he's lost muscle over his back and back legs. Six point three kilos, and in January he was six point eight."
+  },
+  {
+    "speaker": "dvm",
+    "start": 222.05281,
+    "end": 236.65038,
+    "text": "Now the legs. He's sore when I flex and extend his right knee, and I can feel some thickening around the joint. I don't feel a cruciate ligament tear, there's no drawer movement. His left knee is a little stiff too. His hips move freely, and he has normal feeling in his feet."
+  },
+  {
+    "speaker": "dvm",
+    "start": 237.45038,
+    "end": 243.47725,
+    "text": "Both knees are uncomfortable, the right more than the left. I'd give him a pain score of two out of four on the right knee."
+  },
+  {
+    "speaker": "tech",
+    "start": 244.27725,
+    "end": 249.18625,
+    "text": "Doctor, his blood pressure reading came back at one hundred seventy-five."
+  },
+  {
+    "speaker": "dvm",
+    "start": 249.98625,
+    "end": 261.39688,
+    "text": "Thank you, Jordan. That's elevated. Over one hundred sixty in a cat puts him at risk of damage to the eyes, kidneys, and heart. Combined with drinking more and the weight loss, I want to check his kidneys and thyroid."
+  },
+  {
+    "speaker": "client",
+    "start": 262.19687,
+    "end": 264.4365,
+    "text": "Okay. What tests does he need?"
+  },
+  {
+    "speaker": "dvm",
+    "start": 265.2365,
+    "end": 278.39206,
+    "text": "Today I'd recommend a chemistry panel with S D M A, a complete blood count, a thyroid level, and a urinalysis with a urine protein ratio. I'd also like x-rays of both knees to confirm arthritis and rule out anything else in the bone."
+  },
+  {
+    "speaker": "dvm",
+    "start": 279.19208,
+    "end": 288.0013,
+    "text": "Because of the murmur and the blood pressure, I'd also recommend an echocardiogram, an ultrasound of the heart. That would be with the cardiologist who visits on Tuesdays."
+  },
+  {
+    "speaker": "client",
+    "start": 288.8013,
+    "end": 293.90268,
+    "text": "Let's do the bloodwork, the urine, and the x-rays today. Can I think about the heart ultrasound?"
+  },
+  {
+    "speaker": "dvm",
+    "start": 294.7027,
+    "end": 303.354,
+    "text": "Absolutely. I'll write that down as recommended, and you'll let us know. If he has trouble breathing, or suddenly can't use his back legs, that's an emergency."
+  },
+  {
+    "speaker": "client",
+    "start": 304.154,
+    "end": 307.74387,
+    "text": "Okay. Wait, can't use his back legs, why would that happen?"
+  },
+  {
+    "speaker": "dvm",
+    "start": 308.54388,
+    "end": 321.16574,
+    "text": "Rarely, cats with heart disease form a blood clot that blocks blood flow to the back legs. It's sudden and very painful. I'm not saying that's what's happening, his limp is gradual and fits arthritis, but I want you to know the warning signs."
+  },
+  {
+    "speaker": "client",
+    "start": 321.96576,
+    "end": 323.37082,
+    "text": "Okay, that's good to know."
+  },
+  {
+    "speaker": "dvm",
+    "start": 324.1708,
+    "end": 337.47687,
+    "text": "For his pain, I don't want to give him an anti-inflammatory until we know his kidney values. Today I'd like to start him on a monthly injection called frunevetmab, which is an antibody that targets arthritis pain. It's safe for the kidneys."
+  },
+  {
+    "speaker": "client",
+    "start": 338.2769,
+    "end": 341.0683,
+    "text": "Yes, let's do that. He's clearly uncomfortable."
+  },
+  {
+    "speaker": "dvm",
+    "start": 341.86832,
+    "end": 350.88568,
+    "text": "Jordan, could you get the frunevetmab? He's six point three kilos, so he gets the dose for cats between two and a half and seven kilos, one full vial, under the skin."
+  },
+  {
+    "speaker": "tech",
+    "start": 351.6857,
+    "end": 354.57742,
+    "text": "On it. Under the skin, left side."
+  },
+  {
+    "speaker": "dvm",
+    "start": 355.37744,
+    "end": 360.95706,
+    "text": "We'll repeat that every four weeks. Most cats show improvement after the first or second injection."
+  },
+  {
+    "speaker": "dvm",
+    "start": 361.75705,
+    "end": 369.82495,
+    "text": "At home, put a litter box with a low side near where he sleeps. Add a ramp or a step stool near the bed and his favorite window, and give him soft bedding."
+  },
+  {
+    "speaker": "client",
+    "start": 370.62494,
+    "end": 374.34094,
+    "text": "I can do that. What about the blood pressure? Do we treat that today?"
+  },
+  {
+    "speaker": "dvm",
+    "start": 375.14093,
+    "end": 387.01807,
+    "text": "I'd like to confirm it with the bloodwork first. If his kidney or thyroid values are abnormal, that changes the plan. I'll call you with the results tomorrow, and we'll likely start a blood pressure medication called amlodipine."
+  },
+  {
+    "speaker": "client",
+    "start": 387.81805,
+    "end": 388.6154,
+    "text": "Okay."
+  },
+  {
+    "speaker": "dvm",
+    "start": 389.41537,
+    "end": 397.21136,
+    "text": "Jordan will take Pickles back for his x-rays and the blood and urine samples. It takes about forty minutes, and you can wait here or come back."
+  },
+  {
+    "speaker": "client",
+    "start": 398.01138,
+    "end": 400.438,
+    "text": "I'll wait. Olive can keep me company."
+  },
+  {
+    "speaker": "dvm",
+    "start": 401.238,
+    "end": 413.34238,
+    "text": "Perfect. For Olive, keep doing what you're doing. We'll see her next year. For Pickles, his next frunevetmab injection is in four weeks, and I'd like to recheck his blood pressure in two weeks if we start the amlodipine."
+  },
+  {
+    "speaker": "client",
+    "start": 414.14236,
+    "end": 416.48224,
+    "text": "Got it. Thank you, Doctor Okafor."
+  },
+  {
+    "speaker": "tech",
+    "start": 417.28226,
+    "end": 420.6995,
+    "text": "I'll bring Pickles back out once the x-rays are done."
+  }
+]

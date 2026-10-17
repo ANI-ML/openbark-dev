@@ -1,0 +1,24 @@
+# Synthetic consult: written for OpenBark's test suite; not a real patient.
+id: smoke
+title: Short recheck (CI smoke test)
+species: canine
+speakers:
+  dvm: am_michael
+  client: af_sarah
+pause_secs: 0.5
+lines:
+  - [dvm, "Hi there. So this is Pepper's recheck for the ear infection. How has she been doing?"]
+  - [client, "Much better. She stopped shaking her head after about four days, and we finished all the drops yesterday."]
+  - [dvm, "Great. Let me take a look. Her weight today is twelve point six kilos, the same as last time. Temperature is thirty-eight point five."]
+  - [dvm, "The left ear canal looks clean now. No redness, no discharge, and she isn't painful when I handle it."]
+  - [client, "That's a relief. Do we need to keep cleaning it?"]
+  - [dvm, "Yes, clean both ears once a week with the ear cleaner, especially after swimming. The otitis has resolved, so no more medication for now."]
+  - [dvm, "If the head shaking comes back, call us and we'll have a look sooner. Otherwise we'll see her at her annual exam in March."]
+  - [client, "Perfect, thank you so much."]
+
+expected:
+  vitals:
+    weight: "12.6"
+    temperature: "38.5"
+  not_discussed: [heart_rate, respiratory_rate]
+  must_mention: [otitis, "once a week", March]

@@ -1,0 +1,69 @@
+# Synthetic consult: written for OpenBark's test suite; not a real patient.
+id: feline-vomiting
+title: Sick visit, senior cat with vomiting and weight loss
+species: feline
+speakers:
+  dvm: am_michael
+  client: af_bella
+pause_secs: 0.7
+lines:
+  - [dvm, "Hi, come on in. I'm Doctor Laurent. And this must be Mochi. What's been going on with her?"]
+  - [client, "Hi. So she started throwing up on Monday, and it's Thursday now. It's been at least once a day, sometimes twice."]
+  - [dvm, "Okay. Three days of vomiting. What does it look like? Is it food, liquid, hair?"]
+  - [client, "The first couple of times it was her food, mostly undigested. Since yesterday it's more like yellow foam, a bit of liquid."]
+  - [dvm, "And is she still eating?"]
+  - [client, "Barely. She'll lick the gravy off her wet food and walk away. She's usually a really good eater, so that's what worried me."]
+  - [dvm, "Has she been drinking normally? Any changes in the litter box, like diarrhea, constipation, or bigger clumps of urine?"]
+  - [client, "Her stool was a bit soft on Tuesday, but otherwise the same. I haven't noticed her drinking more. If anything, maybe less."]
+  - [dvm, "Is she hiding, or less active than usual?"]
+  - [client, "Yeah, she's been sleeping under the bed, which she never does."]
+  - [dvm, "Okay. Any chance she got into something? Plants, string, hair ties, anything like that? Has she been outside?"]
+  - [client, "She's indoor only. She does play with hair ties, and I found one chewed up last week. I don't know if she swallowed any of it."]
+  - [dvm, "That's good to know, thank you. Any changes to her food, or anything new in the house?"]
+  - [client, "No, same food for years. The salmon pate."]
+  - [dvm, "Is she on any medications or supplements?"]
+  - [client, "Just a fish oil supplement in her food. Nothing else."]
+  - [dvm, "And she's nine now, is that right? Spayed?"]
+  - [client, "Yes, nine in June, and yes, she's spayed."]
+  - [dvm, "Alright. Let's weigh her first. She's four point one kilos today. In March she was four point six, so she's lost about half a kilo, which is more than ten percent of her body weight for a cat her size."]
+  - [client, "Oh no, I had no idea."]
+  - [dvm, "That's not something you'd see at home. Let me examine her now. Her temperature is thirty-nine point one, which is the upper end of normal. Heart rate is two hundred, and respiratory rate is thirty-two."]
+  - [dvm, "Her gums are pink but a little tacky, and her capillary refill time is under two seconds. Her skin tent is a bit slow, so I'd estimate she's about six percent dehydrated."]
+  - [dvm, "I'd put her body condition at four out of nine. She's lost some muscle over her back and hips."]
+  - [dvm, "Listening to her heart, I don't hear a murmur, and her lungs sound clear. I can't feel an enlarged thyroid gland, but at her age we still want to check her thyroid level."]
+  - [dvm, "On her belly, she's tense and a bit uncomfortable when I press up front, just behind her ribs. I'd call that mild discomfort, a pain score of one out of four. I don't feel any obvious mass or any thickened intestines, and her bladder is a normal size."]
+  - [client, "Is that bad? The discomfort?"]
+  - [dvm, "It tells us something is irritated. There are a few possibilities. The most common would be gastritis or dietary upset. Given the hair ties, I am worried about a foreign body, like a piece of string or elastic in her intestines. In a nine year old cat with weight loss, I also want to rule out pancreatitis, kidney disease, hyperthyroidism, and inflammatory bowel disease or intestinal lymphoma."]
+  - [client, "Okay. What would you recommend?"]
+  - [dvm, "I'd recommend bloodwork today: a complete blood count, a chemistry panel with electrolytes, and a thyroid level, plus a urinalysis. I'd also really like abdominal x-rays to look for a foreign body."]
+  - [client, "How much would all of that be? Money's a bit tight this month."]
+  - [dvm, "Understood. The bloodwork and urinalysis together are about three hundred and twenty dollars, and the x-rays would add about two hundred and fifty."]
+  - [client, "Can we do the bloodwork today and hold off on the x-rays?"]
+  - [dvm, "We can. I'll note that we discussed the x-rays and that you'd like to wait. If she vomits more than twice in a day, stops eating completely, or seems painful, the x-rays become much more important, and you should bring her straight back."]
+  - [client, "That makes sense."]
+  - [dvm, "For treatment today, I'll give her an anti-nausea injection, maropitant, at one milligram per kilo under the skin. I'll also give her one hundred milliliters of lactated Ringer's fluids under the skin to help with the dehydration."]
+  - [dvm, "I'm going to send home mirtazapine ointment to help her appetite. You put a one and a half inch line on the inside of her ear flap once a day, for up to fourteen days. Wear gloves when you apply it."]
+  - [client, "Okay, inside the ear, once a day."]
+  - [dvm, "Exactly. For food, switch to a bland gastrointestinal diet. We'll send you home with the prescription wet food. Feed small amounts, about a tablespoon, every three to four hours to start."]
+  - [dvm, "Please don't give her the fish oil until her stomach settles. And put away anything she could chew, like hair ties and string."]
+  - [client, "I'll do that tonight."]
+  - [dvm, "I'll call you tomorrow afternoon with the bloodwork results. I want to recheck her in three days, on Sunday, or sooner if she gets worse."]
+  - [dvm, "If she vomits more than twice in a day, stops eating entirely, strains in the litter box, or seems weak or painful, come back right away, or go to the emergency hospital if we're closed."]
+  - [client, "Okay. Thank you, Doctor Laurent. I feel better having a plan."]
+  - [dvm, "Of course. The technician will draw her blood now, and then we'll give the injection and the fluids."]
+
+expected:
+  vitals:
+    weight: "4.1"
+    temperature: "39.1"
+    heart_rate: "200"
+    respiratory_rate: "32"
+    body_condition_score: "4"
+    hydration: "6"
+    pain_score: "1"
+  medications:
+    - { drug: maropitant, dose: "1" }
+    - { drug: lactated Ringer, dose: "100" }
+    - { drug: mirtazapine, duration: "14" }
+  must_mention: [foreign body, pancreatitis, hyperthyroidism, declined, x-ray, "three days", hair tie]
+  must_not_mention: [radiographs performed, murmur present]

@@ -1,0 +1,40 @@
+# Synthetic consult: written for OpenBark's test suite; not a real patient.
+id: canine-wellness
+title: Annual wellness exam, adult Labrador
+species: canine
+speakers:
+  dvm: bf_emma
+  client: am_adam
+pause_secs: 0.6
+lines:
+  - [dvm, "Good morning! You must be Biscuit's dad. I'm Doctor Patel. How's he been since last year?"]
+  - [client, "Morning. He's been great, honestly. Eating well, lots of energy. He's three now, so he's calmed down a little."]
+  - [dvm, "That's lovely to hear. Any coughing, sneezing, vomiting or diarrhea? Any changes in drinking or peeing?"]
+  - [client, "No, nothing like that. Maybe drinking a bit more in the summer when it was hot, but that's it."]
+  - [dvm, "That's normal with the heat. What is he eating at the moment, and how much?"]
+  - [client, "He gets the large breed adult kibble, about two and a half cups twice a day, plus some treats. My kids definitely sneak him cheese."]
+  - [dvm, "Okay. Let's get him on the scale. He's thirty-two point four kilos today. Last year he was thirty point one, so he's put on a bit."]
+  - [client, "Oh, I didn't realize it was that much."]
+  - [dvm, "It creeps up. Let me examine him. His temperature is thirty-eight point six, and his heart rate is ninety-six. He's panting, so I can't count a resting respiratory rate."]
+  - [dvm, "Eyes and ears look clean. He has some mild tartar on his back teeth, I'd call it grade one, but his gums look healthy. Heart and lungs sound clear, no murmur."]
+  - [dvm, "His belly feels normal, and his lymph nodes are normal size. I'd score his body condition at six out of nine, so just a little overweight. You can feel his ribs, but there's a bit of padding."]
+  - [client, "Fair enough. What should we change?"]
+  - [dvm, "I'd cut his kibble by about ten percent, so a little under two and a quarter cups twice a day, and count the cheese as part of his treats. Let's aim for around thirty kilos."]
+  - [dvm, "For vaccines today, he's due for his distemper parvo combination and his leptospirosis booster. His rabies was given last year and it's a three year vaccine, so he's not due for that."]
+  - [client, "Okay, go ahead with those."]
+  - [dvm, "We also ran his heartworm and tick disease test while you were waiting, and it came back negative, which is great."]
+  - [dvm, "Keep him on his monthly heartworm, flea and tick chew all year round. He's due for his next dose on the first."]
+  - [client, "Will do. Anything about his teeth?"]
+  - [dvm, "Brushing a few times a week would really help. We don't need a dental cleaning yet, but we'll keep an eye on it next year."]
+  - [dvm, "His nails are a bit long, so the technician will trim them before you go. Otherwise, he looks fantastic. We'll see him in a year, or sooner if anything comes up."]
+  - [client, "Thanks, Doctor Patel."]
+
+expected:
+  vitals:
+    weight: "32.4"
+    temperature: "38.6"
+    heart_rate: "96"
+    body_condition_score: "6"
+  not_discussed: [respiratory_rate, capillary_refill_time, pain_score]
+  must_mention: [leptospirosis, distemper, negative, "ten percent", tartar]
+  must_not_mention: [rabies vaccine given today]

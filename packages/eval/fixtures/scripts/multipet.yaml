@@ -1,0 +1,84 @@
+# Synthetic consult: written for OpenBark's test suite; not a real patient.
+# Two cats in one appointment, three speakers. Exercises long-context
+# generation, diarization with a technician, and (from M2) multi-pet splitting.
+id: multipet
+title: Two-cat appointment, wellness plus a limping senior
+species: feline
+speakers:
+  dvm: bf_isabella
+  client: am_adam
+  tech: af_nicole
+pause_secs: 0.8
+lines:
+  - [tech, "Hi, I'm Jordan, I'll be helping Doctor Okafor today. So we have Pickles and Olive. Who's here for what?"]
+  - [client, "Olive is here for her yearly checkup and vaccines. Pickles is the older one, and he's been limping on his back leg."]
+  - [tech, "Okay. Let me get weights on both. Olive first. Olive is three point nine kilos. And Pickles is six point three kilos."]
+  - [tech, "How long has Pickles been limping?"]
+  - [client, "About two weeks. It's his right back leg. It's worse in the morning, and he doesn't jump onto the bed anymore."]
+  - [tech, "Got it. Any vomiting, diarrhea, or changes in appetite for either of them?"]
+  - [client, "No, both are eating fine. Pickles might be eating a bit less, but he's also less active."]
+  - [tech, "Okay. Doctor Okafor will be right in."]
+  - [dvm, "Hello! Nice to meet you. Jordan filled me in. Let's start with Olive, since she's the easy one, and then spend some time on Pickles."]
+  - [client, "Sounds good."]
+  - [dvm, "How old is Olive now?"]
+  - [client, "She's four. She's spayed, indoor only."]
+  - [dvm, "Any concerns with her at all? Litter box, coughing, sneezing, scratching?"]
+  - [client, "Nothing. She's perfect. Maybe a little chubby."]
+  - [dvm, "Let's see. Her temperature is thirty-eight point four, heart rate is one hundred eighty. Her ears are clean, eyes clear. Her teeth look good, no tartar to speak of."]
+  - [dvm, "Heart sounds normal, lungs clear. Her belly is soft. I'd say her body condition is five out of nine, so she's actually right where she should be."]
+  - [client, "Oh good. I'll tell my partner she's not chubby."]
+  - [dvm, "She's fluffy, not chubby. For vaccines, she's due for her F V R C P booster today, which covers the upper respiratory viruses and panleukopenia. Her rabies is good until next spring."]
+  - [client, "Okay, let's do the F V R C P."]
+  - [dvm, "Jordan, could you draw that up for Olive?"]
+  - [tech, "Sure. F V R C P for Olive, right front leg, under the skin?"]
+  - [dvm, "Yes, please, right front leg."]
+  - [tech, "Done. She didn't even notice."]
+  - [dvm, "Good girl. Now, Pickles. How old is he?"]
+  - [client, "He's fourteen. Neutered. Also indoors."]
+  - [dvm, "Has he ever had a problem with that leg before? Any falls you know of?"]
+  - [client, "Not that I know of. He jumped down from the top of the fridge a while ago, but that was months back."]
+  - [dvm, "Does the limp improve once he's been moving for a while?"]
+  - [client, "Yes, actually. After he's walked around for ten minutes he seems a lot better. In the morning he's really stiff."]
+  - [dvm, "That pattern sounds like arthritis. Is he still using his litter box normally? Sometimes cats with sore joints start going outside the box because the sides are too high."]
+  - [client, "Now that you mention it, he peed next to the box twice last week."]
+  - [dvm, "That fits. Is he drinking more water than usual, or peeing larger amounts?"]
+  - [client, "Maybe a little more water. I've been filling his bowl more often."]
+  - [dvm, "Okay, I'll keep that in mind. Let me look at him. His temperature is thirty-eight point two. Heart rate is one hundred sixty, respiratory rate is twenty-eight."]
+  - [dvm, "I hear a soft heart murmur, grade two out of six, on the left side. I don't think we've recorded that before. His lungs sound clear."]
+  - [client, "A murmur? Is that serious?"]
+  - [dvm, "Not necessarily. In older cats it can be from thickened heart muscle or high blood pressure, or it can be harmless. We'll check his blood pressure today, and I'll talk about further tests in a moment."]
+  - [dvm, "His body condition is four out of nine, and he's lost muscle over his back and back legs. Six point three kilos, and in January he was six point eight."]
+  - [dvm, "Now the legs. He's sore when I flex and extend his right knee, and I can feel some thickening around the joint. I don't feel a cruciate ligament tear, there's no drawer movement. His left knee is a little stiff too. His hips move freely, and he has normal feeling in his feet."]
+  - [dvm, "Both knees are uncomfortable, the right more than the left. I'd give him a pain score of two out of four on the right knee."]
+  - [tech, "Doctor, his blood pressure reading came back at one hundred seventy-five."]
+  - [dvm, "Thank you, Jordan. That's elevated. Over one hundred sixty in a cat puts him at risk of damage to the eyes, kidneys, and heart. Combined with drinking more and the weight loss, I want to check his kidneys and thyroid."]
+  - [client, "Okay. What tests does he need?"]
+  - [dvm, "Today I'd recommend a chemistry panel with S D M A, a complete blood count, a thyroid level, and a urinalysis with a urine protein ratio. I'd also like x-rays of both knees to confirm arthritis and rule out anything else in the bone."]
+  - [dvm, "Because of the murmur and the blood pressure, I'd also recommend an echocardiogram, an ultrasound of the heart. That would be with the cardiologist who visits on Tuesdays."]
+  - [client, "Let's do the bloodwork, the urine, and the x-rays today. Can I think about the heart ultrasound?"]
+  - [dvm, "Absolutely. I'll write that down as recommended, and you'll let us know. If he has trouble breathing, or suddenly can't use his back legs, that's an emergency."]
+  - [client, "Okay. Wait, can't use his back legs, why would that happen?"]
+  - [dvm, "Rarely, cats with heart disease form a blood clot that blocks blood flow to the back legs. It's sudden and very painful. I'm not saying that's what's happening, his limp is gradual and fits arthritis, but I want you to know the warning signs."]
+  - [client, "Okay, that's good to know."]
+  - [dvm, "For his pain, I don't want to give him an anti-inflammatory until we know his kidney values. Today I'd like to start him on a monthly injection called frunevetmab, which is an antibody that targets arthritis pain. It's safe for the kidneys."]
+  - [client, "Yes, let's do that. He's clearly uncomfortable."]
+  - [dvm, "Jordan, could you get the frunevetmab? He's six point three kilos, so he gets the dose for cats between two and a half and seven kilos, one full vial, under the skin."]
+  - [tech, "On it. Under the skin, left side."]
+  - [dvm, "We'll repeat that every four weeks. Most cats show improvement after the first or second injection."]
+  - [dvm, "At home, put a litter box with a low side near where he sleeps. Add a ramp or a step stool near the bed and his favorite window, and give him soft bedding."]
+  - [client, "I can do that. What about the blood pressure? Do we treat that today?"]
+  - [dvm, "I'd like to confirm it with the bloodwork first. If his kidney or thyroid values are abnormal, that changes the plan. I'll call you with the results tomorrow, and we'll likely start a blood pressure medication called amlodipine."]
+  - [client, "Okay."]
+  - [dvm, "Jordan will take Pickles back for his x-rays and the blood and urine samples. It takes about forty minutes, and you can wait here or come back."]
+  - [client, "I'll wait. Olive can keep me company."]
+  - [dvm, "Perfect. For Olive, keep doing what you're doing. We'll see her next year. For Pickles, his next frunevetmab injection is in four weeks, and I'd like to recheck his blood pressure in two weeks if we start the amlodipine."]
+  - [client, "Got it. Thank you, Doctor Okafor."]
+  - [tech, "I'll bring Pickles back out once the x-rays are done."]
+
+expected:
+  patients: 2
+  vitals_by_patient:
+    Olive: { weight: "3.9", temperature: "38.4", heart_rate: "180", body_condition_score: "5" }
+    Pickles: { weight: "6.3", temperature: "38.2", heart_rate: "160", respiratory_rate: "28", body_condition_score: "4", pain_score: "2" }
+  must_mention: [FVRCP, murmur, "175", frunevetmab, echocardiogram, arthritis, amlodipine]
+  must_not_mention: [amlodipine started, NSAID given, meloxicam]
