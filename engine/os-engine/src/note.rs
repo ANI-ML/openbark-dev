@@ -70,7 +70,16 @@ pub fn build_messages(template: &LoadedTemplate, transcript: &Transcript) -> Vec
             system.push('\n');
         }
     }
-    system.push_str("\nRespond with the JSON object only.");
+    system.push_str(
+        r#"
+JSON formats:
+- a field is null, or {"value": 4.1, "unit": "kg", "evidence": [18]} for a measurement,
+  or {"value": "pink but tacky", "unit": null, "evidence": [20]} for a description
+- a statement is {"text": "Vomiting once or twice daily for 3 days", "evidence": [2, 4]}
+- a medication is {"drug": "Maropitant", "dose": "1 mg/kg", "route": "SC", "frequency": "once", "duration": null, "evidence": [34]}
+
+Respond with the JSON object only."#,
+    );
 
     let user = format!(
         "Transcript of the consultation. Each line starts with its segment id in brackets; cite these ids as evidence.\n\n{}",
@@ -133,7 +142,14 @@ mod tests {
     fn prompt_contains_rules_parts_and_transcript() {
         let template = LoadedTemplate::builtin("soap").unwrap();
         let transcript = Transcript {
-            segments: vec![Segment { id: 0, start: 0.0, end: 1.0, speaker: Some(0), text: "Hello".into() }],
+            segments: vec![Segment {
+                id: 0,
+                start: 0.0,
+                end: 1.0,
+                speaker: Some(0),
+                text: "Hello".into(),
+                hints: Vec::new(),
+            }],
         };
         let messages = build_messages(&template, &transcript);
         assert_eq!(messages.len(), 2);

@@ -348,7 +348,14 @@ mod tests {
         assert_eq!(s.meta.audio_sha256.len(), 64);
 
         let t = Transcript {
-            segments: vec![Segment { id: 0, start: 0.0, end: 1.0, speaker: Some(0), text: "Hi".into() }],
+            segments: vec![Segment {
+                id: 0,
+                start: 0.0,
+                end: 1.0,
+                speaker: Some(0),
+                text: "Hi".into(),
+                hints: Vec::new(),
+            }],
         };
         s.save_transcript(&t, "parakeet", true, &Default::default()).unwrap();
         let run1 = s.save_run("gemma-4-e4b-it-q4_0", &note_result()).unwrap();

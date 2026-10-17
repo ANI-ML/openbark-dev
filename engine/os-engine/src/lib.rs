@@ -17,6 +17,7 @@ pub mod session;
 pub mod template;
 pub mod transcribe;
 pub mod transcript;
+pub mod vocab;
 
 pub use faithfulness::FaithfulnessReport;
 pub use note::{NoteOptions, NoteResult, generate_note};

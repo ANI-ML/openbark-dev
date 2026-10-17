@@ -7,6 +7,7 @@
 //!
 //! Only `models pull` touches the network (see docs/network.md).
 
+mod eval;
 mod models;
 mod probe;
 mod record;
@@ -54,6 +55,8 @@ enum Command {
     /// Saved sessions.
     #[command(subcommand)]
     Sessions(sessions::SessionsCommand),
+    /// Score drafted notes against the synthetic consults' expected facts.
+    Eval(eval::EvalArgs),
     /// Record a consult from the microphone with a live transcript (Enter to stop).
     Record(record::RecordArgs),
     /// List microphones.
@@ -219,6 +222,7 @@ fn main() -> Result<()> {
         Command::Serve(args) => serve(store, args),
         Command::Record(args) => record::record(&store, args),
         Command::Devices => record::devices(),
+        Command::Eval(args) => eval::run(&store, args),
     }
 }
 

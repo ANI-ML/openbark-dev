@@ -17,7 +17,14 @@ export interface NoteViewProps {
   onCopySection: (title: string, text: string) => void;
 }
 
-type Statement = { text?: string; value?: string; evidence?: number[] } & Record<string, unknown>;
+type Statement = { text?: string; value?: string | number; unit?: string | null; evidence?: number[] } & Record<
+  string,
+  unknown
+>;
+
+/** "32.4 kg" or "pink but tacky" (measurements carry a separate unit). */
+const fieldText = (f: Statement) =>
+  f.value == null ? "" : f.unit && !String(f.value).endsWith(f.unit) ? `${f.value} ${f.unit}` : String(f.value);
 
 function flagsFor(f: Faithfulness) {
   const hard = new Map<string, string[]>();
@@ -93,7 +100,7 @@ export function NoteView({ template, run, onEvidence, onPlay, onCopySection }: N
           return (
             <div key={d.key}>
               <dt className="label muted">{d.label}</dt>
-              <dd>{statement(f, `${path}/${d.key}`, <span className="mono-num">{f.value}</span>)}</dd>
+              <dd>{statement(f, `${path}/${d.key}`, <span className="mono-num">{fieldText(f)}</span>)}</dd>
             </div>
           );
         })}

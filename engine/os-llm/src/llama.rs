@@ -226,10 +226,12 @@ impl Sampler {
     fn new(model: &LlamaModel, request: &GenerateRequest) -> Result<Self, LlmError> {
         let grammar = match &request.json_schema {
             Some(schema) => {
-                let grammar = compact_whitespace(
-                    &llama_cpp_2::json_schema_to_grammar(schema)
-                        .map_err(|e| LlmError::Grammar(e.to_string()))?,
-                );
+                let raw = llama_cpp_2::json_schema_to_grammar(schema)
+                    .map_err(|e| LlmError::Grammar(e.to_string()))?;
+                // llama.cpp's own whitespace rule is kept: restricting it to a
+                // single space (fewer tokens) made Gemma 4 E4B corrupt numeric
+                // fields ("} , ") — eval 14/24 vs 19/24 facts (M1 spike).
+                let grammar = raw;
                 Some(
                     LlamaSampler::grammar(model, &grammar, "root")
                         .map_err(|e| LlmError::Grammar(e.to_string()))?,
@@ -275,36 +277,4 @@ fn selection_chain(request: &GenerateRequest) -> LlamaSampler {
         LlamaSampler::temp(request.temperature),
         LlamaSampler::dist(request.seed),
     ])
-}
-
-/// llama.cpp's JSON grammar allows newlines plus up to 20 spaces/tabs between
-/// tokens; models then spend a large share of output on indentation. Allow at
-/// most a single space instead (still valid JSON, far fewer tokens).
-fn compact_whitespace(grammar: &str) -> String {
-    grammar
-        .lines()
-        .map(|line| if line.trim_start().starts_with("space ::=") { r#"space ::= | " ""# } else { line })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::compact_whitespace;
-
-    #[test]
-    fn whitespace_rule_is_replaced_and_other_rules_kept() {
-        let g = concat!(
-            r#"root ::= "{" space "}""#,
-            "\n",
-            r#"space ::= | " " | "\n"{1,2} [ \t]{0,20}"#,
-            "\n",
-            r#"string ::= "x""#
-        );
-        let out = compact_whitespace(g);
-        assert!(out.contains(r#"space ::= | " ""#));
-        assert!(!out.contains("{0,20}"));
-        assert!(out.starts_with("root ::="));
-        assert!(out.ends_with("string ::= \"x\""));
-    }
 }

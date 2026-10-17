@@ -94,6 +94,7 @@ impl Transcriber {
         on_segment: &mut dyn FnMut(&Segment),
     ) -> Result<Transcript, EngineError> {
         let mut transcript = Transcript::default();
+        let lexicon = crate::vocab::Lexicon::default_with_user();
         for span in spans {
             if span.end - span.start < MIN_SPEECH_SECS {
                 continue;
@@ -107,6 +108,7 @@ impl Transcriber {
                 start: span.start,
                 end: span.end,
                 speaker: None,
+                hints: lexicon.hints(&text),
                 text,
             };
             on_segment(&segment);
@@ -138,8 +140,14 @@ mod tests {
 
     #[test]
     fn speakers_renumbered_by_first_appearance() {
-        let seg =
-            |id, speaker| Segment { id, start: 0.0, end: 1.0, speaker: Some(speaker), text: "x".into() };
+        let seg = |id, speaker| Segment {
+            id,
+            start: 0.0,
+            end: 1.0,
+            speaker: Some(speaker),
+            text: "x".into(),
+            hints: Vec::new(),
+        };
         let mut t = Transcript { segments: vec![seg(0, 2), seg(1, 0), seg(2, 2), seg(3, 5)] };
         merge_speaker_ids(&mut t);
         let speakers: Vec<_> = t.segments.iter().map(|s| s.speaker.unwrap()).collect();

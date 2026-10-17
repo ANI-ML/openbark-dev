@@ -142,6 +142,7 @@ button.turn-text:hover { color: var(--ink); }
 .transcript li[data-lit] { background: var(--accent-soft); border-left-color: var(--accent); }
 .transcript li[data-lit] .turn-text { color: var(--ink); }
 .transcript li[data-playing] .turn-text { color: var(--ink); }
+.hint { text-decoration: underline dotted var(--ink-3); text-underline-offset: 3px; }
 .jump { position: absolute; right: 0; bottom: 0; background: var(--surface); }
 @media (max-width: 640px) { .transcript li { grid-template-columns: 1fr auto; } .turn-speaker { grid-column: 1 / -1; } }
 

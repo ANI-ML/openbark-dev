@@ -1,6 +1,27 @@
 import { useEffect, useRef, useState } from "react";
 import { fmtTime } from "../context";
-import type { Segment } from "../engine";
+import type { Hint, Segment } from "../engine";
+
+/** Text with each hinted phrase underlined (DESIGN.md §5: low-confidence words, Mist dotted). */
+export function HintedText({ text, hints }: { text: string; hints?: Hint[] }) {
+  if (!hints?.length) return <>{text}</>;
+  const parts: React.ReactNode[] = [];
+  let rest = text;
+  hints.forEach((h, i) => {
+    const at = rest.toLowerCase().indexOf(h.heard.toLowerCase());
+    if (at < 0) return;
+    parts.push(rest.slice(0, at));
+    const label = `Heard "${h.heard}". Likely ${h.likely.join(" or ")}.`;
+    parts.push(
+      <span key={i} className="hint" title={label} aria-label={label}>
+        {rest.slice(at, at + h.heard.length)}
+      </span>,
+    );
+    rest = rest.slice(at + h.heard.length);
+  });
+  parts.push(rest);
+  return <>{parts}</>;
+}
 
 export interface TranscriptListProps {
   segments: Segment[];
@@ -49,10 +70,12 @@ export function TranscriptList({ segments, follow, highlighted, playingId, onSee
             <span className="turn-speaker label">{name(s)}</span>
             {onSeek ? (
               <button type="button" className="turn-text" onClick={() => onSeek(s)} title="Play from here">
-                {s.text}
+                <HintedText text={s.text} hints={s.hints} />
               </button>
             ) : (
-              <span className="turn-text">{s.text}</span>
+              <span className="turn-text">
+                <HintedText text={s.text} hints={s.hints} />
+              </span>
             )}
             <span className="turn-time mono faint">{fmtTime(s.start)}</span>
           </li>

@@ -91,10 +91,11 @@
         {
           "type": "object",
           "properties": {
-            "value": { "type": "string" },
+            "value": { "anyOf": [{ "type": "number" }, { "type": "string" }] },
+            "unit": { "anyOf": [{ "type": "null" }, { "type": "string" }] },
             "evidence": { "$ref": "#/$defs/evidence" }
           },
-          "required": ["value", "evidence"],
+          "required": ["value", "unit", "evidence"],
           "additionalProperties": false
         }
       ]

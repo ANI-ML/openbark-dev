@@ -101,8 +101,13 @@ fn check_statement(
         if key == "evidence" {
             continue;
         }
-        if let Value::String(text) = v {
-            for number in extract_numbers(text) {
+        let text = match v {
+            Value::String(s) => s.clone(),
+            Value::Number(n) => n.to_string(),
+            _ => continue,
+        };
+        {
+            for number in extract_numbers(&text) {
                 report.numbers_checked += 1;
                 if !supported.contains(&number) {
                     let found_in: Vec<u32> = transcript
@@ -131,7 +136,14 @@ mod tests {
     use serde_json::json;
 
     fn transcript() -> Transcript {
-        let seg = |id, text: &str| Segment { id, start: 0.0, end: 1.0, speaker: Some(0), text: text.into() };
+        let seg = |id, text: &str| Segment {
+            id,
+            start: 0.0,
+            end: 1.0,
+            speaker: Some(0),
+            text: text.into(),
+            hints: Vec::new(),
+        };
         Transcript {
             segments: vec![
                 seg(0, "Her temperature is thirty-nine point two."),

@@ -116,13 +116,14 @@ impl LiveRecorder {
             }
             LiveSource::Stream { label, .. } => label.clone(),
         };
+        let lexicon = crate::vocab::Lexicon::default_with_user();
         let session = Session::create_live(sessions_root, &label)?;
         let session_dir = session.dir.clone();
         let stop = Arc::new(AtomicBool::new(false));
         let stop2 = stop.clone();
         let worker = std::thread::Builder::new()
             .name("openbark-live".into())
-            .spawn(move || run(session, source, options, vad, asr, tracker, sink, stop2))
+            .spawn(move || run(session, source, options, vad, asr, tracker, lexicon, sink, stop2))
             .map_err(|e| EngineError::Session(e.to_string()))?;
         Ok(Self { stop, worker: Some(worker), session_dir })
     }
@@ -233,6 +234,7 @@ fn run(
     vad: os_asr::SileroVad,
     asr: os_asr::OfflineAsr,
     mut tracker: Option<os_diar::SpeakerTracker>,
+    lexicon: crate::vocab::Lexicon,
     mut sink: Box<dyn LiveSink>,
     stop: Arc<AtomicBool>,
 ) -> Result<LiveResult, EngineError> {
@@ -265,8 +267,14 @@ fn run(
             if text.is_empty() {
                 continue;
             }
-            let segment =
-                Segment { id: transcript.segments.len() as u32, start: u.start, end: u.end(), speaker, text };
+            let segment = Segment {
+                id: transcript.segments.len() as u32,
+                start: u.start,
+                end: u.end(),
+                speaker,
+                hints: lexicon.hints(&text),
+                text,
+            };
             sink.segment(&segment);
             transcript.segments.push(segment);
         }

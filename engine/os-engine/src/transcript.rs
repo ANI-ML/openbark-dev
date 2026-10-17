@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::vocab::Hint;
+
 /// One recognised utterance. `id` is what notes cite as evidence.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Segment {
@@ -9,6 +11,9 @@ pub struct Segment {
     #[serde(default)]
     pub speaker: Option<u32>,
     pub text: String,
+    /// Likely mis-heard veterinary terms in `text` (shown, never applied).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hints: Vec<Hint>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -53,7 +58,12 @@ impl Transcript {
             .iter()
             .map(|s| {
                 let who = s.speaker.map_or_else(|| "Speaker ?".to_string(), |n| format!("Speaker {}", n + 1));
-                format!("[{}] {} ({}): {}\n", s.id, who, mmss(s.start), s.text)
+                let hints: String = s
+                    .hints
+                    .iter()
+                    .map(|h| format!(" [heard \"{}\", likely {}]", h.heard, h.likely.join(" or ")))
+                    .collect();
+                format!("[{}] {} ({}): {}{}\n", s.id, who, mmss(s.start), s.text, hints)
             })
             .collect()
     }
@@ -77,6 +87,7 @@ mod tests {
                     end: 2.5,
                     speaker: Some(0),
                     text: "Hi, what brings Milo in?".into(),
+                    hints: Vec::new(),
                 },
                 Segment {
                     id: 1,
@@ -84,6 +95,7 @@ mod tests {
                     end: 6.0,
                     speaker: Some(1),
                     text: "He's been vomiting since Tuesday.".into(),
+                    hints: Vec::new(),
                 },
             ],
         }

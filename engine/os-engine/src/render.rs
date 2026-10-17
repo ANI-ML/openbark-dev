@@ -83,7 +83,7 @@ fn fields(defs: &[FieldDef], value: &Value, path: &str, flagged: &HashSet<String
     let mut missing = Vec::new();
     for def in defs {
         let field = &value[&def.key];
-        match field["value"].as_str() {
+        match field_text(field) {
             Some(v) => {
                 let p = format!("{path}/{}", def.key);
                 out.push_str(&format!("- {}: {}{}{}\n", def.label, v, cite(field), flag(&p, flagged)));
@@ -98,6 +98,19 @@ fn fields(defs: &[FieldDef], value: &Value, path: &str, flagged: &HashSet<String
         out.push_str(&format!("- Not discussed: {}\n", missing.join(", ")));
     }
     out
+}
+
+/// A field's display text: "32.4 kg", "pink but tacky".
+pub fn field_text(field: &Value) -> Option<String> {
+    let value = match &field["value"] {
+        Value::String(s) => s.clone(),
+        Value::Number(n) => n.to_string(),
+        _ => return None,
+    };
+    match field["unit"].as_str().filter(|u| !u.is_empty() && !value.ends_with(*u)) {
+        Some(unit) => Some(format!("{value} {unit}")),
+        None => Some(value),
+    }
 }
 
 fn medications(value: &Value, path: &str, flagged: &HashSet<String>) -> String {
@@ -160,6 +173,7 @@ pub(crate) mod tests {
                     end: 1.0,
                     speaker: Some(1),
                     text: "Milo has been vomiting for two days.".into(),
+                    hints: Vec::new(),
                 },
                 Segment {
                     id: 1,
@@ -167,6 +181,7 @@ pub(crate) mod tests {
                     end: 2.0,
                     speaker: Some(0),
                     text: "Temperature is 39.4.".into(),
+                    hints: Vec::new(),
                 },
             ],
         }

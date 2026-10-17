@@ -7,12 +7,20 @@ import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 
+export interface Hint {
+  heard: string;
+  likely: string[];
+  kind: string;
+}
+
 export interface Segment {
   id: number;
   start: number;
   end: number;
   speaker: number | null;
   text: string;
+  /** Likely mis-heard veterinary terms (shown, never applied). */
+  hints?: Hint[];
 }
 
 export interface Transcript {
