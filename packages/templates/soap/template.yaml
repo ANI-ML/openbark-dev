@@ -25,6 +25,8 @@ rules:
   - Lines may end with speech-recognition hints such as [heard "marapitin", likely maropitant]. Use the likely spelling for a drug or term only when it fits what was said; otherwise keep the words as heard. Never add a drug because of a hint alone.
   - Every statement and field must cite the transcript segment ids it comes from in "evidence".
   - Differentials only if the veterinarian voiced them.
+  - "Everything given or prescribed is a medication, including injections and fluids given in the clinic. Record drug, dose or volume, route, frequency and duration as said."
+  - Record diagnostics the client declined or deferred, and what was said about them.
   - Keep each statement to one clinical fact or action.
 
 sections:

@@ -231,6 +231,41 @@ impl Lexicon {
         Self::load(user.as_deref())
     }
 
+    /// Lexicon terms that appear (as whole words) in `text`.
+    pub fn terms_in(&self, text: &str) -> Vec<String> {
+        let norm: String = text
+            .to_lowercase()
+            .chars()
+            .map(|c| if c.is_alphanumeric() || c == '\'' { c } else { ' ' })
+            .collect();
+        let padded = format!(" {} ", norm.split_whitespace().collect::<Vec<_>>().join(" "));
+        let mut found: Vec<String> = self
+            .terms
+            .iter()
+            .filter(|t| padded.contains(&format!(" {} ", t.text)))
+            .map(|t| t.text.clone())
+            .collect();
+        found.dedup();
+        found
+    }
+
+    /// The word in `text` that most resembles `term` (for attaching a hint),
+    /// if any is reasonably close and isn't itself a known term.
+    pub fn closest_word(&self, text: &str, term: &str) -> Option<String> {
+        let words: Vec<&str> =
+            text.split(|c: char| !c.is_alphanumeric() && c != '\'').filter(|w| !w.is_empty()).collect();
+        // Single words and adjacent pairs ("your analysis" for "urinalysis").
+        let mut candidates: Vec<String> = words.iter().map(|w| w.to_string()).collect();
+        candidates.extend(words.windows(2).map(|p| format!("{} {}", p[0], p[1])));
+        candidates
+            .into_iter()
+            .filter(|c| c.chars().filter(|ch| ch.is_alphabetic()).count() >= 5 && !self.is_term(c))
+            .map(|c| (jaro_winkler(&c.to_lowercase().replace(' ', ""), term), c))
+            .filter(|(s, _)| *s >= 0.80)
+            .max_by(|a, b| a.0.total_cmp(&b.0))
+            .map(|(_, c)| c)
+    }
+
     fn is_term(&self, phrase: &str) -> bool {
         let p = phrase.to_lowercase();
         self.terms.iter().any(|t| t.text == p || t.text.trim_end_matches('s') == p.trim_end_matches('s'))
@@ -338,6 +373,18 @@ mod tests {
         let mut l = Lexicon::parse("bravecto\tdrug\n");
         l.terms.extend(Lexicon::parse("zorbiflex\tdrug\n").terms);
         assert_eq!(l.hints("we gave zorbyflex today")[0].likely[0], "zorbiflex");
+    }
+
+    #[test]
+    fn closest_word_considers_pairs_and_ignores_short_words() {
+        let l = lex();
+        assert_eq!(
+            l.closest_word("the blood work and your analysis together, and the x rays", "urinalysis")
+                .as_deref(),
+            Some("your analysis")
+        );
+        assert_eq!(l.closest_word("The artitis has resolved", "otitis").as_deref(), Some("artitis"));
+        assert_eq!(l.closest_word("thank you so much", "otitis"), None);
     }
 
     #[test]

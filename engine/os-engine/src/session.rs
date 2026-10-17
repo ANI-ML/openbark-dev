@@ -76,6 +76,50 @@ pub struct SessionMeta {
     pub audio_secs: f32,
     pub transcription: Option<TranscriptionInfo>,
     pub runs: Vec<RunInfo>,
+    /// Details the clinic entered (not from the recording).
+    #[serde(default)]
+    pub patient: Option<PatientInfo>,
+}
+
+/// Patient and visit details typed in by the clinic, time-stamped.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct PatientInfo {
+    /// The animal's name.
+    pub name: String,
+    /// Family or client surname.
+    pub last_name: String,
+    pub reason: String,
+    /// When these details were first entered, and last changed.
+    #[serde(default)]
+    pub entered_at: Option<DateTime<Local>>,
+    #[serde(default)]
+    pub updated_at: Option<DateTime<Local>>,
+}
+
+impl PatientInfo {
+    pub fn is_empty(&self) -> bool {
+        self.name.trim().is_empty() && self.last_name.trim().is_empty() && self.reason.trim().is_empty()
+    }
+
+    /// "Maple Okonkwo".
+    pub fn display_name(&self) -> String {
+        format!("{} {}", self.name.trim(), self.last_name.trim()).trim().to_string()
+    }
+
+    /// Context for the note model: clearly marked as entered, not said.
+    pub fn prompt_context(&self) -> String {
+        let mut parts = Vec::new();
+        if !self.name.trim().is_empty() {
+            parts.push(format!("patient name {}", self.name.trim()));
+        }
+        if !self.last_name.trim().is_empty() {
+            parts.push(format!("family name {}", self.last_name.trim()));
+        }
+        if !self.reason.trim().is_empty() {
+            parts.push(format!("reason for visit: {}", self.reason.trim()));
+        }
+        parts.join("; ")
+    }
 }
 
 /// One consult's folder.
@@ -110,6 +154,7 @@ impl Session {
             audio_secs,
             transcription: None,
             runs: Vec::new(),
+            patient: None,
         };
         let session = Self { dir, meta };
         session.save_meta()?;
@@ -136,6 +181,7 @@ impl Session {
             audio_secs: 0.0,
             transcription: None,
             runs: Vec::new(),
+            patient: None,
         };
         let session = Self { dir, meta };
         session.save_meta()?;
@@ -218,6 +264,27 @@ impl Session {
         });
         self.save_meta()?;
         Ok(dir)
+    }
+
+    /// Set or update the clinic-entered patient details. The first entry
+    /// stamps `entered_at`; later changes stamp `updated_at`.
+    pub fn set_patient(&mut self, mut info: PatientInfo) -> Result<(), EngineError> {
+        let now = Local::now();
+        info.name = info.name.trim().to_string();
+        info.last_name = info.last_name.trim().to_string();
+        info.reason = info.reason.trim().to_string();
+        match &self.meta.patient {
+            Some(prev) => {
+                info.entered_at = prev.entered_at.or(Some(now));
+                info.updated_at = Some(now);
+            }
+            None => {
+                info.entered_at = Some(now);
+                info.updated_at = None;
+            }
+        }
+        self.meta.patient = if info.is_empty() { None } else { Some(info) };
+        self.save_meta()
     }
 
     /// Sign the latest run. Refused if it has numbers absent from the
@@ -355,6 +422,7 @@ mod tests {
                 speaker: Some(0),
                 text: "Hi".into(),
                 hints: Vec::new(),
+                check: None,
             }],
         };
         s.save_transcript(&t, "parakeet", true, &Default::default()).unwrap();
@@ -367,6 +435,22 @@ mod tests {
         assert_eq!(reopened.meta.runs.len(), 2);
         assert_eq!(reopened.load_transcript().unwrap(), t);
         assert_eq!(list(&root).len(), 1);
+
+        // Patient details are time-stamped on entry and on change.
+        s.set_patient(PatientInfo {
+            name: " Maple ".into(),
+            last_name: "Okonkwo".into(),
+            reason: "Limping".into(),
+            ..Default::default()
+        })
+        .unwrap();
+        let first = Session::open(&s.dir).unwrap().meta.patient.unwrap();
+        assert_eq!(first.display_name(), "Maple Okonkwo");
+        assert!(first.entered_at.is_some() && first.updated_at.is_none());
+        s.set_patient(PatientInfo { reason: "Limping, right hind".into(), ..first.clone() }).unwrap();
+        let second = Session::open(&s.dir).unwrap().meta.patient.unwrap();
+        assert_eq!(second.entered_at, first.entered_at);
+        assert!(second.updated_at.is_some());
 
         // A second session from the same file in the same second gets its own folder.
         let other = Session::create_from_file(&root, &src, 12.5).unwrap();

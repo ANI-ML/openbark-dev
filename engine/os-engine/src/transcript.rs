@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::crosscheck::SecondOpinion;
 use crate::vocab::Hint;
 
 /// One recognised utterance. `id` is what notes cite as evidence.
@@ -14,6 +15,9 @@ pub struct Segment {
     /// Likely mis-heard veterinary terms in `text` (shown, never applied).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hints: Vec<Hint>,
+    /// What a second recogniser heard, for segments worth a second listen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub check: Option<SecondOpinion>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -88,6 +92,7 @@ mod tests {
                     speaker: Some(0),
                     text: "Hi, what brings Milo in?".into(),
                     hints: Vec::new(),
+                    check: None,
                 },
                 Segment {
                     id: 1,
@@ -96,6 +101,7 @@ mod tests {
                     speaker: Some(1),
                     text: "He's been vomiting since Tuesday.".into(),
                     hints: Vec::new(),
+                    check: None,
                 },
             ],
         }

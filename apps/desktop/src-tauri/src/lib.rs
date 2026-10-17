@@ -7,7 +7,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use os_app::{App, AppError, Events, RecordingSource};
+use os_app::{App, AppError, Events, Patient, RecordingSource};
 use os_engine::Segment;
 use os_models::ModelStore;
 use serde::Serialize;
@@ -79,9 +79,10 @@ async fn import_file(
     app: State<'_, AppState>,
     path: String,
     speakers: bool,
+    patient: Option<Patient>,
 ) -> Result<os_app::SessionView, String> {
     let app = app.inner().clone();
-    work(move || app.import_file(Path::new(&path), speakers, &TauriEvents(handle))).await
+    work(move || app.import_file(Path::new(&path), speakers, patient, &TauriEvents(handle))).await
 }
 
 #[tauri::command]
@@ -90,12 +91,28 @@ async fn start_recording(
     app: State<'_, AppState>,
     device: Option<String>,
     speakers: bool,
+    patient: Option<Patient>,
 ) -> Result<String, String> {
     let app = app.inner().clone();
     work(move || {
-        app.start_recording(RecordingSource::Microphone(device), speakers, Arc::new(TauriEvents(handle)))
+        app.start_recording(
+            RecordingSource::Microphone(device),
+            speakers,
+            patient,
+            Arc::new(TauriEvents(handle)),
+        )
     })
     .await
+}
+
+#[tauri::command]
+async fn update_patient(
+    app: State<'_, AppState>,
+    id: String,
+    patient: Patient,
+) -> Result<os_app::SessionView, String> {
+    let app = app.inner().clone();
+    work(move || app.update_patient(&id, patient)).await
 }
 
 #[tauri::command]
@@ -178,6 +195,7 @@ pub fn run() {
             stop_recording,
             generate_note,
             sign_note,
+            update_patient,
             template,
             models,
             download_model,

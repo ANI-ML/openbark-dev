@@ -27,6 +27,15 @@ pub struct UnsupportedNumber {
     pub found_in: Vec<u32>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct DisputedNumber {
+    pub path: String,
+    pub number: String,
+    /// What the second recogniser heard instead in the cited lines.
+    pub heard_instead: Vec<String>,
+    pub cited: Vec<u32>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct FaithfulnessReport {
     pub statements_checked: u32,
@@ -37,6 +46,14 @@ pub struct FaithfulnessReport {
     pub unsupported_numbers: Vec<UnsupportedNumber>,
     /// Numbers present in the transcript, but not in the cited segments.
     pub citation_mismatches: Vec<UnsupportedNumber>,
+    /// Numbers the second recogniser heard differently in the cited lines
+    /// ("10" vs "100"): the recording should be checked before signing.
+    #[serde(default)]
+    pub disputed_numbers: Vec<DisputedNumber>,
+    /// Patient details (species, breed, sex, age, name) whose words don't
+    /// appear in the cited lines, e.g. a species guessed from the complaint.
+    #[serde(default)]
+    pub unverified_values: Vec<String>,
     /// No invalid evidence and no unsupported numbers.
     pub passed: bool,
 }
@@ -49,6 +66,8 @@ impl FaithfulnessReport {
             .cloned()
             .chain(self.unsupported_numbers.iter().map(|u| u.path.clone()))
             .chain(self.citation_mismatches.iter().map(|u| u.path.clone()))
+            .chain(self.disputed_numbers.iter().map(|d| d.path.clone()))
+            .chain(self.unverified_values.iter().cloned())
             .collect()
     }
 }
@@ -80,6 +99,43 @@ fn walk(value: &Value, path: String, transcript: &Transcript, report: &mut Faith
     }
 }
 
+/// Words that count as saying a species.
+const SPECIES: &[(&str, &[&str])] = &[
+    ("dog", &["dog", "dogs", "canine", "puppy", "pup", "bitch"]),
+    ("canine", &["dog", "dogs", "canine", "puppy"]),
+    ("cat", &["cat", "cats", "feline", "kitten", "kitty"]),
+    ("feline", &["cat", "cats", "feline", "kitten"]),
+    ("horse", &["horse", "equine", "mare", "gelding", "stallion", "foal", "pony"]),
+    ("rabbit", &["rabbit", "bunny"]),
+];
+
+/// Is a short patient detail actually said in the cited lines?
+fn value_supported(value: &str, cited_text: &str) -> bool {
+    let said: Vec<String> = cited_text
+        .to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(|w| w.trim_end_matches("'s").to_string())
+        .collect();
+    let words: Vec<String> = value
+        .to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| w.len() >= 3)
+        .map(String::from)
+        .collect();
+    if words.is_empty() {
+        return true; // numbers and short tokens are covered by the number check
+    }
+    words.iter().any(|w| {
+        let alternatives: Vec<&str> = SPECIES
+            .iter()
+            .find(|(k, _)| k == w)
+            .map(|(_, alts)| alts.to_vec())
+            .unwrap_or_else(|| vec![w.as_str()]);
+        alternatives.iter().any(|a| said.iter().any(|s| s == a || s.starts_with(a)))
+    })
+}
+
 fn check_statement(
     map: &serde_json::Map<String, Value>,
     path: &str,
@@ -97,6 +153,19 @@ fn check_statement(
         .filter_map(|id| transcript.get(*id))
         .flat_map(|s| extract_numbers(&normalize_spoken(&s.text)))
         .collect();
+    if path.starts_with("/patient/")
+        && let Some(Value::String(value)) = map.get("value")
+    {
+        let cited_text: String = cited
+            .iter()
+            .filter_map(|id| transcript.get(*id))
+            .map(|s| s.text.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
+        if !value_supported(value, &cited_text) {
+            report.unverified_values.push(path.to_string());
+        }
+    }
     for (key, v) in map {
         if key == "evidence" {
             continue;
@@ -109,6 +178,21 @@ fn check_statement(
         {
             for number in extract_numbers(&text) {
                 report.numbers_checked += 1;
+                let disputed: Vec<String> = cited
+                    .iter()
+                    .filter_map(|id| transcript.get(*id))
+                    .filter_map(|s| s.check.as_ref())
+                    .filter(|c| c.primary_only.contains(&number))
+                    .flat_map(|c| c.second_only.clone())
+                    .collect();
+                if !disputed.is_empty() {
+                    report.disputed_numbers.push(DisputedNumber {
+                        path: path.to_string(),
+                        number: number.clone(),
+                        heard_instead: disputed,
+                        cited: cited.clone(),
+                    });
+                }
                 if !supported.contains(&number) {
                     let found_in: Vec<u32> = transcript
                         .segments
@@ -143,6 +227,7 @@ mod tests {
             speaker: Some(0),
             text: text.into(),
             hints: Vec::new(),
+            check: None,
         };
         Transcript {
             segments: vec![
@@ -189,6 +274,53 @@ mod tests {
         assert!(r.unsupported_numbers.is_empty());
         assert_eq!(r.citation_mismatches[0].found_in, vec![1]);
         assert!(r.flagged_paths().contains("/objective/vitals/weight"), "still flagged in the draft");
+    }
+
+    #[test]
+    fn number_the_second_recogniser_heard_differently_is_disputed() {
+        let mut t = transcript();
+        t.segments.push(Segment {
+            id: 3,
+            start: 0.0,
+            end: 1.0,
+            speaker: None,
+            text: "Also give her 10 milliliters of fluids.".into(),
+            hints: Vec::new(),
+            check: Some(crate::crosscheck::compare(
+                "Also give her 10 milliliters of fluids.",
+                "Also give her 100 milliliters of fluids.",
+            )),
+        });
+        let note = json!({"plan": {"medications": [
+            {"drug": "LRS", "dose": "10 mL", "route": "SC", "frequency": null, "duration": null, "evidence": [3]}
+        ]}});
+        let r = check(&note, &t);
+        assert_eq!(r.disputed_numbers.len(), 1);
+        assert_eq!(r.disputed_numbers[0].heard_instead, vec!["100"]);
+        assert!(r.flagged_paths().contains("/plan/medications/0"));
+    }
+
+    #[test]
+    fn guessed_species_is_unverified() {
+        let mut t = transcript();
+        t.segments.push(Segment {
+            id: 3,
+            start: 0.0,
+            end: 1.0,
+            speaker: None,
+            text: "So this is Pepper's recheck for the ear infection.".into(),
+            hints: Vec::new(),
+            check: None,
+        });
+        let note = json!({"patient": {
+            "name": {"value": "Pepper", "unit": null, "evidence": [3]},
+            "species": {"value": "dog", "unit": null, "evidence": [3]}
+        }});
+        let r = check(&note, &t);
+        assert_eq!(r.unverified_values, vec!["/patient/species"]);
+        assert!(r.passed, "a guessed word is flagged for review, not a hard fail");
+        assert!(value_supported("Feline", "Her cat has been vomiting"));
+        assert!(value_supported("Golden Retriever", "Maple is a golden retriever"));
     }
 
     #[test]

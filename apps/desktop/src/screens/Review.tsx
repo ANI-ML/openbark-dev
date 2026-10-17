@@ -2,6 +2,7 @@ import { Button, StatusDot } from "@openbark/ui";
 import { ArrowClockwise, Copy, FolderOpen, Signature } from "@phosphor-icons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NoteView } from "../components/NoteView";
+import { PatientFields } from "../components/PatientFields";
 import { TranscriptList } from "../components/TranscriptList";
 import { fmtTime, useApp } from "../context";
 import * as engine from "../engine";
@@ -17,6 +18,7 @@ export function Review({ id, autoDraft }: { id: string; autoDraft: boolean }) {
   const [lit, setLit] = useState<Set<number>>(new Set());
   const [playingId, setPlayingId] = useState<number | null>(null);
   const [tab, setTab] = useState<"transcript" | "note">("note");
+  const [editing, setEditing] = useState<engine.Patient | null>(null);
   const audio = useRef<HTMLAudioElement>(null);
   const drafted = useRef(false);
 
@@ -95,8 +97,25 @@ export function Review({ id, autoDraft }: { id: string; autoDraft: boolean }) {
     }
   }
 
+  async function savePatient() {
+    if (!editing) return;
+    try {
+      setView(await engine.updatePatient(id, editing));
+      setEditing(null);
+      app.toast("Patient details saved");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  const p = view?.patient ?? null;
+  const patientName = p ? `${p.name} ${p.last_name}`.trim() : "";
   const hardFails = run?.faithfulness.unsupported_numbers.length ?? 0;
-  const softFlags = (run?.faithfulness.citation_mismatches.length ?? 0) + (run?.faithfulness.invalid_evidence.length ?? 0);
+  const softFlags =
+    (run?.faithfulness.citation_mismatches.length ?? 0) +
+    (run?.faithfulness.invalid_evidence.length ?? 0) +
+    (run?.faithfulness.unverified_values?.length ?? 0);
+  const disputed = run?.faithfulness.disputed_numbers?.length ?? 0;
   const signed = Boolean(view?.signed_at);
   const progress = Math.min(0.95, tokens / 1400);
 
@@ -104,8 +123,7 @@ export function Review({ id, autoDraft }: { id: string; autoDraft: boolean }) {
     <div className="screen review">
       <header className="review-bar">
         <div className="review-title">
-          <h1>{view ? view.created_at : "Encounter"}</h1>
-          <span className="small muted">{view?.source}</span>
+          <h1>{patientName || (view ? view.created_at : "Encounter")}</h1>
           {view?.stats && <span className="mono faint">{fmtTime(view.stats.audio_secs)}</span>}
         </div>
         <div className="review-actions">
@@ -133,6 +151,51 @@ export function Review({ id, autoDraft }: { id: string; autoDraft: boolean }) {
           {error}
         </p>
       )}
+
+      <section className="visit" aria-label="Visit details">
+        {editing ? (
+          <form
+            className="visit-edit"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void savePatient();
+            }}
+          >
+            <PatientFields value={editing} onChange={setEditing} idPrefix="edit-patient" />
+            <div className="visit-actions">
+              <Button type="submit">Save details</Button>
+              <Button variant="ghost" onClick={() => setEditing(null)}>
+                Cancel
+              </Button>
+            </div>
+          </form>
+        ) : (
+          <dl className="visit-facts">
+            <div>
+              <dt className="label muted">Reason for visit</dt>
+              <dd>{p?.reason || <span className="faint">Not entered</span>}</dd>
+            </div>
+            <div>
+              <dt className="label muted">Recorded</dt>
+              <dd className="mono">{view?.created_at}</dd>
+            </div>
+            {p?.entered_at && (
+              <div>
+                <dt className="label muted">Details entered</dt>
+                <dd className="mono">
+                  {engine.fmtStamp(p.entered_at)}
+                  {p.updated_at ? `, changed ${engine.fmtStamp(p.updated_at)}` : ""}
+                </dd>
+              </div>
+            )}
+            <div className="visit-edit-btn">
+              <Button variant="ghost" onClick={() => setEditing(p ? { ...p } : engine.emptyPatient())} disabled={!view}>
+                {p ? "Edit details" : "Add patient details"}
+              </Button>
+            </div>
+          </dl>
+        )}
+      </section>
 
       <div className="review-tabs ob-segmented" role="tablist">
         <button className="ob-segment" role="tab" aria-selected={tab === "transcript"} onClick={() => setTab("transcript")}>
@@ -174,10 +237,12 @@ export function Review({ id, autoDraft }: { id: string; autoDraft: boolean }) {
           )}
           {run && template ? (
             <>
-              {(hardFails > 0 || softFlags > 0) && (
+              {(hardFails > 0 || softFlags > 0 || disputed > 0) && (
                 <p className="ob-notice note-summary" data-tone={hardFails ? "danger" : undefined}>
                   {hardFails > 0 && `${hardFails} number${hardFails === 1 ? " isn't" : "s aren't"} in the transcript. `}
-                  {softFlags > 0 && `${softFlags} item${softFlags === 1 ? "" : "s"} cite the wrong transcript line. `}
+                  {disputed > 0 && `${disputed} number${disputed === 1 ? " was" : "s were"} heard differently by the second recogniser; listen before signing. `}
+                  {softFlags > 0 &&
+                    `${softFlags} ${softFlags === 1 ? "item needs" : "items need"} checking against the transcript. `}
                   Rest on a sentence to see its evidence.
                 </p>
               )}

@@ -33,6 +33,9 @@ function flagsFor(f: Faithfulness) {
   for (const m of f.citation_mismatches)
     soft.set(m.path, `"${m.number}" is in the transcript, but not in the cited line. Check the citation.`);
   for (const p of f.invalid_evidence) soft.set(p, "No matching transcript. Keep, edit, or remove?");
+  for (const v of f.unverified_values ?? []) soft.set(v, "Not said in the cited line. Check before signing.");
+  for (const d of f.disputed_numbers ?? [])
+    soft.set(d.path, `The second recogniser heard ${d.heard_instead.join(" or ")} instead of ${d.number}. Listen to the recording before signing.`);
   return { hard, soft };
 }
 

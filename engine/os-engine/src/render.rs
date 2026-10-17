@@ -174,6 +174,7 @@ pub(crate) mod tests {
                     speaker: Some(1),
                     text: "Milo has been vomiting for two days.".into(),
                     hints: Vec::new(),
+                    check: None,
                 },
                 Segment {
                     id: 1,
@@ -182,6 +183,7 @@ pub(crate) mod tests {
                     speaker: Some(0),
                     text: "Temperature is 39.4.".into(),
                     hints: Vec::new(),
+                    check: None,
                 },
             ],
         }

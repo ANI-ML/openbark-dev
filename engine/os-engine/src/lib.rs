@@ -7,6 +7,7 @@
 //! or writes to a PIMS.
 
 pub mod awake;
+pub mod crosscheck;
 pub mod faithfulness;
 pub mod live;
 pub mod models;

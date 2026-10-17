@@ -29,7 +29,7 @@ use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{get, post};
-use os_app::{App, AppError, AudioBlock, Events, RecordingSource};
+use os_app::{App, AppError, AudioBlock, Events, Patient, RecordingSource};
 use os_engine::Segment;
 use os_models::ModelStore;
 use serde::{Deserialize, Serialize};
@@ -119,6 +119,7 @@ pub async fn serve(options: ServerOptions) -> std::io::Result<()> {
         .route("/api/sessions/{id}/audio", get(session_audio))
         .route("/api/sessions/{id}/notes", post(create_note))
         .route("/api/sessions/{id}/sign", post(sign_note))
+        .route("/api/sessions/{id}/patient", post(update_patient))
         .route("/api/templates/{id}", get(template))
         .route("/api/live", get(live))
         .route("/api/record/start", post(record_start))
@@ -165,12 +166,37 @@ async fn session_audio(
     Ok(response.into_response())
 }
 
+/// Patient details passed as query parameters (bodies carry audio).
+#[derive(Deserialize, Default)]
+struct PatientQuery {
+    #[serde(default)]
+    patient_name: String,
+    #[serde(default)]
+    last_name: String,
+    #[serde(default)]
+    reason: String,
+}
+
+impl PatientQuery {
+    fn into_patient(self) -> Option<Patient> {
+        let p = Patient {
+            name: self.patient_name,
+            last_name: self.last_name,
+            reason: self.reason,
+            ..Default::default()
+        };
+        (!p.is_empty()).then_some(p)
+    }
+}
+
 #[derive(Deserialize)]
 struct CreateSession {
     #[serde(default)]
     diarize: bool,
     #[serde(default)]
     name: Option<String>,
+    #[serde(flatten)]
+    patient: PatientQuery,
 }
 
 async fn create_session(
@@ -180,7 +206,8 @@ async fn create_session(
 ) -> Result<impl IntoResponse, ApiError> {
     blocking(move || {
         let events = s.events.clone();
-        s.app.import_bytes(q.name.as_deref().unwrap_or("recording.wav"), &body, q.diarize, events.as_ref())
+        let name = q.name.clone().unwrap_or_else(|| "recording.wav".into());
+        s.app.import_bytes(&name, &body, q.diarize, q.patient.into_patient(), events.as_ref())
     })
     .await
 }
@@ -221,6 +248,14 @@ async fn sign_note(
     blocking(move || s.app.sign(&id, &req.by)).await
 }
 
+async fn update_patient(
+    State(s): State<St>,
+    UrlPath(id): UrlPath<String>,
+    Json(p): Json<Patient>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app.update_patient(&id, p)).await
+}
+
 async fn template(State(s): State<St>, UrlPath(id): UrlPath<String>) -> Result<impl IntoResponse, ApiError> {
     blocking(move || s.app.template(&id)).await
 }
@@ -231,6 +266,8 @@ struct LiveQuery {
     speakers: bool,
     #[serde(default = "rate")]
     sample_rate: u32,
+    #[serde(flatten)]
+    patient: PatientQuery,
 }
 
 fn yes() -> bool {
@@ -247,13 +284,14 @@ async fn live(State(s): State<St>, Query(q): Query<LiveQuery>, ws: WebSocketUpgr
     ws.on_upgrade(move |socket| live_session(s, q, socket))
 }
 
-async fn live_session(s: St, q: LiveQuery, mut socket: WebSocket) {
+async fn live_session(s: St, mut q: LiveQuery, mut socket: WebSocket) {
+    let patient = std::mem::take(&mut q.patient).into_patient();
     let (tx, rx) = std::sync::mpsc::channel::<AudioBlock>();
     let events: Arc<dyn Events> = s.events.clone();
     let started = {
         let s = s.clone();
         tokio::task::spawn_blocking(move || {
-            s.app.start_recording(RecordingSource::Stream(rx), q.speakers, events)
+            s.app.start_recording(RecordingSource::Stream(rx), q.speakers, patient, events)
         })
         .await
     };
@@ -307,6 +345,8 @@ struct RecordStart {
     device: Option<String>,
     #[serde(default = "yes")]
     speakers: bool,
+    #[serde(default)]
+    patient: Option<Patient>,
 }
 
 async fn record_start(
@@ -315,7 +355,7 @@ async fn record_start(
 ) -> Result<impl IntoResponse, ApiError> {
     blocking(move || {
         let events: Arc<dyn Events> = s.events.clone();
-        s.app.start_recording(RecordingSource::Microphone(req.device), req.speakers, events)
+        s.app.start_recording(RecordingSource::Microphone(req.device), req.speakers, req.patient, events)
     })
     .await
 }

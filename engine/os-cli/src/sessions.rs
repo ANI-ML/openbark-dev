@@ -27,6 +27,15 @@ pub struct RunArgs {
     pub transcribe: TranscribeArgs,
     #[command(flatten)]
     pub llm: LlmArgs,
+    /// Patient (animal) name, saved with the encounter.
+    #[arg(long)]
+    pub patient: Option<String>,
+    /// Client / family last name.
+    #[arg(long)]
+    pub last_name: Option<String>,
+    /// Reason for visit.
+    #[arg(long)]
+    pub reason: Option<String>,
     /// Sessions folder (default: OPENBARK_SESSIONS_DIR or the app data dir).
     #[arg(long)]
     pub sessions_dir: Option<PathBuf>,
@@ -48,6 +57,21 @@ pub struct RerunArgs {
     pub llm: LlmArgs,
 }
 
+/// Patient details from CLI flags, if any were given.
+pub fn patient_from(
+    name: &Option<String>,
+    last_name: &Option<String>,
+    reason: &Option<String>,
+) -> Option<os_engine::session::PatientInfo> {
+    let p = os_engine::session::PatientInfo {
+        name: name.clone().unwrap_or_default(),
+        last_name: last_name.clone().unwrap_or_default(),
+        reason: reason.clone().unwrap_or_default(),
+        ..Default::default()
+    };
+    (!p.is_empty()).then_some(p)
+}
+
 fn root(dir: Option<&Path>) -> PathBuf {
     dir.map(Path::to_path_buf).unwrap_or_else(session::default_root)
 }
@@ -61,6 +85,9 @@ pub fn run(store: &ModelStore, args: RunArgs) -> Result<()> {
         &args.transcribe.audio,
         audio.duration_secs(),
     )?;
+    if let Some(p) = patient_from(&args.patient, &args.last_name, &args.reason) {
+        session.set_patient(p)?;
+    }
     eprintln!("session: {}", session.dir.display());
 
     let transcriber = build_transcriber(store, &args.transcribe)?;

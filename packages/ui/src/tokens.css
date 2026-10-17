@@ -252,7 +252,8 @@ kbd {
   padding: 8px 12px;
 }
 .ob-table td { border-bottom: 1px solid var(--border); padding: 12px; vertical-align: middle; }
-.ob-table td.num, .ob-table th.num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.ob-table td.num, .ob-table th.num { text-align: right; }
+.ob-table td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .ob-table tbody tr:hover { background: var(--surface-2); }
 
 /* Skeleton (§5: slow layout-matched shimmer) */

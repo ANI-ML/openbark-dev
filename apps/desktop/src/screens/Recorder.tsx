@@ -3,6 +3,7 @@ import { UploadSimple } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import { fmtTime, useApp } from "../context";
 import * as engine from "../engine";
+import { PatientFields } from "../components/PatientFields";
 import { TranscriptList } from "../components/TranscriptList";
 
 type State = "idle" | "starting" | "recording" | "stopping" | "importing";
@@ -14,6 +15,7 @@ export function Recorder() {
   const [elapsed, setElapsed] = useState(0);
   const [segments, setSegments] = useState<engine.Segment[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [patient, setPatient] = useState<engine.Patient>(engine.emptyPatient);
   const recording = useRef<engine.Recording | null>(null);
   const live = state === "recording" || state === "stopping" || state === "importing";
 
@@ -46,7 +48,7 @@ export function Recorder() {
     setSegments([]);
     setElapsed(0);
     try {
-      recording.current = await engine.startRecording(app.settings.labelSpeakers, app.settings.device, (level, seconds) => {
+      recording.current = await engine.startRecording(app.settings.labelSpeakers, app.settings.device, patient, (level, seconds) => {
         app.levels.push(level);
         setElapsed(seconds);
       });
@@ -61,7 +63,7 @@ export function Recorder() {
   async function importFile() {
     setError(null);
     try {
-      const view = await engine.importRecording(app.settings.labelSpeakers, () => {
+      const view = await engine.importRecording(app.settings.labelSpeakers, patient, () => {
         setSegments([]);
         setState("importing");
       });
@@ -111,6 +113,11 @@ export function Recorder() {
       )}
 
       <div className="recorder-grid">
+        <aside className="recorder-patient" aria-label="Patient">
+          <h2>Patient</h2>
+          <PatientFields value={patient} onChange={setPatient} disabled={state !== "idle"} />
+          <p className="small faint">Saved with the encounter and time-stamped. Optional: you can add or change these later.</p>
+        </aside>
         <section className="recorder-center" aria-label="Recorder">
           <div className="recorder-stage">
             <RecordButton

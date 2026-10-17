@@ -32,6 +32,15 @@ pub struct RecordArgs {
     /// Only transcribe; don't draft a note after stopping.
     #[arg(long)]
     pub no_note: bool,
+    /// Patient (animal) name, saved with the encounter.
+    #[arg(long)]
+    pub patient: Option<String>,
+    /// Client / family last name.
+    #[arg(long)]
+    pub last_name: Option<String>,
+    /// Reason for visit.
+    #[arg(long)]
+    pub reason: Option<String>,
     /// Print each segment as JSON instead of text.
     #[arg(long)]
     pub jsonl: bool,
@@ -85,6 +94,7 @@ pub fn record(store: &ModelStore, args: RecordArgs) -> Result<()> {
     };
     let is_mic = matches!(source, LiveSource::Microphone(_));
     let mut options = LiveOptions::microphone();
+    options.patient = crate::sessions::patient_from(&args.patient, &args.last_name, &args.reason);
     options.label_speakers = !args.no_speakers;
     if let Some(t) = args.speaker_threshold {
         options.speaker_threshold = t;

@@ -78,6 +78,9 @@ export function TranscriptList({ segments, follow, highlighted, playingId, onSee
               </span>
             )}
             <span className="turn-time mono faint">{fmtTime(s.start)}</span>
+            {s.check && (s.check.primary_only.length > 0 || s.check.second_only.length > 0) && (
+              <span className="turn-check small">Second listen heard: {s.check.text}</span>
+            )}
           </li>
         ))}
       </ol>

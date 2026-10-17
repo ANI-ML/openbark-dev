@@ -21,6 +21,8 @@ export interface Segment {
   text: string;
   /** Likely mis-heard veterinary terms (shown, never applied). */
   hints?: Hint[];
+  /** What the second recogniser heard (segments with numbers or clinical terms). */
+  check?: { text: string; primary_only: string[]; second_only: string[] };
 }
 
 export interface Transcript {
@@ -47,6 +49,8 @@ export interface Faithfulness {
   numbers_checked: number;
   unsupported_numbers: NumberFlag[];
   citation_mismatches: NumberFlag[];
+  disputed_numbers?: { path: string; number: string; heard_instead: string[]; cited: number[] }[];
+  unverified_values?: string[];
   invalid_evidence: string[];
 }
 
@@ -59,6 +63,19 @@ export interface NoteRun {
   stats: { prompt_tokens: number; completion_tokens: number; total_ms: number; tokens_per_second: number; time_to_first_token_ms: number };
 }
 
+/** Clinic-entered details, time-stamped by the engine. */
+export interface Patient {
+  name: string;
+  last_name: string;
+  reason: string;
+  entered_at?: string | null;
+  updated_at?: string | null;
+}
+
+export const emptyPatient = (): Patient => ({ name: "", last_name: "", reason: "" });
+const hasPatient = (p: Patient | null | undefined): p is Patient =>
+  Boolean(p && (p.name.trim() || p.last_name.trim() || p.reason.trim()));
+
 export interface SessionSummary {
   id: string;
   created_at: string;
@@ -66,6 +83,8 @@ export interface SessionSummary {
   audio_secs: number;
   runs: number;
   signed: boolean;
+  patient: string;
+  reason: string;
 }
 
 export interface SessionView {
@@ -80,6 +99,7 @@ export interface SessionView {
   latest_markdown: string | null;
   signed_at: string | null;
   signed_by: string | null;
+  patient: Patient | null;
 }
 
 export interface Hardware {
@@ -190,6 +210,10 @@ export const generateNote = (id: string, llm: string, tpl: string) =>
   isDesktop
     ? invoke<{ markdown: string; run: NoteRun }>("generate_note", { id, llm, template: tpl })
     : api<{ markdown: string; run: NoteRun }>(`/api/sessions/${enc(id)}/notes`, post({ llm, template: tpl }));
+export const updatePatient = (id: string, patient: Patient) =>
+  isDesktop
+    ? invoke<SessionView>("update_patient", { id, patient })
+    : api<SessionView>(`/api/sessions/${enc(id)}/patient`, post(patient));
 export const signNote = (id: string, by: string) =>
   isDesktop ? invoke<SessionView>("sign_note", { id, by }) : api<SessionView>(`/api/sessions/${enc(id)}/sign`, post({ by }));
 export const models = () => (isDesktop ? invoke<ModelRow[]>("models") : api<ModelRow[]>("/api/models"));
@@ -224,17 +248,28 @@ function pickBrowserFile(): Promise<File | null> {
 }
 
 /** Ask for a WAV, then create an encounter from it. Null if cancelled. */
-export async function importRecording(speakers: boolean, onPicked: () => void): Promise<SessionView | null> {
+export async function importRecording(
+  speakers: boolean,
+  patient: Patient | null,
+  onPicked: () => void,
+): Promise<SessionView | null> {
+  const p = hasPatient(patient) ? patient : null;
   if (isDesktop) {
     const picked = await open({ multiple: false, filters: [{ name: "Recording (WAV)", extensions: ["wav"] }] });
     if (typeof picked !== "string") return null;
     onPicked();
-    return invoke<SessionView>("import_file", { path: picked, speakers });
+    return invoke<SessionView>("import_file", { path: picked, speakers, patient: p });
   }
   const file = await pickBrowserFile();
   if (!file) return null;
   onPicked();
-  const q = new URLSearchParams({ diarize: String(speakers), name: file.name });
+  const q = new URLSearchParams({
+    diarize: String(speakers),
+    name: file.name,
+    patient_name: p?.name ?? "",
+    last_name: p?.last_name ?? "",
+    reason: p?.reason ?? "",
+  });
   return api<SessionView>(`/api/sessions?${q}`, { method: "POST", headers: { "content-type": "audio/wav" }, body: file });
 }
 
@@ -246,8 +281,8 @@ export interface Recording {
 }
 
 /** Desktop: the engine records the microphone natively (levels arrive as events). */
-async function startDesktopRecording(speakers: boolean, device: string | null): Promise<Recording> {
-  await invoke<string>("start_recording", { device, speakers });
+async function startDesktopRecording(speakers: boolean, device: string | null, patient: Patient | null): Promise<Recording> {
+  await invoke<string>("start_recording", { device, speakers, patient });
   return { stop: () => invoke<SessionView>("stop_recording") };
 }
 
@@ -266,7 +301,11 @@ registerProcessor("openbark-tap", Tap);`;
  * engine over a WebSocket. Levels are measured here so the meter reacts to
  * the real input with no round trip.
  */
-async function startBrowserRecording(speakers: boolean, onLevel: (l: number, s: number) => void): Promise<Recording> {
+async function startBrowserRecording(
+  speakers: boolean,
+  patient: Patient | null,
+  onLevel: (l: number, s: number) => void,
+): Promise<Recording> {
   if (!navigator.mediaDevices?.getUserMedia) {
     throw new Error("This browser can't record audio. Use a current version of Chrome, Edge, Firefox or Safari.");
   }
@@ -287,7 +326,14 @@ async function startBrowserRecording(speakers: boolean, onLevel: (l: number, s: 
   source.connect(tap);
 
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  const ws = new WebSocket(`${proto}://${location.host}/api/live?speakers=${speakers}&sample_rate=${ctx.sampleRate}`);
+  const q = new URLSearchParams({
+    speakers: String(speakers),
+    sample_rate: String(ctx.sampleRate),
+    patient_name: patient?.name ?? "",
+    last_name: patient?.last_name ?? "",
+    reason: patient?.reason ?? "",
+  });
+  const ws = new WebSocket(`${proto}://${location.host}/api/live?${q}`);
   ws.binaryType = "arraybuffer";
   const opened = new Promise<void>((resolve, reject) => {
     ws.onmessage = (e) => {
@@ -344,9 +390,20 @@ async function startBrowserRecording(speakers: boolean, onLevel: (l: number, s: 
 export function startRecording(
   speakers: boolean,
   device: string | null,
+  patient: Patient | null,
   onLevel: (level: number, seconds: number) => void,
 ): Promise<Recording> {
-  return isDesktop ? startDesktopRecording(speakers, device) : startBrowserRecording(speakers, onLevel);
+  const p = hasPatient(patient) ? patient : null;
+  return isDesktop ? startDesktopRecording(speakers, device, p) : startBrowserRecording(speakers, p, onLevel);
+}
+
+/** "2026-10-17 19:20" from an engine timestamp. */
+export function fmtStamp(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 // ---- events -----------------------------------------------------------------

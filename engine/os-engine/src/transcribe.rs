@@ -109,6 +109,7 @@ impl Transcriber {
                 end: span.end,
                 speaker: None,
                 hints: lexicon.hints(&text),
+                check: None,
                 text,
             };
             on_segment(&segment);
@@ -147,6 +148,7 @@ mod tests {
             speaker: Some(speaker),
             text: "x".into(),
             hints: Vec::new(),
+            check: None,
         };
         let mut t = Transcript { segments: vec![seg(0, 2), seg(1, 0), seg(2, 2), seg(3, 5)] };
         merge_speaker_ids(&mut t);

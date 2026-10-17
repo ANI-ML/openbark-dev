@@ -15,12 +15,15 @@ pub struct NoteOptions {
     pub max_tokens: u32,
     pub temperature: f32,
     pub seed: u32,
+    /// Details entered by the clinic (patient name, reason for visit). Given
+    /// to the model as context, never as evidence.
+    pub context: Option<String>,
 }
 
 impl Default for NoteOptions {
     fn default() -> Self {
         // Low temperature: charting should be deterministic and literal.
-        Self { max_tokens: 4096, temperature: 0.1, seed: 42 }
+        Self { max_tokens: 4096, temperature: 0.1, seed: 42, context: None }
     }
 }
 
@@ -38,7 +41,11 @@ pub struct NoteResult {
 }
 
 /// System and user messages for a template + transcript.
-pub fn build_messages(template: &LoadedTemplate, transcript: &Transcript) -> Vec<ChatMessage> {
+pub fn build_messages(
+    template: &LoadedTemplate,
+    transcript: &Transcript,
+    context: Option<&str>,
+) -> Vec<ChatMessage> {
     let t = &template.template;
     let mut system = format!(
         "You are the documentation assistant inside {PRODUCT_NAME}, a veterinary scribe. \
@@ -81,8 +88,14 @@ JSON formats:
 Respond with the JSON object only."#,
     );
 
+    let entered = context
+        .filter(|c| !c.trim().is_empty())
+        .map(|c| {
+            format!("Entered by the clinic before the visit (not from the recording, not evidence): {c}.\n\n")
+        })
+        .unwrap_or_default();
     let user = format!(
-        "Transcript of the consultation. Each line starts with its segment id in brackets; cite these ids as evidence.\n\n{}",
+        "{entered}Transcript of the consultation. Each line starts with its segment id in brackets; cite these ids as evidence.\n\n{}",
         transcript.for_prompt()
     );
     vec![ChatMessage::system(system), ChatMessage::user(user)]
@@ -100,7 +113,7 @@ pub fn generate_note(
         return Err(EngineError::EmptyTranscript);
     }
     let request = GenerateRequest {
-        messages: build_messages(template, transcript),
+        messages: build_messages(template, transcript, options.context.as_deref()),
         max_tokens: options.max_tokens,
         temperature: options.temperature,
         seed: options.seed,
@@ -149,9 +162,11 @@ mod tests {
                 speaker: Some(0),
                 text: "Hello".into(),
                 hints: Vec::new(),
+                check: None,
             }],
         };
-        let messages = build_messages(&template, &transcript);
+        let messages = build_messages(&template, &transcript, Some("patient name Milo"));
+        assert!(messages[1].content.contains("not evidence): patient name Milo."));
         assert_eq!(messages.len(), 2);
         assert!(messages[0].content.contains("Do not add findings"));
         assert!(messages[0].content.contains("objective.vitals"));

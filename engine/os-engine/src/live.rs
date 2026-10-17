@@ -48,6 +48,8 @@ pub struct LiveOptions {
     pub label_speakers: bool,
     /// Cosine threshold for the live speaker tracker (tuned in M1).
     pub speaker_threshold: f32,
+    /// Clinic-entered patient details, saved with the session at the start.
+    pub patient: Option<crate::session::PatientInfo>,
 }
 
 impl LiveOptions {
@@ -56,6 +58,7 @@ impl LiveOptions {
             stt: models::DEFAULT_STT.into(),
             label_speakers: true,
             speaker_threshold: DEFAULT_SPEAKER_THRESHOLD,
+            patient: None,
         }
     }
 }
@@ -64,6 +67,9 @@ impl LiveOptions {
 /// 0.6-0.7 (100% purity except 98% on the 50 s clip); below merges speakers,
 /// above splits them. Kokoro voices are very distinct, so re-check on real
 /// consults; the full-recording diarization pass remains available.
+/// Catalog id of the second-opinion recogniser (used when installed).
+pub const SECOND_STT: &str = "whisper-large-v3-turbo-int8";
+
 pub const DEFAULT_SPEAKER_THRESHOLD: f32 = 0.65;
 
 /// Progress callbacks, called from the worker thread.
@@ -117,13 +123,23 @@ impl LiveRecorder {
             LiveSource::Stream { label, .. } => label.clone(),
         };
         let lexicon = crate::vocab::Lexicon::default_with_user();
-        let session = Session::create_live(sessions_root, &label)?;
+        // Second recogniser for segments that matter (M1 item 4); optional.
+        let second = models::asr_model(store, SECOND_STT).ok().and_then(|m| os_asr::OfflineAsr::new(m).ok());
+        if second.is_none() {
+            tracing::info!("second recogniser not installed; number cross-check off");
+        }
+        let label =
+            options.patient.as_ref().map(|p| p.display_name()).filter(|n| !n.is_empty()).unwrap_or(label);
+        let mut session = Session::create_live(sessions_root, &label)?;
+        if let Some(p) = options.patient.clone() {
+            session.set_patient(p)?;
+        }
         let session_dir = session.dir.clone();
         let stop = Arc::new(AtomicBool::new(false));
         let stop2 = stop.clone();
         let worker = std::thread::Builder::new()
             .name("openbark-live".into())
-            .spawn(move || run(session, source, options, vad, asr, tracker, lexicon, sink, stop2))
+            .spawn(move || run(session, source, options, vad, asr, tracker, lexicon, second, sink, stop2))
             .map_err(|e| EngineError::Session(e.to_string()))?;
         Ok(Self { stop, worker: Some(worker), session_dir })
     }
@@ -235,9 +251,37 @@ fn run(
     asr: os_asr::OfflineAsr,
     mut tracker: Option<os_diar::SpeakerTracker>,
     lexicon: crate::vocab::Lexicon,
+    second: Option<os_asr::OfflineAsr>,
     mut sink: Box<dyn LiveSink>,
     stop: Arc<AtomicBool>,
 ) -> Result<LiveResult, EngineError> {
+    // Background second opinions: (segment index, audio, primary text) in,
+    // (index, opinion, hints) out. Runs alongside capture so stop isn't delayed.
+    type Job = (usize, Vec<f32>, String);
+    type Done = (usize, crate::crosscheck::SecondOpinion, Vec<crate::vocab::Hint>);
+    let (job_tx, done_rx, checker) = match second {
+        Some(second) => {
+            let (job_tx, job_rx) = mpsc::channel::<Job>();
+            let (done_tx, done_rx) = mpsc::channel::<Done>();
+            let lex = lexicon.clone();
+            let handle = std::thread::Builder::new()
+                .name("openbark-second-opinion".into())
+                .spawn(move || {
+                    for (i, samples, primary) in job_rx {
+                        if let Ok(text) = second.transcribe(&samples) {
+                            let opinion = crate::crosscheck::compare(&primary, &text);
+                            let hints = crate::crosscheck::second_opinion_hints(&lex, &primary, &text);
+                            if done_tx.send((i, opinion, hints)).is_err() {
+                                break;
+                            }
+                        }
+                    }
+                })
+                .map_err(|e| EngineError::Session(e.to_string()))?;
+            (Some(job_tx), Some(done_rx), Some(handle))
+        }
+        None => (None, None, None),
+    };
     let _awake = AwakeGuard::acquire(AwakeReason::Recording);
     let started = Instant::now();
     let (tx, rx) = mpsc::channel::<AudioBlock>();
@@ -273,9 +317,15 @@ fn run(
                 end: u.end(),
                 speaker,
                 hints: lexicon.hints(&text),
+                check: None,
                 text,
             };
             sink.segment(&segment);
+            if let Some(tx) = &job_tx
+                && crate::crosscheck::worth_checking(&segment)
+            {
+                let _ = tx.send((transcript.segments.len(), u.samples.clone(), segment.text.clone()));
+            }
             transcript.segments.push(segment);
         }
         Ok(())
@@ -333,6 +383,21 @@ fn run(
 
     let last = streaming.finish();
     handle_utterances(last, &mut transcript, &mut sink, &mut asr_ms)?;
+    // Collect second opinions (only the last few are still pending at stop).
+    drop(job_tx);
+    if let (Some(done_rx), Some(checker)) = (done_rx, checker) {
+        let _ = checker.join();
+        for (i, opinion, hints) in done_rx.try_iter() {
+            if let Some(seg) = transcript.segments.get_mut(i) {
+                for h in hints {
+                    if !seg.hints.iter().any(|x| x.heard.eq_ignore_ascii_case(&h.heard)) {
+                        seg.hints.push(h);
+                    }
+                }
+                seg.check = Some(opinion);
+            }
+        }
+    }
     let audio_secs = wav.finish().map_err(|e| EngineError::Session(e.to_string()))?;
     session.finish_live_audio(&device, audio_secs)?;
 

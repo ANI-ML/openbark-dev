@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use os_engine::awake::{AwakeGuard, AwakeReason};
 use os_engine::live::{LiveOptions, LiveRecorder, LiveSink, LiveSource};
-use os_engine::session::{self, Session};
+use os_engine::session::{self, PatientInfo, Session};
 use os_engine::{LoadedTemplate, NoteOptions, Segment, TranscribeStats, Transcript};
 use os_llm::{LlamaCppBackend, LlamaCppOptions};
 use os_models::hub::{self, Fit, HubModel, HubRepo};
@@ -18,6 +18,7 @@ use os_models::{CatalogEntry, ModelStore, Slot, Verify};
 use serde::Serialize;
 
 pub use os_asr::capture::AudioBlock;
+pub use os_engine::session::PatientInfo as Patient;
 
 /// Progress notifications for the UI.
 pub trait Events: Send + Sync {
@@ -100,6 +101,9 @@ pub struct SessionSummary {
     pub audio_secs: f32,
     pub runs: usize,
     pub signed: bool,
+    /// "Maple Okonkwo", if the clinic entered it.
+    pub patient: String,
+    pub reason: String,
 }
 
 #[derive(Serialize)]
@@ -116,6 +120,8 @@ pub struct SessionView {
     pub latest_markdown: Option<String>,
     pub signed_at: Option<String>,
     pub signed_by: Option<String>,
+    /// Clinic-entered details with their entry and change times.
+    pub patient: Option<PatientInfo>,
 }
 
 #[derive(Serialize)]
@@ -193,6 +199,8 @@ impl App {
                 audio_secs: s.meta.audio_secs,
                 runs: s.meta.runs.len(),
                 signed: s.is_signed(),
+                patient: s.meta.patient.as_ref().map(|p| p.display_name()).unwrap_or_default(),
+                reason: s.meta.patient.as_ref().map(|p| p.reason.clone()).unwrap_or_default(),
             })
             .collect()
     }
@@ -208,11 +216,18 @@ impl App {
     /// recordings get the same segmentation and speaker labels (the live
     /// tracker was more accurate than full-recording diarization on short
     /// clips; M1 tuning).
-    pub fn import_file(&self, path: &Path, label_speakers: bool, events: &dyn Events) -> Result<SessionView> {
+    pub fn import_file(
+        &self,
+        path: &Path,
+        label_speakers: bool,
+        patient: Option<PatientInfo>,
+        events: &dyn Events,
+    ) -> Result<SessionView> {
         let _awake = AwakeGuard::acquire(AwakeReason::Processing);
         let (tx, rx) = std::sync::mpsc::channel::<Segment>();
         let mut options = LiveOptions::microphone();
         options.label_speakers = label_speakers;
+        options.patient = patient.filter(|p| !p.is_empty());
         let source = LiveSource::File { path: path.to_path_buf(), realtime: false };
         let recorder = LiveRecorder::start(
             &self.store,
@@ -236,6 +251,7 @@ impl App {
         name: &str,
         wav: &[u8],
         label_speakers: bool,
+        patient: Option<PatientInfo>,
         events: &dyn Events,
     ) -> Result<SessionView> {
         if wav.len() < 44 || &wav[0..4] != b"RIFF" || &wav[8..12] != b"WAVE" {
@@ -247,7 +263,7 @@ impl App {
         let file = Path::new(name).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let path = tmp.path().join(if file.is_empty() { "recording.wav".into() } else { file });
         std::fs::write(&path, wav)?;
-        self.import_file(&path, label_speakers, events)
+        self.import_file(&path, label_speakers, patient, events)
     }
 
     // ---- live recording --------------------------------------------------
@@ -262,6 +278,7 @@ impl App {
         &self,
         source: RecordingSource,
         label_speakers: bool,
+        patient: Option<PatientInfo>,
         events: Arc<dyn Events>,
     ) -> Result<String> {
         let mut slot = self.recorder.lock().map_err(|_| AppError("recorder lock poisoned".into()))?;
@@ -274,6 +291,7 @@ impl App {
         };
         let mut options = LiveOptions::microphone();
         options.label_speakers = label_speakers;
+        options.patient = patient.filter(|p| !p.is_empty());
         let recorder = LiveRecorder::start(
             &self.store,
             &self.sessions_root,
@@ -300,6 +318,22 @@ impl App {
         Ok(view(&s, Some(result.transcript)))
     }
 
+    /// Set or change the patient details of a saved encounter (time-stamped).
+    pub fn update_patient(&self, id: &str, patient: PatientInfo) -> Result<SessionView> {
+        let dir = self.session_dir(id)?;
+        let recording_here = self
+            .recorder
+            .lock()
+            .map(|r| r.as_ref().is_some_and(|rec| rec.session_dir == dir))
+            .unwrap_or(false);
+        if recording_here {
+            return Err(AppError("This encounter is still recording. Stop the recording first.".into()));
+        }
+        let mut s = Session::open(&dir)?;
+        s.set_patient(patient)?;
+        Ok(view(&s, None))
+    }
+
     // ---- notes -----------------------------------------------------------
 
     pub fn generate_note(
@@ -314,16 +348,16 @@ impl App {
         let mut s = Session::open(&self.session_dir(id)?)?;
         let transcript = s.load_transcript()?;
         let template = LoadedTemplate::resolve(template)?;
-        let result = os_engine::generate_note(
-            backend.as_ref(),
-            &template,
-            &transcript,
-            &NoteOptions::default(),
-            &mut |p| {
+        let options = NoteOptions {
+            context: s.meta.patient.as_ref().map(|p| p.prompt_context()),
+            ..NoteOptions::default()
+        };
+        let mut result =
+            os_engine::generate_note(backend.as_ref(), &template, &transcript, &options, &mut |p| {
                 events.token(p);
                 true
-            },
-        )?;
+            })?;
+        result.markdown = with_header(&s, &result.markdown);
         s.save_run(llm, &result)?;
         Ok(NoteResponse { markdown: result.markdown.clone(), run: serde_json::to_value(&result)? })
     }
@@ -493,6 +527,34 @@ fn llm_path(store: &ModelStore, spec: &str) -> Result<PathBuf> {
     }
 }
 
+/// Visit header for copied notes: patient, reason and when it was recorded.
+fn with_header(s: &Session, markdown: &str) -> String {
+    let mut header = String::new();
+    if let Some(p) = &s.meta.patient {
+        if !p.display_name().is_empty() {
+            header.push_str(&format!(
+                "Patient: {}
+",
+                p.display_name()
+            ));
+        }
+        if !p.reason.is_empty() {
+            header.push_str(&format!(
+                "Reason for visit: {}
+",
+                p.reason
+            ));
+        }
+    }
+    header.push_str(&format!(
+        "Recorded: {}
+
+",
+        s.meta.created_at.format("%Y-%m-%d %H:%M")
+    ));
+    format!("{header}{markdown}")
+}
+
 fn id_of(s: &Session) -> String {
     s.dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
 }
@@ -530,5 +592,6 @@ fn view(s: &Session, transcript: Option<Transcript>) -> SessionView {
             .and_then(|r| r.signed_at)
             .map(|t| t.format("%Y-%m-%d %H:%M").to_string()),
         signed_by: s.meta.runs.last().and_then(|r| r.signed_by.clone()),
+        patient: s.meta.patient.clone(),
     }
 }

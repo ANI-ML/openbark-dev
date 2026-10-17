@@ -27,7 +27,8 @@ export function Encounters() {
             <thead>
               <tr>
                 <th>Time</th>
-                <th>Source</th>
+                <th>Patient</th>
+                <th>Reason for visit</th>
                 <th className="num">Length</th>
                 <th className="num">Drafts</th>
                 <th>Status</th>
@@ -43,7 +44,8 @@ export function Encounters() {
                   onKeyDown={(e) => e.key === "Enter" && app.navigate({ screen: "review", id: r.id })}
                 >
                   <td className="mono">{r.created_at}</td>
-                  <td>{r.source}</td>
+                  <td>{r.patient || <span className="faint">{r.source}</span>}</td>
+                  <td className="reason-cell">{r.reason || <span className="faint">Not entered</span>}</td>
                   <td className="num">{fmtTime(r.audio_secs)}</td>
                   <td className="num">{r.runs}</td>
                   <td>
