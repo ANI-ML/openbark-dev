@@ -1,7 +1,7 @@
 use serde::Serialize;
 use sherpa_onnx::{SileroVadModelConfig, VadModelConfig, VoiceActivityDetector};
 
-use crate::{AsrError, Audio, SAMPLE_RATE, default_threads, require_file};
+use crate::{AsrError, Audio, SAMPLE_RATE, require_file};
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq)]
 pub struct SpeechSpan {
@@ -43,20 +43,7 @@ impl SileroVad {
 
     /// Find speech spans in a whole clip.
     pub fn segments(&self, audio: &Audio) -> Result<Vec<SpeechSpan>, AsrError> {
-        let config = VadModelConfig {
-            silero_vad: SileroVadModelConfig {
-                model: Some(self.options.model.clone()),
-                threshold: self.options.threshold,
-                min_silence_duration: self.options.min_silence_secs,
-                min_speech_duration: self.options.min_speech_secs,
-                window_size: 512,
-                max_speech_duration: self.options.max_speech_secs,
-            },
-            sample_rate: SAMPLE_RATE as i32,
-            num_threads: default_threads().min(2),
-            provider: Some("cpu".into()),
-            ..Default::default()
-        };
+        let config = self.config();
         let buffer_secs = self.options.max_speech_secs + 10.0;
         let vad = VoiceActivityDetector::create(&config, buffer_secs).ok_or(AsrError::Create)?;
         let mut spans = Vec::new();
@@ -68,12 +55,96 @@ impl SileroVad {
                 vad.pop();
             }
         };
-        for window in audio.samples.chunks(512) {
+        for window in audio.samples.chunks(WINDOW) {
             vad.accept_waveform(window);
             drain(&vad);
         }
         vad.flush();
         drain(&vad);
         Ok(spans)
+    }
+}
+
+impl SileroVad {
+    fn config(&self) -> VadModelConfig {
+        VadModelConfig {
+            silero_vad: SileroVadModelConfig {
+                model: Some(self.options.model.clone()),
+                threshold: self.options.threshold,
+                min_silence_duration: self.options.min_silence_secs,
+                min_speech_duration: self.options.min_speech_secs,
+                window_size: WINDOW as i32,
+                max_speech_duration: self.options.max_speech_secs,
+            },
+            sample_rate: SAMPLE_RATE as i32,
+            num_threads: 1,
+            provider: Some("cpu".into()),
+            ..Default::default()
+        }
+    }
+
+    /// A detector for live audio: feed blocks as they arrive and collect each
+    /// utterance as soon as its trailing silence is heard.
+    pub fn streaming(&self) -> Result<StreamingVad, AsrError> {
+        let vad = VoiceActivityDetector::create(&self.config(), self.options.max_speech_secs + 10.0)
+            .ok_or(AsrError::Create)?;
+        Ok(StreamingVad { vad, pending: Vec::new() })
+    }
+}
+
+/// Silero's window: the detector consumes audio in blocks of this many samples.
+const WINDOW: usize = 512;
+
+/// One utterance from the live detector.
+pub struct Utterance {
+    /// Start time in seconds from the beginning of the stream.
+    pub start: f32,
+    pub samples: Vec<f32>,
+}
+
+impl Utterance {
+    pub fn end(&self) -> f32 {
+        self.start + self.samples.len() as f32 / SAMPLE_RATE as f32
+    }
+}
+
+pub struct StreamingVad {
+    vad: VoiceActivityDetector,
+    pending: Vec<f32>,
+}
+
+impl StreamingVad {
+    /// Feed 16 kHz mono samples; returns utterances that have ended.
+    pub fn accept(&mut self, samples: &[f32]) -> Vec<Utterance> {
+        self.pending.extend_from_slice(samples);
+        let whole = self.pending.len() / WINDOW * WINDOW;
+        for window in self.pending[..whole].chunks(WINDOW) {
+            self.vad.accept_waveform(window);
+        }
+        self.pending.drain(..whole);
+        self.drain()
+    }
+
+    /// End of stream: returns the final utterance, if speech was in progress.
+    pub fn finish(&mut self) -> Vec<Utterance> {
+        if !self.pending.is_empty() {
+            self.pending.resize(WINDOW, 0.0);
+            self.vad.accept_waveform(&self.pending);
+            self.pending.clear();
+        }
+        self.vad.flush();
+        self.drain()
+    }
+
+    fn drain(&mut self) -> Vec<Utterance> {
+        let mut out = Vec::new();
+        while let Some(segment) = self.vad.front() {
+            out.push(Utterance {
+                start: segment.start() as f32 / SAMPLE_RATE as f32,
+                samples: segment.samples().to_vec(),
+            });
+            self.vad.pop();
+        }
+        out
     }
 }

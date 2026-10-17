@@ -57,6 +57,12 @@ pub struct RunInfo {
     pub created_at: DateTime<Local>,
     pub faithfulness_passed: bool,
     pub total_ms: u64,
+    /// Set when a veterinarian signs this draft. Signed runs are never changed;
+    /// later corrections become new runs (addenda).
+    #[serde(default)]
+    pub signed_at: Option<DateTime<Local>>,
+    #[serde(default)]
+    pub signed_by: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,6 +114,46 @@ impl Session {
         let session = Self { dir, meta };
         session.save_meta()?;
         Ok(session)
+    }
+
+    /// Create a session for a live recording; `audio.wav` is written by the
+    /// recorder and completed with [`Session::finish_live_audio`].
+    pub fn create_live(root: &Path, label: &str) -> Result<Self, EngineError> {
+        let now = Local::now();
+        let label = slug(label);
+        let base = format!(
+            "{}_{}",
+            now.format("%Y-%m-%d_%H%M%S"),
+            if label.is_empty() { "recording" } else { &label }
+        );
+        let dir = unique_dir(root, &base)?;
+        let meta = SessionMeta {
+            id: uuid::Uuid::now_v7().to_string(),
+            app_version: env!("CARGO_PKG_VERSION").into(),
+            created_at: now,
+            source: "live recording".into(),
+            audio_sha256: String::new(),
+            audio_secs: 0.0,
+            transcription: None,
+            runs: Vec::new(),
+        };
+        let session = Self { dir, meta };
+        session.save_meta()?;
+        Ok(session)
+    }
+
+    /// Record the finished live audio: device, duration and checksum.
+    pub fn finish_live_audio(&mut self, device: &str, audio_secs: f32) -> Result<(), EngineError> {
+        self.meta.source = match device.strip_prefix("file: ") {
+            // An imported file run through the live pipeline keeps its origin.
+            Some(path) => {
+                std::path::absolute(path).map(|p| p.display().to_string()).unwrap_or_else(|_| path.into())
+            }
+            None => format!("live recording ({device})"),
+        };
+        self.meta.audio_secs = audio_secs;
+        self.meta.audio_sha256 = sha256_file(&self.audio_path())?;
+        self.save_meta()
     }
 
     pub fn open(dir: &Path) -> Result<Self, EngineError> {
@@ -167,9 +213,36 @@ impl Session {
             created_at: Local::now(),
             faithfulness_passed: result.faithfulness.passed,
             total_ms: result.stats.total_ms,
+            signed_at: None,
+            signed_by: None,
         });
         self.save_meta()?;
         Ok(dir)
+    }
+
+    /// Sign the latest run. Refused if it has numbers absent from the
+    /// transcript (DESIGN.md §5: hard-fail content blocks signing).
+    pub fn sign_latest(&mut self, signed_by: &str) -> Result<(), EngineError> {
+        let run = self
+            .meta
+            .runs
+            .last_mut()
+            .ok_or_else(|| EngineError::Session("There is no draft to sign yet.".into()))?;
+        if run.signed_at.is_some() {
+            return Err(EngineError::Session("This note is already signed.".into()));
+        }
+        if !run.faithfulness_passed {
+            return Err(EngineError::Session(
+                "Some numbers in this draft aren't in the transcript. Check them against the recording and correct the draft before signing.".into(),
+            ));
+        }
+        run.signed_at = Some(Local::now());
+        run.signed_by = Some(signed_by.trim().to_string());
+        self.save_meta()
+    }
+
+    pub fn is_signed(&self) -> bool {
+        self.meta.runs.last().is_some_and(|r| r.signed_at.is_some())
     }
 
     fn save_meta(&self) -> Result<(), EngineError> {
@@ -190,7 +263,7 @@ pub fn list(root: &Path) -> Vec<Session> {
         .filter(|e| e.path().join(SESSION_FILE).is_file())
         .filter_map(|e| Session::open(&e.path()).ok())
         .collect();
-    sessions.sort_by(|a, b| b.meta.created_at.cmp(&a.meta.created_at));
+    sessions.sort_by_key(|s| std::cmp::Reverse(s.meta.created_at));
     sessions
 }
 

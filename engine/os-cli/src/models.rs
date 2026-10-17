@@ -24,7 +24,7 @@ pub fn run(cmd: ModelsCommand, store: &ModelStore) -> Result<()> {
     let catalog = Catalog::builtin();
     match cmd {
         ModelsCommand::List => {
-            println!("{:<28} {:<18} {:>9}  {:<10} {}", "ID", "SLOT", "SIZE", "LICENSE", "INSTALLED");
+            println!("{:<28} {:<18} {:>9}  {:<10} INSTALLED", "ID", "SLOT", "SIZE", "LICENSE");
             for m in &catalog.models {
                 println!(
                     "{:<28} {:<18} {:>9}  {:<10} {}",

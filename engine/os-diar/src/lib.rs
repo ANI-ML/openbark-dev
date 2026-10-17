@@ -205,6 +205,92 @@ fn nearest_speaker(span: &SpeechSpan, turns: &[SpeakerTurn]) -> Option<u32> {
         .map(|t| t.speaker)
 }
 
+/// Live speaker labelling: one voice embedding per utterance, matched to the
+/// speakers heard so far by cosine similarity (new speaker below the
+/// threshold). No pass over the whole recording is needed after stop.
+pub struct SpeakerTracker {
+    extractor: os_asr::sherpa_onnx::SpeakerEmbeddingExtractor,
+    speakers: Vec<Centroid>,
+    threshold: f32,
+}
+
+struct Centroid {
+    sum: Vec<f32>,
+    count: u32,
+}
+
+impl Centroid {
+    fn similarity(&self, e: &[f32]) -> f32 {
+        let norm = self.sum.iter().map(|v| v * v).sum::<f32>().sqrt().max(1e-9);
+        self.sum.iter().zip(e).map(|(a, b)| a * b).sum::<f32>() / norm
+    }
+}
+
+/// Utterances shorter than this give unreliable embeddings: they are matched
+/// to an existing speaker but never start a new one.
+const MIN_EMBED_SECS: f32 = 1.0;
+
+impl SpeakerTracker {
+    pub fn new(embedding_model: &str, threshold: f32) -> Result<Self, DiarError> {
+        if !std::path::Path::new(embedding_model).is_file() {
+            return Err(DiarError::ModelNotFound(embedding_model.into()));
+        }
+        let config = SpeakerEmbeddingExtractorConfig {
+            model: Some(embedding_model.into()),
+            num_threads: 2,
+            provider: Some("cpu".into()),
+            ..Default::default()
+        };
+        let extractor =
+            os_asr::sherpa_onnx::SpeakerEmbeddingExtractor::create(&config).ok_or(DiarError::Create)?;
+        Ok(Self { extractor, speakers: Vec::new(), threshold })
+    }
+
+    fn embed(&self, samples: &[f32]) -> Option<Vec<f32>> {
+        let stream = self.extractor.create_stream()?;
+        stream.accept_waveform(os_asr::SAMPLE_RATE as i32, samples);
+        stream.input_finished();
+        if !self.extractor.is_ready(&stream) {
+            return None;
+        }
+        let mut e = self.extractor.compute(&stream)?;
+        let norm = e.iter().map(|v| v * v).sum::<f32>().sqrt().max(1e-9);
+        e.iter_mut().for_each(|v| *v /= norm);
+        Some(e)
+    }
+
+    /// Speaker index for one utterance (16 kHz mono), or `None` if unknown.
+    pub fn assign(&mut self, samples: &[f32]) -> Option<u32> {
+        let embedding = self.embed(samples)?;
+        let best = self
+            .speakers
+            .iter()
+            .enumerate()
+            .map(|(i, c)| (i, c.similarity(&embedding)))
+            .max_by(|a, b| a.1.total_cmp(&b.1));
+        let long_enough = samples.len() as f32 / os_asr::SAMPLE_RATE as f32 >= MIN_EMBED_SECS;
+        match best {
+            Some((i, sim)) if sim >= self.threshold || !long_enough => {
+                if long_enough {
+                    let c = &mut self.speakers[i];
+                    c.sum.iter_mut().zip(&embedding).for_each(|(s, e)| *s += e);
+                    c.count += 1;
+                }
+                Some(i as u32)
+            }
+            _ if long_enough => {
+                self.speakers.push(Centroid { sum: embedding, count: 1 });
+                Some(self.speakers.len() as u32 - 1)
+            }
+            _ => None,
+        }
+    }
+
+    pub fn speaker_count(&self) -> usize {
+        self.speakers.len()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

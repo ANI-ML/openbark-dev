@@ -19,6 +19,7 @@ sherpa-onnx = { workspace = true, features = ["shared"] }
 sherpa-onnx = { workspace = true, features = ["static"] }
 
 [dependencies]
+cpal.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 tracing.workspace = true

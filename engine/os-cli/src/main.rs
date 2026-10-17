@@ -9,6 +9,7 @@
 
 mod models;
 mod probe;
+mod record;
 mod sessions;
 
 use std::fs;
@@ -53,6 +54,10 @@ enum Command {
     /// Saved sessions.
     #[command(subcommand)]
     Sessions(sessions::SessionsCommand),
+    /// Record a consult from the microphone with a live transcript (Enter to stop).
+    Record(record::RecordArgs),
+    /// List microphones.
+    Devices,
     /// Open the OpenBark UI in your browser, served from this machine only (127.0.0.1).
     Serve(ServeArgs),
 }
@@ -212,6 +217,8 @@ fn main() -> Result<()> {
         Command::Rerun(args) => sessions::rerun(&store, args),
         Command::Sessions(cmd) => sessions::command(cmd),
         Command::Serve(args) => serve(store, args),
+        Command::Record(args) => record::record(&store, args),
+        Command::Devices => record::devices(),
     }
 }
 

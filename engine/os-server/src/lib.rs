@@ -1,34 +1,36 @@
-//! Local web mode: the OpenBark engine behind a small HTTP API, serving the
-//! same React UI as the desktop app to any browser on this machine.
+//! Web mode: the OpenBark app layer ([`os_app::App`]) behind a small HTTP API,
+//! serving the same React UI as the desktop app to a browser on this machine.
 //!
 //! Binds to 127.0.0.1 only. Exposing it to the clinic network needs the
-//! Clinic Hub's authentication and mutual TLS (M4); until then there is no
-//! auth, so it must never listen on other interfaces.
+//! Clinic Hub's authentication and mutual TLS (M4); there is no auth yet, so
+//! it must never listen on other interfaces.
 //!
 //! API (JSON unless noted):
-//! - `GET  /api/status`
-//! - `GET  /api/sessions`                    newest first
-//! - `GET  /api/sessions/{id}`               transcript + latest note
-//! - `GET  /api/sessions/{id}/audio`         the WAV (supports Range, for seeking)
-//! - `POST /api/sessions?diarize=true&name=` body: WAV bytes → new session, transcribed
-//! - `POST /api/sessions/{id}/notes`         `{llm, template}` → new run
-//! - `GET  /api/events`                      server-sent events: `segment`, `token`
+//! - `GET  /api/status`, `GET /api/devices`
+//! - `GET  /api/sessions`, `GET /api/sessions/{id}`, `GET /api/sessions/{id}/audio` (Range)
+//! - `POST /api/sessions?diarize=&name=`    body: WAV bytes → new encounter, transcribed
+//! - `POST /api/sessions/{id}/notes`        `{llm, template}`
+//! - `GET  /api/live` (WebSocket)           browser microphone: binary f32 PCM frames
+//!   (16 kHz mono); text "stop" ends it; the reply is the saved encounter
+//! - `POST /api/record/start|stop`          record from this machine's microphone
+//! - `GET  /api/models`, `POST /api/models/{id}/download`
+//! - `GET  /api/hub/search?q=`, `GET /api/hub/repo?id=`, `POST /api/hub/add`
+//! - `GET  /api/events`                     server-sent events: segment, token, level, download
 
 use std::net::{Ipv4Addr, SocketAddr};
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::path::PathBuf;
+use std::sync::Arc;
 
 use axum::Router;
 use axum::body::Bytes;
+use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{DefaultBodyLimit, Path as UrlPath, Query, State};
 use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{get, post};
-use os_engine::awake::{AwakeGuard, AwakeReason};
-use os_engine::session::{self, Session};
-use os_engine::{LoadedTemplate, NoteOptions, Segment, TranscribeStats, Transcript};
-use os_llm::{LlamaCppBackend, LlamaCppOptions};
+use os_app::{App, AppError, AudioBlock, Events, RecordingSource};
+use os_engine::Segment;
 use os_models::ModelStore;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
@@ -44,11 +46,9 @@ pub struct ServerOptions {
     pub ui_dir: PathBuf,
 }
 
-struct AppState {
-    store: ModelStore,
-    sessions_root: PathBuf,
-    llm: Mutex<Option<(String, Arc<LlamaCppBackend>)>>,
-    events: broadcast::Sender<ServerEvent>,
+struct Shared {
+    app: App,
+    events: Arc<Broadcaster>,
 }
 
 #[derive(Clone, Serialize)]
@@ -56,9 +56,28 @@ struct AppState {
 enum ServerEvent {
     Segment(Segment),
     Token(String),
+    Level { level: f32, seconds: f32 },
+    Download { model: String, done: u64, total: u64 },
 }
 
-type Shared = Arc<AppState>;
+struct Broadcaster(broadcast::Sender<ServerEvent>);
+
+impl Events for Broadcaster {
+    fn segment(&self, s: &Segment) {
+        let _ = self.0.send(ServerEvent::Segment(s.clone()));
+    }
+    fn token(&self, p: &str) {
+        let _ = self.0.send(ServerEvent::Token(p.to_string()));
+    }
+    fn level(&self, level: f32, seconds: f32) {
+        let _ = self.0.send(ServerEvent::Level { level, seconds });
+    }
+    fn download(&self, model: &str, done: u64, total: u64) {
+        let _ = self.0.send(ServerEvent::Download { model: model.to_string(), done, total });
+    }
+}
+
+type St = Arc<Shared>;
 
 struct ApiError(StatusCode, String);
 
@@ -68,166 +87,81 @@ impl IntoResponse for ApiError {
     }
 }
 
-fn internal(e: impl std::fmt::Display) -> ApiError {
-    ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+impl From<AppError> for ApiError {
+    fn from(e: AppError) -> Self {
+        ApiError(StatusCode::BAD_REQUEST, e.0)
+    }
+}
+
+/// Run blocking app work off the async runtime.
+async fn blocking<T: Send + 'static>(
+    f: impl FnOnce() -> Result<T, AppError> + Send + 'static,
+) -> Result<Json<T>, ApiError> {
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map(Json)
+        .map_err(ApiError::from)
 }
 
 pub async fn serve(options: ServerOptions) -> std::io::Result<()> {
-    let (events, _) = broadcast::channel(1024);
-    let state: Shared = Arc::new(AppState {
-        store: options.store,
-        sessions_root: options.sessions_root,
-        llm: Mutex::new(None),
-        events,
+    let (tx, _) = broadcast::channel(4096);
+    let state: St = Arc::new(Shared {
+        app: App::new(options.store, options.sessions_root),
+        events: Arc::new(Broadcaster(tx)),
     });
     let index = options.ui_dir.join("index.html");
-    let app = Router::new()
-        .route("/api/status", get(status))
+    let api = Router::new()
+        .route("/api/status", get(|State(s): State<St>| async move { Json(s.app.status()) }))
+        .route("/api/devices", get(|State(s): State<St>| async move { Json(s.app.input_devices()) }))
         .route("/api/sessions", get(list_sessions).post(create_session))
         .route("/api/sessions/{id}", get(open_session))
         .route("/api/sessions/{id}/audio", get(session_audio))
         .route("/api/sessions/{id}/notes", post(create_note))
+        .route("/api/sessions/{id}/sign", post(sign_note))
+        .route("/api/templates/{id}", get(template))
+        .route("/api/live", get(live))
+        .route("/api/record/start", post(record_start))
+        .route("/api/record/stop", post(record_stop))
+        .route("/api/models", get(|State(s): State<St>| async move { Json(s.app.models()) }))
+        .route("/api/models/{id}/download", post(download_model))
+        .route("/api/hub/search", get(hub_search))
+        .route("/api/hub/repo", get(hub_repo))
+        .route("/api/hub/add", post(hub_add))
         .route("/api/events", get(events_stream))
         .layer(DefaultBodyLimit::max(1 << 30))
-        .with_state(state)
-        .fallback_service(ServeDir::new(&options.ui_dir).fallback(ServeFile::new(index)));
+        .with_state(state);
+    let app = api.fallback_service(ServeDir::new(&options.ui_dir).fallback(ServeFile::new(index)));
 
-    // Loopback only: no authentication exists yet (see module docs).
+    // Loopback only: there is no authentication yet (see module docs).
     let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, options.port));
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!(%addr, "OpenBark web mode");
     axum::serve(listener, app).await
 }
 
-#[derive(Serialize)]
-struct ModelStatus {
-    id: String,
-    name: String,
-    installed: bool,
-}
-
-#[derive(Serialize)]
-struct Status {
-    product: &'static str,
-    version: &'static str,
-    mode: &'static str,
-    models_dir: String,
-    sessions_dir: String,
-    models: Vec<ModelStatus>,
-    llm_backend: String,
-}
-
-async fn status(State(state): State<Shared>) -> Json<Status> {
-    let models = os_engine::models::required_status(&state.store)
-        .into_iter()
-        .map(|(id, name, installed)| ModelStatus { id, name, installed })
-        .collect();
-    let gpu = os_llm::devices()
-        .into_iter()
-        .find(|d| d.backend != "CPU")
-        .map(|d| format!("{} ({})", d.description, d.backend))
-        .unwrap_or_else(|| "CPU".into());
-    Json(Status {
-        product: os_engine::PRODUCT_NAME,
-        version: env!("CARGO_PKG_VERSION"),
-        mode: "web",
-        models_dir: state.store.root().display().to_string(),
-        sessions_dir: state.sessions_root.display().to_string(),
-        models,
-        llm_backend: gpu,
-    })
-}
-
-#[derive(Serialize)]
-struct SessionSummary {
-    id: String,
-    dir: String,
-    created_at: String,
-    source: String,
-    audio_secs: f32,
-    runs: usize,
-}
-
-#[derive(Serialize)]
-struct SessionView {
-    id: String,
-    dir: String,
-    audio_url: String,
-    transcript: Option<Transcript>,
-    stats: Option<TranscribeStats>,
-    latest_note: Option<String>,
-}
-
-fn session_id(s: &Session) -> String {
-    s.dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
-}
-
-fn view(s: &Session, transcript: Option<Transcript>) -> SessionView {
-    let id = session_id(s);
-    let latest_note =
-        s.meta.runs.last().and_then(|r| std::fs::read_to_string(s.dir.join(&r.dir).join("note.md")).ok());
-    SessionView {
-        audio_url: format!("/api/sessions/{id}/audio"),
-        id,
-        dir: s.dir.display().to_string(),
-        transcript: transcript.or_else(|| s.load_transcript().ok()),
-        stats: s.meta.transcription.as_ref().map(|t| t.stats.clone()),
-        latest_note,
-    }
-}
-
-/// Resolve a session id (a folder name) safely under the sessions root.
-fn session_dir(state: &AppState, id: &str) -> Result<PathBuf, ApiError> {
-    let valid = !id.is_empty()
-        && !id.starts_with('.')
-        && id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
-    if !valid {
-        return Err(ApiError(StatusCode::BAD_REQUEST, "invalid session id".into()));
-    }
-    let dir = state.sessions_root.join(id);
-    if dir.join(session::SESSION_FILE).is_file() {
-        Ok(dir)
-    } else {
-        Err(ApiError(StatusCode::NOT_FOUND, format!("no session {id}")))
-    }
-}
-
-async fn list_sessions(State(state): State<Shared>) -> Json<Vec<SessionSummary>> {
-    let list = session::list(&state.sessions_root)
-        .into_iter()
-        .take(50)
-        .map(|s| SessionSummary {
-            id: session_id(&s),
-            dir: s.dir.display().to_string(),
-            created_at: s.meta.created_at.format("%Y-%m-%d %H:%M").to_string(),
-            source: Path::new(&s.meta.source)
-                .file_name()
-                .map(|n| n.to_string_lossy().into())
-                .unwrap_or_default(),
-            audio_secs: s.meta.audio_secs,
-            runs: s.meta.runs.len(),
-        })
-        .collect();
-    Json(list)
+async fn list_sessions(State(s): State<St>) -> impl IntoResponse {
+    Json(s.app.list_sessions())
 }
 
 async fn open_session(
-    State(state): State<Shared>,
+    State(s): State<St>,
     UrlPath(id): UrlPath<String>,
-) -> Result<Json<SessionView>, ApiError> {
-    let dir = session_dir(&state, &id)?;
-    let s = Session::open(&dir).map_err(internal)?;
-    Ok(Json(view(&s, None)))
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app.open_session(&id)).await
 }
 
 async fn session_audio(
-    State(state): State<Shared>,
+    State(s): State<St>,
     UrlPath(id): UrlPath<String>,
     request: axum::extract::Request,
 ) -> Result<Response, ApiError> {
     use tower::ServiceExt;
-    let dir = session_dir(&state, &id)?;
-    let response = ServeFile::new(dir.join(session::AUDIO_FILE)).oneshot(request).await.map_err(internal)?;
+    let dir = s.app.session_dir(&id)?;
+    let response = ServeFile::new(dir.join(os_engine::session::AUDIO_FILE))
+        .oneshot(request)
+        .await
+        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(response.into_response())
 }
 
@@ -235,120 +169,207 @@ async fn session_audio(
 struct CreateSession {
     #[serde(default)]
     diarize: bool,
-    /// Original file name, used for the session folder name.
     #[serde(default)]
     name: Option<String>,
 }
 
 async fn create_session(
-    State(state): State<Shared>,
+    State(s): State<St>,
     Query(q): Query<CreateSession>,
     body: Bytes,
-) -> Result<Json<SessionView>, ApiError> {
-    if body.len() < 44 || &body[0..4] != b"RIFF" || &body[8..12] != b"WAVE" {
-        return Err(ApiError(
-            StatusCode::UNSUPPORTED_MEDIA_TYPE,
-            "upload a WAV file (M0 supports WAV only)".into(),
-        ));
-    }
-    let state2 = state.clone();
-    let result = tokio::task::spawn_blocking(move || -> Result<SessionView, ApiError> {
-        let _awake = AwakeGuard::acquire(AwakeReason::Processing);
-        let name = q.name.unwrap_or_else(|| "upload.wav".into());
-        let stem = Path::new(&name).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        let tmp = tempfile::tempdir().map_err(internal)?;
-        let upload = tmp.path().join(if stem.is_empty() { "upload.wav".to_string() } else { stem });
-        std::fs::write(&upload, &body).map_err(internal)?;
-        let audio = os_asr::Audio::load_wav(&upload).map_err(internal)?;
-        let mut s = Session::create_from_file(&state2.sessions_root, &upload, audio.duration_secs())
-            .map_err(internal)?;
-        let stt = os_engine::models::DEFAULT_STT;
-        let transcriber = os_engine::models::transcriber(&state2.store, stt, q.diarize, None, None, None)
-            .map_err(internal)?;
-        let events = state2.events.clone();
-        let (transcript, stats) = transcriber
-            .run(&audio, &mut |seg| {
-                let _ = events.send(ServerEvent::Segment(seg.clone()));
-            })
-            .map_err(internal)?;
-        s.save_transcript(&transcript, stt, q.diarize, &stats).map_err(internal)?;
-        Ok(view(&s, Some(transcript)))
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || {
+        let events = s.events.clone();
+        s.app.import_bytes(q.name.as_deref().unwrap_or("recording.wav"), &body, q.diarize, events.as_ref())
     })
     .await
-    .map_err(internal)??;
-    Ok(Json(result))
 }
 
 #[derive(Deserialize)]
 struct CreateNote {
     llm: String,
-    #[serde(default = "default_template")]
+    #[serde(default = "soap")]
     template: String,
 }
 
-fn default_template() -> String {
+fn soap() -> String {
     "soap".into()
 }
 
-#[derive(Serialize)]
-struct NoteResponse {
-    markdown: String,
-    run_dir: String,
-    result: os_engine::NoteResult,
-}
-
 async fn create_note(
-    State(state): State<Shared>,
+    State(s): State<St>,
     UrlPath(id): UrlPath<String>,
     Json(req): Json<CreateNote>,
-) -> Result<Json<NoteResponse>, ApiError> {
-    let dir = session_dir(&state, &id)?;
-    let state2 = state.clone();
-    let result = tokio::task::spawn_blocking(move || -> Result<NoteResponse, ApiError> {
-        let _awake = AwakeGuard::acquire(AwakeReason::Processing);
-        let backend = load_llm(&state2, &req.llm)?;
-        let mut s = Session::open(&dir).map_err(internal)?;
-        let transcript = s.load_transcript().map_err(internal)?;
-        let template = LoadedTemplate::resolve(&req.template).map_err(internal)?;
-        let events = state2.events.clone();
-        let result = os_engine::generate_note(
-            backend.as_ref(),
-            &template,
-            &transcript,
-            &NoteOptions::default(),
-            &mut |p| {
-                let _ = events.send(ServerEvent::Token(p.to_string()));
-                true
-            },
-        )
-        .map_err(internal)?;
-        let run_dir = s.save_run(&req.llm, &result).map_err(internal)?;
-        Ok(NoteResponse { markdown: result.markdown.clone(), run_dir: run_dir.display().to_string(), result })
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || {
+        let events = s.events.clone();
+        s.app.generate_note(&id, &req.llm, &req.template, events.as_ref())
     })
     .await
-    .map_err(internal)??;
-    Ok(Json(result))
 }
 
-fn load_llm(state: &AppState, id: &str) -> Result<Arc<LlamaCppBackend>, ApiError> {
-    let mut slot = state.llm.lock().map_err(|_| internal("model lock poisoned"))?;
-    if let Some((loaded, backend)) = slot.as_ref() {
-        if loaded == id {
-            return Ok(backend.clone());
+#[derive(Deserialize)]
+struct Sign {
+    by: String,
+}
+
+async fn sign_note(
+    State(s): State<St>,
+    UrlPath(id): UrlPath<String>,
+    Json(req): Json<Sign>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app.sign(&id, &req.by)).await
+}
+
+async fn template(State(s): State<St>, UrlPath(id): UrlPath<String>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app.template(&id)).await
+}
+
+#[derive(Deserialize)]
+struct LiveQuery {
+    #[serde(default = "yes")]
+    speakers: bool,
+    #[serde(default = "rate")]
+    sample_rate: u32,
+}
+
+fn yes() -> bool {
+    true
+}
+fn rate() -> u32 {
+    16_000
+}
+
+/// Browser microphone streaming: binary messages are little-endian f32 PCM
+/// (mono, `sample_rate` Hz). Text "stop" ends the recording; the server replies
+/// with the saved encounter as JSON text, then closes.
+async fn live(State(s): State<St>, Query(q): Query<LiveQuery>, ws: WebSocketUpgrade) -> Response {
+    ws.on_upgrade(move |socket| live_session(s, q, socket))
+}
+
+async fn live_session(s: St, q: LiveQuery, mut socket: WebSocket) {
+    let (tx, rx) = std::sync::mpsc::channel::<AudioBlock>();
+    let events: Arc<dyn Events> = s.events.clone();
+    let started = {
+        let s = s.clone();
+        tokio::task::spawn_blocking(move || {
+            s.app.start_recording(RecordingSource::Stream(rx), q.speakers, events)
+        })
+        .await
+    };
+    match started {
+        Ok(Ok(id)) => {
+            let _ = socket.send(Message::Text(serde_json::json!({ "started": id }).to_string().into())).await;
+        }
+        Ok(Err(e)) => {
+            let _ = socket.send(Message::Text(serde_json::json!({ "error": e.0 }).to_string().into())).await;
+            return;
+        }
+        Err(e) => {
+            let _ = socket
+                .send(Message::Text(serde_json::json!({ "error": e.to_string() }).to_string().into()))
+                .await;
+            return;
         }
     }
-    *slot = None;
-    let path = os_engine::models::llm_path(&state.store, id).map_err(internal)?;
-    let backend = Arc::new(LlamaCppBackend::load(LlamaCppOptions::new(path)).map_err(internal)?);
-    *slot = Some((id.to_string(), backend.clone()));
-    Ok(backend)
+    while let Some(Ok(msg)) = socket.recv().await {
+        match msg {
+            Message::Binary(bytes) => {
+                let samples: Vec<f32> = bytes
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+                    .collect();
+                if tx.send(AudioBlock { samples, sample_rate: q.sample_rate }).is_err() {
+                    break;
+                }
+            }
+            Message::Text(t) if t.as_str() == "stop" => break,
+            Message::Close(_) => break,
+            _ => {}
+        }
+    }
+    drop(tx); // ends the stream source
+    let result = tokio::task::spawn_blocking(move || s.app.stop_recording()).await;
+    let reply = match result {
+        Ok(Ok(view)) => serde_json::json!({ "session": view }),
+        Ok(Err(e)) => serde_json::json!({ "error": e.0 }),
+        Err(e) => serde_json::json!({ "error": e.to_string() }),
+    };
+    let _ = socket.send(Message::Text(reply.to_string().into())).await;
+    let _ = socket.send(Message::Close(None)).await;
+}
+
+#[derive(Deserialize)]
+struct RecordStart {
+    #[serde(default)]
+    device: Option<String>,
+    #[serde(default = "yes")]
+    speakers: bool,
+}
+
+async fn record_start(
+    State(s): State<St>,
+    Json(req): Json<RecordStart>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || {
+        let events: Arc<dyn Events> = s.events.clone();
+        s.app.start_recording(RecordingSource::Microphone(req.device), req.speakers, events)
+    })
+    .await
+}
+
+async fn record_stop(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app.stop_recording()).await
+}
+
+async fn download_model(
+    State(s): State<St>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || {
+        let events = s.events.clone();
+        s.app.download_model(&id, None, events.as_ref())
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+struct Search {
+    #[serde(default)]
+    q: String,
+}
+
+async fn hub_search(State(s): State<St>, Query(q): Query<Search>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app.hub_search(&q.q)).await
+}
+
+#[derive(Deserialize)]
+struct RepoQuery {
+    id: String,
+}
+
+async fn hub_repo(State(s): State<St>, Query(q): Query<RepoQuery>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app.hub_repo(&q.id)).await
+}
+
+#[derive(Deserialize)]
+struct HubAdd {
+    repo: String,
+    file: String,
+    #[serde(default)]
+    accept_license: bool,
+}
+
+async fn hub_add(State(s): State<St>, Json(req): Json<HubAdd>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app.hub_add(&req.repo, &req.file, req.accept_license)).await
 }
 
 async fn events_stream(
-    State(state): State<Shared>,
+    State(s): State<St>,
 ) -> Sse<impl tokio_stream::Stream<Item = Result<Event, std::convert::Infallible>>> {
-    let stream = BroadcastStream::new(state.events.subscribe()).filter_map(|e| {
-        e.ok().map(|event| Ok(Event::default().json_data(&event).unwrap_or_else(|_| Event::default())))
-    });
+    let stream = BroadcastStream::new(s.events.0.subscribe())
+        .filter_map(|e| e.ok().map(|ev| Ok(Event::default().json_data(&ev).unwrap_or_default())));
     Sse::new(stream).keep_alive(KeepAlive::default())
 }

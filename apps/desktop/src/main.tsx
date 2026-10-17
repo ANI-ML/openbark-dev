@@ -1,6 +1,5 @@
-import "@openbark/ui/tokens.css";
-import "./app.css";
 import { applyTheme, readTheme } from "@openbark/ui";
+import "./app.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";

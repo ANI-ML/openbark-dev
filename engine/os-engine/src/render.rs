@@ -12,7 +12,7 @@ use crate::template::{FieldDef, LoadedTemplate, PartKind};
 use crate::transcript::Transcript;
 
 const NOT_DISCUSSED: &str = "Not discussed.";
-const FLAG: &str = " ⚠ *check against recording*";
+const FLAG: &str = " [check against recording]";
 
 pub fn markdown(
     template: &LoadedTemplate,
@@ -25,7 +25,7 @@ pub fn markdown(
         format!("# {}\n\n*Draft: not reviewed or signed by a veterinarian.*\n", template.template.name);
     if !flagged.is_empty() {
         out.push_str(&format!(
-            "\n> ⚠ {} item(s) could not be matched to the transcript and are marked below.\n",
+            "\n> {} item(s) could not be matched to the transcript and are marked [check against recording].\n",
             flagged.len()
         ));
     }
@@ -181,7 +181,7 @@ pub(crate) mod tests {
         assert!(md.starts_with("# SOAP note\n\n*Draft"));
         // patient + 13 parts across S/O/A/P
         assert_eq!(md.matches(NOT_DISCUSSED).count(), 14, "{md}");
-        assert!(!md.contains('⚠'));
+        assert!(!md.contains("check against recording"));
     }
 
     #[test]
@@ -196,7 +196,10 @@ pub(crate) mod tests {
         let md = markdown(&template, &note, &transcript(), &report);
         assert!(md.contains("- Vomiting for 2 days [0]\n"), "{md}");
         assert!(md.contains("- Temperature: 39.4 °C [1]\n"));
-        assert!(md.contains("- HR: 140 bpm [1] ⚠"), "invented HR must be flagged:\n{md}");
+        assert!(
+            md.contains("- HR: 140 bpm [1] [check against recording]"),
+            "invented HR must be flagged:\n{md}"
+        );
         assert!(md.contains("- Not discussed: Weight, RR, MM, CRT, Hydration, BCS, Pain score\n"));
         assert!(md.contains("- Maropitant (dose/route/frequency not stated) [0]\n"));
         assert!(md.contains("1 item(s) could not be matched"));

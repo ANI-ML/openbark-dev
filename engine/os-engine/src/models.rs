@@ -10,9 +10,9 @@ use crate::{EngineError, Transcriber};
 
 pub const DEFAULT_STT: &str = "parakeet-tdt-0.6b-v3-int8";
 pub const DEFAULT_LLM: &str = "gemma-4-e4b-it-q4_0";
-const VAD: &str = "silero-vad";
-const SEGMENTATION: &str = "pyannote-segmentation-3.0";
-const EMBEDDING: &str = "wespeaker-en-resnet34-lm";
+pub const VAD: &str = "silero-vad";
+pub const SEGMENTATION: &str = "pyannote-segmentation-3.0";
+pub const EMBEDDING: &str = "wespeaker-en-resnet34-lm";
 
 fn installed<'a>(
     catalog: &'a Catalog,

@@ -2,11 +2,11 @@
 
 use std::path::Path;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::EngineError;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Presence {
     Required,
@@ -14,7 +14,7 @@ pub enum Presence {
     IfDiscussed,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PartKind {
     Statements,
@@ -22,13 +22,13 @@ pub enum PartKind {
     Medications,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct FieldDef {
     pub key: String,
     pub label: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Part {
     pub key: String,
     pub label: String,
@@ -40,7 +40,7 @@ pub struct Part {
     pub fields: Vec<FieldDef>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Section {
     pub id: String,
     pub title: String,
@@ -54,7 +54,7 @@ pub struct Section {
     pub parts: Vec<Part>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Template {
     pub id: String,
     pub version: String,

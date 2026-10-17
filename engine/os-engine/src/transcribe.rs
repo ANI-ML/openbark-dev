@@ -121,10 +121,10 @@ impl Transcriber {
 fn merge_speaker_ids(transcript: &mut Transcript) {
     let mut order: Vec<u32> = Vec::new();
     for s in &transcript.segments {
-        if let Some(id) = s.speaker {
-            if !order.contains(&id) {
-                order.push(id);
-            }
+        if let Some(id) = s.speaker
+            && !order.contains(&id)
+        {
+            order.push(id);
         }
     }
     for s in &mut transcript.segments {

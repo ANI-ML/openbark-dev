@@ -6,6 +6,7 @@ members = [
     "engine/os-diar",
     "engine/os-models",
     "engine/os-engine",
+    "engine/os-app",
     "engine/os-server",
     "engine/os-cli",
     "tools/fixture-tts",
@@ -48,8 +49,9 @@ chrono = { version = "0.4.45", default-features = false, features = ["clock", "s
 uuid = { version = "1.28.0", features = ["v7", "serde"] }
 # Desktop sleep prevention (Windows/macOS/Linux). Mobile uses native APIs (spike S1).
 keepawake = "=0.6.1"
+cpal = "=0.18.2"
 # Local web mode (seed of the Clinic Hub API).
-axum = "0.8.9"
+axum = { version = "0.8.9", features = ["ws"] }
 tokio = { version = "1.53.3", features = ["rt-multi-thread", "macros", "net", "sync"] }
 tokio-stream = { version = "0.1.19", features = ["sync"] }
 tower = { version = "0.5", features = ["util"] }
@@ -66,6 +68,7 @@ os-diar = { path = "engine/os-diar" }
 os-models = { path = "engine/os-models" }
 os-engine = { path = "engine/os-engine" }
 os-server = { path = "engine/os-server" }
+os-app = { path = "engine/os-app" }
 
 [profile.release]
 lto = "thin"

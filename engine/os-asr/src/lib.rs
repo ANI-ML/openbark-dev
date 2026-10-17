@@ -4,15 +4,18 @@
 //! ONNX Runtime and no second copy of ggml (ADR-0001, spike S2).
 
 mod audio;
+pub mod capture;
 mod recognizer;
 mod vad;
+mod wav;
 
 /// Re-exported so other crates share this crate's link-mode decision.
 pub use sherpa_onnx;
 
 pub use audio::{Audio, AudioError, SAMPLE_RATE};
 pub use recognizer::{AsrModel, OfflineAsr};
-pub use vad::{SileroVad, SpeechSpan, VadOptions};
+pub use vad::{SileroVad, SpeechSpan, StreamingVad, Utterance, VadOptions};
+pub use wav::WavWriter;
 
 use serde::Serialize;
 

@@ -9,10 +9,12 @@
     "build": "tsc -p tsconfig.json && vite build",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
+    "screenshots": "node e2e/screenshots.mjs",
     "tauri": "tauri"
   },
   "dependencies": {
     "@openbark/ui": "workspace:*",
+    "@phosphor-icons/react": "catalog:",
     "@tauri-apps/api": "catalog:",
     "@tauri-apps/plugin-dialog": "catalog:",
     "@tauri-apps/plugin-opener": "catalog:",
@@ -20,6 +22,7 @@
     "react-dom": "catalog:"
   },
   "devDependencies": {
+    "@playwright/test": "catalog:",
     "@tauri-apps/cli": "catalog:",
     "@testing-library/react": "catalog:",
     "@types/react": "catalog:",

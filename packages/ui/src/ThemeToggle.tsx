@@ -7,7 +7,7 @@ const OPTIONS: { value: ThemeChoice; label: string }[] = [
   { value: "dark", label: "Dark" },
 ];
 
-/** Explicit light/dark/system switch (a segmented control). */
+/** Explicit light/dark/system choice (DESIGN.md §9: user-overridable). */
 export function ThemeToggle() {
   const [choice, setChoice] = useState<ThemeChoice>(() => readTheme());
 
@@ -16,16 +16,14 @@ export function ThemeToggle() {
   }, [choice]);
 
   return (
-    <div role="radiogroup" aria-label="Theme" style={{ display: "inline-flex", gap: 2 }}>
+    <div role="radiogroup" aria-label="Theme" className="ob-segmented">
       {OPTIONS.map((o) => (
         <button
           key={o.value}
           type="button"
           role="radio"
           aria-checked={choice === o.value}
-          className="ob-button"
-          data-variant={choice === o.value ? "primary" : "ghost"}
-          style={{ minHeight: 32, padding: "0 10px", fontSize: "var(--text-sm)" }}
+          className="ob-segment"
           onClick={() => setChoice(o.value)}
         >
           {o.label}

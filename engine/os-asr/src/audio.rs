@@ -26,7 +26,7 @@ impl Audio {
     pub fn load_wav(path: &Path) -> Result<Self, AudioError> {
         let display = path.display().to_string();
         let wave = sherpa_onnx::Wave::read(path.to_str().ok_or_else(|| AudioError::Read(display.clone()))?)
-            .ok_or_else(|| AudioError::Read(display))?;
+            .ok_or(AudioError::Read(display))?;
         let rate = wave.sample_rate();
         let samples = if rate == SAMPLE_RATE as i32 {
             wave.samples().to_vec()

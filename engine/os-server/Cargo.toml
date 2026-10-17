@@ -7,9 +7,8 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-os-asr.workspace = true
+os-app.workspace = true
 os-engine.workspace = true
-os-llm.workspace = true
 os-models.workspace = true
 axum.workspace = true
 tokio.workspace = true
@@ -19,4 +18,3 @@ tower-http.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
-tempfile.workspace = true
