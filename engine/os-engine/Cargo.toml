@@ -1,0 +1,30 @@
+[package]
+name = "os-engine"
+description = "OpenBark scribe pipeline: transcribe, generate notes, check faithfulness, render"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+os-asr.workspace = true
+os-diar.workspace = true
+os-llm.workspace = true
+os-models.workspace = true
+jsonschema.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml_ng.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+sha2.workspace = true
+hex.workspace = true
+dirs.workspace = true
+tracing.workspace = true
+
+[target.'cfg(any(windows, target_os = "macos", target_os = "linux"))'.dependencies]
+keepawake.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

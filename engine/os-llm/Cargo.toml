@@ -1,0 +1,22 @@
+[package]
+name = "os-llm"
+description = "LLM backends for the OpenBark engine (llama.cpp via llama-cpp-2)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+default = []
+cuda = ["llama-cpp-2/cuda"]
+vulkan = ["llama-cpp-2/vulkan"]
+metal = ["llama-cpp-2/metal"]
+
+[dependencies]
+llama-cpp-2.workspace = true
+minijinja.workspace = true
+minijinja-contrib.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true

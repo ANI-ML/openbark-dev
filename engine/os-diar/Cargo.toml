@@ -1,0 +1,12 @@
+[package]
+name = "os-diar"
+description = "Speaker diarization for the OpenBark engine (sherpa-onnx pyannote + speaker embeddings)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+os-asr.workspace = true
+serde.workspace = true
+thiserror.workspace = true

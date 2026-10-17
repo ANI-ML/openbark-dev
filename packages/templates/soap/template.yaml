@@ -1,0 +1,87 @@
+# OpenBark template: SOAP note (general practice).
+# The JSON Schema (schema.json) is the structured core the model must fill;
+# this file carries the writing instructions and how sections render.
+id: soap
+version: 0.1.0
+name: SOAP note
+description: General-practice veterinary SOAP note for any species.
+schema: schema.json
+language: en
+
+instructions: |
+  Write the medical record for this veterinary consultation as a SOAP note.
+  Use concise clinical veterinary English as a veterinarian would chart it.
+  Use standard abbreviations only where they are unambiguous (e.g. BID, PO, SID, q8h, HR, RR, MM, CRT, BCS).
+  The transcript is from a recording; speakers are labelled by number, not role. Infer roles from context
+  (the veterinarian examines and recommends; the client describes history), but never put words in a
+  speaker's mouth.
+
+rules:
+  - Use only information stated in the transcript. Do not add findings, diagnoses, vitals, doses or plans that were not said.
+  - If something was not discussed, leave the array empty or the field null. Never write "normal" or "within normal limits" unless that was said.
+  - Copy numbers (vitals, weights, doses, durations) exactly as stated, with their units.
+  - Every statement and field must cite the transcript segment ids it comes from in "evidence".
+  - Differentials only if the veterinarian voiced them.
+  - Keep each statement to one clinical fact or action.
+
+sections:
+  - id: patient
+    title: Patient
+    presence: optional
+    kind: fields
+    fields:
+      - { key: name, label: Name }
+      - { key: species, label: Species }
+      - { key: breed, label: Breed }
+      - { key: age, label: Age }
+      - { key: sex, label: Sex }
+
+  - id: subjective
+    title: Subjective
+    presence: required
+    parts:
+      - { key: chief_complaint, label: Chief complaint, kind: statements, presence: required,
+          instruction: "Reason for the visit in the client's terms." }
+      - { key: history, label: History, kind: statements, presence: if_discussed,
+          instruction: "Onset, duration, progression, appetite, vomiting/diarrhoea, energy, relevant past history." }
+      - { key: current_medications_and_diet, label: Current medications and diet, kind: statements, presence: if_discussed }
+
+  - id: objective
+    title: Objective
+    presence: required
+    parts:
+      - key: vitals
+        label: Vitals
+        kind: fields
+        presence: if_discussed
+        fields:
+          - { key: weight, label: Weight }
+          - { key: temperature, label: Temperature }
+          - { key: heart_rate, label: HR }
+          - { key: respiratory_rate, label: RR }
+          - { key: mucous_membranes, label: MM }
+          - { key: capillary_refill_time, label: CRT }
+          - { key: hydration, label: Hydration }
+          - { key: body_condition_score, label: BCS }
+          - { key: pain_score, label: Pain score }
+      - { key: physical_exam, label: Physical exam, kind: statements, presence: if_discussed,
+          instruction: "Findings the veterinarian stated during the exam, by body system." }
+      - { key: diagnostic_results, label: Diagnostic results, kind: statements, presence: if_discussed }
+
+  - id: assessment
+    title: Assessment
+    presence: required
+    parts:
+      - { key: problems, label: Problems / diagnoses, kind: statements, presence: required }
+      - { key: differentials, label: Differentials, kind: statements, presence: if_discussed }
+
+  - id: plan
+    title: Plan
+    presence: required
+    parts:
+      - { key: diagnostics, label: Diagnostics, kind: statements, presence: if_discussed }
+      - { key: medications, label: Medications, kind: medications, presence: if_discussed }
+      - { key: procedures_and_treatments, label: Procedures and treatments, kind: statements, presence: if_discussed }
+      - { key: client_communication, label: Client communication, kind: statements, presence: if_discussed,
+          instruction: "Advice, warnings and consent given to the client." }
+      - { key: follow_up, label: Follow-up, kind: statements, presence: if_discussed }

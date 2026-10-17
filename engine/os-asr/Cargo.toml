@@ -1,0 +1,24 @@
+[package]
+name = "os-asr"
+description = "Speech-to-text and VAD for the OpenBark engine (sherpa-onnx)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+# os-asr is the only crate that depends on sherpa-onnx directly; others use
+# the `os_asr::sherpa_onnx` re-export, so the link mode is decided once, here.
+#
+# Windows: the prebuilt static libs use the static CRT (/MT) and fail to link
+# next to llama.cpp (/MD) with LNK2038, so use DLLs (spike S2, finding 1).
+# Android/iOS: sherpa-onnx only ships shared libraries for mobile.
+[target.'cfg(any(windows, target_os = "android", target_os = "ios"))'.dependencies]
+sherpa-onnx = { workspace = true, features = ["shared"] }
+
+[target.'cfg(not(any(windows, target_os = "android", target_os = "ios")))'.dependencies]
+sherpa-onnx = { workspace = true, features = ["static"] }
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
