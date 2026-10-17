@@ -1,0 +1,19 @@
+OpenBark
+Copyright 2026 ANIML and OpenBark contributors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Third-party models that OpenBark can download are not distributed in this
+repository. When a model is offered in the app's catalog, its license and any
+required attribution are shown before download. Attributions required by
+models in the default catalog:
+
+- Parakeet TDT 0.6B v3, by NVIDIA, licensed under CC-BY-4.0.
+  https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3
+
+- Gemma 4 models, by Google, licensed under Apache-2.0.
+  "Gemma" is a trademark of Google LLC. OpenBark is not affiliated with or
+  endorsed by Google.
+
+Further attributions (speaker-embedding models, VAD, third-party libraries)
+are added here when those components are adopted.

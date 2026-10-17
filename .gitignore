@@ -1,0 +1,36 @@
+# Rust
+target/
+
+# Node
+node_modules/
+.turbo/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Tauri
+apps/*/src-tauri/target/
+apps/*/src-tauri/gen/schemas/
+
+# Models and large artifacts are never committed
+models/
+*.gguf
+*.onnx
+*.litertlm
+*.bin
+!packages/eval/fixtures/**/*.bin
+
+# Local data (patient audio and notes must never be committed)
+*.db
+*.sqlite
+recordings/
+.env
+.env.*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/
