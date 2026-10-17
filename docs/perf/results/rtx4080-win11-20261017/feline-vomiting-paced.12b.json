@@ -1,0 +1,111 @@
+{
+  "audio": "packages/eval/fixtures/audio/feline-vomiting-paced.wav",
+  "audio_secs": 576.2783813476562,
+  "devices": [
+    {
+      "backend": "CUDA",
+      "description": "NVIDIA GeForce RTX 4080",
+      "memory_total_bytes": 17170956288,
+      "name": "CUDA0"
+    },
+    {
+      "backend": "CPU",
+      "description": "12th Gen Intel(R) Core(TM) i7-12700KF",
+      "memory_total_bytes": 68523753472,
+      "name": "CPU"
+    }
+  ],
+  "faithfulness": {
+    "citation_mismatches": [
+      {
+        "cited": [
+          42,
+          54
+        ],
+        "found_in": [
+          27
+        ],
+        "number": "2",
+        "path": "/plan/client_communication/3"
+      },
+      {
+        "cited": [
+          50
+        ],
+        "found_in": [
+          14,
+          31,
+          44
+        ],
+        "number": "1",
+        "path": "/plan/procedures_and_treatments/2"
+      },
+      {
+        "cited": [
+          2,
+          3
+        ],
+        "found_in": [
+          4,
+          50,
+          53
+        ],
+        "number": "3",
+        "path": "/subjective/history/0"
+      },
+      {
+        "cited": [
+          2,
+          3
+        ],
+        "found_in": [
+          14,
+          31,
+          44
+        ],
+        "number": "1",
+        "path": "/subjective/history/0"
+      },
+      {
+        "cited": [
+          2,
+          3
+        ],
+        "found_in": [
+          27
+        ],
+        "number": "2",
+        "path": "/subjective/history/0"
+      }
+    ],
+    "invalid_evidence": [],
+    "numbers_checked": 25,
+    "passed": true,
+    "statements_checked": 59,
+    "unsupported_numbers": []
+  },
+  "llm": "gemma-4-12b-it-qat-q4_0",
+  "llm_load_ms": 5268,
+  "note": {
+    "completion_tokens": 1384,
+    "hit_max_tokens": false,
+    "prompt_tokens": 2594,
+    "time_to_first_token_ms": 1450,
+    "tokens_per_second": 22.175150196305918,
+    "total_ms": 63862
+  },
+  "peak_rss_mb": 7246,
+  "stt": "parakeet-tdt-0.6b-v3-int8",
+  "template": "soap@0.1.0",
+  "transcribe": {
+    "asr_ms": 41321,
+    "audio_secs": 576.2783813476562,
+    "diarization_ms": 39319,
+    "rtf": 0.07628604769706726,
+    "segments": 57,
+    "speakers": 2,
+    "total_ms": 43962,
+    "vad_ms": 2640
+  },
+  "wall_ms": 115127
+}

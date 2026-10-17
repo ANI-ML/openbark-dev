@@ -21,6 +21,11 @@ models/
 *.bin
 !packages/eval/fixtures/**/*.bin
 
+# Synthetic fixture audio is regenerated with tools/fixture-tts; only the
+# short CI smoke clip is committed.
+packages/eval/fixtures/audio/*.wav
+!packages/eval/fixtures/audio/smoke.wav
+
 # Local data (patient audio and notes must never be committed)
 *.db
 *.sqlite

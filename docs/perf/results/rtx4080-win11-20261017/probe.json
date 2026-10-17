@@ -1,0 +1,30 @@
+{
+  "arch": "x86_64",
+  "audio_backend": "sherpa-onnx (cpu)",
+  "cpu": "12th Gen Intel(R) Core(TM) i7-12700KF",
+  "llm_backends_compiled": [
+    "cuda",
+    "cpu"
+  ],
+  "llm_devices": [
+    {
+      "backend": "CUDA",
+      "description": "NVIDIA GeForce RTX 4080",
+      "memory_total_bytes": 17170956288,
+      "name": "CUDA0"
+    },
+    {
+      "backend": "CPU",
+      "description": "12th Gen Intel(R) Core(TM) i7-12700KF",
+      "memory_total_bytes": 68523753472,
+      "name": "CPU"
+    }
+  ],
+  "logical_cores": 20,
+  "os": "Windows 11 Pro",
+  "physical_cores": 12,
+  "product": "OpenBark",
+  "ram_available_gb": 40.992739328,
+  "ram_total_gb": 68.523753472,
+  "version": "0.0.1"
+}
