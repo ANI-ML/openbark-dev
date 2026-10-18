@@ -39,3 +39,6 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 .idea/
+
+# The website is served from its built folder (website/README.md).
+!website/dist/
