@@ -5,7 +5,7 @@ packages:
 # Versions verified 2026-10-17 (docs/versions.md). Exact pins: many are days old.
 catalog:
   turbo: 2.11.9
-  typescript: 6.0.3
+  typescript: 7.0.2
   react: 19.3.1
   react-dom: 19.3.1
   "@types/react": 19.3.0
