@@ -860,6 +860,31 @@ pub fn empty_note(t: &Template) -> Value {
 mod tests {
     use super::*;
 
+    /// The model writes headings in the schema's order (llama.cpp's grammar
+    /// follows it), so the schema must keep the template's order: before
+    /// serde_json's preserve_order it was alphabetical, Assessment first and
+    /// Subjective last.
+    #[test]
+    fn schema_keeps_the_templates_heading_order() {
+        let t = LoadedTemplate::builtin("soap").unwrap();
+        let sections: Vec<&str> = t.template.sections.iter().map(|s| s.id.as_str()).collect();
+        let in_schema: Vec<&str> =
+            t.schema["properties"].as_object().unwrap().keys().map(String::as_str).collect();
+        assert_eq!(in_schema, sections);
+        assert!(
+            t.schema_text.find("\"subjective\"").unwrap() < t.schema_text.find("\"assessment\"").unwrap()
+        );
+        let plan = t.template.sections.iter().find(|s| s.id == "plan").unwrap();
+        let parts: Vec<&str> = plan.parts.iter().map(|p| p.key.as_str()).collect();
+        let in_schema: Vec<&str> = t.schema["properties"]["plan"]["properties"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(in_schema, parts);
+    }
+
     #[test]
     fn builtin_soap_loads() {
         let t = LoadedTemplate::builtin("soap").unwrap();

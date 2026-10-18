@@ -1097,16 +1097,24 @@ impl App {
                 Some(os_engine::note::Reference::from_note(&saved["note"], &markdown))
             })
         };
-        let backend = self.load_llm(llm)?;
+        let backend = self.load_llm_with_progress(llm, events)?;
         let transcript = s.load_transcript()?;
         let options = NoteOptions { reference, ..self.note_options(&s, language.map(String::from)) };
+        // The drafting board (Review): reading, then writing from the first word.
+        events.progress(&Progress::new(Stage::ReadTranscript, 0.0, transcript.segments.len() as f32));
+        let mut first = true;
         let mut result =
             os_engine::generate_note(backend.as_ref(), &template, &transcript, &options, &mut |p| {
+                if std::mem::take(&mut first) {
+                    events.progress(&Progress::new(Stage::Write, 0.0, 0.0));
+                }
                 events.token(p);
                 true
             })?;
+        events.progress(&Progress::new(Stage::Verify, 1.0, 1.0));
         result.by = who;
         result.markdown = with_header(&s, &result.markdown);
+        events.progress(&Progress::new(Stage::Save, 0.0, 1.0));
         s.save_run(llm, &result, &template)?;
         Ok(NoteResponse { markdown: result.markdown.clone(), run: serde_json::to_value(&result)? })
     }
@@ -1148,9 +1156,11 @@ impl App {
             })?;
         }
         let _awake = AwakeGuard::acquire(AwakeReason::Processing);
-        let backend = self.load_llm(&request.llm)?;
+        let backend = self.load_llm_with_progress(&request.llm, events)?;
         let transcript = s.load_transcript()?;
         let options = self.note_options(&s, request.language.clone());
+        events.progress(&Progress::new(Stage::ReadTranscript, 0.0, transcript.segments.len() as f32));
+        let mut first = true;
         let mut result = os_engine::refine_note(
             backend.as_ref(),
             &template,
@@ -1160,10 +1170,14 @@ impl App {
             &request.request,
             &options,
             &mut |p| {
+                if std::mem::take(&mut first) {
+                    events.progress(&Progress::new(Stage::Write, 0.0, 0.0));
+                }
                 events.token(p);
                 true
             },
         )?;
+        events.progress(&Progress::new(Stage::Verify, 1.0, 1.0));
         if request.save_as_standard {
             self.templates.add_standard(
                 &template.template.id,
@@ -1353,6 +1367,16 @@ impl App {
     pub fn remove_standard(&self, id: &str, standard_id: &str) -> Result<TemplateView> {
         self.templates.remove_standard(id, standard_id)?;
         self.template(id)
+    }
+
+    /// [`App::load_llm`], telling the drafting board when the model has to be
+    /// loaded first (it stays loaded for the next draft).
+    fn load_llm_with_progress(&self, id: &str, events: &dyn Events) -> Result<Arc<LlamaCppBackend>> {
+        let loaded = self.llm.lock().map(|slot| slot.as_ref().is_some_and(|(l, _)| l == id)).unwrap_or(false);
+        if !loaded {
+            events.progress(&Progress::new(Stage::LoadModel, 0.0, 1.0));
+        }
+        self.load_llm(id)
     }
 
     fn load_llm(&self, id: &str) -> Result<Arc<LlamaCppBackend>> {

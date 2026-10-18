@@ -1,5 +1,5 @@
 import { Button } from "@openbark/ui";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { Standard } from "../engine";
 import { useT } from "../i18n";
 
@@ -14,7 +14,8 @@ export interface RefinePanelProps {
   /** False when the template can't take standards (deleted since drafting). */
   canSave: boolean;
   busy: boolean;
-  progress: number;
+  /** The drafting board shown while the heading is redrafted. */
+  board: ReactNode;
   onSubmit: (request: string, saveAsStandard: boolean) => void;
   onCancel: () => void;
 }
@@ -37,7 +38,7 @@ export function RefinePanel({
   standards,
   canSave,
   busy,
-  progress,
+  board,
   onSubmit,
   onCancel,
 }: RefinePanelProps) {
@@ -77,7 +78,11 @@ export function RefinePanel({
         rows={2}
         value={request}
         disabled={busy}
-        placeholder={own[0] ? t("For example: {example}", { example: own[0] }) : t("For example: list every fluid with its volume and rate")}
+        placeholder={
+          own[0]
+            ? t("For example: {example}", { example: own[0] })
+            : t("For example: list every fluid with its volume and rate")
+        }
         onChange={(e) => setRequest(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && request.trim()) {
@@ -135,7 +140,9 @@ export function RefinePanel({
           <span>
             {alreadyStandard
               ? t("Already a standard in {template}.", { template: templateName })
-              : t("Save as a standard: every {template} draft follows it under this heading.", { template: templateName })}
+              : t("Save as a standard: every {template} draft follows it under this heading.", {
+                  template: templateName,
+                })}
           </span>
         </label>
       )}
@@ -144,11 +151,7 @@ export function RefinePanel({
           "The request steers the model; it isn't evidence. Anything not said in the recording stays out, and numbers are checked again.",
         )}
       </p>
-      {busy && (
-        <div className="ob-progress" role="progressbar" aria-label={t("Redrafting {heading}", { heading: title })}>
-          <span style={{ transform: `scaleX(${progress})` }} />
-        </div>
-      )}
+      {busy && board}
       <div className="ask-actions">
         <Button type="submit" variant="primary" disabled={busy || !request.trim()}>
           {busy ? t("Redrafting") : t("Redraft {heading}", { heading: title.split(" > ").pop() ?? "" })}

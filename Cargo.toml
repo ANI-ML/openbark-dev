@@ -29,7 +29,10 @@ sherpa-onnx = { version = "=1.13.8", default-features = false }
 anyhow = "1.0.104"
 thiserror = "2.0.21"
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.154"
+# preserve_order: JSON keeps insertion order, so a template's schema lists its
+# headings in the template's order and the model writes them in that order
+# (alphabetical before: Assessment ahead of Subjective).
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
 serde_yaml_ng = "0.10.0"
 clap = { version = "4.6.7", features = ["derive", "env"] }
 tracing = "0.1.44"

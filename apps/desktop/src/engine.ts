@@ -872,7 +872,18 @@ function pickBrowserFile(): Promise<File | null> {
  * and `save`; web mode adds `upload` (bytes) and `convert` (the browser
  * decoding a format the engine can't read).
  */
-export type ProcessingStage = "upload" | "convert" | "read" | "transcribe" | "check" | "save";
+export type ProcessingStage =
+  | "upload"
+  | "convert"
+  | "read"
+  | "transcribe"
+  | "check"
+  | "save"
+  // Drafting a note (the drafting board in Review).
+  | "load_model"
+  | "read_transcript"
+  | "write"
+  | "verify";
 export interface ProcessingProgress {
   stage: ProcessingStage;
   done: number;

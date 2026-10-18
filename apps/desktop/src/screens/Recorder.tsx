@@ -55,7 +55,10 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
     const offs = [
       engine.on("segment", (s) => setSegments((prev) => (prev.some((p) => p.id === s.id) ? prev : [...prev, s]))),
       engine.on("level", (l) => setElapsed(l.seconds)),
-      engine.on("progress", setProgress),
+      // Transcription steps only: drafting (Review) reports on the same channel.
+      engine.on("progress", (p) => {
+        if (["upload", "convert", "read", "transcribe", "check", "save"].includes(p.stage)) setProgress(p);
+      }),
     ];
     engine.listTemplates().then(setTemplates, () => {});
     return () => offs.forEach((p) => void p.then((f) => f()));
@@ -258,7 +261,9 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
               <span className="small muted">{statusLine}</span>
             </div>
             <Waveform levels={app.levels} bars={48} className={`stage-wave ${live ? "wave-live" : "wave-idle"}`} />
-            {(state === "importing" || state === "stopping") && <ProcessingBar progress={progress} />}
+            {(state === "importing" || state === "stopping") && (
+              <ProcessingBar progress={progress} mode={state === "importing" ? "import" : "finish"} />
+            )}
           </div>
           <div className="recorder-transcript">
             {segments.length === 0 ? (

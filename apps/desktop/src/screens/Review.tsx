@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { NoteView } from "../components/NoteView";
 import { PatientFields } from "../components/PatientFields";
 import { DocumentSheet } from "../components/DocumentSheet";
+import { DraftBoard, useDraftTracker } from "../components/DraftProgress";
 import { HeadingEditor } from "../components/HeadingEditor";
 import { RefinePanel } from "../components/RefinePanel";
 import { headingExamples } from "../promptExamples";
@@ -46,7 +47,11 @@ export function Review({
   const [docLanguage, setDocLanguage] = useState<string>(app.settings.noteLanguage);
   const [refining, setRefining] = useState(false);
   const [generating, setGenerating] = useState(false);
-  const [tokens, setTokens] = useState(0);
+  /** The drafting board: what's being drafted, with which template's headings. */
+  const tracker = useDraftTracker();
+  const [draftingWith, setDraftingWith] = useState<engine.Template | null>(null);
+  /** A multi-pet visit drafted one animal after another: which one, of how many. */
+  const [petRound, setPetRound] = useState<{ pet: string; i: number; n: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lit, setLit] = useState<Set<number>>(new Set());
   const [playingId, setPlayingId] = useState<number | null>(null);
@@ -66,9 +71,17 @@ export function Review({
   useEffect(() => {
     void load();
     engine.listTemplates().then(setTemplates, () => {});
-    const off = engine.on("token", () => setTokens((n) => n + 1));
-    return () => void off.then((f) => f());
   }, [load]);
+
+  /** The template a draft is using, for the board's list of headings. */
+  const loadDraftTemplate = useCallback(
+    (templateId: string) =>
+      engine.template(templateId).then(
+        (v) => setDraftingWith(v.template),
+        () => setDraftingWith(null),
+      ),
+    [],
+  );
 
   // The recording is decrypted for playback (ADR-0008).
   const viewId = view?.id;
@@ -110,8 +123,9 @@ export function Review({
 
   const draft = useCallback(async () => {
     setError(null);
-    setTokens(0);
     setGenerating(true);
+    void loadDraftTemplate(chosen);
+    tracker.start();
     try {
       await engine.generateNote(id, app.settings.llm, chosen, app.settings.noteLanguage, pet);
       await load();
@@ -119,18 +133,21 @@ export function Review({
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
+      tracker.stop();
       setGenerating(false);
     }
-  }, [id, app, load, chosen, t, pet]);
+  }, [id, app, load, chosen, t, pet, tracker, loadDraftTemplate]);
 
   /** After a multi-pet recording: one note per animal, one after another. */
   const draftAll = useCallback(
     async (pets: string[]) => {
       setError(null);
       setGenerating(true);
+      void loadDraftTemplate(chosen);
       try {
-        for (const p of pets) {
-          setTokens(0);
+        for (const [i, p] of pets.entries()) {
+          setPetRound({ pet: p, i: i + 1, n: pets.length });
+          tracker.start();
           await engine.generateNote(id, app.settings.llm, chosen, app.settings.noteLanguage, p);
         }
         await load();
@@ -138,17 +155,20 @@ export function Review({
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       } finally {
+        tracker.stop();
+        setPetRound(null);
         setGenerating(false);
       }
     },
-    [id, app, load, chosen, t],
+    [id, app, load, chosen, t, tracker, loadDraftTemplate],
   );
 
   async function draftDocument(templateId: string, language = docLanguage) {
     setError(null);
-    setTokens(0);
     setDrafting(templateId);
     setOpenDoc(templateId);
+    void loadDraftTemplate(templateId);
+    tracker.start();
     try {
       await engine.generateNote(id, app.settings.llm, templateId, language, pet);
       await load();
@@ -156,6 +176,7 @@ export function Review({
       setError(e instanceof Error ? e.message : String(e));
       setOpenDoc(null);
     } finally {
+      tracker.stop();
       setDrafting(null);
     }
   }
@@ -198,8 +219,8 @@ export function Review({
   async function refine(heading: string, request: string, saveAsStandard: boolean) {
     if (!template) return;
     setError(null);
-    setTokens(0);
     setRefining(true);
+    tracker.start();
     try {
       await engine.refineNote(id, {
         llm: app.settings.llm,
@@ -222,6 +243,7 @@ export function Review({
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
+      tracker.stop();
       setRefining(false);
     }
   }
@@ -341,7 +363,32 @@ export function Review({
     (run?.faithfulness.unsupported_statements?.length ?? 0);
   const disputed = run?.faithfulness.disputed_numbers?.length ?? 0;
   const signed = Boolean(view?.signed_at);
-  const progress = Math.min(0.95, tokens / 1400);
+  const lines = segments.length;
+  const lastSecs = run ? run.stats.total_ms / 1000 : null;
+  const draftingName = draftingWith ? templateName(t, draftingWith.name) : "";
+  /** The board for the note: a first draft, a redraft, or one animal of several. */
+  const noteBoard = generating && (
+    <DraftBoard
+      tracker={tracker}
+      template={draftingWith}
+      title={
+        petRound
+          ? t("Drafting {pet}'s note", { pet: petRound.pet })
+          : run
+            ? t("Drafting again with {template}", { template: draftingName })
+            : t("Drafting the note with {template}", { template: draftingName })
+      }
+      subtitle={
+        petRound
+          ? t("Animal {i} of {n}", { i: petRound.i, n: petRound.n })
+          : run
+            ? t("The current draft stays until the new one is ready. Earlier drafts are kept.")
+            : undefined
+      }
+      lines={lines}
+      lastSecs={lastSecs}
+    />
+  );
 
   return (
     <div className="screen review">
@@ -510,13 +557,9 @@ export function Review({
         </section>
 
         <section className="pane pane-note" aria-label={t("Note")}>
-          {generating && (
-            <div className="ob-progress" role="progressbar" aria-label={t("Drafting the note")}>
-              <span style={{ transform: `scaleX(${progress})` }} />
-            </div>
-          )}
+          {noteBoard && <div className="draft-board-wrap">{noteBoard}</div>}
           {run && template ? (
-            <>
+            <div className={generating ? "note-under-redraft" : undefined} aria-busy={generating || undefined}>
               {(hardFails > 0 || softFlags > 0 || disputed > 0) && (
                 <p className="ob-notice note-summary" data-tone={hardFails ? "danger" : undefined}>
                   {hardFails > 0 &&
@@ -577,7 +620,15 @@ export function Review({
                       standards={(current?.template.standards ?? []).filter((s) => s.heading === heading)}
                       canSave={current != null}
                       busy={refining}
-                      progress={Math.min(0.95, tokens / 400)}
+                      board={
+                        <DraftBoard
+                          compact
+                          tracker={tracker}
+                          template={null}
+                          title={t("Redrafting {heading}", { heading: engine.headingTitle(template, heading) })}
+                          lines={lines}
+                        />
+                      }
                       onSubmit={(request, save) => void refine(heading, request, save)}
                       onCancel={() => setAsking(null)}
                     />
@@ -684,17 +735,13 @@ export function Review({
                   )}
                 </section>
               )}
-            </>
-          ) : (
-            <div className="pane-pad">
-              {generating ? (
-                <p className="small muted">
-                  {t("Writing the draft. Numbers are checked against the transcript when it finishes.")}
-                </p>
-              ) : (
-                <p className="small muted">{t("No draft yet. Draft the note to see it here.")}</p>
-              )}
             </div>
+          ) : (
+            !generating && (
+              <div className="pane-pad">
+                <p className="small muted">{t("No draft yet. Draft the note to see it here.")}</p>
+              </div>
+            )
           )}
         </section>
       </div>
@@ -711,7 +758,17 @@ export function Review({
             }
           }
           busy={drafting === openDoc}
-          progress={Math.min(0.95, tokens / 900)}
+          board={
+            <DraftBoard
+              tracker={tracker}
+              template={draftingWith}
+              title={t("Drafting {name}", {
+                name: templateName(t, templates.find((x) => x.id === openDoc)?.name ?? openDoc),
+              })}
+              subtitle={t("Written from your note, with your corrections, in plain language.")}
+              lines={lines}
+            />
+          }
           onCopy={(doc) =>
             doc.template && doc.run ? void copyNote(doc.template, doc.run, doc.name, false) : undefined
           }

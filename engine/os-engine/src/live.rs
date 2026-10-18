@@ -102,8 +102,18 @@ pub enum Stage {
     Transcribe,
     /// The second recogniser re-hearing segments with numbers: segments.
     Check,
-    /// Writing the transcript and audio.
+    /// Writing the transcript and audio, or a drafted note.
     Save,
+    /// Drafting: loading the note model into memory (first draft only).
+    LoadModel,
+    /// Drafting: the model reading the transcript and template, before it
+    /// writes its first word (longer for long visits).
+    ReadTranscript,
+    /// Drafting: writing the note (the screen follows the headings as they
+    /// appear in the streamed text).
+    Write,
+    /// Drafting: checking every number and statement against the transcript.
+    Verify,
 }
 
 #[derive(Debug, Clone, Serialize)]

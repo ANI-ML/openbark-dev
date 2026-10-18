@@ -1,5 +1,6 @@
 import { Button, Sheet } from "@openbark/ui";
 import { ArrowClockwise, Copy, FilePdf, X } from "@phosphor-icons/react";
+import type { ReactNode } from "react";
 import type { DocumentView } from "../engine";
 import { NOTE_LANGUAGES, templateName, useT } from "../i18n";
 import { NoteView } from "./NoteView";
@@ -7,7 +8,8 @@ import { NoteView } from "./NoteView";
 export interface DocumentSheetProps {
   doc: DocumentView;
   busy: boolean;
-  progress: number;
+  /** The drafting board shown while the document is written. */
+  board: ReactNode;
   /** Copy the whole document in the chosen copy format. */
   onCopy: (doc: DocumentView) => void;
   onPdf: () => void;
@@ -24,7 +26,7 @@ export interface DocumentSheetProps {
 export function DocumentSheet({
   doc,
   busy,
-  progress,
+  board,
   onCopy,
   onPdf,
   onRedraft,
@@ -70,11 +72,7 @@ export function DocumentSheet({
             <p className="ob-notice">
               {t("For the client. Read it through before handing it over: it's a draft written from the visit.")}
             </p>
-            {busy && (
-              <div className="ob-progress" role="progressbar" aria-label={t("Drafting {name}", { name })}>
-                <span style={{ transform: `scaleX(${progress})` }} />
-              </div>
-            )}
+            {busy && board}
             {doc.run && doc.template ? (
               <NoteView
                 template={doc.template}

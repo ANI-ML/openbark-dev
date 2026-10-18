@@ -4,7 +4,12 @@ import { RefinePanel } from "./RefinePanel";
 
 afterEach(cleanup);
 
-const standard = { id: "s1", heading: "plan/medications", text: "List every fluid with its volume and rate", added_at: "2026-10-17T20:00:00Z" };
+const standard = {
+  id: "s1",
+  heading: "plan/medications",
+  text: "List every fluid with its volume and rate",
+  added_at: "2026-10-17T20:00:00Z",
+};
 
 const panel = (onSubmit = vi.fn(), standards = [standard]) =>
   render(
@@ -14,7 +19,7 @@ const panel = (onSubmit = vi.fn(), standards = [standard]) =>
       standards={standards}
       canSave
       busy={false}
-      progress={0}
+      board={null}
       onSubmit={onSubmit}
       onCancel={() => {}}
     />,
@@ -26,7 +31,9 @@ describe("RefinePanel", () => {
     panel(onSubmit, []);
     const button = screen.getByRole("button", { name: "Redraft Medications" }) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText("What should change under Plan > Medications?"), { target: { value: "Include the fluids" } });
+    fireEvent.change(screen.getByLabelText("What should change under Plan > Medications?"), {
+      target: { value: "Include the fluids" },
+    });
     fireEvent.click(screen.getByLabelText(/Save as a standard/));
     fireEvent.click(button);
     expect(onSubmit).toHaveBeenCalledWith("Include the fluids", true);

@@ -791,3 +791,61 @@ p > .ob-dot { display: inline-block; vertical-align: middle; }
 .reprocess-row.again { border: 1px solid var(--accent); border-radius: 12px; background: var(--accent-soft); }
 .reprocess-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .reprocess-name { font-weight: 600; }
+
+/* Loading board: transcription and drafting (ProgressBoard) */
+.board {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
+}
+.board-compact { padding: 12px 14px; gap: 10px; box-shadow: none; }
+.board-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.board-titles { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.board-title { margin: 0; font-weight: 600; letter-spacing: -0.01em; color: var(--ink); }
+.board-compact .board-title { font-size: 0.9375rem; }
+.board-bar.ob-progress { height: 6px; }
+.board-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.board-step { display: flex; align-items: flex-start; gap: 10px; }
+.board-icon { flex: none; margin-top: 1px; color: var(--ink-3); }
+.board-step[data-state="done"] .board-icon { color: var(--accent); }
+.board-step[data-state="active"] .board-icon { color: var(--accent); }
+.board-step[data-state="skipped"] .board-icon { color: var(--ink-3); }
+.board-step-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.board-step-label { color: var(--ink-2); }
+.board-step[data-state="active"] .board-step-label { color: var(--ink); font-weight: 600; }
+.board-step[data-state="pending"] .board-step-label,
+.board-step[data-state="skipped"] .board-step-label { color: var(--ink-3); }
+.board-sub {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 4px 14px;
+}
+.board-sub li { display: flex; align-items: center; gap: 6px; font-size: 0.8125rem; color: var(--ink-3); min-width: 0; }
+.board-sub li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.board-sub li[data-state="done"] { color: var(--ink-2); }
+.board-sub li[data-state="done"] svg, .board-sub li[data-state="active"] svg { color: var(--accent); }
+.board-sub li[data-state="active"] { color: var(--ink); font-weight: 600; }
+.board-aside { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+/* The drafting board sits over the note pane; a redraft dims the current note under it. */
+/* Sticky under the review bar while the page scrolls: the note pane clips
+   rather than hides its overflow, so sticky follows the page. */
+.pane-note { overflow: clip; }
+.draft-board-wrap {
+  position: sticky;
+  top: 88px;
+  z-index: 2;
+  padding: 16px 16px 8px;
+  background: linear-gradient(var(--surface) 85%, transparent);
+}
+@media (max-width: 1023px) { .draft-board-wrap { top: 64px; } }
+.note-under-redraft { opacity: 0.38; pointer-events: none; transition: opacity var(--dur-fast) var(--ease); }
+@media (prefers-reduced-motion: reduce) { .note-under-redraft { transition: none; } }
+.processing .board { box-shadow: none; }
