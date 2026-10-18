@@ -159,7 +159,7 @@ fn main() -> Result<()> {
         Command::Transcribe(args) => {
             let _awake = AwakeGuard::acquire(AwakeReason::Processing);
             let transcriber = build_transcriber(&store, &args)?;
-            let audio = Audio::load_wav(&args.audio)?;
+            let audio = Audio::load(&args.audio)?;
             // Without diarization, stream segments as they are recognised; with
             // it, speakers are only known at the end, so print the final transcript.
             let live = !args.diarize;
@@ -264,7 +264,7 @@ fn bench(store: &os_models::ModelStore, args: BenchArgs) -> Result<()> {
     let started = Instant::now();
 
     let transcriber = build_transcriber(store, &args.transcribe)?;
-    let audio = Audio::load_wav(&args.transcribe.audio)?;
+    let audio = Audio::load(&args.transcribe.audio)?;
     let (transcript, transcribe_stats) = transcriber.run(&audio, &mut |_| {})?;
     drop(transcriber);
 

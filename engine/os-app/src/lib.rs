@@ -267,7 +267,7 @@ impl App {
         Ok(view(&s, None))
     }
 
-    /// Create a session from a WAV file and transcribe it.
+    /// Create a session from a recording file (WAV, m4a, mp3…) and transcribe it.
     ///
     /// Runs the file through the live pipeline at full speed, so imports and
     /// recordings get the same segmentation and speaker labels (the live
@@ -307,7 +307,9 @@ impl App {
         Ok(view(&s, Some(result.transcript)))
     }
 
-    /// Same as [`App::import_file`] for uploaded bytes (web mode).
+    /// Same as [`App::import_file`] for uploaded bytes (web mode). Any format
+    /// the engine decodes (WAV, m4a, mp3, CAF, FLAC, Ogg); the file name's
+    /// extension is kept as a hint.
     pub fn import_bytes(
         &self,
         name: &str,
@@ -317,10 +319,8 @@ impl App {
         consent: Option<Consent>,
         events: &dyn Events,
     ) -> Result<SessionView> {
-        if wav.len() < 44 || &wav[0..4] != b"RIFF" || &wav[8..12] != b"WAVE" {
-            return Err(AppError(
-                "That file isn't a WAV recording. Export the recording as WAV and try again.".into(),
-            ));
+        if wav.len() < 16 {
+            return Err(AppError("That file is empty. Choose the recording again.".into()));
         }
         let tmp = tempfile::tempdir()?;
         let file = Path::new(name).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();

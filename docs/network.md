@@ -36,4 +36,5 @@ Transcription, note generation and everything else run with the network unplugge
 | M1 | The same hosts as R1 | Searching the Hugging Face Hub from the model manager | Only when the user opens Search |
 | M1 | User-configured URL | Optional remote OpenAI-compatible endpoint (a clinic's own model server, or a hosted model with the user's key) | **Off.** Clearly labelled, never used as a silent fallback |
 | M4 | LAN only (mDNS `_openbark._tcp`) | Clinic Hub discovery and mutual-TLS API | Off unless Hub mode is enabled |
+| Proposed (ADR-0007) | The clinic's own phone system (PBX) or a SIP trunk the clinic chooses | Call mode: SIP signalling and RTP media for calls placed from OpenBark, recorded and transcribed on this computer. Nothing goes to a transcription service | **Off.** Only once the clinic configures a phone line |
 | Later (ADR-0005) | User-chosen sync server, either self-hosted or a hosted option | Per-user cloud sync of notes, templates and settings. **End-to-end encrypted**, so the server sees ciphertext only. Audio never syncs. | **Off.** Requires the user to sign in and opt in |

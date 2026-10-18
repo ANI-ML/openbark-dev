@@ -388,11 +388,14 @@ export const reveal = (path: string) => revealItemInDir(path);
 
 // ---- importing a recording file -------------------------------------------
 
+/** Recordings the engine decodes: WAV, phone recordings (m4a, caf), mp3, flac, ogg. */
+export const AUDIO_EXTENSIONS = ["wav", "m4a", "mp4", "aac", "caf", "mp3", "flac", "ogg", "oga"];
+
 function pickBrowserFile(): Promise<File | null> {
   return new Promise((resolve) => {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = ".wav,audio/wav";
+    input.accept = AUDIO_EXTENSIONS.map((e) => `.${e}`).join(",") + ",audio/*";
     input.onchange = () => resolve(input.files?.[0] ?? null);
     input.oncancel = () => resolve(null);
     input.click();
@@ -408,7 +411,7 @@ export async function importRecording(
 ): Promise<SessionView | null> {
   const p = hasPatient(patient) ? patient : null;
   if (isDesktop) {
-    const picked = await open({ multiple: false, filters: [{ name: "Recording (WAV)", extensions: ["wav"] }] });
+    const picked = await open({ multiple: false, filters: [{ name: "Recording", extensions: AUDIO_EXTENSIONS }] });
     if (typeof picked !== "string") return null;
     onPicked();
     return invoke<SessionView>("import_file", { path: picked, speakers, patient: p, consent });
@@ -424,7 +427,11 @@ export async function importRecording(
     reason: p?.reason ?? "",
     ...consentQuery(consent),
   });
-  return api<SessionView>(`/api/sessions?${q}`, { method: "POST", headers: { "content-type": "audio/wav" }, body: file });
+  return api<SessionView>(`/api/sessions?${q}`, {
+    method: "POST",
+    headers: { "content-type": file.type || "application/octet-stream" },
+    body: file,
+  });
 }
 
 // ---- live recording ---------------------------------------------------------

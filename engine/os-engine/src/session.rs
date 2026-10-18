@@ -259,7 +259,16 @@ impl Session {
         );
         let dir = unique_dir(root, &base)?;
         let audio = dir.join(AUDIO_FILE);
-        fs::copy(source, &audio).map_err(io(&audio))?;
+        if source.extension().is_some_and(|e| e.eq_ignore_ascii_case("wav")) {
+            fs::copy(source, &audio).map_err(io(&audio))?;
+        } else {
+            // Phone recordings (m4a, mp3…): keep a 16 kHz WAV copy so the
+            // folder always plays back the same way.
+            let decoded = os_asr::Audio::load(source).map_err(|e| EngineError::Session(e.to_string()))?;
+            let mut writer = os_asr::WavWriter::create(&audio, os_asr::SAMPLE_RATE).map_err(io(&audio))?;
+            writer.write(&decoded.samples).map_err(io(&audio))?;
+            writer.finish().map_err(io(&audio))?;
+        }
         let meta = SessionMeta {
             id: uuid::Uuid::now_v7().to_string(),
             app_version: env!("CARGO_PKG_VERSION").into(),

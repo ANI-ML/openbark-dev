@@ -219,7 +219,7 @@ fn spawn_source(
                 }
             }
         }
-        LiveSource::File { path, realtime } => match Audio::load_wav(&path) {
+        LiveSource::File { path, realtime } => match Audio::load(&path) {
             Ok(audio) => {
                 let _ = ready_tx.send(Ok(format!("file: {}", path.display())));
                 let block = (SAMPLE_RATE / 50) as usize; // 20 ms

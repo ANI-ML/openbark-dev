@@ -79,7 +79,7 @@ fn root(dir: Option<&Path>) -> PathBuf {
 /// Record a session from a file: copy the audio, transcribe, draft, save all.
 pub fn run(store: &ModelStore, args: RunArgs) -> Result<()> {
     let _awake = AwakeGuard::acquire(AwakeReason::Processing);
-    let audio = Audio::load_wav(&args.transcribe.audio)?;
+    let audio = Audio::load(&args.transcribe.audio)?;
     let mut session = Session::create_from_file(
         &root(args.sessions_dir.as_deref()),
         &args.transcribe.audio,

@@ -20,6 +20,11 @@ sherpa-onnx = { workspace = true, features = ["static"] }
 
 [dependencies]
 cpal.workspace = true
+# Decoding phone and recorder files (m4a, mp3, caf, flac, ogg) for import; MPL-2.0.
+symphonia = { version = "=0.6.1", default-features = false, features = ["wav", "pcm", "isomp4", "aac", "alac", "mp3", "flac", "ogg", "vorbis", "caf"] }
 serde.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
