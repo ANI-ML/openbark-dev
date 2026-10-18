@@ -44,7 +44,7 @@ hex = "0.4.3"
 dirs = "7.0.0"
 sysinfo = "0.39.6"
 # GPU speech pack archives (ADR-0014); the versions already in Cargo.lock.
-bzip2 = "=0.5.2"
+bzip2 = "=0.6.1"
 tar = "=0.4.46"
 zip = { version = "=2.6.1", default-features = false, features = ["deflate"] }
 minijinja = { version = "3.0.1", features = ["serde", "json", "loop_controls", "preserve_order"] }
