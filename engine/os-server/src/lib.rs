@@ -9,6 +9,9 @@
 //! - `GET  /api/status`, `GET /api/devices`
 //! - `GET  /api/sessions`, `GET /api/sessions/{id}`, `GET /api/sessions/{id}/audio` (Range)
 //! - `POST /api/sessions?diarize=&name=`    body: WAV bytes → new encounter, transcribed
+//!   (patient: `patient_name`, `last_name`, `reason`; consent: `consent_rule`,
+//!   `consent_method`, `consent_by`, `consent_script`; the same on `/api/live`,
+//!   where consent is required)
 //! - `POST /api/sessions/{id}/notes`        `{llm, template}`
 //! - `POST /api/sessions/{id}/refine`       `{llm, heading, request, save_as_standard, by}`:
 //!   redraft one heading of the latest draft
@@ -36,7 +39,10 @@ use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{delete, get, post};
-use os_app::{App, AppError, AudioBlock, Events, Patient, RecordingSource, RefineRequest};
+use os_app::{
+    App, AppError, AudioBlock, ConsentMethod, ConsentRule, Events, Patient, RecordingConsent,
+    RecordingSource, RefineRequest,
+};
 use os_engine::Segment;
 use os_engine::template::Template;
 use os_models::ModelStore;
@@ -192,6 +198,31 @@ struct PatientQuery {
     reason: String,
 }
 
+/// Consent passed as query parameters alongside the patient details.
+#[derive(Deserialize, Default)]
+struct ConsentQuery {
+    #[serde(default)]
+    consent_rule: String,
+    #[serde(default)]
+    consent_method: String,
+    #[serde(default)]
+    consent_by: String,
+    #[serde(default)]
+    consent_script: String,
+}
+
+impl ConsentQuery {
+    fn into_consent(self) -> Option<RecordingConsent> {
+        Some(RecordingConsent {
+            rule: ConsentRule::parse(&self.consent_rule)?,
+            method: ConsentMethod::parse(&self.consent_method)?,
+            confirmed_by: self.consent_by,
+            confirmed_at: None,
+            script: Some(self.consent_script).filter(|s| !s.trim().is_empty()),
+        })
+    }
+}
+
 impl PatientQuery {
     fn into_patient(self) -> Option<Patient> {
         let p = Patient {
@@ -212,6 +243,8 @@ struct CreateSession {
     name: Option<String>,
     #[serde(flatten)]
     patient: PatientQuery,
+    #[serde(flatten)]
+    consent: ConsentQuery,
 }
 
 async fn create_session(
@@ -222,7 +255,14 @@ async fn create_session(
     blocking(move || {
         let events = s.events.clone();
         let name = q.name.clone().unwrap_or_else(|| "recording.wav".into());
-        s.app.import_bytes(&name, &body, q.diarize, q.patient.into_patient(), events.as_ref())
+        s.app.import_bytes(
+            &name,
+            &body,
+            q.diarize,
+            q.patient.into_patient(),
+            q.consent.into_consent(),
+            events.as_ref(),
+        )
     })
     .await
 }
@@ -370,6 +410,8 @@ struct LiveQuery {
     sample_rate: u32,
     #[serde(flatten)]
     patient: PatientQuery,
+    #[serde(flatten)]
+    consent: ConsentQuery,
 }
 
 fn yes() -> bool {
@@ -388,12 +430,13 @@ async fn live(State(s): State<St>, Query(q): Query<LiveQuery>, ws: WebSocketUpgr
 
 async fn live_session(s: St, mut q: LiveQuery, mut socket: WebSocket) {
     let patient = std::mem::take(&mut q.patient).into_patient();
+    let consent = std::mem::take(&mut q.consent).into_consent();
     let (tx, rx) = std::sync::mpsc::channel::<AudioBlock>();
     let events: Arc<dyn Events> = s.events.clone();
     let started = {
         let s = s.clone();
         tokio::task::spawn_blocking(move || {
-            s.app.start_recording(RecordingSource::Stream(rx), q.speakers, patient, events)
+            s.app.start_recording(RecordingSource::Stream(rx), q.speakers, patient, consent, events)
         })
         .await
     };
@@ -449,6 +492,8 @@ struct RecordStart {
     speakers: bool,
     #[serde(default)]
     patient: Option<Patient>,
+    #[serde(default)]
+    consent: Option<RecordingConsent>,
 }
 
 async fn record_start(
@@ -457,7 +502,13 @@ async fn record_start(
 ) -> Result<impl IntoResponse, ApiError> {
     blocking(move || {
         let events: Arc<dyn Events> = s.events.clone();
-        s.app.start_recording(RecordingSource::Microphone(req.device), req.speakers, req.patient, events)
+        s.app.start_recording(
+            RecordingSource::Microphone(req.device),
+            req.speakers,
+            req.patient,
+            req.consent,
+            events,
+        )
     })
     .await
 }

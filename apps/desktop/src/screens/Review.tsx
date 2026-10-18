@@ -275,6 +275,10 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
               <dt className="label muted">Recorded</dt>
               <dd className="mono">{view?.created_at}</dd>
             </div>
+            <div>
+              <dt className="label muted">Consent to record</dt>
+              <dd>{view?.consent ? engine.consentText(view.consent) : <span className="faint">Not recorded</span>}</dd>
+            </div>
             {p?.entered_at && (
               <div>
                 <dt className="label muted">Details entered</dt>

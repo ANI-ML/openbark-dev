@@ -116,6 +116,84 @@ pub struct SessionMeta {
     /// Details the clinic entered (not from the recording).
     #[serde(default)]
     pub patient: Option<PatientInfo>,
+    /// Consent to record, confirmed before recording started.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub consent: Option<Consent>,
+}
+
+/// The clinic's rule for recording a conversation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConsentRule {
+    /// Everyone on the recording must agree (the safe default).
+    AllParties,
+    /// One party to the conversation (the clinician) may consent.
+    OneParty,
+}
+
+/// How consent was given.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConsentMethod {
+    /// The client agreed out loud before recording.
+    Verbal,
+    /// The client signed a form for this visit.
+    Written,
+    /// A standing consent is on file for this client.
+    OnFile,
+    /// Only the clinician consented (allowed only under a one-party rule).
+    ClinicianOnly,
+}
+
+/// Consent to record one encounter, confirmed by a member of the team.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Consent {
+    pub rule: ConsentRule,
+    pub method: ConsentMethod,
+    pub confirmed_by: String,
+    /// Stamped by the engine when the consent is saved.
+    #[serde(default)]
+    pub confirmed_at: Option<DateTime<Local>>,
+    /// What was read to the client, if a script was used.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub script: Option<String>,
+}
+
+impl ConsentRule {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim().replace('-', "_").as_str() {
+            "all_parties" => Some(Self::AllParties),
+            "one_party" => Some(Self::OneParty),
+            _ => None,
+        }
+    }
+}
+
+impl ConsentMethod {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim().replace('-', "_").as_str() {
+            "verbal" => Some(Self::Verbal),
+            "written" => Some(Self::Written),
+            "on_file" => Some(Self::OnFile),
+            "clinician_only" => Some(Self::ClinicianOnly),
+            _ => None,
+        }
+    }
+}
+
+impl Consent {
+    /// Refuse consent that doesn't satisfy its own rule.
+    pub fn check(&self) -> Result<(), EngineError> {
+        if self.confirmed_by.trim().is_empty() {
+            return Err(EngineError::Session("Say who confirmed consent to record.".into()));
+        }
+        if self.rule == ConsentRule::AllParties && self.method == ConsentMethod::ClinicianOnly {
+            return Err(EngineError::Session(
+                "Your clinic's rule is that everyone on the recording agrees. Ask the client before recording.".into(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// Patient and visit details typed in by the clinic, time-stamped.
@@ -192,6 +270,7 @@ impl Session {
             transcription: None,
             runs: Vec::new(),
             patient: None,
+            consent: None,
         };
         let session = Self { dir, meta };
         session.save_meta()?;
@@ -219,6 +298,7 @@ impl Session {
             transcription: None,
             runs: Vec::new(),
             patient: None,
+            consent: None,
         };
         let session = Self { dir, meta };
         session.save_meta()?;
@@ -338,6 +418,16 @@ impl Session {
             }
         }
         self.meta.patient = if info.is_empty() { None } else { Some(info) };
+        self.save_meta()
+    }
+
+    /// Save the consent to record, time-stamped now.
+    pub fn set_consent(&mut self, mut consent: Consent) -> Result<(), EngineError> {
+        consent.check()?;
+        consent.confirmed_by = consent.confirmed_by.trim().to_string();
+        consent.script = consent.script.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        consent.confirmed_at = Some(Local::now());
+        self.meta.consent = Some(consent);
         self.save_meta()
     }
 
@@ -571,6 +661,30 @@ mod tests {
         let second = Session::open(&s.dir).unwrap().meta.patient.unwrap();
         assert_eq!(second.entered_at, first.entered_at);
         assert!(second.updated_at.is_some());
+
+        // Consent: checked against its rule, stamped, saved.
+        let mut consent = Consent {
+            rule: ConsentRule::AllParties,
+            method: ConsentMethod::ClinicianOnly,
+            confirmed_by: "Dr Patel".into(),
+            confirmed_at: None,
+            script: Some(" I'd like to record our conversation. ".into()),
+        };
+        assert!(s.set_consent(consent.clone()).is_err(), "all-party rule needs the client");
+        consent.method = ConsentMethod::Verbal;
+        s.set_consent(consent).unwrap();
+        let saved = Session::open(&s.dir).unwrap().meta.consent.unwrap();
+        assert!(saved.confirmed_at.is_some());
+        assert_eq!(saved.script.as_deref(), Some("I'd like to record our conversation."));
+        let one_party = Consent {
+            rule: ConsentRule::OneParty,
+            method: ConsentMethod::ClinicianOnly,
+            confirmed_by: "Dr Patel".into(),
+            confirmed_at: None,
+            script: None,
+        };
+        assert!(one_party.check().is_ok());
+        assert!(Consent { confirmed_by: " ".into(), ..one_party }.check().is_err());
 
         // A second session from the same file in the same second gets its own folder.
         let other = Session::create_from_file(&root, &src, 12.5).unwrap();

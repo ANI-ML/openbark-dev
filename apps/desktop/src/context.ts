@@ -12,7 +12,15 @@ export interface Settings {
   draftOnStop: boolean;
   /** Template for new drafts. */
   template: string;
+  /** The clinic's rule for recording conversations (M1 item 7). */
+  consentRule: "all_parties" | "one_party";
+  /** What to read to the client before recording. */
+  consentScript: string;
 }
+
+export const DEFAULT_CONSENT_SCRIPT =
+  "I'd like to record our conversation so I can write your pet's medical record accurately. " +
+  "The recording stays on this clinic's computer, and you can ask me to stop at any time. Is that okay?";
 
 const DEFAULTS: Settings = {
   labelSpeakers: true,
@@ -21,6 +29,8 @@ const DEFAULTS: Settings = {
   signer: "",
   draftOnStop: true,
   template: "soap",
+  consentRule: "all_parties",
+  consentScript: DEFAULT_CONSENT_SCRIPT,
 };
 
 const KEY = "openbark.settings";

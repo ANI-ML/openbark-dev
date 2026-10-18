@@ -7,7 +7,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use os_app::{App, AppError, Events, Patient, RecordingSource, RefineRequest};
+use os_app::{App, AppError, Events, Patient, RecordingConsent, RecordingSource, RefineRequest};
 use os_engine::Segment;
 use os_engine::template::{Standard, Template};
 use os_engine::template_store::TemplateSummary;
@@ -82,9 +82,10 @@ async fn import_file(
     path: String,
     speakers: bool,
     patient: Option<Patient>,
+    consent: Option<RecordingConsent>,
 ) -> Result<os_app::SessionView, String> {
     let app = app.inner().clone();
-    work(move || app.import_file(Path::new(&path), speakers, patient, &TauriEvents(handle))).await
+    work(move || app.import_file(Path::new(&path), speakers, patient, consent, &TauriEvents(handle))).await
 }
 
 #[tauri::command]
@@ -94,6 +95,7 @@ async fn start_recording(
     device: Option<String>,
     speakers: bool,
     patient: Option<Patient>,
+    consent: Option<RecordingConsent>,
 ) -> Result<String, String> {
     let app = app.inner().clone();
     work(move || {
@@ -101,6 +103,7 @@ async fn start_recording(
             RecordingSource::Microphone(device),
             speakers,
             patient,
+            consent,
             Arc::new(TauriEvents(handle)),
         )
     })

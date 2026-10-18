@@ -1,6 +1,6 @@
 import { ThemeToggle } from "@openbark/ui";
 import { useEffect, useState } from "react";
-import { useApp } from "../context";
+import { DEFAULT_CONSENT_SCRIPT, useApp } from "../context";
 import * as engine from "../engine";
 
 /** DESIGN.md §6 Settings: hairline-separated groups. */
@@ -75,6 +75,49 @@ export function SettingsScreen() {
           />
           <span>Draft the note when I stop recording</span>
         </label>
+      </section>
+
+      <section className="group">
+        <h2>Consent to record</h2>
+        <fieldset className="consent-methods narrow">
+          <legend className="label">Your clinic's rule</legend>
+          <label className="check">
+            <input
+              type="radio"
+              name="consent-rule"
+              checked={app.settings.consentRule === "all_parties"}
+              onChange={() => app.setSettings({ consentRule: "all_parties" })}
+            />
+            <span>Everyone on the recording agrees (recommended)</span>
+          </label>
+          <label className="check">
+            <input
+              type="radio"
+              name="consent-rule"
+              checked={app.settings.consentRule === "one_party"}
+              onChange={() => app.setSettings({ consentRule: "one_party" })}
+            />
+            <span>One party to the conversation may consent</span>
+          </label>
+        </fieldset>
+        <p className="small faint measure">
+          Recording laws differ by place, and some require everyone's agreement. Check the rules where you practise; if
+          you're unsure, keep everyone agrees. Every recording starts with a consent step, saved with the encounter.
+        </p>
+        <label className="ob-field">
+          <span className="label">What to read to the client</span>
+          <textarea
+            className="ob-input tb-text measure"
+            rows={3}
+            value={app.settings.consentScript}
+            onChange={(e) => app.setSettings({ consentScript: e.target.value })}
+          />
+        </label>
+        {app.settings.consentScript !== DEFAULT_CONSENT_SCRIPT && (
+          <button type="button" className="link small" onClick={() => app.setSettings({ consentScript: DEFAULT_CONSENT_SCRIPT })}>
+            Use the default wording
+          </button>
+        )}
       </section>
 
       <section className="group">

@@ -86,6 +86,25 @@ export interface Patient {
   updated_at?: string | null;
 }
 
+export type ConsentRule = "all_parties" | "one_party";
+export type ConsentMethod = "verbal" | "written" | "on_file" | "clinician_only";
+
+/** Consent to record one encounter (M1 item 7); the engine stamps the time. */
+export interface RecordingConsent {
+  rule: ConsentRule;
+  method: ConsentMethod;
+  confirmed_by: string;
+  confirmed_at?: string | null;
+  script?: string | null;
+}
+
+const consentQuery = (c: RecordingConsent | null) => ({
+  consent_rule: c?.rule ?? "",
+  consent_method: c?.method ?? "",
+  consent_by: c?.confirmed_by ?? "",
+  consent_script: c?.script ?? "",
+});
+
 export const emptyPatient = (): Patient => ({ name: "", last_name: "", reason: "" });
 const hasPatient = (p: Patient | null | undefined): p is Patient =>
   Boolean(p && (p.name.trim() || p.last_name.trim() || p.reason.trim()));
@@ -120,6 +139,8 @@ export interface SessionView {
   latest_template: Template | null;
   /** Signed additions to the signed note, oldest first. */
   addenda: Addendum[];
+  /** Consent to record, as confirmed before recording. */
+  consent: RecordingConsent | null;
 }
 
 export interface Hardware {
@@ -367,6 +388,7 @@ function pickBrowserFile(): Promise<File | null> {
 export async function importRecording(
   speakers: boolean,
   patient: Patient | null,
+  consent: RecordingConsent | null,
   onPicked: () => void,
 ): Promise<SessionView | null> {
   const p = hasPatient(patient) ? patient : null;
@@ -374,7 +396,7 @@ export async function importRecording(
     const picked = await open({ multiple: false, filters: [{ name: "Recording (WAV)", extensions: ["wav"] }] });
     if (typeof picked !== "string") return null;
     onPicked();
-    return invoke<SessionView>("import_file", { path: picked, speakers, patient: p });
+    return invoke<SessionView>("import_file", { path: picked, speakers, patient: p, consent });
   }
   const file = await pickBrowserFile();
   if (!file) return null;
@@ -385,6 +407,7 @@ export async function importRecording(
     patient_name: p?.name ?? "",
     last_name: p?.last_name ?? "",
     reason: p?.reason ?? "",
+    ...consentQuery(consent),
   });
   return api<SessionView>(`/api/sessions?${q}`, { method: "POST", headers: { "content-type": "audio/wav" }, body: file });
 }
@@ -397,8 +420,13 @@ export interface Recording {
 }
 
 /** Desktop: the engine records the microphone natively (levels arrive as events). */
-async function startDesktopRecording(speakers: boolean, device: string | null, patient: Patient | null): Promise<Recording> {
-  await invoke<string>("start_recording", { device, speakers, patient });
+async function startDesktopRecording(
+  speakers: boolean,
+  device: string | null,
+  patient: Patient | null,
+  consent: RecordingConsent,
+): Promise<Recording> {
+  await invoke<string>("start_recording", { device, speakers, patient, consent });
   return { stop: () => invoke<SessionView>("stop_recording") };
 }
 
@@ -420,6 +448,7 @@ registerProcessor("openbark-tap", Tap);`;
 async function startBrowserRecording(
   speakers: boolean,
   patient: Patient | null,
+  consent: RecordingConsent,
   onLevel: (l: number, s: number) => void,
 ): Promise<Recording> {
   if (!navigator.mediaDevices?.getUserMedia) {
@@ -448,6 +477,7 @@ async function startBrowserRecording(
     patient_name: patient?.name ?? "",
     last_name: patient?.last_name ?? "",
     reason: patient?.reason ?? "",
+    ...consentQuery(consent),
   });
   const ws = new WebSocket(`${proto}://${location.host}/api/live?${q}`);
   ws.binaryType = "arraybuffer";
@@ -503,14 +533,31 @@ async function startBrowserRecording(
   };
 }
 
+/** Start recording; `consent` is required (the engine refuses without it). */
 export function startRecording(
   speakers: boolean,
   device: string | null,
   patient: Patient | null,
+  consent: RecordingConsent,
   onLevel: (level: number, seconds: number) => void,
 ): Promise<Recording> {
   const p = hasPatient(patient) ? patient : null;
-  return isDesktop ? startDesktopRecording(speakers, device, p) : startBrowserRecording(speakers, p, onLevel);
+  return isDesktop
+    ? startDesktopRecording(speakers, device, p, consent)
+    : startBrowserRecording(speakers, p, consent, onLevel);
+}
+
+const METHOD_TEXT: Record<ConsentMethod, string> = {
+  verbal: "agreed out loud",
+  written: "signed a consent form",
+  on_file: "consent on file",
+  clinician_only: "clinician consent only (one-party rule)",
+};
+
+/** "Client agreed out loud; confirmed by Dr Patel, 2026-10-17 20:07". */
+export function consentText(c: RecordingConsent): string {
+  const how = c.method === "clinician_only" ? METHOD_TEXT[c.method] : `Client ${METHOD_TEXT[c.method]}`;
+  return `${how[0]?.toUpperCase()}${how.slice(1)}; confirmed by ${c.confirmed_by}${c.confirmed_at ? `, ${fmtStamp(c.confirmed_at)}` : ""}`;
 }
 
 /** "2026-10-17 19:20" from an engine timestamp. */

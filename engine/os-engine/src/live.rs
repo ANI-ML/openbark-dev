@@ -50,6 +50,8 @@ pub struct LiveOptions {
     pub speaker_threshold: f32,
     /// Clinic-entered patient details, saved with the session at the start.
     pub patient: Option<crate::session::PatientInfo>,
+    /// The recording consent the clinic confirmed (M1 item 7).
+    pub consent: Option<crate::session::Consent>,
 }
 
 impl LiveOptions {
@@ -59,6 +61,7 @@ impl LiveOptions {
             label_speakers: true,
             speaker_threshold: DEFAULT_SPEAKER_THRESHOLD,
             patient: None,
+            consent: None,
         }
     }
 }
@@ -133,6 +136,9 @@ impl LiveRecorder {
         let mut session = Session::create_live(sessions_root, &label)?;
         if let Some(p) = options.patient.clone() {
             session.set_patient(p)?;
+        }
+        if let Some(c) = options.consent.clone() {
+            session.set_consent(c)?;
         }
         let session_dir = session.dir.clone();
         let stop = Arc::new(AtomicBool::new(false));

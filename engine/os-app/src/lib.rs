@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use os_engine::awake::{AwakeGuard, AwakeReason};
 use os_engine::live::{LiveOptions, LiveRecorder, LiveSink, LiveSource};
-use os_engine::session::{self, Addendum, PatientInfo, Session};
+use os_engine::session::{self, Addendum, Consent, PatientInfo, Session};
 use os_engine::template::{Standard, Template};
 use os_engine::template_store::TemplateSummary;
 use os_engine::{LoadedTemplate, NoteOptions, Segment, TemplateStore, TranscribeStats, Transcript};
@@ -21,6 +21,7 @@ use serde::Serialize;
 
 pub use os_asr::capture::AudioBlock;
 pub use os_engine::session::PatientInfo as Patient;
+pub use os_engine::session::{Consent as RecordingConsent, ConsentMethod, ConsentRule};
 
 /// Progress notifications for the UI.
 pub trait Events: Send + Sync {
@@ -132,6 +133,8 @@ pub struct SessionView {
     pub latest_template: Option<Template>,
     /// Signed additions to the signed note, oldest first.
     pub addenda: Vec<Addendum>,
+    /// Consent to record, as confirmed before recording.
+    pub consent: Option<Consent>,
 }
 
 /// A template for the builder: its headings, and what the model is told.
@@ -262,13 +265,18 @@ impl App {
         path: &Path,
         label_speakers: bool,
         patient: Option<PatientInfo>,
+        consent: Option<Consent>,
         events: &dyn Events,
     ) -> Result<SessionView> {
+        if let Some(c) = &consent {
+            c.check()?;
+        }
         let _awake = AwakeGuard::acquire(AwakeReason::Processing);
         let (tx, rx) = std::sync::mpsc::channel::<Segment>();
         let mut options = LiveOptions::microphone();
         options.label_speakers = label_speakers;
         options.patient = patient.filter(|p| !p.is_empty());
+        options.consent = consent;
         let source = LiveSource::File { path: path.to_path_buf(), realtime: false };
         let recorder = LiveRecorder::start(
             &self.store,
@@ -293,6 +301,7 @@ impl App {
         wav: &[u8],
         label_speakers: bool,
         patient: Option<PatientInfo>,
+        consent: Option<Consent>,
         events: &dyn Events,
     ) -> Result<SessionView> {
         if wav.len() < 44 || &wav[0..4] != b"RIFF" || &wav[8..12] != b"WAVE" {
@@ -304,7 +313,7 @@ impl App {
         let file = Path::new(name).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let path = tmp.path().join(if file.is_empty() { "recording.wav".into() } else { file });
         std::fs::write(&path, wav)?;
-        self.import_file(&path, label_speakers, patient, events)
+        self.import_file(&path, label_speakers, patient, consent, events)
     }
 
     // ---- live recording --------------------------------------------------
@@ -314,14 +323,19 @@ impl App {
     }
 
     /// Start recording from a microphone on this machine (`Some(device)`/`None`
-    /// = default) or from blocks the caller pushes (`stream`).
+    /// = default) or from blocks the caller pushes (`stream`). Refused until
+    /// consent to record has been confirmed (M1 item 7).
     pub fn start_recording(
         &self,
         source: RecordingSource,
         label_speakers: bool,
         patient: Option<PatientInfo>,
+        consent: Option<Consent>,
         events: Arc<dyn Events>,
     ) -> Result<String> {
+        let consent = consent
+            .ok_or_else(|| AppError("Confirm consent to record before starting the recording.".into()))?;
+        consent.check()?;
         let mut slot = self.recorder.lock().map_err(|_| AppError("recorder lock poisoned".into()))?;
         if slot.is_some() {
             return Err(AppError("A recording is already running. Stop it first.".into()));
@@ -333,6 +347,7 @@ impl App {
         let mut options = LiveOptions::microphone();
         options.label_speakers = label_speakers;
         options.patient = patient.filter(|p| !p.is_empty());
+        options.consent = Some(consent);
         let recorder = LiveRecorder::start(
             &self.store,
             &self.sessions_root,
@@ -805,6 +820,7 @@ fn view(s: &Session, transcript: Option<Transcript>) -> SessionView {
         patient: s.meta.patient.clone(),
         latest_template,
         addenda,
+        consent: s.meta.consent.clone(),
     }
 }
 

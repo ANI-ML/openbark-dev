@@ -3,10 +3,11 @@ import { UploadSimple } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import { fmtTime, useApp } from "../context";
 import * as engine from "../engine";
+import { ConsentStep } from "../components/ConsentStep";
 import { PatientFields } from "../components/PatientFields";
 import { TranscriptList } from "../components/TranscriptList";
 
-type State = "idle" | "starting" | "recording" | "stopping" | "importing";
+type State = "idle" | "consent" | "starting" | "recording" | "stopping" | "importing";
 
 /** DESIGN.md §6 Recorder (home): Record button, waveform, elapsed, live transcript. */
 export function Recorder() {
@@ -17,6 +18,8 @@ export function Recorder() {
   const [error, setError] = useState<string | null>(null);
   const [patient, setPatient] = useState<engine.Patient>(engine.emptyPatient);
   const [templates, setTemplates] = useState<engine.TemplateSummary[]>([]);
+  /** What the consent step is for, while it's open. */
+  const [consentFor, setConsentFor] = useState<"record" | "import">("record");
   const recording = useRef<engine.Recording | null>(null);
   const live = state === "recording" || state === "stopping" || state === "importing";
 
@@ -46,11 +49,17 @@ export function Recorder() {
       }
       return;
     }
+    // Nothing records until consent is confirmed (M1 item 7).
+    setConsentFor("record");
+    setState("consent");
+  }
+
+  async function begin(consent: engine.RecordingConsent) {
     setState("starting");
     setSegments([]);
     setElapsed(0);
     try {
-      recording.current = await engine.startRecording(app.settings.labelSpeakers, app.settings.device, patient, (level, seconds) => {
+      recording.current = await engine.startRecording(app.settings.labelSpeakers, app.settings.device, patient, consent, (level, seconds) => {
         app.levels.push(level);
         setElapsed(seconds);
       });
@@ -62,10 +71,16 @@ export function Recorder() {
     }
   }
 
-  async function importFile() {
+  function importFile() {
     setError(null);
+    setConsentFor("import");
+    setState("consent");
+  }
+
+  async function importWith(consent: engine.RecordingConsent) {
+    setState("idle");
     try {
-      const view = await engine.importRecording(app.settings.labelSpeakers, patient, () => {
+      const view = await engine.importRecording(app.settings.labelSpeakers, patient, consent, () => {
         setSegments([]);
         setState("importing");
       });
@@ -85,10 +100,24 @@ export function Recorder() {
     }
   }
 
+  function confirmConsent(consent: engine.RecordingConsent, signer: string) {
+    if (!app.settings.signer.trim()) app.setSettings({ signer });
+    if (consentFor === "record") void begin(consent);
+    else void importWith(consent);
+  }
+
+  function declineConsent() {
+    setState("idle");
+    app.toast("Not recording");
+    app.announce("The client declined. Not recording.");
+  }
+
   const statusLine =
     state === "recording"
       ? "Recording. Audio is saved as you go."
-      : state === "starting"
+      : state === "consent"
+        ? "Confirm consent to record."
+        : state === "starting"
         ? "Starting the microphone"
         : state === "stopping"
           ? "Finishing the transcript"
@@ -121,6 +150,17 @@ export function Recorder() {
           <p className="small faint">Saved with the encounter and time-stamped. Optional: you can add or change these later.</p>
         </aside>
         <section className="recorder-center" aria-label="Recorder">
+          {state === "consent" && (
+            <ConsentStep
+              rule={app.settings.consentRule}
+              script={app.settings.consentScript}
+              signer={app.settings.signer}
+              purpose={consentFor}
+              onConfirm={confirmConsent}
+              onDecline={declineConsent}
+              onCancel={() => setState("idle")}
+            />
+          )}
           <div className="recorder-stage">
             <RecordButton
               recording={state === "recording"}

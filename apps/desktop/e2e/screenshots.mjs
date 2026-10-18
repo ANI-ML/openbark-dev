@@ -32,6 +32,13 @@ for (const v of variants) {
   await page.goto(base);
   await page.getByRole("heading", { name: "Record" }).waitFor();
   await shot("record");
+  const recordButton = page.getByRole("button", { name: /Start recording/ }).first();
+  if (await recordButton.count()) {
+    await recordButton.click();
+    await page.locator("form.consent").waitFor({ timeout: 3000 }).catch(() => {});
+    await shot("record-consent");
+    await page.getByRole("button", { name: "Cancel", exact: true }).click().catch(() => {});
+  }
 
   await nav("Encounters");
   await page.getByRole("heading", { name: "Encounters" }).waitFor();

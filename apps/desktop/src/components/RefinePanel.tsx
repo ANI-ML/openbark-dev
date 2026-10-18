@@ -42,7 +42,9 @@ export function RefinePanel({
   const box = useRef<HTMLTextAreaElement>(null);
   const id = `ask-${title.replace(/\W+/g, "-").toLowerCase()}`;
 
-  useEffect(() => box.current?.focus(), []);
+  useEffect(() => {
+    box.current?.focus();
+  }, []);
 
   const saved = new Set(standards.map((s) => s.text.toLowerCase()));
   const chips = [...standards.map((s) => s.text), ...SUGGESTIONS.filter((s) => !saved.has(s.toLowerCase()))];

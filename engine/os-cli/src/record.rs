@@ -6,7 +6,7 @@ use std::sync::mpsc;
 
 use anyhow::Result;
 use os_engine::live::{LiveOptions, LiveRecorder, LiveSink, LiveSource};
-use os_engine::session::{self, Session};
+use os_engine::session::{self, Consent, ConsentMethod, ConsentRule, Session};
 use os_engine::{LoadedTemplate, Segment, generate_note};
 use os_models::ModelStore;
 
@@ -41,6 +41,16 @@ pub struct RecordArgs {
     /// Reason for visit.
     #[arg(long)]
     pub reason: Option<String>,
+    /// How consent to record was given: verbal, written, on-file, or
+    /// clinician-only (one-party rule only). Required for the microphone.
+    #[arg(long)]
+    pub consent: Option<String>,
+    /// Who confirmed consent (default: the signed-in user).
+    #[arg(long)]
+    pub consent_by: Option<String>,
+    /// The clinic's consent rule: all-parties (default) or one-party.
+    #[arg(long, default_value = "all-parties")]
+    pub consent_rule: String,
     /// Print each segment as JSON instead of text.
     #[arg(long)]
     pub jsonl: bool,
@@ -76,6 +86,26 @@ impl LiveSink for TerminalSink {
     }
 }
 
+fn consent_from(args: &RecordArgs) -> Result<Option<Consent>> {
+    let Some(method) = &args.consent else { return Ok(None) };
+    let consent = Consent {
+        rule: ConsentRule::parse(&args.consent_rule)
+            .ok_or_else(|| anyhow::anyhow!("--consent-rule is all-parties or one-party"))?,
+        method: ConsentMethod::parse(method)
+            .ok_or_else(|| anyhow::anyhow!("--consent is verbal, written, on-file or clinician-only"))?,
+        confirmed_by: args
+            .consent_by
+            .clone()
+            .or_else(|| std::env::var("USERNAME").ok())
+            .or_else(|| std::env::var("USER").ok())
+            .unwrap_or_default(),
+        confirmed_at: None,
+        script: None,
+    };
+    consent.check()?;
+    Ok(Some(consent))
+}
+
 pub fn devices() -> Result<()> {
     let names = os_asr::capture::input_devices();
     if names.is_empty() {
@@ -95,6 +125,12 @@ pub fn record(store: &ModelStore, args: RecordArgs) -> Result<()> {
     let is_mic = matches!(source, LiveSource::Microphone(_));
     let mut options = LiveOptions::microphone();
     options.patient = crate::sessions::patient_from(&args.patient, &args.last_name, &args.reason);
+    options.consent = consent_from(&args)?;
+    if is_mic && options.consent.is_none() {
+        anyhow::bail!(
+            "confirm consent to record first: --consent verbal|written|on-file (or clinician-only with --consent-rule one-party)"
+        );
+    }
     options.label_speakers = !args.no_speakers;
     if let Some(t) = args.speaker_threshold {
         options.speaker_threshold = t;
