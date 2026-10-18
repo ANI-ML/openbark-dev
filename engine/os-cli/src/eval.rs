@@ -36,6 +36,10 @@ pub struct EvalArgs {
     /// Write the full report as JSON here.
     #[arg(long)]
     pub json: Option<PathBuf>,
+    /// Draft every fixture with --template, even one whose script names its
+    /// own (e.g. a client document from the euthanasia consult).
+    #[arg(long)]
+    pub force_template: bool,
     #[command(flatten)]
     pub llm: LlmArgs,
 }
@@ -50,11 +54,19 @@ struct Expected {
     must_mention: Vec<String>,
     #[serde(default)]
     must_not_mention: Vec<String>,
+    /// Multi-pet visits: the expected vitals of each animal. When present,
+    /// the eval drafts one note per animal and checks for cross-contamination.
+    #[serde(default)]
+    vitals_by_patient: BTreeMap<String, BTreeMap<String, String>>,
 }
 
 #[derive(Deserialize)]
 struct Script {
     id: String,
+    /// The template this consult is meant for (M2 specialty library); the
+    /// `--template` option is used when absent.
+    #[serde(default)]
+    template: Option<String>,
     #[serde(default)]
     expected: Expected,
 }
@@ -66,7 +78,14 @@ struct Score {
     passed: u32,
     misses: Vec<String>,
     invented_numbers: usize,
+    /// Which numbers, and where ("/plan/medications/0: 1"), for review.
+    invented: Vec<String>,
     citation_errors: usize,
+    /// Statements whose words aren't in their cited lines (M2 alignment),
+    /// with the statement, for review.
+    word_flags: Vec<String>,
+    /// Multi-pet visits: another animal's value found in this animal's note.
+    contaminated: Vec<String>,
     note_secs: f64,
 }
 
@@ -110,7 +129,24 @@ fn note_text(v: &Value) -> String {
 /// Loose phrase match: case-insensitive, hyphen/space-insensitive, with a few
 /// clinical synonyms so "x-ray" matches "radiograph" etc.
 fn mentions(text: &str, phrase: &str) -> bool {
-    let norm = |s: &str| s.to_lowercase().replace(['-', '’', '\''], " ");
+    // Spoken and written numbers alike: "three out of five" is "3/5", "fourteen days" is "14 days".
+    let norm = |s: &str| {
+        let s = s.to_lowercase().replace(['-', '’', '\''], " ").replace('/', " out of ");
+        let s = os_engine::numbers::normalize_spoken(&s);
+        // "6mm" and "6 mm" alike.
+        let mut out = String::new();
+        let chars: Vec<char> = s.chars().collect();
+        for (i, c) in chars.iter().enumerate() {
+            let between = *c == ' '
+                && i > 0
+                && chars[i - 1].is_ascii_digit()
+                && chars.get(i + 1).is_some_and(|n| n.is_ascii_alphabetic());
+            if !between {
+                out.push(*c);
+            }
+        }
+        out
+    };
     let t = norm(text);
     let p = norm(phrase);
     let synonyms: &[(&str, &[&str])] = &[
@@ -198,8 +234,100 @@ fn score(id: &str, expected: &Expected, note: &Value, faith: &os_engine::Faithfu
         check(!mentions(&text, p), format!("does not say \"{p}\""), &mut s);
     }
     s.invented_numbers = faith.unsupported_numbers.len();
+    s.invented = faith.unsupported_numbers.iter().map(|u| format!("{}: {}", u.path, u.number)).collect();
     s.citation_errors = faith.citation_mismatches.len() + faith.invalid_evidence.len();
+    s.word_flags = faith
+        .unsupported_statements
+        .iter()
+        .map(|u| {
+            let v = note.pointer(&u.path).cloned().unwrap_or_default();
+            let text = v["text"]
+                .as_str()
+                .or(v["drug"].as_str())
+                .or(v["value"].as_str())
+                .unwrap_or_default()
+                .to_string();
+            let hint =
+                if u.suggested.is_empty() { String::new() } else { format!(" (said in {:?})", u.suggested) };
+            format!("{}: \"{text}\" missing {:?}{hint}", u.path, u.missing)
+        })
+        .collect();
     s
+}
+
+/// Multi-pet visit: one note per animal, each scored against its own vitals;
+/// another animal's values in a note count as contamination.
+fn score_pets(
+    llm: &os_llm::LlamaCppBackend,
+    template: &LoadedTemplate,
+    transcript: &Transcript,
+    script: &Script,
+    args: &LlmArgs,
+) -> Result<Score> {
+    let pets: Vec<String> = script.expected.vitals_by_patient.keys().cloned().collect();
+    let mut total = Score { fixture: script.id.clone(), ..Default::default() };
+    for pet in &pets {
+        let mut options = note_options(args);
+        options.pet = Some(pet.clone());
+        options.other_pets = pets.iter().filter(|p| *p != pet).cloned().collect();
+        let result = generate_note(llm, template, transcript, &options, &mut |_| true)?;
+        std::fs::write(
+            format!("target/eval/{}.{}.note.json", script.id, pet.to_lowercase()),
+            serde_json::to_string_pretty(&result.note)?,
+        )?;
+        // This animal's vitals, plus the visit-wide phrase checks.
+        let expected = Expected {
+            vitals: script.expected.vitals_by_patient[pet].clone(),
+            must_mention: Vec::new(),
+            must_not_mention: script.expected.must_not_mention.clone(),
+            ..Default::default()
+        };
+        let s = score(&format!("{}/{pet}", script.id), &expected, &result.note, &result.faithfulness);
+        total.checks += s.checks;
+        total.passed += s.passed;
+        total.misses.extend(s.misses.into_iter().map(|m| format!("{pet}: {m}")));
+        total.invented_numbers += s.invented_numbers;
+        total.invented.extend(s.invented.into_iter().map(|i| format!("{pet}: {i}")));
+        total.citation_errors += s.citation_errors;
+        total.word_flags.extend(s.word_flags.into_iter().map(|w| format!("{pet}: {w}")));
+        total.note_secs += result.stats.total_ms as f64 / 1000.0;
+        // Another animal's value under this animal's vitals (when they differ).
+        for (other, theirs) in script.expected.vitals_by_patient.iter().filter(|(o, _)| *o != pet) {
+            for (field, value) in theirs {
+                let mine = script.expected.vitals_by_patient[pet].get(field);
+                if mine == Some(value) {
+                    continue;
+                }
+                if let Some(v) = find_key(&result.note, field) {
+                    let got = os_engine::render::field_text(v).unwrap_or_default();
+                    if numbers(&got).contains(value) {
+                        total.contaminated.push(format!("{pet}'s {field} is {other}'s ({value})"));
+                    }
+                }
+            }
+        }
+    }
+    // Phrases that only need to appear somewhere in the visit's notes.
+    total.checks += script.expected.must_mention.len() as u32;
+    let all: String = pets
+        .iter()
+        .filter_map(|p| {
+            std::fs::read_to_string(format!("target/eval/{}.{}.note.json", script.id, p.to_lowercase())).ok()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let text = all.to_lowercase();
+    for p in &script.expected.must_mention {
+        if mentions(&text, p) {
+            total.passed += 1;
+        } else {
+            total.misses.push(format!("mentions \"{p}\""));
+        }
+    }
+    for c in &total.contaminated {
+        total.misses.push(format!("contaminated: {c}"));
+    }
+    Ok(total)
 }
 
 pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
@@ -218,7 +346,7 @@ pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
         .collect();
     scripts.sort_by(|a, b| a.0.id.cmp(&b.0.id));
 
-    let template = LoadedTemplate::resolve(&args.llm.template)?;
+    let default_template = LoadedTemplate::resolve(&args.llm.template)?;
     let llm = load_llm(store, &args.llm)?;
     let mut report = Vec::new();
     println!(
@@ -228,14 +356,24 @@ pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
     for (script, wav) in scripts {
         let cache = PathBuf::from("target/eval-cache").join(format!("{}.jsonl", script.id));
         let transcript = transcript_for(store, &wav, &cache, args.retranscribe)?;
-        let result = generate_note(&llm, &template, &transcript, &note_options(&args.llm), &mut |_| true)?;
         std::fs::create_dir_all("target/eval")?;
-        std::fs::write(
-            format!("target/eval/{}.note.json", script.id),
-            serde_json::to_string_pretty(&result.note)?,
-        )?;
-        let mut s = score(&script.id, &script.expected, &result.note, &result.faithfulness);
-        s.note_secs = result.stats.total_ms as f64 / 1000.0;
+        let template = match &script.template {
+            Some(id) if !args.force_template => LoadedTemplate::resolve(id)?,
+            _ => default_template.clone(),
+        };
+        let s = if script.expected.vitals_by_patient.is_empty() {
+            let result =
+                generate_note(&llm, &template, &transcript, &note_options(&args.llm), &mut |_| true)?;
+            std::fs::write(
+                format!("target/eval/{}.note.json", script.id),
+                serde_json::to_string_pretty(&result.note)?,
+            )?;
+            let mut s = score(&script.id, &script.expected, &result.note, &result.faithfulness);
+            s.note_secs = result.stats.total_ms as f64 / 1000.0;
+            s
+        } else {
+            score_pets(&llm, &template, &transcript, &script, &args.llm)?
+        };
         println!(
             "{:<18} {:>4}/{:<4} {:>9} {:>10} {:>8.1}  {}",
             s.fixture,
@@ -246,6 +384,12 @@ pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
             s.note_secs,
             s.misses.join("; ")
         );
+        for number in &s.invented {
+            println!("    invented: {number}");
+        }
+        for flag in &s.word_flags {
+            println!("    check: {flag}");
+        }
         report.push(s);
     }
     let (p, c): (u32, u32) = report.iter().fold((0, 0), |a, s| (a.0 + s.passed, a.1 + s.checks));
@@ -267,6 +411,9 @@ mod tests {
         assert!(mentions("Client will hold off on x-rays", "declined"));
         assert!(mentions("FVRCP booster given", "FVRCP"));
         assert!(!mentions("bloodwork submitted", "x-ray"));
+        assert!(mentions("Grade three out of five lame", "3/5"));
+        assert!(mentions("a 6mm pocket", "6 mm"));
+        assert!(mentions("Cone on for 14 days", "fourteen days"));
     }
 
     #[test]

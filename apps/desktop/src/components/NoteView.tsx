@@ -47,6 +47,10 @@ function flagsFor(f: Faithfulness, t: ReturnType<typeof useT>) {
     soft.set(m.path, t('"{number}" is in the transcript, but not in the cited line. Check the citation.', { number: m.number }));
   for (const p of f.invalid_evidence) soft.set(p, t("No matching transcript. Keep, edit, or remove?"));
   for (const v of f.unverified_values ?? []) soft.set(v, t("Not said in the cited line. Check before signing."));
+  for (const u of f.unsupported_statements ?? []) {
+    const words = t("Some of this isn't in the cited line ({words}). Check before signing.", { words: u.missing.join(", ") });
+    soft.set(u.path, u.suggested.length ? `${words} ${t("It may come from line {lines}.", { lines: u.suggested.join(", ") })}` : words);
+  }
   for (const d of f.disputed_numbers ?? [])
     soft.set(
       d.path,

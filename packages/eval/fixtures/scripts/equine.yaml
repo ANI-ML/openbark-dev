@@ -1,0 +1,31 @@
+# Synthetic consult: written for OpenBark's test suite; not a real patient.
+id: equine
+title: Equine lameness exam on the farm
+species: equine
+template: equine
+speakers:
+  dvm: bm_george
+  client: bf_emma
+pause_secs: 0.6
+lines:
+  - [client, "Thanks for coming out. Jasper's been off on his front left since Saturday. He's a twelve year old Warmblood gelding, we do dressage."]
+  - [dvm, "Any change in shoeing, turnout or work before that?"]
+  - [client, "The farrier came on Thursday. Otherwise nothing different."]
+  - [dvm, "His heart rate is forty, resp twelve, temperature thirty-seven point eight. Digital pulses are increased on the left fore."]
+  - [dvm, "At the trot he's a grade three out of five lame on the left fore. Hoof testers are positive over the toe of the left fore."]
+  - [dvm, "Flexion of the left fore is mildly positive. Right fore negative."]
+  - [dvm, "I'm going to pare the sole. There we go, that's a sub-solar abscess at the toe, and it's draining now."]
+  - [dvm, "I'll give him phenylbutazone, two point two milligrams per kilo IV today. Then poultice the foot daily for three days."]
+  - [dvm, "Continue bute by mouth, two grams once a day for three days. Keep him in a clean, dry stall."]
+  - [client, "He has a show in two weeks, is that okay?"]
+  - [dvm, "Bute has a competition withdrawal, so check the rules for your show. If he's sound in a week, start light work. I'll recheck him on Friday."]
+
+expected:
+  vitals:
+    heart_rate: "40"
+    respiratory_rate: "12"
+    temperature: "37.8"
+  medications:
+    - { drug: phenylbutazone, dose: "2.2" }
+  must_mention: [abscess, "3/5", hoof testers, poultice, Friday]
+  must_not_mention: [radiographs, nerve block]

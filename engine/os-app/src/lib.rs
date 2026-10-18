@@ -104,6 +104,8 @@ pub struct Status {
     pub plain_encounters: usize,
     /// Whether team members are set up (otherwise single-user).
     pub team: bool,
+    /// "macos", "windows" or "linux": the Mac shows MLX-optimized models.
+    pub platform: String,
 }
 
 #[derive(Serialize)]
@@ -123,6 +125,10 @@ pub struct SessionSummary {
 
 #[derive(Serialize)]
 pub struct SessionView {
+    /// The animals in a multi-pet visit (empty for a single animal).
+    pub pets: Vec<String>,
+    /// Whose notes this view shows, in a multi-pet visit.
+    pub pet: Option<String>,
     pub id: String,
     pub dir: String,
     pub audio_path: String,
@@ -234,6 +240,7 @@ impl App {
             encryption: os_engine::vault::status(),
             plain_encounters: self.plain_encounters(),
             team: self.users.is_team(),
+            platform: platform(),
         }
     }
 
@@ -382,9 +389,31 @@ impl App {
             .collect()
     }
 
-    pub fn open_session(&self, id: &str) -> Result<SessionView> {
-        let s = Session::open(&self.session_dir(id)?)?;
-        Ok(view(&s, None))
+    /// An encounter, showing one animal's notes in a multi-pet visit
+    /// (`pet`), or the visit's single note.
+    pub fn open_session(&self, id: &str, pet: Option<&str>) -> Result<SessionView> {
+        Ok(view(&self.open(id, pet)?, None))
+    }
+
+    fn open(&self, id: &str, pet: Option<&str>) -> Result<Session> {
+        Ok(Session::open(&self.session_dir(id)?)?.for_pet(pet))
+    }
+
+    /// Note options for this encounter: patient context and, in a
+    /// multi-pet visit, which animal the note is about.
+    fn note_options(&self, s: &Session, language: Option<String>) -> NoteOptions {
+        let pets = s.meta.patient.as_ref().map(|p| p.pets()).unwrap_or_default();
+        let other_pets = match &s.pet {
+            Some(pet) => pets.iter().filter(|p| !p.eq_ignore_ascii_case(pet)).cloned().collect(),
+            None => Vec::new(),
+        };
+        NoteOptions {
+            context: s.meta.patient.as_ref().map(|p| p.prompt_context()),
+            language,
+            pet: s.pet.clone(),
+            other_pets,
+            ..NoteOptions::default()
+        }
     }
 
     /// Create a session from a recording file (WAV, m4a, mp3…) and transcribe it.
@@ -548,18 +577,21 @@ impl App {
 
     /// Draft a note (or a client document) with a template. `language`: write
     /// the note in this language ("fr"…); the template's language when None.
+    /// `pet`: the animal this note is about, in a multi-pet visit.
+    #[allow(clippy::too_many_arguments)]
     pub fn generate_note(
         &self,
         id: &str,
         llm: &str,
         template: &str,
         language: Option<&str>,
+        pet: Option<&str>,
         by: Option<&str>,
         events: &dyn Events,
     ) -> Result<NoteResponse> {
         let who = self.who(by, Need::Notes)?;
         let _awake = AwakeGuard::acquire(AwakeReason::Processing);
-        let mut s = Session::open(&self.session_dir(id)?)?;
+        let mut s = self.open(id, pet)?;
         let template = self.templates.load(if template.is_empty() { "soap" } else { template })?;
         let record = template.template.document.is_record();
         if record && s.is_signed() {
@@ -582,12 +614,7 @@ impl App {
         };
         let backend = self.load_llm(llm)?;
         let transcript = s.load_transcript()?;
-        let options = NoteOptions {
-            context: s.meta.patient.as_ref().map(|p| p.prompt_context()),
-            reference,
-            language: language.map(String::from),
-            ..NoteOptions::default()
-        };
+        let options = NoteOptions { reference, ..self.note_options(&s, language.map(String::from)) };
         let mut result =
             os_engine::generate_note(backend.as_ref(), &template, &transcript, &options, &mut |p| {
                 events.token(p);
@@ -611,7 +638,7 @@ impl App {
         events: &dyn Events,
     ) -> Result<NoteResponse> {
         let who = self.who(request.by.as_deref(), Need::Notes)?;
-        let mut s = Session::open(&self.session_dir(id)?)?;
+        let mut s = self.open(id, request.pet.as_deref())?;
         if s.is_signed() {
             return Err(AppError(
                 "This note is signed, so it can't be changed. Add an addendum instead.".into(),
@@ -637,11 +664,7 @@ impl App {
         let _awake = AwakeGuard::acquire(AwakeReason::Processing);
         let backend = self.load_llm(&request.llm)?;
         let transcript = s.load_transcript()?;
-        let options = NoteOptions {
-            context: s.meta.patient.as_ref().map(|p| p.prompt_context()),
-            language: request.language.clone(),
-            ..NoteOptions::default()
-        };
+        let options = self.note_options(&s, request.language.clone());
         let mut result = os_engine::refine_note(
             backend.as_ref(),
             &template,
@@ -681,11 +704,12 @@ impl App {
         heading: &str,
         value: serde_json::Value,
         by: &str,
+        pet: Option<&str>,
     ) -> Result<NoteResponse> {
         let who = self
             .who(Some(by), Need::Notes)?
             .ok_or_else(|| AppError("Add your name in Settings, then save your edits.".into()))?;
-        let mut s = Session::open(&self.session_dir(id)?)?;
+        let mut s = self.open(id, pet)?;
         if s.is_signed() {
             return Err(AppError(
                 "This note is signed, so it can't be changed. Add an addendum instead.".into(),
@@ -706,11 +730,11 @@ impl App {
     }
 
     /// Add a signed addendum to a signed note.
-    pub fn add_addendum(&self, id: &str, text: &str, by: &str) -> Result<SessionView> {
+    pub fn add_addendum(&self, id: &str, text: &str, by: &str, pet: Option<&str>) -> Result<SessionView> {
         let who = self
             .who(Some(by), Need::Sign)?
             .ok_or_else(|| AppError("Add your name in Settings, then sign the addendum.".into()))?;
-        let mut s = Session::open(&self.session_dir(id)?)?;
+        let mut s = self.open(id, pet)?;
         s.add_addendum_by(text, &who)?;
         Ok(view(&s, None))
     }
@@ -718,9 +742,9 @@ impl App {
     /// The note (or a client document) as a PDF, with the clinic letterhead.
     /// Returns the bytes and a suggested file name.
     pub fn export_pdf(&self, id: &str, request: &PdfRequest) -> Result<(Vec<u8>, String)> {
-        let s = Session::open(&self.session_dir(id)?)?;
+        let s = self.open(id, request.pet.as_deref())?;
         let run = match &request.document {
-            Some(doc) => s.meta.runs.iter().rev().find(|r| r.template_id() == doc),
+            Some(doc) => s.my_runs().filter(|r| r.template_id() == doc).last(),
             None => s.latest_record(),
         }
         .ok_or_else(|| AppError("There's no draft to export yet. Draft the note first.".into()))?;
@@ -782,11 +806,11 @@ impl App {
     }
 
     /// Mark the latest draft as signed by `by` (refused while numbers are unsupported).
-    pub fn sign(&self, id: &str, by: &str) -> Result<SessionView> {
+    pub fn sign(&self, id: &str, by: &str, pet: Option<&str>) -> Result<SessionView> {
         let who = self
             .who(Some(by), Need::Sign)?
             .ok_or_else(|| AppError("Enter the name of the veterinarian signing the note.".into()))?;
-        let mut s = Session::open(&self.session_dir(id)?)?;
+        let mut s = self.open(id, pet)?;
         s.sign_latest_by(&who)?;
         Ok(view(&s, None))
     }
@@ -900,7 +924,7 @@ impl App {
     }
 
     pub fn hub_search(&self, query: &str) -> Result<Vec<HubModel>> {
-        Ok(hub::search(query, 30, None)?)
+        Ok(hub::search(query, 30, None, platform() == "macos")?)
     }
 
     pub fn hub_repo(&self, repo: &str) -> Result<HubRepoView> {
@@ -925,6 +949,15 @@ impl App {
     }
 }
 
+/// The operating system, as the UI should treat it. `OPENBARK_PLATFORM`
+/// overrides it for demos and screenshots of another platform's screens.
+fn platform() -> String {
+    std::env::var("OPENBARK_PLATFORM")
+        .ok()
+        .filter(|p| matches!(p.as_str(), "macos" | "windows" | "linux"))
+        .unwrap_or_else(|| std::env::consts::OS.to_string())
+}
+
 /// What an action needs from the person doing it (M1 item 11).
 #[derive(Clone, Copy)]
 enum Need {
@@ -947,6 +980,9 @@ pub struct PdfRequest {
     /// Language for the PDF's own words ("Patient", "Page 1 of 2").
     #[serde(default)]
     pub language: Option<String>,
+    /// The animal, in a multi-pet visit.
+    #[serde(default)]
+    pub pet: Option<String>,
 }
 
 /// A re-prompt of one heading of the latest draft.
@@ -964,6 +1000,9 @@ pub struct RefineRequest {
     /// Who asked (for the standard's record).
     #[serde(default)]
     pub by: Option<String>,
+    /// The animal, in a multi-pet visit.
+    #[serde(default)]
+    pub pet: Option<String>,
 }
 
 pub enum RecordingSource {
@@ -1071,7 +1110,7 @@ fn view(s: &Session, transcript: Option<Transcript>) -> SessionView {
     let addenda = record.map(|r| r.addenda.clone()).unwrap_or_default();
     // The latest run of each client document, in the order first drafted.
     let mut documents: Vec<DocumentView> = Vec::new();
-    for run in s.meta.runs.iter().filter(|r| !r.document.is_record()) {
+    for run in s.my_runs().filter(|r| !r.document.is_record()) {
         let dir = s.dir.join(&run.dir);
         let template = s.run_template(run).ok().map(|t| t.template);
         let doc = DocumentView {
@@ -1112,6 +1151,8 @@ fn view(s: &Session, transcript: Option<Transcript>) -> SessionView {
         consent: s.meta.consent.clone(),
         documents,
         recorded_by: s.meta.recorded_by.clone(),
+        pets: s.meta.patient.as_ref().map(|p| p.pets()).filter(|p| p.len() > 1).unwrap_or_default(),
+        pet: s.pet.clone(),
     }
 }
 

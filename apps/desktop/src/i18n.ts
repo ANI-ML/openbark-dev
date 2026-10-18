@@ -32,7 +32,26 @@ export function translate(lang: string, text: string, vars?: Vars): string {
 }
 
 /** Built-in templates' names are translated; a team's own names are shown as written. */
-const BUILTIN_TEMPLATE_NAMES = new Set(["SOAP note", "Callback note", "Discharge instructions", "Client summary"]);
+const BUILTIN_TEMPLATE_NAMES = new Set([
+  "SOAP note",
+  "Callback note",
+  "Discharge instructions",
+  "Client summary",
+  "Wellness visit",
+  "Sick visit",
+  "Emergency and triage",
+  "Dental procedure",
+  "Surgery and anaesthesia",
+  "Recheck visit",
+  "Dermatology consult",
+  "Oncology visit",
+  "Exotics consult",
+  "Equine visit",
+  "Production animal visit",
+  "Euthanasia and quality of life",
+  "Estimate explanation",
+  "Euthanasia aftercare",
+]);
 export function templateName(t: (text: string) => string, name: string): string {
   return BUILTIN_TEMPLATE_NAMES.has(name) ? t(name) : name;
 }

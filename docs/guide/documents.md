@@ -9,6 +9,8 @@ Under a note in Review, choose **Discharge instructions** or **Client summary**:
 - They follow your note, including any corrections you made by hand.
 - You can make them before or after the note is signed.
 - They open in a side panel. Read them through, then **Copy** them or **Save PDF**. **Draft again** writes a fresh version.
+- **Language** in the side panel writes the document in the client's language (English, French, Spanish, German, Portuguese, Italian or Dutch), whatever language your note is in. Medications and numbers are copied unchanged and checked again.
+- Two more client documents: **Estimate explanation** (the plan and its costs, prices copied exactly) and **Euthanasia aftercare** (arrangements and support, gently worded).
 
 ## Copy the note into your PIMS
 

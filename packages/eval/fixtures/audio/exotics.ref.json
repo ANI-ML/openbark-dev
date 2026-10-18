@@ -1,0 +1,68 @@
+[
+  {
+    "speaker": "client",
+    "start": 0.0,
+    "end": 5.91675,
+    "text": "This is Ziggy, my bearded dragon. He's about three. He hasn't eaten for two weeks and he's been sleeping a lot."
+  },
+  {
+    "speaker": "dvm",
+    "start": 6.51675,
+    "end": 11.407187,
+    "text": "Tell me about his setup. How big is the enclosure and what temperatures do you have?"
+  },
+  {
+    "speaker": "client",
+    "start": 12.007188,
+    "end": 17.592562,
+    "text": "It's a four foot tank. The basking spot is around thirty degrees and the cool end is about twenty-two."
+  },
+  {
+    "speaker": "dvm",
+    "start": 18.192562,
+    "end": 19.198063,
+    "text": "And lighting?"
+  },
+  {
+    "speaker": "client",
+    "start": 19.798063,
+    "end": 27.656187,
+    "text": "A UVB tube, but it's probably two years old. He gets crickets three times a week and greens every day. I dust with calcium sometimes."
+  },
+  {
+    "speaker": "dvm",
+    "start": 28.256187,
+    "end": 36.20856,
+    "text": "He weighs three hundred and ten grams. He's a bit thin, and quite lethargic. His mouth looks normal. No swellings on the limbs."
+  },
+  {
+    "speaker": "dvm",
+    "start": 36.808563,
+    "end": 45.203377,
+    "text": "The basking spot is too cool. It should be around forty to forty-two degrees. And UVB tubes need replacing every six to twelve months."
+  },
+  {
+    "speaker": "dvm",
+    "start": 45.803375,
+    "end": 49.449314,
+    "text": "I'd like to do bloodwork to check calcium, but you said you'd rather wait?"
+  },
+  {
+    "speaker": "client",
+    "start": 50.049313,
+    "end": 51.90631,
+    "text": "Yes, let's try the changes first."
+  },
+  {
+    "speaker": "dvm",
+    "start": 52.506313,
+    "end": 60.884064,
+    "text": "Okay. I'll give him fluids today, fifteen mils subcutaneously. Dust insects with calcium at every feed and a multivitamin once a week."
+  },
+  {
+    "speaker": "dvm",
+    "start": 61.484062,
+    "end": 66.71469,
+    "text": "Recheck in two weeks with a new weight. Call sooner if he gets weaker or has trouble walking."
+  }
+]

@@ -585,6 +585,21 @@ mod tests {
     }
 
     #[test]
+    fn every_builtin_template_renders_a_pdf_with_its_headings() {
+        for id in LoadedTemplate::builtin_ids() {
+            let t = LoadedTemplate::builtin(id).unwrap();
+            let note = crate::template::empty_note(&t.template);
+            let pdf = note_pdf(&t, &note, &header());
+            assert!(pdf.starts_with(b"%PDF-") && pdf.ends_with(b"%%EOF\n"), "{id}");
+            let text = text_of(&pdf);
+            for s in &t.template.sections {
+                let shown = s.title.replace('(', "\\(").replace(')', "\\)");
+                assert!(text.contains(&shown), "{id}: heading {} missing", s.title);
+            }
+        }
+    }
+
+    #[test]
     fn labels_follow_the_language() {
         let soap = LoadedTemplate::builtin("soap").unwrap();
         let note = crate::template::empty_note(&soap.template);

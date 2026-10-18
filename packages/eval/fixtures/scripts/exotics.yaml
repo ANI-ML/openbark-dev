@@ -1,0 +1,29 @@
+# Synthetic consult: written for OpenBark's test suite; not a real patient.
+id: exotics
+title: Bearded dragon not eating, husbandry review
+species: reptile
+template: exotics
+speakers:
+  dvm: af_sarah
+  client: am_adam
+pause_secs: 0.6
+lines:
+  - [client, "This is Ziggy, my bearded dragon. He's about three. He hasn't eaten for two weeks and he's been sleeping a lot."]
+  - [dvm, "Tell me about his setup. How big is the enclosure and what temperatures do you have?"]
+  - [client, "It's a four foot tank. The basking spot is around thirty degrees and the cool end is about twenty-two."]
+  - [dvm, "And lighting?"]
+  - [client, "A UVB tube, but it's probably two years old. He gets crickets three times a week and greens every day. I dust with calcium sometimes."]
+  - [dvm, "He weighs three hundred and ten grams. He's a bit thin, and quite lethargic. His mouth looks normal. No swellings on the limbs."]
+  - [dvm, "The basking spot is too cool. It should be around forty to forty-two degrees. And UVB tubes need replacing every six to twelve months."]
+  - [dvm, "I'd like to do bloodwork to check calcium, but you said you'd rather wait?"]
+  - [client, "Yes, let's try the changes first."]
+  - [dvm, "Okay. I'll give him fluids today, fifteen mils subcutaneously. Dust insects with calcium at every feed and a multivitamin once a week."]
+  - [dvm, "Recheck in two weeks with a new weight. Call sooner if he gets weaker or has trouble walking."]
+
+expected:
+  vitals:
+    weight: "310"
+  medications:
+    - { drug: fluids, dose: "15" }
+  must_mention: [basking, UVB, "40", calcium, declined, "two weeks"]
+  must_not_mention: [metabolic bone disease confirmed, radiograph]

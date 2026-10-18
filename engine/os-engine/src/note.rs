@@ -23,6 +23,136 @@ pub struct NoteOptions {
     pub reference: Option<Reference>,
     /// Language to write the note in ("fr", "es"…); the template's when None.
     pub language: Option<String>,
+    /// Multi-pet visits: the animal this note is about, and the others.
+    pub pet: Option<String>,
+    pub other_pets: Vec<String>,
+}
+
+/// "This visit covered several animals… write only about Mango."
+fn pet_line(pet: Option<&str>, others: &[String]) -> Option<String> {
+    let pet = pet?.trim();
+    if pet.is_empty() || others.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "\n\nThis consultation covered more than one animal: {pet} and {}. Write this note only about {pet}: \
+         include only what was said about {pet} (or about all the animals together, such as advice for the household), \
+         and leave out what was said only about the others. If it's unclear which animal something was about, leave it out.",
+        others.join(", ")
+    ))
+}
+
+/// In a multi-pet visit, hint words that sound like the animals' names
+/// ("Arlive" for Olive), so the model can tell whose findings a line holds.
+/// Only the prompt sees these hints; the saved transcript is unchanged.
+fn with_name_hints<'a>(
+    transcript: &'a Transcript,
+    options: &NoteOptions,
+) -> std::borrow::Cow<'a, Transcript> {
+    let names: Vec<String> = options.pet.iter().chain(options.other_pets.iter()).cloned().collect();
+    if names.len() < 2 {
+        return std::borrow::Cow::Borrowed(transcript);
+    }
+    let mut named = transcript.clone();
+    for s in &mut named.segments {
+        for h in crate::vocab::name_hints(&s.text, &names) {
+            if !s.hints.iter().any(|x| x.heard == h.heard) {
+                s.hints.push(h);
+            }
+        }
+    }
+    std::borrow::Cow::Owned(named)
+}
+
+/// Multi-pet visits: which animal each transcript line is about ("all" for
+/// lines about every animal, the household, or none in particular). Asked of
+/// the model as a short labelling task, so each animal's draft can be written
+/// from its own lines (M2 item 2: drafting from the whole visit mixed up the
+/// animals' vitals).
+pub fn attribute_lines(
+    llm: &dyn LlmBackend,
+    transcript: &Transcript,
+    pets: &[String],
+) -> Result<(std::collections::BTreeMap<u32, String>, GenerateStats), EngineError> {
+    let names = pets.join(", ");
+    let system = format!(
+        "You label the lines of a veterinary consultation that covered several animals: {names}.\n\
+         For every line, say which animal it is about: one of {names}, or \"all\" when it is about every animal, \
+         the household, or no animal in particular (greetings, small talk, payment).\n\
+         Once the conversation turns to one animal, the following lines are about that animal until another is named. \
+         Follow pronouns (he, she, his, her) and the exam being done. Names may be misheard; a hint such as \
+         [heard \"Arlive\", likely Olive] tells you which animal was meant.\n\
+         Label every line id once, in order."
+    );
+    let mut options =
+        NoteOptions { pet: pets.first().cloned(), other_pets: pets[1..].to_vec(), ..Default::default() };
+    options.pet = pets.first().cloned();
+    let named = with_name_hints(transcript, &options);
+    let user = format!("Transcript:\n\n{}", named.for_prompt());
+    let mut choices: Vec<Value> = pets.iter().map(|p| Value::String(p.clone())).collect();
+    choices.push(Value::String("all".into()));
+    let schema = serde_json::json!({
+        "type": "object",
+        "properties": {
+            "lines": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": { "type": "integer" },
+                        "about": { "type": "string", "enum": choices }
+                    },
+                    "required": ["id", "about"],
+                    "additionalProperties": false
+                }
+            }
+        },
+        "required": ["lines"],
+        "additionalProperties": false
+    });
+    let request = GenerateRequest {
+        messages: vec![ChatMessage::system(system), ChatMessage::user(user)],
+        max_tokens: 64 + 24 * transcript.segments.len() as u32,
+        temperature: 0.0,
+        seed: 42,
+        json_schema: Some(schema.to_string()),
+    };
+    let output = llm.generate(&request, &mut |_| true)?;
+    let parsed: Value = serde_json::from_str(output.text.trim())
+        .map_err(|e| EngineError::BadJson(format!("line labels: {e}")))?;
+    let labels = parsed["lines"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|l| Some((l["id"].as_u64()? as u32, l["about"].as_str()?.to_string())))
+        .collect();
+    Ok((labels, output.stats))
+}
+
+/// The lines one animal's note may draw on: its own, and those about all of
+/// them. Unlabelled lines are kept (when in doubt, the model's own rule to
+/// leave out what's unclear applies).
+pub fn lines_for_pet(
+    transcript: &Transcript,
+    labels: &std::collections::BTreeMap<u32, String>,
+    pet: &str,
+) -> Transcript {
+    Transcript {
+        segments: transcript
+            .segments
+            .iter()
+            .filter(|s| labels.get(&s.id).is_none_or(|l| l == pet || l == "all"))
+            .cloned()
+            .collect(),
+    }
+}
+
+/// Add the multi-pet instruction to a system message.
+fn with_pet(mut messages: Vec<ChatMessage>, pet: Option<&str>, others: &[String]) -> Vec<ChatMessage> {
+    if let (Some(line), Some(system)) = (pet_line(pet, others), messages.first_mut()) {
+        system.content.push_str(&line);
+    }
+    messages
 }
 
 /// English names of the note languages offered in the app.
@@ -44,7 +174,8 @@ fn language_line(code: Option<&str>) -> Option<String> {
     }
     let name = NOTE_LANGUAGES.iter().find(|(c, _)| *c == code).map(|(_, n)| *n).unwrap_or(code);
     Some(format!(
-        "\n\nWrite all text in the note in {name}, whatever language the consultation was in. \
+        "\n\nLanguage: write all text in the note in {name}, whatever language the consultation was in. \
+         This overrides any mention of English above. \
          Keep drug names, doses, units and numbers exactly as said. Field and heading names stay as given."
     ))
 }
@@ -75,7 +206,16 @@ impl Reference {
 impl Default for NoteOptions {
     fn default() -> Self {
         // Low temperature: charting should be deterministic and literal.
-        Self { max_tokens: 4096, temperature: 0.1, seed: 42, context: None, reference: None, language: None }
+        Self {
+            max_tokens: 4096,
+            temperature: 0.1,
+            seed: 42,
+            context: None,
+            reference: None,
+            language: None,
+            pet: None,
+            other_pets: Vec::new(),
+        }
     }
 }
 
@@ -310,9 +450,31 @@ pub fn generate_note(
     if transcript.is_empty() {
         return Err(EngineError::EmptyTranscript);
     }
-    let mut messages = with_language(
-        build_messages(template, transcript, options.context.as_deref()),
-        options.language.as_deref().or(Some(template.template.language.as_str())),
+    // Multi-pet: draft each animal from its own lines (and the shared ones).
+    let mut labelling_ms = 0;
+    let scoped = match (options.pet.as_deref(), options.other_pets.is_empty()) {
+        (Some(pet), false) => {
+            let pets: Vec<String> =
+                std::iter::once(pet.to_string()).chain(options.other_pets.iter().cloned()).collect();
+            match attribute_lines(llm, transcript, &pets) {
+                Ok((labels, stats)) => {
+                    labelling_ms = stats.total_ms;
+                    std::borrow::Cow::Owned(lines_for_pet(transcript, &labels, pet))
+                }
+                // Labelling failed: draft from the whole visit, with the multi-pet instruction.
+                Err(_) => std::borrow::Cow::Borrowed(transcript),
+            }
+        }
+        _ => std::borrow::Cow::Borrowed(transcript),
+    };
+    let named = with_name_hints(&scoped, options);
+    let mut messages = with_pet(
+        with_language(
+            build_messages(template, &named, options.context.as_deref()),
+            options.language.as_deref().or(Some(template.template.language.as_str())),
+        ),
+        options.pet.as_deref(),
+        &options.other_pets,
     );
     if let Some(user) = messages.last_mut() {
         user.content = format!("{}{}", reference_message(options.reference.as_ref()), user.content);
@@ -331,7 +493,10 @@ pub fn generate_note(
     })?;
     validate(template, &note)?;
     let vet_numbers = options.reference.as_ref().map(|r| r.vet_numbers.clone()).unwrap_or_default();
-    let faithfulness = faithfulness::check_with(&note, transcript, &vet_numbers);
+    // Word-level alignment only when the note is in the consultation's language
+    // (English here; other consultation languages pass through untranslated).
+    let align = options.language.as_deref().is_none_or(|l| l == "en");
+    let faithfulness = faithfulness::check_opts(&note, transcript, &vet_numbers, align);
     let markdown = render::markdown(template, &note, transcript, &faithfulness);
     Ok(NoteResult {
         status: "draft",
@@ -339,7 +504,7 @@ pub fn generate_note(
         model: llm.capabilities().model_name,
         note,
         faithfulness,
-        stats: output.stats,
+        stats: GenerateStats { total_ms: output.stats.total_ms + labelling_ms, ..output.stats },
         refinement: None,
         edit: None,
         by: None,
@@ -375,17 +540,22 @@ pub fn refine_note(
         Some(key) => note[sec][key].clone(),
         None => note[sec].clone(),
     };
+    let named = with_name_hints(transcript, options);
     let generate = GenerateRequest {
-        messages: with_language(
-            build_refine_messages(
-                template,
-                transcript,
-                options.context.as_deref(),
-                heading,
-                &current,
-                request,
+        messages: with_pet(
+            with_language(
+                build_refine_messages(
+                    template,
+                    &named,
+                    options.context.as_deref(),
+                    heading,
+                    &current,
+                    request,
+                ),
+                options.language.as_deref().or(Some(template.template.language.as_str())),
             ),
-            options.language.as_deref().or(Some(template.template.language.as_str())),
+            options.pet.as_deref(),
+            &options.other_pets,
         ),
         max_tokens: options.max_tokens,
         temperature: options.temperature,
@@ -473,6 +643,49 @@ mod tests {
                 check: None,
             }],
         }
+    }
+
+    #[test]
+    fn each_animal_drafts_from_its_own_and_shared_lines() {
+        let t = Transcript {
+            segments: [
+                "Hi both",
+                "Olive weighs 3.9 kilos",
+                "Pickles weighs 6.3 kilos",
+                "Keep the litter clean",
+                "Thanks",
+            ]
+            .iter()
+            .enumerate()
+            .map(|(i, text)| crate::transcript::Segment {
+                id: i as u32,
+                start: i as f32,
+                end: i as f32 + 1.0,
+                speaker: Some(0),
+                text: text.to_string(),
+                hints: Vec::new(),
+                check: None,
+            })
+            .collect(),
+        };
+        let labels: std::collections::BTreeMap<u32, String> =
+            [(0, "all"), (1, "Olive"), (2, "Pickles"), (3, "all")]
+                .into_iter()
+                .map(|(i, l)| (i, l.to_string()))
+                .collect();
+        let olive: Vec<u32> = lines_for_pet(&t, &labels, "Olive").segments.iter().map(|s| s.id).collect();
+        assert_eq!(olive, [0, 1, 3, 4], "unlabelled line 4 is kept; Pickles's line 2 isn't");
+        let pickles: Vec<u32> = lines_for_pet(&t, &labels, "Pickles").segments.iter().map(|s| s.id).collect();
+        assert_eq!(pickles, [0, 2, 3, 4]);
+    }
+
+    #[test]
+    fn multi_pet_notes_are_about_one_animal() {
+        assert!(pet_line(Some("Mango"), &[]).is_none(), "single pet: no instruction");
+        assert!(pet_line(None, &["Biscuit".into()]).is_none());
+        let line = pet_line(Some("Mango"), &["Biscuit".into(), "Pepper".into()]).unwrap();
+        assert!(line.contains("Mango and Biscuit, Pepper"));
+        assert!(line.contains("only about Mango"));
     }
 
     #[test]

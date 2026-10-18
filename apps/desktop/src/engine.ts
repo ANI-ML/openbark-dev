@@ -51,6 +51,8 @@ export interface Faithfulness {
   citation_mismatches: NumberFlag[];
   disputed_numbers?: { path: string; number: string; heard_instead: string[]; cited: number[] }[];
   unverified_values?: string[];
+  /** Statements whose words aren't in the lines they cite (word check, M2). */
+  unsupported_statements?: { path: string; missing: string[]; cited: number[]; suggested: number[] }[];
   /** Items a veterinarian wrote or edited by hand (listed, not checked). */
   vet_entered?: string[];
   invalid_evidence: string[];
@@ -82,6 +84,8 @@ export interface Patient {
   name: string;
   last_name: string;
   reason: string;
+  /** Other animals seen in the same visit (one note each). */
+  others?: string[];
   entered_at?: string | null;
   updated_at?: string | null;
 }
@@ -145,6 +149,10 @@ export interface SessionView {
   documents: DocumentView[];
   /** Who started the recording or import. */
   recorded_by: Who | null;
+  /** The animals in a multi-pet visit (empty for a single animal). */
+  pets: string[];
+  /** Whose notes this view shows, in a multi-pet visit. */
+  pet: string | null;
 }
 
 /** A document for the client (discharge instructions, a summary). */
@@ -178,6 +186,8 @@ export interface Status {
   plain_encounters: number;
   /** Team members are set up (otherwise single-user). */
   team: boolean;
+  /** "macos", "windows" or "linux": the Mac shows MLX-optimized models. */
+  platform: string;
 }
 
 export type Fit = "fits" | "tight" | "wont_fit";
@@ -206,6 +216,8 @@ export interface HubModel {
   license_class: LicenseClass;
   gated: boolean;
   last_modified: string | null;
+  /** Converted for Apple's MLX framework (listed only on a Mac). */
+  mlx: boolean;
 }
 
 export interface HubRepoView {
@@ -230,6 +242,8 @@ export interface TemplatePart {
   kind: ContentKind;
   presence?: string;
   instruction?: string | null;
+  /** Example requests for this heading, shown as suggestions (never sent unless used). */
+  examples?: string[];
   fields?: TemplateField[];
 }
 
@@ -240,6 +254,7 @@ export interface TemplateSection {
   /** Content held directly under the heading; null/absent when it has subheadings. */
   kind?: ContentKind | null;
   instruction?: string | null;
+  examples?: string[];
   fields?: TemplateField[];
   parts?: TemplatePart[];
 }
@@ -352,8 +367,11 @@ export const inputDevices = () =>
   isDesktop ? invoke<string[]>("input_devices") : api<string[]>("/api/devices");
 export const listSessions = () =>
   isDesktop ? invoke<SessionSummary[]>("list_sessions") : api<SessionSummary[]>("/api/sessions");
-export const openSession = (id: string) =>
-  isDesktop ? invoke<SessionView>("open_session", { id }) : api<SessionView>(`/api/sessions/${enc(id)}`);
+/** An encounter; `pet` picks one animal's notes in a multi-pet visit. */
+export const openSession = (id: string, pet?: string | null) =>
+  isDesktop
+    ? invoke<SessionView>("open_session", { id, pet: pet ?? null })
+    : api<SessionView>(`/api/sessions/${enc(id)}${pet ? `?pet=${enc(pet)}` : ""}`);
 export const listTemplates = () =>
   isDesktop ? invoke<TemplateSummary[]>("list_templates") : api<TemplateSummary[]>("/api/templates");
 export const template = (id: string) =>
@@ -380,6 +398,8 @@ export interface RefineRequest {
   by: string | null;
   /** Note language ("fr"…); English when absent. */
   language?: string | null;
+  /** The animal, in a multi-pet visit. */
+  pet?: string | null;
 }
 /** Redraft one heading of the latest draft; saved as a new draft. */
 export const refineNote = (id: string, request: RefineRequest) =>
@@ -387,12 +407,19 @@ export const refineNote = (id: string, request: RefineRequest) =>
     ? invoke<{ markdown: string; run: NoteRun }>("refine_note", { id, request })
     : api<{ markdown: string; run: NoteRun }>(`/api/sessions/${enc(id)}/refine`, post(request));
 /** Draft with a template; `language` is the note language ("fr"…), English when absent. */
-export const generateNote = (id: string, llm: string, tpl: string, language?: string | null) =>
+export const generateNote = (id: string, llm: string, tpl: string, language?: string | null, pet?: string | null) =>
   isDesktop
-    ? invoke<{ markdown: string; run: NoteRun }>("generate_note", { id, llm, template: tpl, language: language ?? null, by: actor })
+    ? invoke<{ markdown: string; run: NoteRun }>("generate_note", {
+        id,
+        llm,
+        template: tpl,
+        language: language ?? null,
+        pet: pet ?? null,
+        by: actor,
+      })
     : api<{ markdown: string; run: NoteRun }>(
         `/api/sessions/${enc(id)}/notes`,
-        post({ llm, template: tpl, language: language ?? null, by: actor }),
+        post({ llm, template: tpl, language: language ?? null, pet: pet ?? null, by: actor }),
       );
 
 /** Clinic letterhead and paper size for PDFs. */
@@ -403,6 +430,8 @@ export interface PdfRequest {
   document?: string | null;
   /** Language for the PDF's own words ("Patient", "Page 1 of 2"). */
   language?: string | null;
+  /** The animal, in a multi-pet visit. */
+  pet?: string | null;
 }
 
 /** Save the note (or a client document) as a PDF. Resolves to false if cancelled. */
@@ -433,16 +462,18 @@ export const updatePatient = (id: string, patient: Patient) =>
     ? invoke<SessionView>("update_patient", { id, patient })
     : api<SessionView>(`/api/sessions/${enc(id)}/patient`, post(patient));
 /** Save the vet's own version of one heading as a new draft. */
-export const editNote = (id: string, heading: string, value: unknown, by: string) =>
+export const editNote = (id: string, heading: string, value: unknown, by: string, pet?: string | null) =>
   isDesktop
-    ? invoke<{ markdown: string; run: NoteRun }>("edit_note", { id, heading, value, by })
-    : api<{ markdown: string; run: NoteRun }>(`/api/sessions/${enc(id)}/edit`, post({ heading, value, by }));
-export const addAddendum = (id: string, text: string, by: string) =>
+    ? invoke<{ markdown: string; run: NoteRun }>("edit_note", { id, heading, value, by, pet: pet ?? null })
+    : api<{ markdown: string; run: NoteRun }>(`/api/sessions/${enc(id)}/edit`, post({ heading, value, by, pet: pet ?? null }));
+export const addAddendum = (id: string, text: string, by: string, pet?: string | null) =>
   isDesktop
-    ? invoke<SessionView>("add_addendum", { id, text, by })
-    : api<SessionView>(`/api/sessions/${enc(id)}/addenda`, post({ text, by }));
-export const signNote = (id: string, by: string) =>
-  isDesktop ? invoke<SessionView>("sign_note", { id, by }) : api<SessionView>(`/api/sessions/${enc(id)}/sign`, post({ by }));
+    ? invoke<SessionView>("add_addendum", { id, text, by, pet: pet ?? null })
+    : api<SessionView>(`/api/sessions/${enc(id)}/addenda`, post({ text, by, pet: pet ?? null }));
+export const signNote = (id: string, by: string, pet?: string | null) =>
+  isDesktop
+    ? invoke<SessionView>("sign_note", { id, by, pet: pet ?? null })
+    : api<SessionView>(`/api/sessions/${enc(id)}/sign`, post({ by, pet: pet ?? null }));
 export const models = () => (isDesktop ? invoke<ModelRow[]>("models") : api<ModelRow[]>("/api/models"));
 export const downloadModel = (id: string) =>
   isDesktop ? invoke<void>("download_model", { id }) : api<void>(`/api/models/${enc(id)}/download`, { method: "POST" });
@@ -523,6 +554,7 @@ export async function importRecording(
     diarize: String(speakers),
     name: file.name,
     patient_name: p?.name ?? "",
+    others: (p?.others ?? []).map((o) => o.trim()).filter(Boolean).join("\n"),
     last_name: p?.last_name ?? "",
     reason: p?.reason ?? "",
     ...consentQuery(consent),
@@ -598,6 +630,7 @@ async function startBrowserRecording(
     speakers: String(speakers),
     sample_rate: String(ctx.sampleRate),
     patient_name: patient?.name ?? "",
+    others: (patient?.others ?? []).map((o) => o.trim()).filter(Boolean).join("\n"),
     last_name: patient?.last_name ?? "",
     reason: patient?.reason ?? "",
     ...consentQuery(consent),

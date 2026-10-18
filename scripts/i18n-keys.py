@@ -29,6 +29,9 @@ INDIRECT = [
     "Veterinarian", "Technician", "Reception",
     # Built-in template names (templateName() in src/i18n.ts)
     "SOAP note", "Callback note", "Discharge instructions", "Client summary",
+    "Wellness visit", "Sick visit", "Emergency and triage", "Dental procedure", "Surgery and anaesthesia", "Recheck visit", "Dermatology consult", "Oncology visit", "Exotics consult", "Equine visit", "Production animal visit", "Euthanasia and quality of life", "Estimate explanation", "Euthanasia aftercare",
+    # promptExamples NOTE_EXAMPLES use cases
+    "Small-animal general practice", "Emergency and critical care", "Feline-only clinic", "Equine ambulatory", "Exotics", "Farm and production animals", "Shelter medicine", "Referral specialty",
 ]
 
 

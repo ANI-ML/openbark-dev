@@ -9,7 +9,7 @@
 //! - `GET  /api/status`, `GET /api/devices`
 //! - `GET  /api/sessions`, `GET /api/sessions/{id}`, `GET /api/sessions/{id}/audio` (Range)
 //! - `POST /api/sessions?diarize=&name=`    body: WAV bytes → new encounter, transcribed
-//!   (patient: `patient_name`, `last_name`, `reason`; consent: `consent_rule`,
+//!   (patient: `patient_name`, `others` (one per line), `last_name`, `reason`; consent: `consent_rule`,
 //!   `consent_method`, `consent_by`, `consent_script`; the same on `/api/live`,
 //!   where consent is required)
 //! - `POST /api/sessions/{id}/notes`        `{llm, template, language?}`
@@ -176,11 +176,18 @@ async fn list_sessions(State(s): State<St>) -> impl IntoResponse {
     Json(s.app.list_sessions())
 }
 
+#[derive(Deserialize, Default)]
+struct PetQuery {
+    #[serde(default)]
+    pet: Option<String>,
+}
+
 async fn open_session(
     State(s): State<St>,
     UrlPath(id): UrlPath<String>,
+    Query(q): Query<PetQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app.open_session(&id)).await
+    blocking(move || s.app.open_session(&id, q.pet.as_deref())).await
 }
 
 /// The recording, decrypted in memory (never as a plain file), with byte
@@ -296,6 +303,9 @@ struct PatientQuery {
     last_name: String,
     #[serde(default)]
     reason: String,
+    /// Other animals in the visit, one per line.
+    #[serde(default)]
+    others: String,
 }
 
 /// Consent passed as query parameters alongside the patient details.
@@ -327,6 +337,7 @@ impl PatientQuery {
     fn into_patient(self) -> Option<Patient> {
         let p = Patient {
             name: self.patient_name,
+            others: self.others.lines().map(str::trim).filter(|o| !o.is_empty()).map(String::from).collect(),
             last_name: self.last_name,
             reason: self.reason,
             ..Default::default()
@@ -379,6 +390,8 @@ struct CreateNote {
     #[serde(default)]
     language: Option<String>,
     #[serde(default)]
+    pet: Option<String>,
+    #[serde(default)]
     by: Option<String>,
 }
 
@@ -398,6 +411,7 @@ async fn create_note(
             &req.llm,
             &req.template,
             req.language.as_deref(),
+            req.pet.as_deref(),
             req.by.as_deref(),
             events.as_ref(),
         )
@@ -408,6 +422,8 @@ async fn create_note(
 #[derive(Deserialize)]
 struct Sign {
     by: String,
+    #[serde(default)]
+    pet: Option<String>,
 }
 
 async fn sign_note(
@@ -415,7 +431,7 @@ async fn sign_note(
     UrlPath(id): UrlPath<String>,
     Json(req): Json<Sign>,
 ) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app.sign(&id, &req.by)).await
+    blocking(move || s.app.sign(&id, &req.by, req.pet.as_deref())).await
 }
 
 async fn update_patient(
@@ -443,6 +459,8 @@ struct EditNote {
     heading: String,
     value: serde_json::Value,
     by: String,
+    #[serde(default)]
+    pet: Option<String>,
 }
 
 async fn edit_note(
@@ -450,7 +468,7 @@ async fn edit_note(
     UrlPath(id): UrlPath<String>,
     Json(req): Json<EditNote>,
 ) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app.edit_note(&id, &req.heading, req.value, &req.by)).await
+    blocking(move || s.app.edit_note(&id, &req.heading, req.value, &req.by, req.pet.as_deref())).await
 }
 
 /// The note as a PDF download.
@@ -476,6 +494,8 @@ async fn export_pdf(
 struct NewAddendum {
     text: String,
     by: String,
+    #[serde(default)]
+    pet: Option<String>,
 }
 
 async fn add_addendum(
@@ -483,7 +503,7 @@ async fn add_addendum(
     UrlPath(id): UrlPath<String>,
     Json(req): Json<NewAddendum>,
 ) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app.add_addendum(&id, &req.text, &req.by)).await
+    blocking(move || s.app.add_addendum(&id, &req.text, &req.by, req.pet.as_deref())).await
 }
 
 async fn list_templates(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {

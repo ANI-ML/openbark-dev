@@ -1,0 +1,75 @@
+# OpenBark template: oncology consult or treatment visit.
+id: oncology
+version: 0.1.0
+name: Oncology visit
+description: Diagnosis and staging, treatment options or chemotherapy dose, adverse events, quality of life.
+language: en
+
+instructions: |
+  Write the medical record for this oncology consultation or treatment visit.
+  Use concise clinical veterinary English as a veterinary oncologist would chart it.
+  The transcript is from a recording; speakers are labelled by number, not role. Infer roles from context,
+  but never put words in a speaker's mouth.
+
+rules:
+  - "Chemotherapy doses must be copied exactly as said, with units (mg/m², mg/kg, mg). Never calculate a dose or body surface area."
+  - "Record a stage, grade or adverse-event grade only if it was said."
+  - "Record a prognosis or survival time only in the words the veterinarian used."
+
+sections:
+  - id: patient
+    title: Patient
+    presence: optional
+    kind: fields
+    fields:
+      - { key: name, label: Name }
+      - { key: species, label: Species }
+      - { key: breed, label: Breed }
+      - { key: age, label: Age }
+      - { key: sex, label: Sex }
+  - title: Reason for visit
+    kind: statements
+    presence: required
+  - title: Diagnosis and staging
+    kind: statements
+    instruction: Tumour type, grade, stage and staging tests as said.
+  - title: History since last visit
+    kind: statements
+    instruction: Appetite, energy, vomiting, diarrhoea, and adverse events from treatment, as the client described them.
+  - title: Vitals
+    kind: fields
+    fields:
+      - { key: weight, label: Weight }
+      - { key: body_surface_area, label: Body surface area }
+      - { key: temperature, label: Temperature }
+      - { key: heart_rate, label: HR }
+      - { key: respiratory_rate, label: RR }
+  - title: Physical exam and tumour measurements
+    examples:
+      - "Give each mass's size in cm with its location"
+    kind: statements
+  - title: Bloodwork before treatment
+    kind: statements
+  - title: Adverse events
+    examples:
+      - "Grade each adverse event if a VCOG grade was said"
+    kind: statements
+  - title: Assessment
+    kind: statements
+    presence: required
+    instruction: Response to treatment and current status as the veterinarian judged it.
+  - title: Treatment options discussed
+    kind: statements
+  - title: Treatment given
+    examples:
+      - "Give the chemotherapy dose exactly as said in mg/m2"
+      - "Include the infusion time if said"
+    kind: medications
+  - title: Medications to go home
+    kind: medications
+  - title: Quality of life
+    examples:
+      - "Record the quality-of-life score the family gave"
+    kind: statements
+  - title: Plan and next treatment
+    kind: statements

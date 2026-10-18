@@ -30,6 +30,40 @@ export function PatientFields({
           autoComplete="off"
         />
       </label>
+      {(value.others ?? []).map((other, i) => (
+        <div key={i} className="ob-field other-pet">
+          <label className="label" htmlFor={`${idPrefix}-other-${i}`}>
+            {t("Another animal in this visit")}
+          </label>
+          <div className="other-pet-row">
+            <input
+              id={`${idPrefix}-other-${i}`}
+              className="ob-input"
+              value={other}
+              disabled={disabled}
+              autoComplete="off"
+              onChange={(e) => onChange({ ...value, others: (value.others ?? []).map((o, j) => (j === i ? e.target.value : o)) })}
+            />
+            <button
+              type="button"
+              className="icon-btn"
+              disabled={disabled}
+              aria-label={t("Remove {name}", { name: other || t("Another animal in this visit") })}
+              onClick={() => onChange({ ...value, others: (value.others ?? []).filter((_, j) => j !== i) })}
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      ))}
+      <button
+        type="button"
+        className="link small add-pet"
+        disabled={disabled}
+        onClick={() => onChange({ ...value, others: [...(value.others ?? []), ""] })}
+      >
+        {t("Add another animal")}
+      </button>
       <label className="ob-field" htmlFor={`${idPrefix}-last`}>
         <span className="label">{t("Last name")}</span>
         <input

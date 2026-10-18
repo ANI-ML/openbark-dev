@@ -12,6 +12,9 @@ OpenBark is local-first (master prompt §3, rule §7.4). This file lists every n
 | R2 | Same as R1, for catalog entries hosted on GitHub | `github.com`; it redirects to `objects.githubusercontent.com` and `release-assets.githubusercontent.com` | HTTP GET, `User-Agent` header | Download small sherpa-onnx models (VAD, speaker embeddings) | As R1 |
 
 | R3 | Only while the user runs `openbark serve` (web mode) | **Listens** on `127.0.0.1:<port>` (default 4317). Loopback only: unreachable from other machines | The local web UI and its API, serving this computer's own browser | Stop the command. It never binds to other interfaces until the Clinic Hub adds authentication and mutual TLS (M4) |
+| R4 | Only when the user opens **Browse Hugging Face** in the model manager and searches or opens a model | `huggingface.co` (`/api/models`) | HTTPS GETs with the search words, or the chosen model's id, and a `User-Agent: OpenBark/<version>` header. One query for GGUF models; on a Mac, a second query for MLX builds (to label them "MLX optimized"). No token, nothing about patients | Find and add note-writing models | Don't open the browser; models can be pulled by id or copied in |
+
+The install scripts (`install/`) make no calls of their own: building from source uses B1, B2 and B3, and `-Models` / `--models` uses R1 and R2. Uninstalling makes no network calls.
 
 Nothing else at run time:
 - no telemetry, analytics, crash reporting or update checks;
@@ -33,7 +36,6 @@ Transcription, note generation and everything else run with the network unplugge
 
 | Milestone | Host | Purpose | Default |
 |---|---|---|---|
-| M1 | The same hosts as R1 | Searching the Hugging Face Hub from the model manager | Only when the user opens Search |
 | M1 | User-configured URL | Optional remote OpenAI-compatible endpoint (a clinic's own model server, or a hosted model with the user's key) | **Off.** Clearly labelled, never used as a silent fallback |
 | M4 | LAN only (mDNS `_openbark._tcp`) | Clinic Hub discovery and mutual-TLS API | Off unless Hub mode is enabled |
 | Proposed (ADR-0007) | The clinic's own phone system (PBX) or a SIP trunk the clinic chooses | Call mode: SIP signalling and RTP media for calls placed from OpenBark, recorded and transcribed on this computer. Nothing goes to a transcription service | **Off.** Only once the clinic configures a phone line |

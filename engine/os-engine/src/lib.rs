@@ -6,6 +6,7 @@
 //! Notes produced here are always drafts: nothing in the engine signs, sends
 //! or writes to a PIMS.
 
+pub mod align;
 pub mod awake;
 pub mod crosscheck;
 pub mod edit;
@@ -13,7 +14,7 @@ pub mod faithfulness;
 pub mod live;
 pub mod models;
 pub mod note;
-mod numbers;
+pub mod numbers;
 pub mod pdf;
 pub mod render;
 pub mod session;

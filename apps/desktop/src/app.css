@@ -224,6 +224,10 @@ button.turn-text:hover { color: var(--ink); }
 }
 .ask-text, .tb-text { height: auto; padding: 8px 12px; resize: vertical; line-height: 1.5; font: inherit; font-size: 0.875rem; }
 .ask-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ask-examples { display: flex; flex-direction: column; gap: 6px; }
+.ask-examples .ask-chip { background: var(--accent-soft); }
+.tb-examples { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.tb-examples .ask-chip:disabled { color: var(--ink-2, var(--ink)); cursor: default; opacity: 1; }
 .ask-chip { border: 1px solid transparent; font: inherit; font-size: 0.8125rem; cursor: pointer; height: auto; min-height: 24px; text-align: left; }
 .ask-chip:hover:not(:disabled) { border-color: var(--border-strong); }
 .ask-actions { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -268,6 +272,7 @@ button.turn-text:hover { color: var(--ink); }
 .hub-row:hover { background: var(--surface-2); }
 .hub-name { font-weight: 500; overflow-wrap: anywhere; }
 .hub-meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.mlx-chip { background: var(--accent-soft); color: var(--ink); font-size: 0.75rem; font-weight: 500; }
 .accept { align-items: flex-start; }
 a { color: var(--accent); }
 
@@ -437,3 +442,12 @@ p > .ob-dot { display: inline-block; vertical-align: middle; }
 .help-video { width: 100%; aspect-ratio: 16 / 10; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--surface-2); }
 .help-steps { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 8px; max-width: 72ch; }
 @media (max-width: 1023px) { .help-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; } .help-topics ol { flex-direction: row; flex-wrap: wrap; } .help-topic { width: auto; } }
+.doc-language { display: flex; align-items: center; gap: 8px; margin-left: auto; margin-right: 8px; }
+.doc-language .ob-select { height: 32px; }
+@media (max-width: 640px) { .doc-language > span { display: none; } }
+
+/* Multi-pet visits (M2 item 2) */
+.pet-tabs { align-self: flex-start; }
+.other-pet-row { display: flex; gap: 4px; align-items: center; }
+.other-pet-row .ob-input { flex: 1; min-width: 0; }
+.add-pet { align-self: flex-start; }

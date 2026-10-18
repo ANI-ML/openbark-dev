@@ -1,0 +1,74 @@
+[
+  {
+    "speaker": "client",
+    "start": 0.0,
+    "end": 7.548625,
+    "text": "Bailey's been scratching like crazy for about three months. It gets worse every summer. She's a four year old Golden Retriever."
+  },
+  {
+    "speaker": "dvm",
+    "start": 8.148625,
+    "end": 11.631625,
+    "text": "On a scale of zero to ten, how itchy would you say she is?"
+  },
+  {
+    "speaker": "client",
+    "start": 12.231625,
+    "end": 14.82875,
+    "text": "Honestly, an eight. She keeps us up at night."
+  },
+  {
+    "speaker": "dvm",
+    "start": 15.42875,
+    "end": 18.655312,
+    "text": "Is she on flea prevention, and has the diet changed?"
+  },
+  {
+    "speaker": "client",
+    "start": 19.255312,
+    "end": 23.095812,
+    "text": "She gets her flea chew every month. Same food for two years."
+  },
+  {
+    "speaker": "dvm",
+    "start": 23.695812,
+    "end": 29.798187,
+    "text": "She has redness and hair loss on her paws, armpits and belly. A few small red bumps on the belly too."
+  },
+  {
+    "speaker": "dvm",
+    "start": 30.398188,
+    "end": 34.807877,
+    "text": "The left ear is red with brown discharge. The right ear looks normal."
+  },
+  {
+    "speaker": "dvm",
+    "start": 35.407875,
+    "end": 43.428,
+    "text": "Ear cytology from the left ear shows yeast, about ten per field, and no bacteria. Tape cytology from the paws shows yeast as well."
+  },
+  {
+    "speaker": "dvm",
+    "start": 44.028,
+    "end": 52.222,
+    "text": "This looks like environmental allergies, atopic dermatitis, with a secondary yeast infection. A food allergy is less likely but possible."
+  },
+  {
+    "speaker": "dvm",
+    "start": 52.822,
+    "end": 58.355,
+    "text": "Start oclacitinib, sixteen milligrams by mouth twice a day for fourteen days, then once a day."
+  },
+  {
+    "speaker": "dvm",
+    "start": 58.955,
+    "end": 66.59837,
+    "text": "Clean the left ear and use the ear drops once a day for ten days. Chlorhexidine shampoo twice a week, leave it on for ten minutes."
+  },
+  {
+    "speaker": "dvm",
+    "start": 67.19837,
+    "end": 70.17975,
+    "text": "Recheck in three weeks, and we'll look at the ear again."
+  }
+]

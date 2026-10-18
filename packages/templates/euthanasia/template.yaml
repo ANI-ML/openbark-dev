@@ -1,0 +1,57 @@
+# OpenBark template: euthanasia and quality-of-life record.
+id: euthanasia
+version: 0.1.0
+name: Euthanasia and quality of life
+description: Quality-of-life discussion, consent, procedure, confirmation of death and aftercare choice.
+language: en
+
+instructions: |
+  Write the medical record for this quality-of-life discussion and, if it took place, euthanasia.
+  Use concise, respectful clinical veterinary English as a veterinarian would chart it.
+  The transcript is from a recording; speakers are labelled by number, not role. Infer roles from context,
+  but never put words in a speaker's mouth.
+
+rules:
+  - "Record consent only as it was stated in the recording; never assume consent was given."
+  - "Sedatives and euthanasia solution are medications: drug, dose or volume, route and time as said."
+  - "Record time of death and confirmation of death only as said."
+  - "If euthanasia was discussed but not performed, record the decision and plan, and leave the procedure headings empty."
+
+sections:
+  - id: patient
+    title: Patient
+    presence: optional
+    kind: fields
+    fields:
+      - { key: name, label: Name }
+      - { key: species, label: Species }
+      - { key: breed, label: Breed }
+      - { key: age, label: Age }
+      - { key: sex, label: Sex }
+      - { key: weight, label: Weight }
+  - title: Reason for visit
+    kind: statements
+    presence: required
+  - title: Medical history and current condition
+    kind: statements
+  - title: Quality-of-life discussion
+    kind: statements
+    instruction: Appetite, mobility, pain, hygiene, enjoyment and the family's observations, as said; any score used.
+  - title: Decision and consent
+    examples:
+      - "Record who gave consent and how"
+    kind: statements
+    presence: required
+  - title: Sedation and euthanasia
+    examples:
+      - "Include the time each drug was given"
+    kind: medications
+  - title: Confirmation of death
+    kind: statements
+  - title: Aftercare
+    examples:
+      - "State the cremation type: private or communal"
+    kind: statements
+    instruction: Burial or cremation choice, keepsakes, and who will collect, as said.
+  - title: Client support
+    kind: statements

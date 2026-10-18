@@ -1,0 +1,74 @@
+[
+  {
+    "speaker": "dvm",
+    "start": 0.0,
+    "end": 7.84325,
+    "text": "Okay, this is Biscuit, eight year old Shih Tzu, in for his dental cleaning. Owner noticed bad breath and him chewing on one side."
+  },
+  {
+    "speaker": "tech",
+    "start": 8.44325,
+    "end": 18.673876,
+    "text": "He weighs seven point two kilos. Premed was methadone and dexmedetomidine, induced with propofol, and he's on isoflurane now."
+  },
+  {
+    "speaker": "dvm",
+    "start": 19.273874,
+    "end": 24.921875,
+    "text": "Good. I'm doing an infraorbital block on the left, point three mils of bupivacaine."
+  },
+  {
+    "speaker": "tech",
+    "start": 25.521875,
+    "end": 31.832375,
+    "text": "Heart rate ninety, SpO2 ninety-eight percent, blood pressure mean of seventy-five."
+  },
+  {
+    "speaker": "dvm",
+    "start": 32.432377,
+    "end": 40.008373,
+    "text": "Alright, charting. One oh eight, upper left fourth premolar, has a slab fracture with pulp exposure. That one needs to come out."
+  },
+  {
+    "speaker": "dvm",
+    "start": 40.608376,
+    "end": 48.844376,
+    "text": "Two oh nine is missing. Three oh nine has stage three periodontal disease with a six millimetre pocket and grade two mobility."
+  },
+  {
+    "speaker": "dvm",
+    "start": 49.444374,
+    "end": 57.095123,
+    "text": "Four oh four, the lower right canine, looks fine. Overall I'd call this stage two periodontal disease across the mouth."
+  },
+  {
+    "speaker": "dvm",
+    "start": 57.695126,
+    "end": 64.28325,
+    "text": "Radiographs confirm the fracture on one oh eight and bone loss around three oh nine. No resorptive lesions."
+  },
+  {
+    "speaker": "dvm",
+    "start": 64.88325,
+    "end": 72.44206,
+    "text": "Extracting one oh eight surgically, with a gingival flap, closed with four oh Monocryl. Three oh nine is a simple extraction."
+  },
+  {
+    "speaker": "tech",
+    "start": 73.04206,
+    "end": 75.02587,
+    "text": "Scaling and polishing done."
+  },
+  {
+    "speaker": "dvm",
+    "start": 75.62588,
+    "end": 83.5455,
+    "text": "He goes home on meloxicam, point one milligrams per kilo by mouth once a day for five days. Soft food for ten days."
+  },
+  {
+    "speaker": "dvm",
+    "start": 84.1455,
+    "end": 88.415,
+    "text": "Recheck in two weeks, and start brushing daily once the gums have healed."
+  }
+]

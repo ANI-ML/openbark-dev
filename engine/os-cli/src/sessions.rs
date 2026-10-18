@@ -21,6 +21,12 @@ pub enum SessionsCommand {
     Path,
     /// Encrypt encounters saved before encryption was on (ADR-0008).
     Encrypt,
+    /// Run the faithfulness check on an encounter's latest note and print
+    /// every flag with the statement it applies to (tuning, audits).
+    Check {
+        /// The encounter's folder name.
+        id: String,
+    },
 }
 
 #[derive(clap::Args)]
@@ -141,6 +147,41 @@ pub fn command(cmd: SessionsCommand) -> Result<()> {
     let root = session::default_root();
     match cmd {
         SessionsCommand::Path => println!("{}", root.display()),
+        SessionsCommand::Check { id } => {
+            let s = Session::open(&root.join(&id))?;
+            let (run, note) = s.latest_note()?;
+            let transcript = s.load_transcript()?;
+            let report = os_engine::faithfulness::check(&note, &transcript);
+            let text_at = |path: &str| {
+                let v = note.pointer(path).cloned().unwrap_or_default();
+                v["text"]
+                    .as_str()
+                    .or(v["drug"].as_str())
+                    .or(v["value"].as_str())
+                    .unwrap_or_default()
+                    .to_string()
+            };
+            println!(
+                "{} ({}): {} statements, {} numbers checked",
+                id, run.dir, report.statements_checked, report.numbers_checked
+            );
+            for u in &report.unsupported_numbers {
+                println!("NUMBER  {} {:?} not in transcript: {}", u.path, u.number, text_at(&u.path));
+            }
+            for st in &report.unsupported_statements {
+                println!(
+                    "WORDS   {} missing {:?} cited {:?} suggest {:?}: {}",
+                    st.path,
+                    st.missing,
+                    st.cited,
+                    st.suggested,
+                    text_at(&st.path)
+                );
+            }
+            for c in &report.citation_mismatches {
+                println!("CITE    {} {:?} found in {:?}", c.path, c.number, c.found_in);
+            }
+        }
         SessionsCommand::Encrypt => {
             let mut encounters = 0;
             for s in session::list(&root) {

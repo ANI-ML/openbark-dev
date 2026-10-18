@@ -86,6 +86,13 @@ enum KeyCommand {
         #[arg(long)]
         replace: bool,
     },
+    /// Delete this computer's key (used by the uninstaller's "remove my
+    /// data"). Encrypted encounters can't be read again without the recovery key.
+    Forget {
+        /// Confirm: without it, nothing is deleted.
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 #[derive(clap::Args)]
@@ -169,7 +176,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     // Encryption at rest (ADR-0008): every command that reads or writes
     // encounters needs the data key.
-    if !matches!(cli.command, Command::Key(KeyCommand::Import { .. })) {
+    if !matches!(cli.command, Command::Key(KeyCommand::Import { .. } | KeyCommand::Forget { .. })) {
         os_engine::vault::init()?;
     }
     let store = cli
@@ -263,6 +270,23 @@ fn main() -> Result<()> {
             KeyCommand::Import { key, replace } => {
                 let source = os_engine::vault::import_key(&key, replace)?;
                 eprintln!("key saved ({source:?})");
+                Ok(())
+            }
+            KeyCommand::Forget { yes } => {
+                if !yes {
+                    bail!(
+                        "this deletes the key that unlocks your encounters; run again with --yes to confirm"
+                    );
+                }
+                let out = os_engine::vault::forget()?;
+                if out.removed.is_empty() {
+                    eprintln!("no key on this computer");
+                } else {
+                    eprintln!("key removed from: {}", out.removed.join(", "));
+                }
+                if let Some(w) = out.warning {
+                    eprintln!("warning: {w}");
+                }
                 Ok(())
             }
         },

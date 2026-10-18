@@ -2,7 +2,7 @@ import { Button } from "@openbark/ui";
 import { ArrowClockwise, Copy, FilePdf, X } from "@phosphor-icons/react";
 import { useEffect } from "react";
 import type { DocumentView } from "../engine";
-import { templateName, useT } from "../i18n";
+import { NOTE_LANGUAGES, templateName, useT } from "../i18n";
 import { NoteView } from "./NoteView";
 
 export interface DocumentSheetProps {
@@ -13,13 +13,28 @@ export interface DocumentSheetProps {
   onCopy: (doc: DocumentView) => void;
   onPdf: () => void;
   onRedraft: () => void;
+  /** The client's language for this document (drafts again when changed). */
+  language: string;
+  onLanguage: (code: string) => void;
   onClose: () => void;
   onEvidence: (ids: number[] | null) => void;
   onPlay: (ids: number[]) => void;
 }
 
 /** A client document (discharge instructions, a summary) in a sheet (DESIGN.md §5). */
-export function DocumentSheet({ doc, busy, progress, onCopy, onPdf, onRedraft, onClose, onEvidence, onPlay }: DocumentSheetProps) {
+export function DocumentSheet({
+  doc,
+  busy,
+  progress,
+  onCopy,
+  onPdf,
+  onRedraft,
+  language,
+  onLanguage,
+  onClose,
+  onEvidence,
+  onPlay,
+}: DocumentSheetProps) {
   const t = useT();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -38,6 +53,16 @@ export function DocumentSheet({ doc, busy, progress, onCopy, onPdf, onRedraft, o
             <h2>{name}</h2>
             <span className="small faint mono">{doc.created_at}</span>
           </div>
+          <label className="doc-language">
+            <span className="small muted">{t("Client's language")}</span>
+            <select className="ob-select" value={language} disabled={busy} onChange={(e) => onLanguage(e.target.value)}>
+              {NOTE_LANGUAGES.map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.name}
+                </option>
+              ))}
+            </select>
+          </label>
           <button type="button" className="icon-btn" aria-label={t("Close")} onClick={onClose}>
             <X size={20} aria-hidden />
           </button>

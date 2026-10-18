@@ -1,0 +1,74 @@
+# OpenBark template: surgery and anaesthesia record.
+id: surgery
+version: 0.1.0
+name: Surgery and anaesthesia
+description: Pre-anaesthetic assessment, protocol, procedure report, recovery and post-op plan.
+language: en
+
+instructions: |
+  Write the surgical and anaesthetic record for this procedure.
+  Use concise clinical veterinary English as a veterinary surgeon would chart it.
+  The transcript is from a recording; speakers are labelled by number, not role. Infer roles from context,
+  but never put words in a speaker's mouth.
+
+rules:
+  - "Every premedication, induction agent, maintenance agent, local block, fluid and analgesic is a medication: drug, dose, route and time as said."
+  - "Record an ASA status only if it was said."
+  - "Record suture material, size and pattern only as said."
+  - "Record complications only if they were said; never write \"no complications\" unless that was said."
+
+sections:
+  - id: patient
+    title: Patient
+    presence: optional
+    kind: fields
+    fields:
+      - { key: name, label: Name }
+      - { key: species, label: Species }
+      - { key: breed, label: Breed }
+      - { key: age, label: Age }
+      - { key: sex, label: Sex }
+  - title: Procedure
+    kind: statements
+    presence: required
+  - title: Pre-anaesthetic assessment
+    kind: fields
+    fields:
+      - { key: weight, label: Weight }
+      - { key: temperature, label: Temperature }
+      - { key: heart_rate, label: HR }
+      - { key: respiratory_rate, label: RR }
+      - { key: asa_status, label: ASA status }
+      - { key: fasted, label: Fasted }
+  - title: Pre-anaesthetic findings and bloodwork
+    kind: statements
+  - title: Anaesthetic protocol
+    examples:
+      - "Separate premedication, induction and maintenance"
+      - "Give doses in mg/kg and total mg if both were said"
+    kind: medications
+  - title: Anaesthetic monitoring
+    examples:
+      - "Note the lowest blood pressure and when it happened"
+    kind: statements
+    instruction: Heart rate, blood pressure, SpO2, EtCO2, temperature and events, as said.
+  - title: Surgical report
+    examples:
+      - "Write the report as numbered steps in the order described"
+      - "Include suture material and pattern for each layer"
+    kind: statements
+    presence: required
+    instruction: Approach, findings, technique and closure in the order described.
+  - title: Complications
+    kind: statements
+  - title: Recovery
+    kind: statements
+    instruction: Extubation, recovery quality, pain scores and temperature as said.
+  - title: Medications to go home
+    kind: medications
+  - title: Post-operative plan
+    examples:
+      - "List the activity restriction in weeks"
+      - "Give the suture-removal date as said"
+    kind: statements
+    instruction: Activity restriction, incision care, e-collar, suture removal and recheck timing.

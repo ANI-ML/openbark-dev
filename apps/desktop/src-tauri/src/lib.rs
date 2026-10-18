@@ -71,9 +71,13 @@ fn list_sessions(app: State<'_, AppState>) -> Vec<os_app::SessionSummary> {
 }
 
 #[tauri::command]
-async fn open_session(app: State<'_, AppState>, id: String) -> Result<os_app::SessionView, String> {
+async fn open_session(
+    app: State<'_, AppState>,
+    id: String,
+    pet: Option<String>,
+) -> Result<os_app::SessionView, String> {
     let app = app.inner().clone();
-    work(move || app.open_session(&id)).await
+    work(move || app.open_session(&id, pet.as_deref())).await
 }
 
 #[tauri::command]
@@ -134,6 +138,7 @@ async fn stop_recording(app: State<'_, AppState>) -> Result<os_app::SessionView,
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 async fn generate_note(
     handle: AppHandle,
     app: State<'_, AppState>,
@@ -141,19 +146,33 @@ async fn generate_note(
     llm: String,
     template: String,
     language: Option<String>,
+    pet: Option<String>,
     by: Option<String>,
 ) -> Result<os_app::NoteResponse, String> {
     let app = app.inner().clone();
     work(move || {
-        app.generate_note(&id, &llm, &template, language.as_deref(), by.as_deref(), &TauriEvents(handle))
+        app.generate_note(
+            &id,
+            &llm,
+            &template,
+            language.as_deref(),
+            pet.as_deref(),
+            by.as_deref(),
+            &TauriEvents(handle),
+        )
     })
     .await
 }
 
 #[tauri::command]
-async fn sign_note(app: State<'_, AppState>, id: String, by: String) -> Result<os_app::SessionView, String> {
+async fn sign_note(
+    app: State<'_, AppState>,
+    id: String,
+    by: String,
+    pet: Option<String>,
+) -> Result<os_app::SessionView, String> {
     let app = app.inner().clone();
-    work(move || app.sign(&id, &by)).await
+    work(move || app.sign(&id, &by, pet.as_deref())).await
 }
 
 #[tauri::command]
@@ -174,9 +193,10 @@ async fn edit_note(
     heading: String,
     value: serde_json::Value,
     by: String,
+    pet: Option<String>,
 ) -> Result<os_app::NoteResponse, String> {
     let app = app.inner().clone();
-    work(move || app.edit_note(&id, &heading, value, &by)).await
+    work(move || app.edit_note(&id, &heading, value, &by, pet.as_deref())).await
 }
 
 #[tauri::command]
@@ -185,9 +205,10 @@ async fn add_addendum(
     id: String,
     text: String,
     by: String,
+    pet: Option<String>,
 ) -> Result<os_app::SessionView, String> {
     let app = app.inner().clone();
-    work(move || app.add_addendum(&id, &text, &by)).await
+    work(move || app.add_addendum(&id, &text, &by, pet.as_deref())).await
 }
 
 /// An encounter's recording, decrypted, for the player (ADR-0008: audio is

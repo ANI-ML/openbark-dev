@@ -49,6 +49,8 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
       - run: bash scripts/ci/check-network.sh
+      - name: Install scripts parse
+        run: for f in install/*.sh install/*.command; do bash -n "$f"; done
       - run: cargo build --release -p os-cli
       - name: Single ggml / no whisper / one ONNX Runtime (M0-5)
         run: bash scripts/ci/check-symbols.sh target/release/openbark

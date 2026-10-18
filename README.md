@@ -5,8 +5,9 @@ A local-first, open-source veterinary AI scribe. It records the consult and draf
 > **Status: pre-alpha.** The M1 desktop features are in place (recording, drafts with evidence, templates, signing, encryption, team roles), but the app hasn't been validated for clinical use yet.
 
 - Product brief: [OPENSCRIBE_CLAUDE_CODE_PROMPT.md](OPENSCRIBE_CLAUDE_CODE_PROMPT.md). It uses the earlier working name.
+- **Install or uninstall:** [install/](install/README.md). Double-click on Windows and macOS, one command on Linux; your data is kept unless you choose to delete it.
 - **User guide:** [docs/guide](docs/guide/README.md) (also in the app under Help, with short videos)
-- Current plan: [docs/plans/M1.md](docs/plans/M1.md) (M0: [docs/plans/M0.md](docs/plans/M0.md))
+- Current plan: [docs/plans/M2.md](docs/plans/M2.md) (earlier: [M1](docs/plans/M1.md), [M0](docs/plans/M0.md))
 - Pinned versions and model licenses: [docs/versions.md](docs/versions.md)
 
 ## License

@@ -166,6 +166,7 @@ export function Models() {
 
       {browsing && (
         <HubBrowser
+          mac={app.status?.platform === "macos"}
           onClose={() => setBrowsing(false)}
           onAdded={(id) => {
             setBrowsing(false);
@@ -177,8 +178,9 @@ export function Models() {
   );
 }
 
-function HubBrowser({ onClose, onAdded }: { onClose: () => void; onAdded: (id: string) => void }) {
+function HubBrowser({ mac, onClose, onAdded }: { mac: boolean; onClose: () => void; onAdded: (id: string) => void }) {
   const t = useT();
+  const [onlyMlx, setOnlyMlx] = useState(false);
   const [q, setQ] = useState("gemma 4");
   const [results, setResults] = useState<engine.HubModel[] | null>(null);
   const [showAll, setShowAll] = useState(false);
@@ -233,7 +235,8 @@ function HubBrowser({ onClose, onAdded }: { onClose: () => void; onAdded: (id: s
     }
   }
 
-  const visible = (results ?? []).filter((m) => showAll || m.license_class === "permissive");
+  const visible = (results ?? []).filter((m) => (showAll || m.license_class === "permissive") && (!onlyMlx || m.mlx));
+  const mlxRepo = Boolean(repo?.repo.model.mlx);
   const restricted = repo && repo.repo.model.license_class !== "permissive";
   const [acceptBefore, acceptAfter] = t("I've read the {link} and accept its terms.").split("{link}");
 
@@ -249,7 +252,9 @@ function HubBrowser({ onClose, onAdded }: { onClose: () => void; onAdded: (id: s
         </header>
         <div className="sheet-body">
           <p className="small muted">
-            {t("Note-writing models in GGUF format. Searching contacts huggingface.co; nothing else leaves this computer.")}
+            {mac
+              ? t("Note-writing models in GGUF format, and builds optimized for Apple silicon with MLX. Searching contacts huggingface.co; nothing else leaves this computer.")
+              : t("Note-writing models in GGUF format. Searching contacts huggingface.co; nothing else leaves this computer.")}
           </p>
           {error && (
             <p className="ob-notice" data-tone="danger" role="alert">
@@ -271,6 +276,12 @@ function HubBrowser({ onClose, onAdded }: { onClose: () => void; onAdded: (id: s
                 <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
                 <span>{t("Also show models with restrictive or custom licences")}</span>
               </label>
+              {mac && (
+                <label className="check small">
+                  <input type="checkbox" checked={onlyMlx} onChange={(e) => setOnlyMlx(e.target.checked)} />
+                  <span>{t("Only show MLX-optimized models")}</span>
+                </label>
+              )}
               {results === null ? (
                 <div className="ob-skeleton" style={{ height: 120 }} />
               ) : visible.length === 0 ? (
@@ -282,6 +293,7 @@ function HubBrowser({ onClose, onAdded }: { onClose: () => void; onAdded: (id: s
                       <button type="button" className="hub-row" onClick={() => open(m.id)}>
                         <span className="hub-name">{m.id}</span>
                         <span className="hub-meta">
+                          {mac && m.mlx && <span className="ob-chip mlx-chip">{t("MLX optimized")}</span>}
                           <StatusDot tone={m.license_class === "permissive" ? "ok" : "warn"}>{m.license ?? t("No licence stated")}</StatusDot>
                           <span className="mono faint">{t("{n} downloads", { n: m.downloads.toLocaleString() })}</span>
                         </span>
@@ -309,8 +321,16 @@ function HubBrowser({ onClose, onAdded }: { onClose: () => void; onAdded: (id: s
                   </span>
                 </label>
               )}
+              {mlxRepo && (
+                <p className="ob-notice">
+                  <span className="ob-chip mlx-chip">{t("MLX optimized")}</span>{" "}
+                  {t(
+                    "Converted for Apple silicon with Apple's MLX framework. OpenBark's built-in engine runs GGUF models on the Mac's GPU (Metal); MLX models need the MLX engine, which is planned. Search for the GGUF build of this model to use it now.",
+                  )}
+                </p>
+              )}
               {repo.files.length === 0 ? (
-                <p className="small muted">{t("This repository has no single-file GGUF weights OpenBark can run.")}</p>
+                mlxRepo ? null : <p className="small muted">{t("This repository has no single-file GGUF weights OpenBark can run.")}</p>
               ) : (
                 <table className="ob-table">
                   <thead>

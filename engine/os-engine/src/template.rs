@@ -86,6 +86,10 @@ pub struct Part {
     pub presence: Presence,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instruction: Option<String>,
+    /// Example requests a vet might make under this heading, shown as
+    /// one-click suggestions when re-prompting it. Never sent to the model.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub examples: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fields: Vec<FieldDef>,
 }
@@ -102,6 +106,9 @@ pub struct Section {
     pub kind: Option<PartKind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instruction: Option<String>,
+    /// Example requests for this heading (see [`Part::examples`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub examples: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fields: Vec<FieldDef>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -196,6 +203,20 @@ const BUILTIN: &[(&str, &str)] = &[
     ("callback", include_str!("../../../packages/templates/callback/template.yaml")),
     ("discharge", include_str!("../../../packages/templates/discharge/template.yaml")),
     ("client-summary", include_str!("../../../packages/templates/client-summary/template.yaml")),
+    ("wellness", include_str!("../../../packages/templates/wellness/template.yaml")),
+    ("sick-visit", include_str!("../../../packages/templates/sick-visit/template.yaml")),
+    ("emergency", include_str!("../../../packages/templates/emergency/template.yaml")),
+    ("dental", include_str!("../../../packages/templates/dental/template.yaml")),
+    ("surgery", include_str!("../../../packages/templates/surgery/template.yaml")),
+    ("recheck", include_str!("../../../packages/templates/recheck/template.yaml")),
+    ("dermatology", include_str!("../../../packages/templates/dermatology/template.yaml")),
+    ("oncology", include_str!("../../../packages/templates/oncology/template.yaml")),
+    ("exotics", include_str!("../../../packages/templates/exotics/template.yaml")),
+    ("equine", include_str!("../../../packages/templates/equine/template.yaml")),
+    ("production-animal", include_str!("../../../packages/templates/production-animal/template.yaml")),
+    ("euthanasia", include_str!("../../../packages/templates/euthanasia/template.yaml")),
+    ("estimate-explanation", include_str!("../../../packages/templates/estimate-explanation/template.yaml")),
+    ("euthanasia-aftercare", include_str!("../../../packages/templates/euthanasia-aftercare/template.yaml")),
 ];
 
 impl LoadedTemplate {
@@ -404,6 +425,23 @@ fn check_text(what: &str, text: &str) -> Result<(), EngineError> {
     Ok(())
 }
 
+/// At most a few short examples per heading.
+const MAX_EXAMPLES: usize = 8;
+
+fn normalize_examples(examples: &mut Vec<String>, heading: &str) -> Result<(), EngineError> {
+    for e in examples.iter_mut() {
+        *e = e.trim().to_string();
+    }
+    examples.retain(|e| !e.is_empty());
+    if examples.len() > MAX_EXAMPLES {
+        return Err(bad(format!("\"{heading}\" has more than {MAX_EXAMPLES} examples.")));
+    }
+    for e in examples.iter() {
+        check_text(&format!("An example for \"{heading}\""), e)?;
+    }
+    Ok(())
+}
+
 fn normalize_fields(fields: &mut [FieldDef], heading: &str) -> Result<(), EngineError> {
     if fields.is_empty() {
         return Err(bad(format!("\"{heading}\" holds measurements but lists none. Add at least one.")));
@@ -469,6 +507,7 @@ fn normalize(t: &mut Template) -> Result<(), EngineError> {
         if let Some(i) = &s.instruction {
             check_text(&format!("The instruction for \"{}\"", s.title), i)?;
         }
+        normalize_examples(&mut s.examples, &s.title)?;
         headings += 1;
         match s.kind {
             Some(kind) => {
@@ -512,6 +551,7 @@ fn normalize(t: &mut Template) -> Result<(), EngineError> {
             if let Some(i) = &p.instruction {
                 check_text(&format!("The instruction for \"{}\"", p.label), i)?;
             }
+            normalize_examples(&mut p.examples, &p.label)?;
             if p.kind == PartKind::Fields {
                 normalize_fields(&mut p.fields, &p.label)?;
             } else {
@@ -648,6 +688,16 @@ mod tests {
         assert_eq!(LoadedTemplate::builtin("discharge").unwrap().template.document, Document::Client);
         assert_eq!(LoadedTemplate::builtin("client-summary").unwrap().template.document, Document::Client);
         assert_eq!(LoadedTemplate::builtin("callback").unwrap().template.document, Document::Record);
+    }
+
+    #[test]
+    fn heading_examples_load_but_stay_out_of_the_prompt() {
+        let t = LoadedTemplate::builtin("dental").unwrap();
+        let teeth = t.template.sections.iter().find(|s| s.id == "findings_by_tooth").unwrap();
+        assert!(teeth.examples.iter().any(|e| e.contains("Triadan")));
+        let prompt = crate::note::system_prompt(&t);
+        assert!(!prompt.contains("Use the Triadan number for every tooth"));
+        assert!(!t.schema_text.contains("Use the Triadan number"));
     }
 
     /// The SOAP schema is generated from its headings; the snapshot in

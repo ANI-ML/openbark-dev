@@ -46,11 +46,11 @@ export const HELP_TOPICS = [
   {
     id: "templates",
     title: "Templates",
-    summary: "Build your clinic's own note from headings.",
+    summary: "Pick one of the built-in templates for your kind of visit, or build your own from headings.",
     steps: [
       "Open Templates and choose Start from SOAP, or New template.",
       "Give each heading a title and choose what goes under it: bullet points, measurements, medications, or subheadings.",
-      "Add plain-language instructions where it helps, for example Injections and fluids given during the visit.",
+      "Add plain-language instructions where it helps, or choose one of the Examples under the heading, such as Triadan numbers for teeth.",
       "Check the preview and What the model is told, then Save template.",
       "Use Try on an encounter to draft a saved consult with the new template.",
     ],

@@ -23,9 +23,13 @@ sections:
     kind: statements
     instruction: How the patient is doing at home, as the owner described it.
   - title: Results discussed
+    examples:
+      - "Give each result with its unit and reference range if said"
     kind: statements
     instruction: Test results given on the call, with values as said.
   - title: Advice given
+    examples:
+      - "Note whether the owner agreed to the plan"
     kind: statements
   - title: Medication changes
     kind: medications

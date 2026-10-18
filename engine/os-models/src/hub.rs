@@ -50,6 +50,9 @@ pub struct HubModel {
     pub license_class: LicenseClass,
     pub gated: bool,
     pub last_modified: Option<String>,
+    /// Converted for Apple's MLX framework (Apple silicon), e.g. the
+    /// mlx-community builds. Shown, labelled, only on a Mac.
+    pub mlx: bool,
 }
 
 #[derive(Deserialize)]
@@ -89,6 +92,7 @@ impl RawModel {
             downloads: self.downloads,
             likes: self.likes,
             last_modified: self.last_modified,
+            mlx: self.tags.iter().any(|t| t == "mlx") || self.id.starts_with("mlx-community/"),
             id: self.id,
         }
     }
@@ -127,17 +131,32 @@ fn get_json<T: for<'de> Deserialize<'de>>(url: &str, token: Option<&str>) -> Res
 }
 
 /// Search GGUF models (runnable by the built-in llama.cpp engine), most
-/// downloaded first.
-pub fn search(query: &str, limit: usize, token: Option<&str>) -> Result<Vec<HubModel>, HubError> {
+/// downloaded first. With `mlx` (on a Mac), MLX builds are included too,
+/// marked [`HubModel::mlx`].
+pub fn search(query: &str, limit: usize, token: Option<&str>, mlx: bool) -> Result<Vec<HubModel>, HubError> {
     let q: String = query.chars().filter(|c| c.is_ascii_alphanumeric() || "-_. /".contains(*c)).collect();
-    let url = format!(
-        "{API}?search={}&filter=gguf&sort=downloads&direction=-1&limit={}\
-         &expand[]=downloads&expand[]=likes&expand[]=tags&expand[]=gated&expand[]=lastModified&expand[]=cardData",
-        q.trim().replace(' ', "+"),
-        limit.clamp(1, 50)
-    );
-    let raw: Vec<RawModel> = get_json(&url, token)?;
-    Ok(raw.into_iter().map(RawModel::into_model).collect())
+    let limit = limit.clamp(1, 50);
+    let url = |filter: &str| {
+        format!(
+            "{API}?search={}&filter={filter}&sort=downloads&direction=-1&limit={limit}\
+             &expand[]=downloads&expand[]=likes&expand[]=tags&expand[]=gated&expand[]=lastModified&expand[]=cardData",
+            q.trim().replace(' ', "+"),
+        )
+    };
+    let mut raw: Vec<RawModel> = get_json(&url("gguf"), token)?;
+    if mlx {
+        raw.extend(get_json::<Vec<RawModel>>(&url("mlx"), token)?);
+    }
+    Ok(merge(raw.into_iter().map(RawModel::into_model).collect(), limit))
+}
+
+/// One list, most downloaded first, without duplicates.
+fn merge(mut models: Vec<HubModel>, limit: usize) -> Vec<HubModel> {
+    models.sort_by_key(|m| std::cmp::Reverse(m.downloads));
+    let mut seen = std::collections::HashSet::new();
+    models.retain(|m| seen.insert(m.id.clone()));
+    models.truncate(limit);
+    models
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -309,6 +328,38 @@ mod tests {
     }
 
     #[test]
+    fn mlx_builds_are_labelled_and_merged() {
+        let raw = |id: &str, tags: &[&str], downloads: u64| RawModel {
+            id: id.into(),
+            downloads,
+            likes: 0,
+            tags: tags.iter().map(|t| t.to_string()).collect(),
+            gated: serde_json::Value::Bool(false),
+            last_modified: None,
+            card_data: None,
+            sha: None,
+        };
+        let models = merge(
+            vec![
+                raw("unsloth/gemma-4-E4B-it-GGUF", &["gguf"], 50).into_model(),
+                raw("mlx-community/gemma-4-E4B-it-4bit", &["mlx", "safetensors"], 90).into_model(),
+                raw("someone/qwen-mlx", &["mlx"], 10).into_model(),
+                raw("unsloth/gemma-4-E4B-it-GGUF", &["gguf"], 50).into_model(),
+            ],
+            10,
+        );
+        let ids: Vec<_> = models.iter().map(|m| (m.id.as_str(), m.mlx)).collect();
+        assert_eq!(
+            ids,
+            [
+                ("mlx-community/gemma-4-E4B-it-4bit", true),
+                ("unsloth/gemma-4-E4B-it-GGUF", false),
+                ("someone/qwen-mlx", true)
+            ]
+        );
+    }
+
+    #[test]
     fn repo_ids_are_validated() {
         assert!(valid_repo("google/gemma-4-E4B-it-qat-q4_0-gguf"));
         assert!(!valid_repo("google"));
@@ -340,6 +391,7 @@ mod tests {
                 license_class: LicenseClass::Restricted,
                 gated: false,
                 last_modified: None,
+                mlx: false,
             },
             revision: "a".repeat(40),
             files: vec![HubFile { path: "m.Q4_K_M.gguf".into(), size: 10, sha256: "b".repeat(64) }],

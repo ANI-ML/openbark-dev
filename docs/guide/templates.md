@@ -6,12 +6,14 @@ A template is the headings of a note, and what goes under each one. OpenBark shi
 
 | Template | Who it's for |
 |---|---|
-| SOAP note | The medical record |
-| Callback note | The medical record (a follow-up phone call) |
-| Discharge instructions | The client |
-| Client summary | The client |
+| SOAP note, Wellness visit, Sick visit, Recheck visit | The medical record |
+| Emergency and triage, Surgery and anaesthesia, Dental procedure | The medical record |
+| Dermatology consult, Oncology visit | The medical record |
+| Exotics consult, Equine visit, Production animal visit | The medical record |
+| Euthanasia and quality of life, Callback note | The medical record |
+| Discharge instructions, Client summary, Estimate explanation, Euthanasia aftercare | The client |
 
-Your clinic can add its own, such as a dental procedure, surgery report, exotics visit or recheck.
+Choose one under **Template** before recording, or **Draft as** in Review. Your clinic can also make its own, or copy a built-in one and change it.
 
 ## Make a template
 
@@ -22,7 +24,7 @@ Your clinic can add its own, such as a dental procedure, surgery report, exotics
    - **Measurements** for named values with units, such as weight or teeth extracted;
    - **Medications** for drug, dose, route, frequency and duration;
    - **Subheadings**, each holding one of the above.
-4. Add an instruction where it helps, in plain words, such as "Injections and fluids given during the visit."
+4. Add an instruction where it helps, in plain words, such as "Injections and fluids given during the visit." Not sure what to write? Choose one of the **Examples** under the heading; they suit what the heading is for, like Triadan numbers for teeth or lameness grades by limb. **Examples by kind of practice**, under the whole-note rules, adds a rule for an emergency, feline-only, equine, exotics, farm, shelter or referral practice.
 5. Check the **Note** preview and **What the model is told**, then choose **Save template**. Each change saves a new version, and notes keep the version they were drafted with.
 6. Choose **Try on an encounter** to draft a saved consult with the new template.
 
@@ -30,4 +32,4 @@ Every template follows OpenBark's core rules, and you can't remove them: only wh
 
 ## Standards
 
-When reviewing a note, **Ask** with **Save as a standard** adds your request to the template for that heading. Standards appear under their heading in the template, with who added them and when, and can be removed there.
+When reviewing a note, **Ask** shows example requests made for that heading of that template (for the dental template, "One tooth per line, in numerical order"). Choose one, or write your own. **Ask** with **Save as a standard** adds your request to the template for that heading. Standards appear under their heading in the template, with who added them and when, and can be removed there.

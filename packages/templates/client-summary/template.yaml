@@ -10,13 +10,14 @@ language: en
 
 instructions: |
   Write a short summary of this visit for the pet's owner.
-  Use plain, warm, everyday English: short sentences, no medical abbreviations, and explain any medical word you use.
+  Use plain, warm, everyday language: short sentences, no medical abbreviations, and explain any medical word you use.
   Address the owner as "you" and use the pet's name when it was said.
   Keep it brief: the owner should be able to read it in a minute.
 
 rules:
   - "Include only what was said or decided in this visit."
   - "Medications: the dose, how to give it, how often and for how long exactly as said, or null if not said."
+  - "Spell drug names correctly: where a line has a hint such as [heard \"marapitin\", likely maropitant], use the likely spelling if it fits. Write doses, amounts and durations with digits and units (1 mg/kg, 100 mL, 14 days), so they are easy to read."
 
 sections:
   - title: Today's visit

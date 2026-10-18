@@ -1,0 +1,62 @@
+[
+  {
+    "speaker": "dvm",
+    "start": 0.0,
+    "end": 6.3105,
+    "text": "This is Luna, a one year old female Labrador, here for an ovariohysterectomy. She was fasted overnight."
+  },
+  {
+    "speaker": "tech",
+    "start": 6.9105,
+    "end": 13.669625,
+    "text": "Weight twenty-four point five kilos, temp thirty-eight point six, heart rate one hundred, resp rate twenty. Bloodwork was normal."
+  },
+  {
+    "speaker": "dvm",
+    "start": 14.269625,
+    "end": 22.579813,
+    "text": "ASA one. Premed is hydromorphone point one milligrams per kilo IM with acepromazine point zero two milligrams per kilo IM."
+  },
+  {
+    "speaker": "tech",
+    "start": 23.179813,
+    "end": 32.32881,
+    "text": "Induced with propofol, four milligrams per kilo IV, intubated, maintained on isoflurane. Lactated Ringer's at five mils per kilo per hour."
+  },
+  {
+    "speaker": "dvm",
+    "start": 32.928814,
+    "end": 41.212063,
+    "text": "Ventral midline incision, about six centimetres. Both ovarian pedicles ligated with two oh PDS, uterine body ligated the same."
+  },
+  {
+    "speaker": "tech",
+    "start": 41.81206,
+    "end": 47.653126,
+    "text": "Blood pressure dipped to a mean of fifty-eight around the uterine body, came back up after I turned the iso down."
+  },
+  {
+    "speaker": "dvm",
+    "start": 48.253124,
+    "end": 55.10525,
+    "text": "Linea closed with two oh PDS simple continuous, subcutaneous with three oh Monocryl, and an intradermal skin closure."
+  },
+  {
+    "speaker": "dvm",
+    "start": 55.70525,
+    "end": 61.778,
+    "text": "No other complications. She extubated smoothly. Pain score two out of ten in recovery."
+  },
+  {
+    "speaker": "dvm",
+    "start": 62.378,
+    "end": 70.1715,
+    "text": "Home with carprofen, four point four milligrams per kilo once a day for five days. Cone on for fourteen days, leash walks only."
+  },
+  {
+    "speaker": "dvm",
+    "start": 70.7715,
+    "end": 76.46875,
+    "text": "Recheck the incision in ten to fourteen days. No sutures to remove since it's intradermal."
+  }
+]

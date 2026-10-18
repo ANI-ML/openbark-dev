@@ -7,6 +7,8 @@ export interface RefinePanelProps {
   /** "Plan > Medications". */
   title: string;
   templateName: string;
+  /** Example requests for this heading and kind of visit (e.g. Triadan numbers under dental findings). */
+  examples?: string[];
   /** Standards already saved for this heading (shown as reusable requests). */
   standards: Standard[];
   /** False when the template can't take standards (deleted since drafting). */
@@ -31,6 +33,7 @@ const SUGGESTIONS = [
 export function RefinePanel({
   title,
   templateName,
+  examples = [],
   standards,
   canSave,
   busy,
@@ -49,7 +52,9 @@ export function RefinePanel({
   }, []);
 
   const saved = new Set(standards.map((s) => s.text.toLowerCase()));
-  const chips = [...standards.map((s) => s.text), ...SUGGESTIONS.map((s) => t(s)).filter((s) => !saved.has(s.toLowerCase()))];
+  const general = SUGGESTIONS.map((s) => t(s)).filter((s) => !saved.has(s.toLowerCase()));
+  const own = examples.filter((e) => !saved.has(e.toLowerCase()));
+  const chips = [...standards.map((s) => s.text), ...(own.length ? [] : general)];
   const alreadyStandard = saved.has(request.trim().toLowerCase());
 
   return (
@@ -72,7 +77,7 @@ export function RefinePanel({
         rows={2}
         value={request}
         disabled={busy}
-        placeholder={t("For example: list every fluid with its volume and rate")}
+        placeholder={own[0] ? t("For example: {example}", { example: own[0] }) : t("For example: list every fluid with its volume and rate")}
         onChange={(e) => setRequest(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && request.trim()) {
@@ -81,6 +86,27 @@ export function RefinePanel({
           }
         }}
       />
+      {own.length > 0 && (
+        <div className="ask-examples">
+          <span className="small muted">{t("Examples for {template}", { template: templateName })}</span>
+          <div className="ask-chips">
+            {own.map((c) => (
+              <button
+                key={c}
+                type="button"
+                className="ob-chip ask-chip"
+                disabled={busy}
+                onClick={() => {
+                  setRequest(c);
+                  box.current?.focus();
+                }}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="ask-chips" aria-label={t("Reuse a request")}>
         {chips.map((c) => (
           <button

@@ -7,9 +7,25 @@ OpenBark writes the note to your team's headings: SOAP, a dental procedure note,
 | Template | Who it's for |
 |---|---|
 | SOAP note | The medical record |
+| Wellness visit (preventive care, vaccines, parasite control) | The medical record |
+| Sick visit (problem-oriented) | The medical record |
+| Recheck visit | The medical record |
+| Emergency and triage (with treatment times and disposition) | The medical record |
+| Dental procedure (findings by tooth, Triadan numbers as said) | The medical record |
+| Surgery and anaesthesia (protocol, monitoring, surgical report) | The medical record |
+| Dermatology consult | The medical record |
+| Oncology visit (doses copied as said, never calculated) | The medical record |
+| Exotics consult (avian, reptile, small mammal; husbandry in full) | The medical record |
+| Equine visit (lameness by limb) | The medical record |
+| Production animal visit (ear tags, withdrawal times as said) | The medical record |
+| Euthanasia and quality of life | The medical record |
 | Callback note (a follow-up phone call) | The medical record |
 | Discharge instructions | The client |
 | Client summary | The client |
+| Estimate explanation (prices copied exactly, never added up) | The client |
+| Euthanasia aftercare | The client |
+
+Each specialty template has its own rules on top of the core ones. For example, the production-animal template leaves a withdrawal time empty unless one was said, and the oncology template never calculates a dose or body surface area. Each one was checked on a scripted consult of its kind (docs/eval/M2.md).
 
 **Medical-record** templates are signed by a veterinarian and then locked. **Client** documents are written in plain language and are never signed:
 - Open them from the buttons under the note in Review. They open in a side sheet with **Copy**.
@@ -27,7 +43,8 @@ Open **Templates**, then **New template** or **Start from SOAP**.
   - **Measurements:** named values, such as Weight, Temperature or Teeth extracted, each with its unit.
   - **Medications:** drug, dose, route, frequency and duration.
   - **Subheadings:** each of these holds one of the three kinds above.
-- **Instructions** (optional, per heading): plain language, for example "Injections and fluids given during the visit." The model follows them only where the recording supports them.
+- **Instructions** (optional, per heading): plain language, for example "Injections and fluids given during the visit." The model follows them only where the recording supports them. Under each instruction, **Examples** offers instructions suited to that heading (Triadan numbers under a dental heading, lameness grade by limb under a lameness heading); choosing one adds it to the instruction.
+- **Examples by kind of practice** (under the whole-note rules): emergency, feline-only, equine ambulatory, exotics, farm, shelter and referral. Choosing one adds it as a rule.
 - **Instructions and rules for the whole note** (optional, under the disclosure). Every template also follows OpenBark's core rules: only what was said, numbers exactly as stated, every line linked to the transcript. You can't remove these.
 
 The right-hand pane shows the note's shape and, under **What the model is told**, the exact prompt. **Try on an encounter** drafts a saved consult with the template, so you can compare it with the original note.
@@ -39,6 +56,8 @@ Saving a changed template increases its version. Every note keeps a copy of the 
 In Review, every heading and subheading has **Ask**. Describe what should change, for example:
 - "List every fluid with its volume and rate";
 - "One line per follow-up: when, why, and what will be reviewed".
+
+Above the general suggestions, **Examples for <template>** lists requests written for that heading of that template: for the dental template's findings, "Use the Triadan number for every tooth"; for the production-animal template's withdrawal times, "Give meat and milk withdrawal in days for each drug". Headings a team made get examples matched on their title.
 
 OpenBark then redrafts just that heading from the recording. The request steers the model but isn't evidence: anything not said stays out, and numbers are checked again. Each redraft is saved as a new draft, and earlier drafts are kept.
 

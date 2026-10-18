@@ -229,7 +229,11 @@ pub(crate) mod tests {
             "invented HR must be flagged:\n{md}"
         );
         assert!(md.contains("- Not discussed: Weight, RR, MM, CRT, Hydration, BCS, Pain score\n"));
-        assert!(md.contains("- Maropitant (dose/route/frequency not stated) [0]\n"));
-        assert!(md.contains("1 item(s) could not be matched"));
+        // Nobody said "maropitant" in this transcript: the word check flags it.
+        assert!(
+            md.contains("- Maropitant (dose/route/frequency not stated) [0] [check against recording]\n"),
+            "{md}"
+        );
+        assert!(md.contains("2 item(s) could not be matched"));
     }
 }

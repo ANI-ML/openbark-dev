@@ -129,4 +129,12 @@ describe("NoteView", () => {
     expect(screen.getByText(/Redrafted on request/).textContent).toContain("Add the weight");
     expect(screen.getByText(/Saved as a standard/)).toBeTruthy();
   });
+  it("flags a line whose words aren't in its cited line, with the likely line", () => {
+    const r = run({ unsupported_statements: [{ path: "/objective/vitals/temperature", missing: ["fever"], cited: [2], suggested: [5] }] });
+    render(<NoteView template={template} run={r} onEvidence={() => {}} onPlay={() => {}} onCopySection={() => {}} />);
+    const stmt = screen.getByText("38.6 °C").closest(".stmt")!;
+    expect(stmt.getAttribute("data-soft")).toBe("true");
+    expect(stmt.getAttribute("title")).toContain("(fever)");
+    expect(stmt.getAttribute("title")).toContain("It may come from line 5.");
+  });
 });

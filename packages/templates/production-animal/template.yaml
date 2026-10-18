@@ -1,0 +1,70 @@
+# OpenBark template: production animal / herd visit (bovine, small ruminant, swine).
+id: production-animal
+version: 0.1.0
+name: Production animal visit
+description: Individual or herd visit for cattle, sheep, goats or pigs, with withdrawal times.
+language: en
+
+instructions: |
+  Write the medical record for this production-animal visit (individual animal or group).
+  Use concise clinical veterinary English as a farm-animal veterinarian would chart it.
+  The transcript is from a recording; speakers are labelled by number, not role. Infer roles from context,
+  but never put words in a speaker's mouth.
+
+rules:
+  - "Identify animals by ear tag, name or group exactly as said."
+  - "Every drug used must keep its dose, route and the meat and milk withdrawal times exactly as said; leave a withdrawal time null if it was not said. Never supply one."
+  - "Record group size, number affected and number dead only as said."
+
+sections:
+  - title: Animals seen
+    examples:
+      - "Give pen numbers and head counts as said"
+    kind: fields
+    presence: required
+    fields:
+      - { key: species, label: Species }
+      - { key: identification, label: Identification }
+      - { key: group, label: Group or pen }
+      - { key: number_affected, label: Number affected }
+      - { key: age_or_stage, label: Age or stage }
+  - title: Reason for visit
+    kind: statements
+    presence: required
+  - title: History
+    kind: statements
+    instruction: Onset, feeding, housing, recent changes, production records, vaccination and treatments so far.
+  - title: Vitals
+    kind: fields
+    fields:
+      - { key: weight, label: Weight }
+      - { key: temperature, label: Temperature }
+      - { key: heart_rate, label: HR }
+      - { key: respiratory_rate, label: RR }
+      - { key: rumen_contractions, label: Rumen contractions }
+      - { key: body_condition_score, label: BCS }
+  - title: Examination findings
+    kind: statements
+  - title: Samples and diagnostics
+    kind: statements
+    instruction: Samples taken, tests run, post-mortem findings, and results as said.
+  - title: Assessment
+    kind: statements
+    presence: required
+  - title: Treatments
+    examples:
+      - "Identify each animal by ear tag next to its treatment"
+    kind: medications
+  - title: Withdrawal times
+    examples:
+      - "Give meat and milk withdrawal in days for each drug"
+      - "Leave a withdrawal time blank if it wasn't said"
+    kind: statements
+    instruction: Meat and milk withdrawal per drug, exactly as said.
+  - title: Herd recommendations
+    examples:
+      - "Separate nutrition, vaccination and biosecurity advice"
+    kind: statements
+    instruction: Management, nutrition, biosecurity and vaccination advice.
+  - title: Follow-up
+    kind: statements

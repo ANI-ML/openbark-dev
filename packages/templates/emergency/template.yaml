@@ -1,0 +1,89 @@
+# OpenBark template: emergency / triage record.
+id: emergency
+version: 0.1.0
+name: Emergency and triage
+description: ER presentation with triage, stabilisation, treatments with times, and disposition.
+language: en
+
+instructions: |
+  Write the medical record for this emergency presentation.
+  Use concise clinical veterinary English as an emergency veterinarian would chart it.
+  The transcript is from a recording; speakers are labelled by number, not role. Infer roles from context,
+  but never put words in a speaker's mouth.
+
+rules:
+  - "Record the time of each treatment or event only if it was said."
+  - "Every drug, fluid bolus, oxygen or blood product given is a medication: drug, dose or volume, route and time as said."
+  - "Record the triage category only if someone stated it."
+  - "Record resuscitation (CPR) wishes only as the client stated them."
+
+sections:
+  - id: patient
+    title: Patient
+    presence: optional
+    kind: fields
+    fields:
+      - { key: name, label: Name }
+      - { key: species, label: Species }
+      - { key: breed, label: Breed }
+      - { key: age, label: Age }
+      - { key: sex, label: Sex }
+  - title: Presenting complaint
+    kind: statements
+    presence: required
+  - title: Triage
+    examples:
+      - "Use the triage colour or category exactly as said"
+    kind: fields
+    fields:
+      - { key: triage_category, label: Triage category }
+      - { key: airway, label: Airway }
+      - { key: breathing, label: Breathing }
+      - { key: circulation, label: Circulation }
+      - { key: mentation, label: Mentation }
+  - title: Vitals
+    kind: fields
+    fields:
+      - { key: weight, label: Weight }
+      - { key: temperature, label: Temperature }
+      - { key: heart_rate, label: HR }
+      - { key: respiratory_rate, label: RR }
+      - { key: blood_pressure, label: Blood pressure }
+      - { key: spo2, label: SpO2 }
+      - { key: mucous_membranes, label: MM }
+      - { key: capillary_refill_time, label: CRT }
+      - { key: pain_score, label: Pain score }
+  - title: History
+    kind: statements
+    instruction: What happened, when, toxin or trauma exposure, and relevant past history.
+  - title: Physical exam
+    kind: statements
+  - title: Point-of-care diagnostics
+    examples:
+      - "List PCV/TS, lactate and glucose on separate lines"
+      - "Include AFAST/TFAST scores if given"
+    kind: statements
+    instruction: PCV/TS, glucose, lactate, blood gas, AFAST/TFAST, radiographs and other results as said.
+  - title: Stabilisation and treatment
+    examples:
+      - "Put the time said in front of each treatment"
+      - "Give fluid boluses as mL/kg and total mL if both were said"
+    kind: medications
+  - title: Procedures
+    kind: statements
+    instruction: IV catheter, oxygen, thoracocentesis, wound care and other procedures.
+  - title: Assessment
+    kind: statements
+    presence: required
+  - title: Resuscitation wishes
+    examples:
+      - "Quote the owner's CPR decision word for word"
+    kind: statements
+  - title: Client communication
+    kind: statements
+    instruction: Prognosis, estimate, consent and decisions.
+  - title: Disposition
+    examples:
+      - "Say who the patient was handed over to, if named"
+    kind: statements
+    instruction: Hospitalised, transferred, discharged or euthanised, and the plan for the next hours.

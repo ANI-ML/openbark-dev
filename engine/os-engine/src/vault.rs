@@ -110,6 +110,21 @@ fn keychain_set(key: &[u8; 32]) -> Result<(), String> {
     }
 }
 
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+fn keychain_delete() -> Result<bool, String> {
+    let entry = keyring::Entry::new(SERVICE, ACCOUNT).map_err(|e| e.to_string())?;
+    match entry.delete_credential() {
+        Ok(()) => Ok(true),
+        Err(keyring::Error::NoEntry) => Ok(false),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+fn keychain_delete() -> Result<bool, String> {
+    Ok(false)
+}
+
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 fn keychain_get() -> Result<Option<[u8; 32]>, String> {
     Err("no keychain on this platform".into())
@@ -238,6 +253,41 @@ fn file_aad(path: &Path) -> Vec<u8> {
 }
 
 /// Whether a file on disk is encrypted.
+/// Delete this computer's data key from the keychain and the key file
+/// (uninstalling with "remove my data"). Encrypted encounters can't be read
+/// afterwards without the recovery key. Returns where a key was removed from.
+pub fn forget() -> io::Result<Forgotten> {
+    let keychain = keychain_delete();
+    let mut out = forget_file()?;
+    match keychain {
+        Ok(true) => out.removed.insert(0, "keychain".to_string()),
+        Ok(false) => {}
+        // The key file is still removed; say the keychain couldn't be reached.
+        Err(e) => out.warning = Some(format!("couldn't reach the keychain to remove the key there: {e}")),
+    }
+    Ok(out)
+}
+
+/// What [`forget`] removed.
+#[derive(Debug, Default)]
+pub struct Forgotten {
+    /// "keychain" and/or the key file's path.
+    pub removed: Vec<String>,
+    pub warning: Option<String>,
+}
+
+/// The key-file half of [`forget`] (tests use it without touching a real keychain).
+fn forget_file() -> io::Result<Forgotten> {
+    let mut out = Forgotten::default();
+    let file = key_file();
+    if file.is_file() {
+        fs::remove_file(&file)?;
+        out.removed.push(file.display().to_string());
+    }
+    disable();
+    Ok(out)
+}
+
 pub fn is_encrypted(path: &Path) -> bool {
     let mut magic = [0u8; 4];
     fs::File::open(path).and_then(|mut f| f.read_exact(&mut magic)).is_ok()
@@ -621,5 +671,26 @@ pub(crate) mod tests {
             assert_eq!(read(&dir.path().join("runs/001/note.md")).unwrap(), b"# Note");
             assert_eq!(read(&dir.path().join("audio.wav")).unwrap(), b"RIFF0000WAVEdata");
         });
+    }
+
+    #[test]
+    fn forgetting_removes_the_key_file() {
+        let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = std::env::temp_dir().join(format!("openbark-forget-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("data.key");
+        write_key_to(&file, &[7u8; 32]);
+        // SAFETY: tests touching the environment hold SERIAL.
+        unsafe { std::env::set_var("OPENBARK_KEY_FILE", &file) };
+        let out = forget_file().unwrap();
+        unsafe { std::env::remove_var("OPENBARK_KEY_FILE") };
+        assert!(!file.exists());
+        assert_eq!(out.removed, [file.display().to_string()]);
+        assert!(!enabled());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    fn write_key_to(path: &Path, key: &[u8; 32]) {
+        fs::write(path, encode_key(key)).unwrap();
     }
 }

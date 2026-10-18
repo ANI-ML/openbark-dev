@@ -13,13 +13,27 @@ pub fn canonical(n: &str) -> String {
     if frac.is_empty() { int.to_string() } else { format!("{int}.{frac}") }
 }
 
-/// All numbers written with digits in `text`, canonicalised.
+/// All numbers written with digits in `text`, canonicalised. A decimal with
+/// no leading digit counts as one: speech recognition writes "point one" as
+/// ".1", sometimes glued to the drug ("hydromorphone.1"), and that is 0.1,
+/// never 1.
 pub fn extract_numbers(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     let chars: Vec<char> = text.chars().collect();
     let mut i = 0;
     while i < chars.len() {
-        if chars[i].is_ascii_digit() {
+        let bare_decimal = chars[i] == '.'
+            && chars.get(i + 1).is_some_and(|c| c.is_ascii_digit())
+            && (i == 0 || !chars[i - 1].is_ascii_digit());
+        if bare_decimal {
+            let start = i + 1;
+            i += 1;
+            while i < chars.len() && chars[i].is_ascii_digit() {
+                i += 1;
+            }
+            let digits: String = chars[start..i].iter().collect();
+            out.push(canonical(&format!("0.{digits}")));
+        } else if chars[i].is_ascii_digit() {
             let start = i;
             while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == ',') {
                 i += 1;
@@ -73,6 +87,23 @@ fn unit(word: &str) -> Option<u64> {
     })
 }
 
+/// "fourth premolar" is 4 ("4th"); only the small ordinals said in clinics.
+fn ordinal(word: &str) -> Option<u64> {
+    Some(match word {
+        "first" | "1st" => 1,
+        "second" | "2nd" => 2,
+        "third" | "3rd" => 3,
+        "fourth" | "4th" => 4,
+        "fifth" | "5th" => 5,
+        "sixth" | "6th" => 6,
+        "seventh" | "7th" => 7,
+        "eighth" | "8th" => 8,
+        "ninth" | "9th" => 9,
+        "tenth" | "10th" => 10,
+        _ => return None,
+    })
+}
+
 fn digit(word: &str) -> Option<u64> {
     unit(word).filter(|d| *d < 10)
 }
@@ -102,10 +133,49 @@ pub fn normalize_spoken(text: &str) -> String {
             } else if w == "half" {
                 out.push("0.5".into()); // "half a kilo", "a half"
                 i += 1;
+            } else if let Some(n) = ordinal(&w) {
+                out.push(n.to_string()); // "fourth premolar", "4th"
+                i += 1;
+            } else if w == "point" && i + 1 < words.len() && digit(&bare(words[i + 1])).is_some() {
+                // "point seven milligrams" is 0.7
+                let mut number = String::from("0.");
+                i += 1;
+                while i < words.len() {
+                    match digit(&bare(words[i])) {
+                        Some(d) => number.push_str(&d.to_string()),
+                        None => break,
+                    }
+                    let ends_word = words[i].ends_with(|c: char| !c.is_alphanumeric());
+                    i += 1;
+                    if ends_word {
+                        break;
+                    }
+                }
+                out.push(canonical(&number));
             } else {
                 out.push(words[i].to_string());
                 i += 1;
             }
+            continue;
+        }
+        // Said digit by digit: "one oh eight" (a tooth), "four oh four".
+        let run: Vec<u64> = words[i..]
+            .iter()
+            .enumerate()
+            .scan(false, |ended, (k, w)| {
+                if *ended {
+                    return None;
+                }
+                *ended = w.ends_with(|c: char| !c.is_alphanumeric());
+                // Recognisers sometimes write the "oh" of "four oh four" as the letter o.
+                if k > 0 && bare(w) == "o" { Some(0) } else { digit(&bare(w)) }
+            })
+            .collect();
+        let has_oh =
+            words[i..i + run.len()].iter().skip(1).any(|w| matches!(bare(w).as_str(), "oh" | "o" | "zero"));
+        if run.len() >= 3 || (run.len() == 2 && has_oh) {
+            out.push(run.iter().map(u64::to_string).collect::<String>());
+            i += run.len();
             continue;
         }
         let mut total: u64 = 0;
@@ -114,6 +184,13 @@ pub fn normalize_spoken(text: &str) -> String {
         while i < words.len() {
             let w = bare(words[i]);
             if let Some(v) = unit(&w) {
+                // "thirty eight" and "one hundred eighty" combine; "three forty" (a time) doesn't.
+                let combines = !consumed_any
+                    || (current.is_multiple_of(10) && current % 100 >= 20 && v < 10)
+                    || (current >= 100 && current.is_multiple_of(100) && v < 100);
+                if !combines {
+                    break;
+                }
                 current += v;
             } else if w == "hundred" && consumed_any {
                 current = current.max(1) * 100;
@@ -161,6 +238,13 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_decimal_without_its_leading_zero_is_still_a_decimal() {
+        assert_eq!(extract_numbers("hydromorphone.1 mg per kilo"), ["0.1"]);
+        assert_eq!(extract_numbers("with a sepromazine.02 mg, then .5 mL"), ["0.02", "0.5"]);
+        assert_eq!(extract_numbers("Weight 24.5 kilos. 3 days."), ["24.5", "3"]);
+    }
+
+    #[test]
     fn canonicalises() {
         assert_eq!(canonical("039.20"), "39.2");
         assert_eq!(canonical("5.0"), "5");
@@ -180,6 +264,15 @@ mod tests {
     fn normalises_spoken_numbers() {
         assert_eq!(normalize_spoken("thirty nine point two degrees"), "39.2 degrees");
         assert_eq!(normalize_spoken("Heart rate one hundred and twenty."), "heart rate 120");
+        assert_eq!(normalize_spoken("heart rate one hundred eighty"), "heart rate 180");
+        assert_eq!(
+            normalize_spoken("One oh eight has a fracture, four oh four looks fine"),
+            "108 has a fracture, 404 looks fine"
+        );
+        assert_eq!(normalize_spoken("four o four The lower right canine"), "404 the lower right canine");
+        assert_eq!(normalize_spoken("She passed at three forty."), "she passed at 3 40");
+        assert_eq!(normalize_spoken("vincristine, point seven milligrams"), "vincristine, 0.7 milligrams");
+        assert_eq!(normalize_spoken("twenty four point five kilos"), "24.5 kilos");
         assert_eq!(normalize_spoken("every eight hours for seven days"), "every 8 hours for 7 days");
         assert_eq!(normalize_spoken("twenty-two kilos"), "22 kilos");
         assert_eq!(normalize_spoken("give one, then two"), "give 1 then 2");

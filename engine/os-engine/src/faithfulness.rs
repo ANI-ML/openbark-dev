@@ -58,6 +58,10 @@ pub struct FaithfulnessReport {
     /// the vet's own statements, so they are listed here instead of checked.
     #[serde(default)]
     pub vet_entered: Vec<String>,
+    /// Statements whose words aren't in the lines they cite (claim-level
+    /// alignment, M2): flagged for checking, never a hard fail.
+    #[serde(default)]
+    pub unsupported_statements: Vec<crate::align::UnsupportedStatement>,
     /// No invalid evidence and no unsupported numbers (vet-entered items aside).
     pub passed: bool,
 }
@@ -72,6 +76,7 @@ impl FaithfulnessReport {
             .chain(self.citation_mismatches.iter().map(|u| u.path.clone()))
             .chain(self.disputed_numbers.iter().map(|d| d.path.clone()))
             .chain(self.unverified_values.iter().cloned())
+            .chain(self.unsupported_statements.iter().map(|s| s.path.clone()))
             .collect()
     }
 }
@@ -88,8 +93,25 @@ pub fn check_with(
     transcript: &Transcript,
     vet_numbers: &HashSet<String>,
 ) -> FaithfulnessReport {
+    check_opts(note, transcript, vet_numbers, true)
+}
+
+/// The full check. `align` turns claim-level alignment on; it's off when the
+/// note is written in a different language from the consultation, where
+/// words can't match.
+pub fn check_opts(
+    note: &Value,
+    transcript: &Transcript,
+    vet_numbers: &HashSet<String>,
+    align: bool,
+) -> FaithfulnessReport {
     let mut report = FaithfulnessReport::default();
     walk(note, String::new(), transcript, &mut report);
+    if align {
+        let aligner = crate::align::Aligner::new(transcript);
+        let invalid: HashSet<String> = report.invalid_evidence.iter().cloned().collect();
+        align_walk(note, String::new(), &aligner, &invalid, &mut report);
+    }
     let from_vet = |n: &UnsupportedNumber| vet_numbers.contains(&n.number);
     report.unsupported_numbers.retain(|n| !from_vet(n));
     report.citation_mismatches.retain(|n| !from_vet(n));
@@ -121,6 +143,59 @@ pub fn vet_entered_numbers(note: &Value) -> HashSet<String> {
     }
     walk(note, &mut out);
     out
+}
+
+/// The words of an item that make its claim: a statement's text, a
+/// medication's drug name, a field's description (numbers are checked apart).
+fn claim_text(map: &serde_json::Map<String, Value>, path: &str) -> Option<String> {
+    if let Some(Value::String(t)) = map.get("text") {
+        return Some(t.clone());
+    }
+    if let Some(Value::String(d)) = map.get("drug") {
+        return Some(d.clone());
+    }
+    if path.starts_with("/patient/") {
+        return None; // patient details have their own check
+    }
+    match map.get("value") {
+        Some(Value::String(v)) => Some(v.clone()),
+        _ => None,
+    }
+}
+
+fn align_walk(
+    value: &Value,
+    path: String,
+    aligner: &crate::align::Aligner,
+    invalid: &HashSet<String>,
+    report: &mut FaithfulnessReport,
+) {
+    match value {
+        Value::Object(map) => {
+            if let Some(Value::Array(evidence)) = map.get("evidence") {
+                let vet = map.get("entered_by").and_then(Value::as_str).is_some_and(|b| !b.is_empty());
+                if vet || invalid.contains(&path) {
+                    return;
+                }
+                let cited: Vec<u32> = evidence.iter().filter_map(|v| v.as_u64()).map(|v| v as u32).collect();
+                if let Some(text) = claim_text(map, &path)
+                    && let Some(flag) = aligner.check(&path, &text, &cited)
+                {
+                    report.unsupported_statements.push(flag);
+                }
+                return;
+            }
+            for (k, v) in map {
+                align_walk(v, format!("{path}/{k}"), aligner, invalid, report);
+            }
+        }
+        Value::Array(items) => {
+            for (i, v) in items.iter().enumerate() {
+                align_walk(v, format!("{path}/{i}"), aligner, invalid, report);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn walk(value: &Value, path: String, transcript: &Transcript, report: &mut FaithfulnessReport) {

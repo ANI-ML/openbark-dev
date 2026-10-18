@@ -74,6 +74,9 @@ pub struct RunInfo {
     /// Who drafted, re-prompted or edited this revision (M1 item 11).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub by: Option<Who>,
+    /// Which animal this note is about, in a visit with several (M2 item 2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pet: Option<String>,
     /// Set when this run redrafted one heading of an earlier run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refinement: Option<Refinement>,
@@ -217,6 +220,9 @@ impl Consent {
 pub struct PatientInfo {
     /// The animal's name.
     pub name: String,
+    /// Other animals seen in the same visit (multi-pet visits, M2 item 2).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub others: Vec<String>,
     /// Family or client surname.
     pub last_name: String,
     pub reason: String,
@@ -228,6 +234,14 @@ pub struct PatientInfo {
 }
 
 impl PatientInfo {
+    /// Every animal in the visit, the main one first.
+    pub fn pets(&self) -> Vec<String> {
+        std::iter::once(self.name.trim().to_string())
+            .chain(self.others.iter().map(|o| o.trim().to_string()))
+            .filter(|n| !n.is_empty())
+            .collect()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.name.trim().is_empty() && self.last_name.trim().is_empty() && self.reason.trim().is_empty()
     }
@@ -258,6 +272,9 @@ impl PatientInfo {
 pub struct Session {
     pub dir: PathBuf,
     pub meta: SessionMeta,
+    /// The animal whose notes this handle works on, in a multi-pet visit
+    /// (None: the visit's single note). Not saved; set with [`Session::for_pet`].
+    pub pet: Option<String>,
 }
 
 impl Session {
@@ -306,7 +323,7 @@ impl Session {
             consent: None,
             recorded_by: None,
         };
-        let session = Self { dir, meta };
+        let session = Self { dir, meta, pet: None };
         session.save_meta()?;
         Ok(session)
     }
@@ -335,7 +352,7 @@ impl Session {
             consent: None,
             recorded_by: None,
         };
-        let session = Self { dir, meta };
+        let session = Self { dir, meta, pet: None };
         session.save_meta()?;
         Ok(session)
     }
@@ -359,7 +376,19 @@ impl Session {
         let text = crate::vault::read_to_string(&path).map_err(io(&path))?;
         let meta = serde_json::from_str(&text)
             .map_err(|e| EngineError::Session(format!("{}: {e}", path.display())))?;
-        Ok(Self { dir: dir.to_path_buf(), meta })
+        Ok(Self { dir: dir.to_path_buf(), meta, pet: None })
+    }
+
+    /// Work on one animal's notes (multi-pet visits). `None` or an empty
+    /// name means the visit's single note.
+    pub fn for_pet(mut self, pet: Option<&str>) -> Self {
+        self.pet = pet.map(str::trim).filter(|p| !p.is_empty()).map(String::from);
+        self
+    }
+
+    /// Whether a run belongs to this handle's animal.
+    fn mine(&self, run: &RunInfo) -> bool {
+        run.pet == self.pet
     }
 
     pub fn audio_path(&self) -> PathBuf {
@@ -428,6 +457,7 @@ impl Session {
             refinement: result.refinement.clone(),
             signer: None,
             by: result.by.clone(),
+            pet: self.pet.clone(),
             edited: result.edit.as_ref().map(|e| EditSummary {
                 heading: e.heading.clone(),
                 by: e.by.clone(),
@@ -448,6 +478,7 @@ impl Session {
         info.name = info.name.trim().to_string();
         info.last_name = info.last_name.trim().to_string();
         info.reason = info.reason.trim().to_string();
+        info.others = info.others.iter().map(|o| o.trim().to_string()).filter(|o| !o.is_empty()).collect();
         match &self.meta.patient {
             Some(prev) => {
                 info.entered_at = prev.entered_at.or(Some(now));
@@ -485,12 +516,13 @@ impl Session {
 
     /// Sign as a team member (their role is kept with the signature).
     pub fn sign_latest_by(&mut self, who: &Who) -> Result<(), EngineError> {
+        let pet = self.pet.clone();
         let run = self
             .meta
             .runs
             .iter_mut()
             .rev()
-            .find(|r| r.document.is_record())
+            .find(|r| r.document.is_record() && r.pet == pet)
             .ok_or_else(|| EngineError::Session("There is no draft to sign yet.".into()))?;
         if run.signed_at.is_some() {
             return Err(EngineError::Session("This note is already signed.".into()));
@@ -508,7 +540,12 @@ impl Session {
 
     /// The latest medical-record run (client documents aside).
     pub fn latest_record(&self) -> Option<&RunInfo> {
-        self.meta.runs.iter().rev().find(|r| r.document.is_record())
+        self.meta.runs.iter().rev().find(|r| r.document.is_record() && self.mine(r))
+    }
+
+    /// Runs of this handle's animal (all of them, in order).
+    pub fn my_runs(&self) -> impl Iterator<Item = &RunInfo> {
+        self.meta.runs.iter().filter(|r| self.mine(r))
     }
 
     /// The latest record run's saved note (`note` from `note.json`).
@@ -550,12 +587,13 @@ impl Session {
         if text.is_empty() {
             return Err(EngineError::Session("Write the addendum first.".into()));
         }
+        let pet = self.pet.clone();
         let run = self
             .meta
             .runs
             .iter_mut()
             .rev()
-            .find(|r| r.document.is_record())
+            .find(|r| r.document.is_record() && r.pet == pet)
             .filter(|r| r.signed_at.is_some())
             .ok_or_else(|| {
                 EngineError::Session("Addenda are for signed notes. Edit the draft instead.".into())

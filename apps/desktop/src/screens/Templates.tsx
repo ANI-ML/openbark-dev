@@ -5,6 +5,42 @@ import { useApp } from "../context";
 import * as engine from "../engine";
 import { useT } from "../i18n";
 import type { ContentKind, Standard, Template, TemplateField, TemplatePart, TemplateSection } from "../engine";
+import { examplesForTitle, NOTE_EXAMPLES } from "../promptExamples";
+
+/** Append an example sentence to an instruction (or start one). */
+function appendSentence(text: string | null | undefined, sentence: string): string {
+  const base = (text ?? "").trim();
+  if (!base) return sentence;
+  return `${base}${/[.!?]$/.test(base) ? "" : "."} ${sentence}`;
+}
+
+/** Example instructions for one heading: its own, or ones matched on its title. */
+function InstructionExamples({
+  label,
+  own,
+  readOnly,
+  onPick,
+}: {
+  label: string;
+  own: string[] | undefined;
+  /** Built-in templates show their examples as a guide; they can't be picked. */
+  readOnly?: boolean;
+  onPick: (example: string) => void;
+}) {
+  const t = useT();
+  const examples = own?.length ? own : examplesForTitle(label);
+  if (examples.length === 0) return null;
+  return (
+    <div className="tb-examples" aria-label={t("Example instructions for {label}", { label })}>
+      <span className="small faint">{t("Examples")}</span>
+      {examples.map((e) => (
+        <button key={e} type="button" className="ob-chip ask-chip" disabled={readOnly} onClick={() => onPick(e)}>
+          {e}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 /**
  * DESIGN.md §5 Template builder: a team's own note templates. A template is
@@ -14,7 +50,7 @@ import type { ContentKind, Standard, Template, TemplateField, TemplatePart, Temp
  */
 export function Templates() {
   const t = useT();
-  const [open, setOpen] = useState<{ id: string | null; from?: Template } | null>(null);
+  const [open, setOpen] = useState<{ id: string | null; from?: Template; key?: number } | null>(null);
   const [list, setList] = useState<engine.TemplateSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -24,13 +60,15 @@ export function Templates() {
   if (open) {
     return (
       <Builder
+        // A new template or a copy remounts the builder, so no state carries over (e.g. built-in read-only).
+        key={open.key}
         id={open.id}
         from={open.from}
         onClose={() => {
           setOpen(null);
           void refresh();
         }}
-        onOpen={(id, from) => setOpen({ id, from })}
+        onOpen={(id, from) => setOpen({ id, from, key: Date.now() })}
         onSaved={() => void refresh()}
       />
     );
@@ -426,6 +464,22 @@ function Builder({ id, from, onClose, onOpen, onSaved }: BuilderProps) {
               onChange={(e) => set({ rules: e.target.value.split("\n") })}
             />
           </label>
+          {!readOnly && (
+            <div className="tb-examples" aria-label={t("Examples by kind of practice")}>
+              <span className="small faint">{t("Examples by kind of practice")}</span>
+              {NOTE_EXAMPLES.map((x) => (
+                <button
+                  key={x.useCase}
+                  type="button"
+                  className="ob-chip ask-chip"
+                  title={x.text}
+                  onClick={() => set({ rules: [...(draft.rules ?? []).filter((r) => r.trim()), x.text] })}
+                >
+                  {t(x.useCase)}
+                </button>
+              ))}
+            </div>
+          )}
           <p className="ob-help">
             {t(
               "Every template also follows the core rules: only what was said, numbers exactly as stated, and every line linked to the transcript.",
@@ -624,6 +678,12 @@ function HeadingRow({
         placeholder={t("Instruction for the model (optional): what belongs here and how to write it")}
         onChange={(e) => onChange({ instruction: e.target.value || null })}
       />
+      <InstructionExamples
+        readOnly={readOnly}
+        label={s.title}
+        own={s.examples}
+        onPick={(e) => onChange({ instruction: appendSentence(s.instruction, e) })}
+      />
       {kind === "fields" && (
         <FieldsEditor fields={s.fields ?? []} readOnly={readOnly} owner={label} onChange={(fields) => onChange({ fields })} />
       )}
@@ -748,6 +808,12 @@ function PartRow({ part: p, index, count, readOnly, standards, onChange, onMove,
         value={p.instruction ?? ""}
         placeholder={t("Instruction (optional)")}
         onChange={(e) => onChange({ instruction: e.target.value || null })}
+      />
+      <InstructionExamples
+        readOnly={readOnly}
+        label={p.label}
+        own={p.examples}
+        onPick={(e) => onChange({ instruction: appendSentence(p.instruction, e) })}
       />
       {p.kind === "fields" && (
         <FieldsEditor fields={p.fields ?? []} readOnly={readOnly} owner={label} onChange={(fields) => onChange({ fields })} />

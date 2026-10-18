@@ -1,0 +1,74 @@
+[
+  {
+    "speaker": "client",
+    "start": 0.0,
+    "end": 5.6335,
+    "text": "He got hit by a car about twenty minutes ago. His name is Diesel. He's five, a German Shepherd."
+  },
+  {
+    "speaker": "tech",
+    "start": 6.1335,
+    "end": 9.785063,
+    "text": "Triage category red. He's breathing fast, gums are pale."
+  },
+  {
+    "speaker": "dvm",
+    "start": 10.285063,
+    "end": 18.70575,
+    "text": "Heart rate one sixty, resp rate forty-eight, mucous membranes pale, CRT three seconds. Mentation is quiet but responsive."
+  },
+  {
+    "speaker": "tech",
+    "start": 19.20575,
+    "end": 22.896875,
+    "text": "Weight thirty-two kilos. Blood pressure systolic eighty."
+  },
+  {
+    "speaker": "dvm",
+    "start": 23.396875,
+    "end": 31.619625,
+    "text": "Oxygen by flow-by. Place an IV catheter. Give a bolus of lactated Ringer's, ten mils per kilo, over fifteen minutes."
+  },
+  {
+    "speaker": "dvm",
+    "start": 32.119625,
+    "end": 36.216686,
+    "text": "Methadone, point two milligrams per kilo IV, for pain."
+  },
+  {
+    "speaker": "tech",
+    "start": 36.716686,
+    "end": 43.16606,
+    "text": "Bolus started at two fifteen. PCV forty-two percent, total solids five point two, lactate four point five."
+  },
+  {
+    "speaker": "dvm",
+    "start": 43.66606,
+    "end": 50.004436,
+    "text": "AFAST is negative. TFAST shows a small pneumothorax on the right, not enough to tap right now."
+  },
+  {
+    "speaker": "dvm",
+    "start": 50.504436,
+    "end": 56.02006,
+    "text": "After the bolus, heart rate one twenty and systolic one hundred and ten. Much better."
+  },
+  {
+    "speaker": "dvm",
+    "start": 56.52006,
+    "end": 63.024937,
+    "text": "He has a right hind laceration and is non weight-bearing on that leg. Radiographs once he's stable."
+  },
+  {
+    "speaker": "client",
+    "start": 63.524937,
+    "end": 67.87312,
+    "text": "Please do whatever he needs. And if his heart stops, yes, try to bring him back."
+  },
+  {
+    "speaker": "dvm",
+    "start": 68.37312,
+    "end": 75.46413,
+    "text": "Okay. We'll hospitalise him overnight on fluids and pain relief, and recheck the chest in four hours."
+  }
+]

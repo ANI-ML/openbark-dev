@@ -57,7 +57,7 @@ fn sound_key(s: &str) -> String {
 }
 
 /// Jaro-Winkler similarity in [0, 1].
-fn jaro_winkler(a: &str, b: &str) -> f64 {
+pub(crate) fn jaro_winkler(a: &str, b: &str) -> f64 {
     let a: Vec<char> = a.chars().collect();
     let b: Vec<char> = b.chars().collect();
     if a.is_empty() || b.is_empty() {
@@ -273,6 +273,14 @@ impl Lexicon {
 
     /// Hints for one line of transcript.
     pub fn hints(&self, text: &str) -> Vec<Hint> {
+        let mut hints = spoken_form_hints(text);
+        // "sepromazine.02": the word and the number are separate.
+        let text = &split_glued_decimals(text);
+        hints.extend(self.term_hints(text));
+        hints
+    }
+
+    fn term_hints(&self, text: &str) -> Vec<Hint> {
         let words: Vec<&str> = text
             .split(|c: char| c.is_whitespace() || c == '-')
             .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric() && c != '\''))
@@ -281,6 +289,30 @@ impl Lexicon {
         let mut hints: Vec<Hint> = Vec::new();
         let mut i = 0;
         while i < words.len() {
+            // A drug's first syllable heard as "a" ("a sepromazine" for acepromazine).
+            if words[i].eq_ignore_ascii_case("a")
+                && let Some(next) = words.get(i + 1)
+                && !self.is_term(next)
+            {
+                let joined = format!("a{}", next.to_lowercase());
+                let key = sound_key(&joined);
+                let best = self
+                    .terms
+                    .iter()
+                    .filter(|t| t.words == 1 && matches!(t.kind.as_str(), "drug" | "vaccine"))
+                    .map(|t| ((jaro_winkler(&joined, &t.text) + jaro_winkler(&key, &t.key)) / 2.0, t))
+                    .filter(|(s, _)| *s >= THRESHOLD_DRUG + 0.05)
+                    .max_by(|a, b| a.0.total_cmp(&b.0));
+                if let Some((_, term)) = best {
+                    hints.push(Hint {
+                        heard: format!("{} {next}", words[i]),
+                        likely: vec![term.text.clone()],
+                        kind: term.kind.clone(),
+                    });
+                    i += 2;
+                    continue;
+                }
+            }
             let mut best_here: Option<(Hint, usize)> = None;
             for n in [2usize, 1] {
                 if i + n > words.len() {
@@ -297,6 +329,11 @@ impl Lexicon {
                     .terms
                     .iter()
                     .filter(|t| t.words == n)
+                    // Every word must resemble its counterpart: "canine looks" isn't canine influenza.
+                    .filter(|t| {
+                        n == 1
+                            || lower.split(' ').zip(t.text.split(' ')).all(|(a, b)| jaro_winkler(a, b) >= 0.7)
+                    })
                     .filter_map(|t| {
                         let spelling = jaro_winkler(&lower, &t.text);
                         let score = (spelling + jaro_winkler(&key, &t.key)) / 2.0;
@@ -334,9 +371,132 @@ impl Lexicon {
     }
 }
 
+/// Words that sound like one of the animals' names ("Arlive" for Olive), so a
+/// multi-pet note can tell whose findings a line holds. Only capitalised
+/// words count (recognisers capitalise names), so "alive" isn't Olive.
+pub fn name_hints(text: &str, names: &[String]) -> Vec<Hint> {
+    let names: Vec<(String, String)> = names
+        .iter()
+        .map(|n| n.trim())
+        .filter(|n| n.chars().count() >= 3)
+        .map(|n| (n.to_string(), n.to_lowercase()))
+        .collect();
+    let mut hints: Vec<Hint> = Vec::new();
+    for word in text.split(|c: char| !c.is_alphanumeric() && c != '\'') {
+        let word = word.trim_matches('\'').trim_end_matches("'s");
+        if word.chars().count() < 3 || !word.starts_with(|c: char| c.is_uppercase()) {
+            continue;
+        }
+        let lower = word.to_lowercase();
+        if names.iter().any(|(_, n)| *n == lower) || hints.iter().any(|h| h.heard == word) {
+            continue;
+        }
+        let key = sound_key(&lower);
+        let best = names
+            .iter()
+            .map(|(name, n)| (jaro_winkler(&lower, n).max(jaro_winkler(&key, &sound_key(n))), name))
+            .filter(|(s, _)| *s >= NAME_THRESHOLD)
+            .max_by(|a, b| a.0.total_cmp(&b.0));
+        if let Some((_, name)) = best {
+            hints.push(Hint { heard: word.to_string(), likely: vec![name.clone()], kind: "name".into() });
+        }
+    }
+    hints
+}
+
+/// How close a capitalised word must sound to an animal's name.
+const NAME_THRESHOLD: f64 = 0.80;
+
+/// "hydromorphone.1" → "hydromorphone .1".
+fn split_glued_decimals(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len() + 4);
+    for (i, c) in chars.iter().enumerate() {
+        if *c == '.'
+            && i > 0
+            && chars[i - 1].is_alphabetic()
+            && chars.get(i + 1).is_some_and(|n| n.is_ascii_digit())
+        {
+            out.push(' ');
+        }
+        out.push(*c);
+    }
+    out
+}
+
+/// Recognition slips that aren't misspelt terms: a dose written as ".1"
+/// (said "point one"), and routes heard as other words. Each is a visible
+/// hint like any other; the transcript keeps what was heard.
+fn spoken_form_hints(text: &str) -> Vec<Hint> {
+    let mut hints = Vec::new();
+    // ".1" with no leading digit, alone or glued to a word.
+    for token in text.split_whitespace() {
+        let t = token.trim_end_matches([',', ';', ':']);
+        let Some(dot) = t.find('.') else { continue };
+        let (before, after) = (&t[..dot], &t[dot + 1..]);
+        let digits: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if digits.is_empty() || before.chars().last().is_some_and(|c| c.is_ascii_digit()) {
+            continue;
+        }
+        let rest = &after[digits.len()..];
+        let likely = if before.is_empty() {
+            format!("0.{digits}{rest}")
+        } else {
+            format!("{before} 0.{digits}{rest}")
+        };
+        hints.push(Hint { heard: t.to_string(), likely: vec![likely], kind: "number".into() });
+    }
+    // "IV" heard as the Roman numeral four.
+    let lower = text.to_lowercase();
+    for heard in ["roman 4", "roman four", "roman iv"] {
+        if let Some(at) = lower.find(heard) {
+            let original = &text[at..at + heard.len()];
+            hints.push(Hint { heard: original.to_string(), likely: vec!["IV".into()], kind: "route".into() });
+        }
+    }
+    hints
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dose_written_without_a_leading_zero_is_hinted() {
+        let h = lex().hints("Premed is hydromorphone.1 mg per kilo with a sepromazine.02 mg per kilo IM.");
+        let heard: Vec<(&str, &str)> = h.iter().map(|h| (h.heard.as_str(), h.likely[0].as_str())).collect();
+        assert!(heard.contains(&("hydromorphone.1", "hydromorphone 0.1")), "{heard:?}");
+        assert!(heard.contains(&("sepromazine.02", "sepromazine 0.02")), "{heard:?}");
+        // The glued word still gets its drug hint.
+        assert!(heard.iter().any(|(_, l)| *l == "acepromazine"), "{heard:?}");
+        // Ordinary decimals are left alone.
+        assert!(lex().hints("Weight 24.5 kilos, temperature 38.6.").iter().all(|h| h.kind != "number"));
+    }
+
+    #[test]
+    fn two_word_hints_need_both_words_to_match() {
+        assert!(lex().hints("four o four The lower right canine looks fine.").is_empty());
+    }
+
+    #[test]
+    fn misheard_pet_names_are_hinted() {
+        let names = ["Olive".to_string(), "Pickles".to_string()];
+        let h = name_hints("Let's start with Arlive since the easy one, and then pickles.", &names);
+        assert_eq!(h.len(), 1, "{h:?}");
+        assert_eq!((h[0].heard.as_str(), h[0].likely[0].as_str()), ("Arlive", "Olive"));
+        // Ordinary words and other names stay alone.
+        assert!(
+            name_hints("She's alive and well. Dr. Akafer will see you. Thank you, Jordan.", &names)
+                .is_empty()
+        );
+        assert!(name_hints("Olive is three point nine kilos", &names).is_empty());
+    }
+
+    #[test]
+    fn iv_heard_as_roman_four_is_hinted() {
+        let h = lex().hints("Pentabarbital six Mills Roman four through the catheter.");
+        assert!(h.iter().any(|h| h.heard == "Roman four" && h.likely == ["IV"]), "{h:?}");
+    }
 
     fn lex() -> Lexicon {
         Lexicon::load(None)

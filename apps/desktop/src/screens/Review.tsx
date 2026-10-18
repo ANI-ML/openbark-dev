@@ -6,6 +6,7 @@ import { PatientFields } from "../components/PatientFields";
 import { DocumentSheet } from "../components/DocumentSheet";
 import { HeadingEditor } from "../components/HeadingEditor";
 import { RefinePanel } from "../components/RefinePanel";
+import { headingExamples } from "../promptExamples";
 import { TranscriptList } from "../components/TranscriptList";
 import { fmtTime, useApp } from "../context";
 import { copyToClipboard, formatNote } from "../copyFormats";
@@ -29,6 +30,8 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
   /** The client document open in the sheet, and the one being drafted. */
   const [openDoc, setOpenDoc] = useState<string | null>(null);
   const [drafting, setDrafting] = useState<string | null>(null);
+  /** The client's language for client documents (M2 item 6). */
+  const [docLanguage, setDocLanguage] = useState<string>(app.settings.noteLanguage);
   const [refining, setRefining] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [tokens, setTokens] = useState(0);
@@ -41,7 +44,12 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
   const [audioSrc, setAudioSrc] = useState<string | null>(null);
   const drafted = useRef(false);
 
-  const load = useCallback(() => engine.openSession(id).then(setView, (e) => setError(String(e?.message ?? e))), [id]);
+  /** In a multi-pet visit, the animal whose note is shown (M2 item 2). */
+  const [pet, setPet] = useState<string | null>(null);
+  const load = useCallback(
+    () => engine.openSession(id, pet).then(setView, (e) => setError(String(e?.message ?? e))),
+    [id, pet],
+  );
 
   useEffect(() => {
     void load();
@@ -83,12 +91,17 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
     engine.template(template.id).then(setCurrent, () => setCurrent(null));
   }, [template]);
 
+  // A multi-pet visit opens on its first animal.
+  useEffect(() => {
+    if (view && view.pets.length > 1 && !pet) setPet(view.pets[0] ?? null);
+  }, [view, pet]);
+
   const draft = useCallback(async () => {
     setError(null);
     setTokens(0);
     setGenerating(true);
     try {
-      await engine.generateNote(id, app.settings.llm, chosen, app.settings.noteLanguage);
+      await engine.generateNote(id, app.settings.llm, chosen, app.settings.noteLanguage, pet);
       await load();
       app.announce(t("Draft ready"));
     } catch (e) {
@@ -96,15 +109,36 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
     } finally {
       setGenerating(false);
     }
-  }, [id, app, load, chosen, t]);
+  }, [id, app, load, chosen, t, pet]);
 
-  async function draftDocument(templateId: string) {
+  /** After a multi-pet recording: one note per animal, one after another. */
+  const draftAll = useCallback(
+    async (pets: string[]) => {
+      setError(null);
+      setGenerating(true);
+      try {
+        for (const p of pets) {
+          setTokens(0);
+          await engine.generateNote(id, app.settings.llm, chosen, app.settings.noteLanguage, p);
+        }
+        await load();
+        app.announce(t("Draft ready"));
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setGenerating(false);
+      }
+    },
+    [id, app, load, chosen, t],
+  );
+
+  async function draftDocument(templateId: string, language = docLanguage) {
     setError(null);
     setTokens(0);
     setDrafting(templateId);
     setOpenDoc(templateId);
     try {
-      await engine.generateNote(id, app.settings.llm, templateId, app.settings.noteLanguage);
+      await engine.generateNote(id, app.settings.llm, templateId, language, pet);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -123,7 +157,7 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
     setError(null);
     setSavingEdit(true);
     try {
-      await engine.editNote(id, heading, value, app.actor);
+      await engine.editNote(id, heading, value, app.actor, pet);
       await load();
       setEditingHeading(null);
       app.toast(t("{heading} saved", { heading: engine.headingTitle(template, heading) }));
@@ -141,7 +175,7 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
       return;
     }
     try {
-      setView(await engine.addAddendum(id, addendum, app.actor));
+      setView(await engine.addAddendum(id, addendum, app.actor, pet));
       setAddendum(null);
       app.toast(t("Addendum signed"));
     } catch (e) {
@@ -162,6 +196,7 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
         save_as_standard: saveAsStandard,
         by: app.actor.trim() || null,
         language: app.settings.noteLanguage,
+        pet,
       });
       await load();
       setAsking(null);
@@ -178,10 +213,12 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
   useEffect(() => {
     const wanted = draftTemplate != null || (autoDraft && !view?.latest_run);
     if (wanted && view && segments.length > 0 && !drafted.current) {
+      if (view.pets.length > 1 && !pet) return; // wait until the first animal is chosen
       drafted.current = true;
-      void draft();
+      if (view.pets.length > 1 && draftTemplate == null) void draftAll(view.pets);
+      else void draft();
     }
-  }, [autoDraft, draftTemplate, view, segments.length, draft]);
+  }, [autoDraft, draftTemplate, view, segments.length, draft, draftAll, pet]);
 
   function playIds(ids: number[]) {
     const first = segments.find((s) => ids.includes(s.id));
@@ -242,6 +279,7 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
         page: app.settings.pageSize,
         document: document ?? null,
         language: app.settings.noteLanguage,
+        pet,
       });
       if (saved) app.toast(t("PDF saved"));
     } catch (e) {
@@ -255,7 +293,7 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
       return;
     }
     try {
-      setView(await engine.signNote(id, app.actor));
+      setView(await engine.signNote(id, app.actor, pet));
       app.toast(t("Note signed"));
       app.announce(t("Note signed"));
     } catch (e) {
@@ -280,7 +318,8 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
   const softFlags =
     (run?.faithfulness.citation_mismatches.length ?? 0) +
     (run?.faithfulness.invalid_evidence.length ?? 0) +
-    (run?.faithfulness.unverified_values?.length ?? 0);
+    (run?.faithfulness.unverified_values?.length ?? 0) +
+    (run?.faithfulness.unsupported_statements?.length ?? 0);
   const disputed = run?.faithfulness.disputed_numbers?.length ?? 0;
   const signed = Boolean(view?.signed_at);
   const progress = Math.min(0.95, tokens / 1400);
@@ -383,6 +422,27 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
         )}
       </section>
 
+      {(view?.pets.length ?? 0) > 1 && (
+        <div className="pet-tabs ob-segmented" role="tablist" aria-label={t("Animals in this visit")}>
+          {view?.pets.map((p) => (
+            <button
+              key={p}
+              className="ob-segment"
+              role="tab"
+              aria-selected={p === pet}
+              disabled={generating || refining}
+              onClick={() => {
+                setAsking(null);
+                setEditingHeading(null);
+                setPet(p);
+              }}
+            >
+              {p}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="review-tabs ob-segmented" role="tablist">
         <button className="ob-segment" role="tab" aria-selected={tab === "transcript"} onClick={() => setTab("transcript")}>
           {t("Transcript")}
@@ -478,7 +538,8 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
                   asking === heading && (
                     <RefinePanel
                       title={engine.headingTitle(template, heading)}
-                      templateName={template.name}
+                      templateName={templateName(t, template.name)}
+                      examples={headingExamples(current?.template ?? template, heading)}
                       standards={(current?.template.standards ?? []).filter((s) => s.heading === heading)}
                       canSave={current != null}
                       busy={refining}
@@ -617,6 +678,11 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
           }
           onPdf={() => void savePdf(openDoc)}
           onRedraft={() => void draftDocument(openDoc)}
+          language={docLanguage}
+          onLanguage={(code) => {
+            setDocLanguage(code);
+            void draftDocument(openDoc, code);
+          }}
           onClose={() => setOpenDoc(null)}
           onEvidence={(ids) => setLit(new Set(ids ?? []))}
           onPlay={playIds}
