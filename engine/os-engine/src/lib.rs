@@ -8,6 +8,7 @@
 
 pub mod awake;
 pub mod crosscheck;
+pub mod edit;
 pub mod faithfulness;
 pub mod live;
 pub mod models;
@@ -41,7 +42,7 @@ pub enum EngineError {
     Llm(#[from] os_llm::LlmError),
     #[error("{0}")]
     Model(String),
-    #[error("session: {0}")]
+    #[error("{0}")]
     Session(String),
     #[error("template: {0}")]
     Template(String),

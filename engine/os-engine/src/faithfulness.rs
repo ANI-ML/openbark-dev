@@ -54,7 +54,11 @@ pub struct FaithfulnessReport {
     /// appear in the cited lines, e.g. a species guessed from the complaint.
     #[serde(default)]
     pub unverified_values: Vec<String>,
-    /// No invalid evidence and no unsupported numbers.
+    /// Items a veterinarian wrote or edited by hand (`entered_by`). They are
+    /// the vet's own statements, so they are listed here instead of checked.
+    #[serde(default)]
+    pub vet_entered: Vec<String>,
+    /// No invalid evidence and no unsupported numbers (vet-entered items aside).
     pub passed: bool,
 }
 
@@ -143,6 +147,10 @@ fn check_statement(
     transcript: &Transcript,
     report: &mut FaithfulnessReport,
 ) {
+    if map.get("entered_by").and_then(Value::as_str).is_some_and(|b| !b.is_empty()) {
+        report.vet_entered.push(path.to_string());
+        return;
+    }
     report.statements_checked += 1;
     let cited: Vec<u32> = evidence.iter().filter_map(|v| v.as_u64()).map(|v| v as u32).collect();
     if cited.is_empty() || cited.iter().any(|id| transcript.get(*id).is_none()) {
@@ -167,7 +175,7 @@ fn check_statement(
         }
     }
     for (key, v) in map {
-        if key == "evidence" {
+        if key == "evidence" || key == "entered_by" {
             continue;
         }
         let text = match v {
@@ -332,5 +340,19 @@ mod tests {
         let r = check(&note, &transcript());
         assert_eq!(r.invalid_evidence, vec!["/subjective/history/0", "/subjective/history/1"]);
         assert_eq!(r.flagged_paths().len(), 2);
+    }
+
+    #[test]
+    fn vet_entered_items_are_listed_not_failed() {
+        // The vet corrected an ASR error: 120 isn't in the transcript, but it's theirs.
+        let note = json!({"objective": {"vitals": {
+            "heart_rate": {"value": "120 bpm", "unit": null, "evidence": [0], "entered_by": "Dr Patel"},
+            "weight": {"value": 4.2, "unit": "kg", "evidence": [1]}
+        }}, "plan": {"follow_up": [{"text": "Recheck in 10 days", "evidence": [], "entered_by": "Dr Patel"}]}});
+        let r = check(&note, &transcript());
+        assert!(r.passed, "{r:?}");
+        assert_eq!(r.vet_entered, vec!["/objective/vitals/heart_rate", "/plan/follow_up/0"]);
+        assert_eq!(r.statements_checked, 1);
+        assert!(r.flagged_paths().is_empty());
     }
 }

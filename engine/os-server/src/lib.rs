@@ -12,6 +12,8 @@
 //! - `POST /api/sessions/{id}/notes`        `{llm, template}`
 //! - `POST /api/sessions/{id}/refine`       `{llm, heading, request, save_as_standard, by}`:
 //!   redraft one heading of the latest draft
+//! - `POST /api/sessions/{id}/edit`         `{heading, value, by}`: the vet's own version of a heading
+//! - `POST /api/sessions/{id}/addenda`      `{text, by}`: signed addition to a signed note
 //! - `GET  /api/templates`, `POST /api/templates` (save), `POST /api/templates/preview`
 //! - `GET|DELETE /api/templates/{id}`
 //! - `POST /api/templates/{id}/standards` `{heading, text, by}`, `DELETE /api/templates/{id}/standards/{sid}`
@@ -127,6 +129,8 @@ pub async fn serve(options: ServerOptions) -> std::io::Result<()> {
         .route("/api/sessions/{id}/sign", post(sign_note))
         .route("/api/sessions/{id}/patient", post(update_patient))
         .route("/api/sessions/{id}/refine", post(refine_note))
+        .route("/api/sessions/{id}/edit", post(edit_note))
+        .route("/api/sessions/{id}/addenda", post(add_addendum))
         .route("/api/templates", get(list_templates).post(save_template))
         .route("/api/templates/preview", post(preview_template))
         .route("/api/templates/{id}", get(template).delete(delete_template))
@@ -277,6 +281,35 @@ async fn refine_note(
         s.app.refine_note(&id, &req, events.as_ref())
     })
     .await
+}
+
+#[derive(Deserialize)]
+struct EditNote {
+    heading: String,
+    value: serde_json::Value,
+    by: String,
+}
+
+async fn edit_note(
+    State(s): State<St>,
+    UrlPath(id): UrlPath<String>,
+    Json(req): Json<EditNote>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app.edit_note(&id, &req.heading, req.value, &req.by)).await
+}
+
+#[derive(Deserialize)]
+struct NewAddendum {
+    text: String,
+    by: String,
+}
+
+async fn add_addendum(
+    State(s): State<St>,
+    UrlPath(id): UrlPath<String>,
+    Json(req): Json<NewAddendum>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app.add_addendum(&id, &req.text, &req.by)).await
 }
 
 async fn list_templates(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {

@@ -62,3 +62,11 @@ sections:
   - title: Home care
     kind: statements
 ```
+
+## Editing a draft yourself, and addenda
+
+**Edit** on a heading opens it for typing. Change, reorder, remove or add lines, medications or measurements, then **Save changes**. The edit is saved as a new draft and the earlier one is kept. Lines you change or add are marked "Edited by" with your name (from Settings):
+- They are your statements. OpenBark lists them instead of checking them against the recording, so correcting a mis-heard dose doesn't block signing.
+- A line that came from the recording keeps its link to it.
+
+Once a note is signed, it can't be edited, re-prompted or redrafted. **Add addendum** appends a dated addition, signed with your name. It appears under the note and in **Copy note**.

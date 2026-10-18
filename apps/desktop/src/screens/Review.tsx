@@ -3,6 +3,7 @@ import { ArrowClockwise, Copy, FolderOpen, Signature } from "@phosphor-icons/rea
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NoteView } from "../components/NoteView";
 import { PatientFields } from "../components/PatientFields";
+import { HeadingEditor } from "../components/HeadingEditor";
 import { RefinePanel } from "../components/RefinePanel";
 import { TranscriptList } from "../components/TranscriptList";
 import { fmtTime, useApp } from "../context";
@@ -18,6 +19,9 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
   /** The current version of the draft's template (for its saved standards). */
   const [current, setCurrent] = useState<engine.TemplateView | null>(null);
   const [asking, setAsking] = useState<string | null>(null);
+  const [editingHeading, setEditingHeading] = useState<string | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [addendum, setAddendum] = useState<string | null>(null);
   const [refining, setRefining] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [tokens, setTokens] = useState(0);
@@ -63,6 +67,41 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
       setGenerating(false);
     }
   }, [id, app, load, chosen]);
+
+  async function saveEdit(heading: string, value: unknown) {
+    if (!template) return;
+    if (!app.settings.signer.trim()) {
+      setError("Add your name in Settings, then save your edits.");
+      return;
+    }
+    setError(null);
+    setSavingEdit(true);
+    try {
+      await engine.editNote(id, heading, value, app.settings.signer);
+      await load();
+      setEditingHeading(null);
+      app.toast(`${engine.headingTitle(template, heading)} saved`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
+  async function signAddendum() {
+    if (!addendum?.trim()) return;
+    if (!app.settings.signer.trim()) {
+      setError("Add your name in Settings, then sign the addendum.");
+      return;
+    }
+    try {
+      setView(await engine.addAddendum(id, addendum, app.settings.signer));
+      setAddendum(null);
+      app.toast("Addendum signed");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
 
   async function refine(heading: string, request: string, saveAsStandard: boolean) {
     if (!template) return;
@@ -309,7 +348,40 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
                 onEvidence={(ids) => setLit(new Set(ids ?? []))}
                 onPlay={playIds}
                 onCopySection={(title, text) => copy(`${title}\n${text}`, title)}
-                onAsk={signed || generating ? undefined : (heading) => setAsking((a) => (a === heading ? null : heading))}
+                onAsk={
+                  signed || generating
+                    ? undefined
+                    : (heading) => {
+                        setEditingHeading(null);
+                        setAsking((a) => (a === heading ? null : heading));
+                      }
+                }
+                onEdit={
+                  signed || generating || refining
+                    ? undefined
+                    : (heading) => {
+                        setAsking(null);
+                        setEditingHeading((h) => (h === heading ? null : heading));
+                      }
+                }
+                renderEdit={(heading) => {
+                  if (editingHeading !== heading) return null;
+                  const def = headingDef(template, heading);
+                  if (!def) return null;
+                  const [sec, part] = heading.split("/");
+                  const sectionValue = run.note[sec ?? ""] as Record<string, unknown> | undefined;
+                  return (
+                    <HeadingEditor
+                      title={engine.headingTitle(template, heading)}
+                      kind={def.kind}
+                      fields={def.fields}
+                      value={part ? sectionValue?.[part] : sectionValue}
+                      busy={savingEdit}
+                      onSave={(value) => void saveEdit(heading, value)}
+                      onCancel={() => setEditingHeading(null)}
+                    />
+                  );
+                }}
                 renderAsk={(heading) =>
                   asking === heading && (
                     <RefinePanel
@@ -344,9 +416,58 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
                 )}
                 <span className="small faint output-meta">
                   {run.faithfulness.statements_checked} statements, {run.faithfulness.numbers_checked} numbers checked
-                  against the transcript. Drafted in {(run.stats.total_ms / 1000).toFixed(1)} s.
+                  against the transcript.
+                  {(run.faithfulness.vet_entered?.length ?? 0) > 0 && ` ${run.faithfulness.vet_entered?.length} entered by a veterinarian.`}
+                  {run.stats.total_ms > 0 && ` Drafted in ${(run.stats.total_ms / 1000).toFixed(1)} s.`}
                 </span>
               </footer>
+              {signed && (
+                <section className="addenda" aria-label="Addenda">
+                  {(view?.addenda ?? []).map((a) => (
+                    <article key={a.id} className="addendum">
+                      <h3 className="label">
+                        Addendum, <span className="mono">{engine.fmtStamp(a.at)}</span>, {a.by}
+                      </h3>
+                      <p>{a.text}</p>
+                    </article>
+                  ))}
+                  {addendum === null ? (
+                    <Button variant="ghost" onClick={() => setAddendum("")}>
+                      Add addendum
+                    </Button>
+                  ) : (
+                    <form
+                      className="edit-heading"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        void signAddendum();
+                      }}
+                    >
+                      <label className="label" htmlFor="addendum-text">
+                        Addendum
+                      </label>
+                      <textarea
+                        id="addendum-text"
+                        className="ob-input tb-text"
+                        rows={3}
+                        autoFocus
+                        value={addendum}
+                        onChange={(e) => setAddendum(e.target.value)}
+                        placeholder="For example: owner called on day 2, eating again, vomiting stopped."
+                      />
+                      <p className="small faint">The signed note doesn't change. The addendum is dated and signed with your name.</p>
+                      <div className="ask-actions">
+                        <Button type="submit" variant="primary" disabled={!addendum.trim()}>
+                          Sign addendum
+                        </Button>
+                        <Button variant="ghost" onClick={() => setAddendum(null)}>
+                          Cancel
+                        </Button>
+                      </div>
+                    </form>
+                  )}
+                </section>
+              )}
             </>
           ) : (
             <div className="pane-pad">
@@ -361,4 +482,14 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
       </div>
     </div>
   );
+}
+
+/** What goes under a heading path, from the draft's template. */
+function headingDef(t: engine.Template, heading: string): { kind: engine.ContentKind; fields?: engine.TemplateField[] } | null {
+  const [sec, part] = heading.split("/");
+  const s = t.sections.find((x) => x.id === sec);
+  if (!s) return null;
+  if (!part) return s.kind ? { kind: s.kind, fields: s.fields } : null;
+  const p = s.parts?.find((x) => x.key === part);
+  return p ? { kind: p.kind, fields: p.fields } : null;
 }

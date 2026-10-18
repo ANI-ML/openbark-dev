@@ -57,6 +57,9 @@ pub fn markdown(
 }
 
 fn cite(value: &Value) -> String {
+    if let Some(by) = value["entered_by"].as_str().filter(|b| !b.is_empty()) {
+        return format!(" [entered by {by}]");
+    }
     let ids: Vec<String> = value["evidence"]
         .as_array()
         .map(|a| a.iter().filter_map(Value::as_u64).map(|id| id.to_string()).collect())

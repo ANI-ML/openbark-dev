@@ -51,6 +51,8 @@ export interface Faithfulness {
   citation_mismatches: NumberFlag[];
   disputed_numbers?: { path: string; number: string; heard_instead: string[]; cited: number[] }[];
   unverified_values?: string[];
+  /** Items a veterinarian wrote or edited by hand (listed, not checked). */
+  vet_entered?: string[];
   invalid_evidence: string[];
 }
 
@@ -63,6 +65,16 @@ export interface NoteRun {
   stats: { prompt_tokens: number; completion_tokens: number; total_ms: number; tokens_per_second: number; time_to_first_token_ms: number };
   /** Set when this draft re-prompted one heading of an earlier draft. */
   refinement?: Refinement;
+  /** Set when this draft is a veterinarian's hand edit of one heading. */
+  edit?: { heading: string; by: string; from_run?: string | null; changed: string[]; removed: number; before: unknown };
+}
+
+/** A dated, signed addition to a signed note. */
+export interface Addendum {
+  id: string;
+  text: string;
+  by: string;
+  at: string;
 }
 
 /** Clinic-entered details, time-stamped by the engine. */
@@ -106,6 +118,8 @@ export interface SessionView {
   patient: Patient | null;
   /** The template the latest draft was written with (saved with the draft). */
   latest_template: Template | null;
+  /** Signed additions to the signed note, oldest first. */
+  addenda: Addendum[];
 }
 
 export interface Hardware {
@@ -307,6 +321,15 @@ export const updatePatient = (id: string, patient: Patient) =>
   isDesktop
     ? invoke<SessionView>("update_patient", { id, patient })
     : api<SessionView>(`/api/sessions/${enc(id)}/patient`, post(patient));
+/** Save the vet's own version of one heading as a new draft. */
+export const editNote = (id: string, heading: string, value: unknown, by: string) =>
+  isDesktop
+    ? invoke<{ markdown: string; run: NoteRun }>("edit_note", { id, heading, value, by })
+    : api<{ markdown: string; run: NoteRun }>(`/api/sessions/${enc(id)}/edit`, post({ heading, value, by }));
+export const addAddendum = (id: string, text: string, by: string) =>
+  isDesktop
+    ? invoke<SessionView>("add_addendum", { id, text, by })
+    : api<SessionView>(`/api/sessions/${enc(id)}/addenda`, post({ text, by }));
 export const signNote = (id: string, by: string) =>
   isDesktop ? invoke<SessionView>("sign_note", { id, by }) : api<SessionView>(`/api/sessions/${enc(id)}/sign`, post({ by }));
 export const models = () => (isDesktop ? invoke<ModelRow[]>("models") : api<ModelRow[]>("/api/models"));

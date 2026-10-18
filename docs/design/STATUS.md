@@ -19,7 +19,7 @@ Tracks the build against `DESIGN.md`. Updated 2026-10-17. Screenshots: `apps/des
 ## Not yet
 
 - Recorder left column (patient context from the PIMS or entered manually): arrives with patient context in prompts.
-- Note editor toolbar: Accept and Dictate correction (M1 item 6). Copy and Ask (redo with an instruction) exist.
+- Note editor: Dictate correction. Copy, Ask (redo with an instruction), Edit (inline heading editor; vet lines marked "Edited by") and signed addenda exist.
 - Draggable Review split that remembers its ratio per device.
 - Renaming speakers (DVM, Client, Tech) and low-confidence word underlines.
 - `[` and `]` keys to jump between unsupported sentences.

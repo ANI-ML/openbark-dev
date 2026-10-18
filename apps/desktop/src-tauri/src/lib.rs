@@ -153,6 +153,29 @@ async fn refine_note(
 }
 
 #[tauri::command]
+async fn edit_note(
+    app: State<'_, AppState>,
+    id: String,
+    heading: String,
+    value: serde_json::Value,
+    by: String,
+) -> Result<os_app::NoteResponse, String> {
+    let app = app.inner().clone();
+    work(move || app.edit_note(&id, &heading, value, &by)).await
+}
+
+#[tauri::command]
+async fn add_addendum(
+    app: State<'_, AppState>,
+    id: String,
+    text: String,
+    by: String,
+) -> Result<os_app::SessionView, String> {
+    let app = app.inner().clone();
+    work(move || app.add_addendum(&id, &text, &by)).await
+}
+
+#[tauri::command]
 fn list_templates(app: State<'_, AppState>) -> Vec<TemplateSummary> {
     app.list_templates()
 }
@@ -250,6 +273,8 @@ pub fn run() {
             sign_note,
             update_patient,
             refine_note,
+            edit_note,
+            add_addendum,
             list_templates,
             template,
             preview_template,

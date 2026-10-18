@@ -48,11 +48,32 @@ for (const v of variants) {
       await stmt.hover();
       await shot("review-evidence");
     }
+    const addenda = page.locator(".addenda");
+    if (await addenda.count()) {
+      await addenda.scrollIntoViewIfNeeded();
+      await shot("review-signed-addenda");
+    }
+  }
+
+  // A draft (second encounter): re-prompt and hand edit.
+  await nav("Encounters");
+  await page.locator("tr.row-link").first().waitFor().catch(() => {});
+  const draftRow = page.locator("tr.row-link").nth(1);
+  if (await draftRow.count()) {
+    await draftRow.click();
+    await page.locator(".note, .pane-pad").first().waitFor();
+    await page.waitForTimeout(600);
     const ask = page.getByRole("button", { name: /^Ask for changes to / }).nth(1);
     if (await ask.count()) {
       await ask.click();
       await page.locator("form.ask").scrollIntoViewIfNeeded();
       await shot("review-ask");
+    }
+    const edit = page.getByRole("button", { name: "Edit Follow-up" });
+    if (await edit.count()) {
+      await edit.click();
+      await page.locator("form.edit-heading").scrollIntoViewIfNeeded();
+      await shot("review-edit");
     }
   }
 

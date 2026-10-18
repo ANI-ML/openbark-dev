@@ -39,6 +39,9 @@ pub struct NoteResult {
     /// Set when this draft came from re-prompting one heading.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refinement: Option<Refinement>,
+    /// Set when this draft is a veterinarian's hand edit of an earlier one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edit: Option<crate::edit::Edit>,
     #[serde(skip)]
     pub markdown: String,
 }
@@ -261,6 +264,7 @@ pub fn generate_note(
         faithfulness,
         stats: output.stats,
         refinement: None,
+        edit: None,
         markdown,
     })
 }
@@ -317,7 +321,8 @@ pub fn refine_note(
         Some(key) => note[sec][key] = redrafted,
         None => note[sec] = redrafted,
     }
-    validate(template, &note)?;
+    // The rest of the note may hold the vet's own edits.
+    crate::edit::validate_edited(template, &note)?;
     let faithfulness = faithfulness::check(&note, transcript);
     let markdown = render::markdown(template, &note, transcript, &faithfulness);
     Ok(NoteResult {
@@ -333,6 +338,7 @@ pub fn refine_note(
             from_run: None,
             saved_as_standard: false,
         }),
+        edit: None,
         markdown,
     })
 }

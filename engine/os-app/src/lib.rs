@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use os_engine::awake::{AwakeGuard, AwakeReason};
 use os_engine::live::{LiveOptions, LiveRecorder, LiveSink, LiveSource};
-use os_engine::session::{self, PatientInfo, Session};
+use os_engine::session::{self, Addendum, PatientInfo, Session};
 use os_engine::template::{Standard, Template};
 use os_engine::template_store::TemplateSummary;
 use os_engine::{LoadedTemplate, NoteOptions, Segment, TemplateStore, TranscribeStats, Transcript};
@@ -130,6 +130,8 @@ pub struct SessionView {
     /// The template the latest draft was written with (its saved snapshot),
     /// so the note renders under the headings it was drafted to.
     pub latest_template: Option<Template>,
+    /// Signed additions to the signed note, oldest first.
+    pub addenda: Vec<Addendum>,
 }
 
 /// A template for the builder: its headings, and what the model is told.
@@ -383,8 +385,13 @@ impl App {
         events: &dyn Events,
     ) -> Result<NoteResponse> {
         let _awake = AwakeGuard::acquire(AwakeReason::Processing);
-        let backend = self.load_llm(llm)?;
         let mut s = Session::open(&self.session_dir(id)?)?;
+        if s.is_signed() {
+            return Err(AppError(
+                "This note is signed, so it can't be redrafted. Add an addendum instead.".into(),
+            ));
+        }
+        let backend = self.load_llm(llm)?;
         let transcript = s.load_transcript()?;
         let template = self.templates.load(if template.is_empty() { "soap" } else { template })?;
         let options = NoteOptions {
@@ -414,7 +421,9 @@ impl App {
     ) -> Result<NoteResponse> {
         let mut s = Session::open(&self.session_dir(id)?)?;
         if s.is_signed() {
-            return Err(AppError("This note is signed, so it can't be changed.".into()));
+            return Err(AppError(
+                "This note is signed, so it can't be changed. Add an addendum instead.".into(),
+            ));
         }
         let (run, note) = s.latest_note()?;
         let template = s.run_template(&run)?;
@@ -468,6 +477,47 @@ impl App {
         result.markdown = with_header(&s, &result.markdown);
         s.save_run(&request.llm, &result, &template)?;
         Ok(NoteResponse { markdown: result.markdown.clone(), run: serde_json::to_value(&result)? })
+    }
+
+    /// Save a veterinarian's own version of one heading as a new draft.
+    /// Changed items are marked as entered by them; the earlier draft is kept.
+    pub fn edit_note(
+        &self,
+        id: &str,
+        heading: &str,
+        value: serde_json::Value,
+        by: &str,
+    ) -> Result<NoteResponse> {
+        if by.trim().is_empty() {
+            return Err(AppError("Add your name in Settings, then save your edits.".into()));
+        }
+        let mut s = Session::open(&self.session_dir(id)?)?;
+        if s.is_signed() {
+            return Err(AppError(
+                "This note is signed, so it can't be changed. Add an addendum instead.".into(),
+            ));
+        }
+        let (run, note) = s.latest_note()?;
+        let template = s.run_template(&run)?;
+        let transcript = s.load_transcript()?;
+        let mut result =
+            os_engine::edit::apply_edit(&template, &transcript, &note, heading, value, by, &run.llm)?;
+        if let Some(e) = result.edit.as_mut() {
+            e.from_run = Some(run.dir.clone());
+        }
+        result.markdown = with_header(&s, &result.markdown);
+        s.save_run("edited", &result, &template)?;
+        Ok(NoteResponse { markdown: result.markdown.clone(), run: serde_json::to_value(&result)? })
+    }
+
+    /// Add a signed addendum to a signed note.
+    pub fn add_addendum(&self, id: &str, text: &str, by: &str) -> Result<SessionView> {
+        if by.trim().is_empty() {
+            return Err(AppError("Add your name in Settings, then sign the addendum.".into()));
+        }
+        let mut s = Session::open(&self.session_dir(id)?)?;
+        s.add_addendum(text, by)?;
+        Ok(view(&s, None))
     }
 
     /// Mark the latest draft as signed by `by` (refused while numbers are unsupported).
@@ -729,6 +779,7 @@ fn source_label(source: &str) -> String {
 fn view(s: &Session, transcript: Option<Transcript>) -> SessionView {
     let latest = s.meta.runs.last().map(|r| s.dir.join(&r.dir));
     let latest_template = s.meta.runs.last().and_then(|r| s.run_template(r).ok()).map(|t| t.template);
+    let addenda = s.meta.runs.last().map(|r| r.addenda.clone()).unwrap_or_default();
     SessionView {
         id: id_of(s),
         dir: s.dir.display().to_string(),
@@ -741,7 +792,9 @@ fn view(s: &Session, transcript: Option<Transcript>) -> SessionView {
             .as_ref()
             .and_then(|d| std::fs::read_to_string(d.join("note.json")).ok())
             .and_then(|t| serde_json::from_str(&t).ok()),
-        latest_markdown: latest.and_then(|d| std::fs::read_to_string(d.join("note.md")).ok()),
+        latest_markdown: latest
+            .and_then(|d| std::fs::read_to_string(d.join("note.md")).ok())
+            .map(|md| with_addenda(md, &addenda)),
         signed_at: s
             .meta
             .runs
@@ -751,5 +804,19 @@ fn view(s: &Session, transcript: Option<Transcript>) -> SessionView {
         signed_by: s.meta.runs.last().and_then(|r| r.signed_by.clone()),
         patient: s.meta.patient.clone(),
         latest_template,
+        addenda,
     }
+}
+
+/// The signed note followed by its addenda, for copying out.
+fn with_addenda(mut markdown: String, addenda: &[Addendum]) -> String {
+    for a in addenda {
+        markdown.push_str(&format!(
+            "\n## Addendum, {}, {}\n\n{}\n",
+            a.at.format("%Y-%m-%d %H:%M"),
+            a.by,
+            a.text.trim()
+        ));
+    }
+    markdown
 }

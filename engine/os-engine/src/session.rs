@@ -70,6 +70,29 @@ pub struct RunInfo {
     /// Set when this run redrafted one heading of an earlier run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refinement: Option<Refinement>,
+    /// Set when this run is a veterinarian's hand edit: who, and which heading.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edited: Option<EditSummary>,
+    /// Signed additions to a signed note. The note itself never changes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub addenda: Vec<Addendum>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct EditSummary {
+    pub heading: String,
+    pub by: String,
+    pub changed: usize,
+    pub removed: usize,
+}
+
+/// A dated, signed addition to a signed note.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Addendum {
+    pub id: String,
+    pub text: String,
+    pub by: String,
+    pub at: DateTime<Local>,
 }
 
 impl RunInfo {
@@ -285,6 +308,13 @@ impl Session {
             signed_at: None,
             signed_by: None,
             refinement: result.refinement.clone(),
+            edited: result.edit.as_ref().map(|e| EditSummary {
+                heading: e.heading.clone(),
+                by: e.by.clone(),
+                changed: e.changed.len(),
+                removed: e.removed,
+            }),
+            addenda: Vec::new(),
         });
         self.save_meta()?;
         Ok(dir)
@@ -355,6 +385,31 @@ impl Session {
             Ok(yaml) => LoadedTemplate::from_yaml(&yaml),
             Err(_) => LoadedTemplate::resolve(run.template_id()),
         }
+    }
+
+    /// Add a signed addendum to the signed note.
+    pub fn add_addendum(&mut self, text: &str, by: &str) -> Result<Addendum, EngineError> {
+        let (text, by) = (text.trim(), by.trim());
+        if by.is_empty() {
+            return Err(EngineError::Session(
+                "Enter the name of the veterinarian signing the addendum.".into(),
+            ));
+        }
+        if text.is_empty() {
+            return Err(EngineError::Session("Write the addendum first.".into()));
+        }
+        let run = self.meta.runs.last_mut().filter(|r| r.signed_at.is_some()).ok_or_else(|| {
+            EngineError::Session("Addenda are for signed notes. Edit the draft instead.".into())
+        })?;
+        let addendum = Addendum {
+            id: uuid::Uuid::now_v7().to_string(),
+            text: text.into(),
+            by: by.into(),
+            at: Local::now(),
+        };
+        run.addenda.push(addendum.clone());
+        self.save_meta()?;
+        Ok(addendum)
     }
 
     pub fn is_signed(&self) -> bool {
@@ -441,6 +496,7 @@ mod tests {
             faithfulness: FaithfulnessReport { passed: true, ..Default::default() },
             stats: Default::default(),
             refinement: None,
+            edit: None,
             markdown: "# SOAP note\n".into(),
         }
     }
@@ -485,6 +541,15 @@ mod tests {
         assert_eq!(last.template_id(), "soap");
         assert_eq!(s.run_template(&last).unwrap().label(), "soap@0.1.0");
         assert_eq!(s.latest_note().unwrap().1, serde_json::json!({}));
+
+        // Addenda only after signing; the signed run itself is untouched.
+        assert!(s.add_addendum("Owner called: eating again.", "Dr Patel").is_err());
+        s.sign_latest("Dr Patel").unwrap();
+        let a = s.add_addendum(" Owner called: eating again. ", "Dr Patel").unwrap();
+        assert_eq!(a.text, "Owner called: eating again.");
+        let reopened = Session::open(&s.dir).unwrap();
+        assert_eq!(reopened.meta.runs.last().unwrap().addenda, vec![a]);
+        assert!(reopened.is_signed());
 
         let reopened = Session::open(&s.dir).unwrap();
         assert_eq!(reopened.meta.runs.len(), 2);

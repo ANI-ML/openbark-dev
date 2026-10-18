@@ -1,4 +1,4 @@
-import { ChatCircleText, Copy } from "@phosphor-icons/react";
+import { ChatCircleText, Copy, PencilSimple } from "@phosphor-icons/react";
 import type { ContentKind, Faithfulness, NoteRun, Template, TemplateField, TemplatePart } from "../engine";
 
 /**
@@ -22,9 +22,13 @@ export interface NoteViewProps {
   onAsk?: (heading: string) => void;
   /** The re-prompt panel for the heading being asked about, else null. */
   renderAsk?: (heading: string) => React.ReactNode;
+  /** Edit a heading by hand. Absent once signed. */
+  onEdit?: (heading: string) => void;
+  /** The editor for the heading being edited (shown in place of its content), else null. */
+  renderEdit?: (heading: string) => React.ReactNode;
 }
 
-type Statement = { text?: string; value?: string | number; unit?: string | null; evidence?: number[] } & Record<
+type Statement = { text?: string; value?: string | number; unit?: string | null; evidence?: number[]; entered_by?: string } & Record<
   string,
   unknown
 >;
@@ -50,20 +54,26 @@ function get(obj: unknown, key: string): unknown {
   return obj && typeof obj === "object" ? (obj as Record<string, unknown>)[key] : undefined;
 }
 
-export function NoteView({ template, run, onEvidence, onPlay, onCopySection, onAsk, renderAsk }: NoteViewProps) {
+export function NoteView({ template, run, onEvidence, onPlay, onCopySection, onAsk, renderAsk, onEdit, renderEdit }: NoteViewProps) {
   const { hard, soft } = flagsFor(run.faithfulness);
 
   const statement = (s: Statement, path: string, content: React.ReactNode) => {
     const ev = Array.isArray(s.evidence) ? s.evidence : [];
     const hardNums = hard.get(path);
     const softMsg = soft.get(path);
+    const vet = typeof s.entered_by === "string" && s.entered_by ? s.entered_by : null;
     const body = (
       <span
         className="stmt"
         data-soft={softMsg ? true : undefined}
+        data-vet={vet ? true : undefined}
         tabIndex={0}
         role="button"
-        title={softMsg ?? (ev.length ? "Play the supporting audio" : undefined)}
+        title={
+          vet
+            ? `Entered by ${vet}${ev.length ? "; play the recording it came from" : "; not from the recording"}`
+            : (softMsg ?? (ev.length ? "Play the supporting audio" : undefined))
+        }
         onMouseEnter={() => onEvidence(ev)}
         onMouseLeave={() => onEvidence(null)}
         onFocus={() => onEvidence(ev)}
@@ -72,6 +82,7 @@ export function NoteView({ template, run, onEvidence, onPlay, onCopySection, onA
         onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && ev.length && (e.preventDefault(), onPlay(ev))}
       >
         {content}
+        {vet && <span className="vet-mark small faint">{` Edited by ${vet}`}</span>}
       </span>
     );
     return hardNums ? (
@@ -172,13 +183,33 @@ export function NoteView({ template, run, onEvidence, onPlay, onCopySection, onA
         Ask
       </button>
     );
+  const editButton = (heading: string, title: string) =>
+    onEdit && (
+      <button
+        type="button"
+        className="ob-button section-tool"
+        data-variant="ghost"
+        onClick={() => onEdit(heading)}
+        aria-label={`Edit ${title}`}
+        title="Edit this heading yourself"
+      >
+        <PencilSimple size={16} aria-hidden />
+        Edit
+      </button>
+    );
+  const edited = run.edit?.heading;
   const refinedNote = (heading: string) =>
-    refined === heading && (
+    (refined === heading && (
       <p className="refined small muted">
         Redrafted on request: <q>{run.refinement?.request}</q>
         {run.refinement?.saved_as_standard ? " Saved as a standard." : ""}
       </p>
-    );
+    )) || (edited === heading && run.edit && (
+      <p className="refined small muted">
+        Edited by {run.edit.by}: {run.edit.changed.length} changed or added
+        {run.edit.removed ? `, ${run.edit.removed} removed` : ""}. The earlier draft is kept.
+      </p>
+    ));
 
   const part = (p: TemplatePart, sectionValue: unknown, sectionId: string) => {
     const value = get(sectionValue, p.key);
@@ -187,11 +218,12 @@ export function NoteView({ template, run, onEvidence, onPlay, onCopySection, onA
       <div className="note-part" key={p.key}>
         <div className="note-part-head">
           <h3 className="label">{p.label}</h3>
+          {editButton(heading, p.label)}
           {askButton(heading, p.label)}
         </div>
         {refinedNote(heading)}
         {renderAsk?.(heading)}
-        {content(p.kind, p.fields, value, `/${heading}`)}
+        {renderEdit?.(heading) || content(p.kind, p.fields, value, `/${heading}`)}
       </div>
     );
   };
@@ -219,11 +251,14 @@ export function NoteView({ template, run, onEvidence, onPlay, onCopySection, onA
                 <Copy size={16} aria-hidden />
                 Copy
               </button>
+              {sec.kind && editButton(sec.id, sec.title)}
               {askButton(sec.id, sec.title)}
             </header>
             {refinedNote(sec.id)}
             {renderAsk?.(sec.id)}
-            {sec.kind ? content(sec.kind, sec.fields, value, `/${sec.id}`) : (sec.parts ?? []).map((p) => part(p, value, sec.id))}
+            {sec.kind
+              ? renderEdit?.(sec.id) || content(sec.kind, sec.fields, value, `/${sec.id}`)
+              : (sec.parts ?? []).map((p) => part(p, value, sec.id))}
           </section>
         );
       })}
