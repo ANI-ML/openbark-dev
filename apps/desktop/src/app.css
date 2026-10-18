@@ -383,3 +383,7 @@ a { color: var(--accent); }
 .consent-script p { font-size: 1.0625rem; line-height: 1.55; max-width: 64ch; }
 .consent-methods { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .consent-methods legend { margin-bottom: 8px; padding: 0; }
+
+/* Client documents in a sheet: plain reading text, no double padding. */
+.ob-sheet .note { padding: 0; }
+.ob-sheet .mono-num { font-family: inherit; font-size: inherit; }

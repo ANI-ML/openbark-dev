@@ -1,0 +1,44 @@
+# OpenBark template: discharge instructions (for the pet owner).
+# A client document: it can be drafted after the note is signed, and it
+# follows the veterinarian's note where that differs from the transcript.
+id: discharge
+version: 0.1.0
+name: Discharge instructions
+description: Take-home instructions for the pet owner, in plain language.
+document: client
+language: en
+
+instructions: |
+  Write discharge instructions for the pet's owner to take home after this visit.
+  Write in plain, warm, everyday English, as the veterinarian would explain it to the owner: short sentences,
+  no medical abbreviations (write "twice a day", not "BID"; "by mouth", not "PO"), and explain medical words.
+  Address the owner as "you" and use the pet's name when it was said.
+  Include only what the veterinarian said or decided in this visit.
+
+rules:
+  - "Every medication to give at home must have the dose, how to give it, how often and for how long exactly as said. If any of these was not said, leave it null rather than guess."
+  - "Warning signs must be the ones the veterinarian actually listed."
+  - "Don't include prices or costs unless the veterinarian discussed them as part of the plan."
+
+sections:
+  - title: Why we saw your pet today
+    kind: statements
+    instruction: The reason for the visit, in the owner's words.
+  - title: What we found
+    kind: statements
+    instruction: The main findings and what they mean, in plain words.
+  - title: Treatment given today
+    kind: medications
+    instruction: Injections, fluids and other treatment given in the clinic during this visit.
+  - title: Medications to give at home
+    kind: medications
+    instruction: Each medication with exactly how to give it.
+  - title: Care at home
+    kind: statements
+    instruction: Feeding, activity, wound or ear care, and anything else to do at home.
+  - title: Call us or go to an emergency clinic if
+    kind: statements
+    instruction: The warning signs the veterinarian listed.
+  - title: Next steps
+    kind: statements
+    instruction: Rechecks, test results to expect, and when.

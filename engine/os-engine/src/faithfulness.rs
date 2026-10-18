@@ -77,10 +77,50 @@ impl FaithfulnessReport {
 }
 
 pub fn check(note: &Value, transcript: &Transcript) -> FaithfulnessReport {
+    check_with(note, transcript, &HashSet::new())
+}
+
+/// Like [`check`], but numbers a veterinarian entered in their own note
+/// (`vet_numbers`) also count as supported. Used for client documents, which
+/// follow the vet's note where it corrects the transcript.
+pub fn check_with(
+    note: &Value,
+    transcript: &Transcript,
+    vet_numbers: &HashSet<String>,
+) -> FaithfulnessReport {
     let mut report = FaithfulnessReport::default();
     walk(note, String::new(), transcript, &mut report);
+    let from_vet = |n: &UnsupportedNumber| vet_numbers.contains(&n.number);
+    report.unsupported_numbers.retain(|n| !from_vet(n));
+    report.citation_mismatches.retain(|n| !from_vet(n));
     report.passed = report.invalid_evidence.is_empty() && report.unsupported_numbers.is_empty();
     report
+}
+
+/// Numbers in the items a veterinarian wrote or edited (`entered_by`).
+pub fn vet_entered_numbers(note: &Value) -> HashSet<String> {
+    let mut out = HashSet::new();
+    fn walk(v: &Value, out: &mut HashSet<String>) {
+        match v {
+            Value::Object(m)
+                if m.get("entered_by").and_then(Value::as_str).is_some_and(|b| !b.is_empty()) =>
+            {
+                for (k, x) in m {
+                    let text = match x {
+                        Value::String(s) if k != "entered_by" => s.clone(),
+                        Value::Number(n) => n.to_string(),
+                        _ => continue,
+                    };
+                    out.extend(extract_numbers(&text));
+                }
+            }
+            Value::Object(m) => m.values().for_each(|x| walk(x, out)),
+            Value::Array(a) => a.iter().for_each(|x| walk(x, out)),
+            _ => {}
+        }
+    }
+    walk(note, &mut out);
+    out
 }
 
 fn walk(value: &Value, path: String, transcript: &Transcript, report: &mut FaithfulnessReport) {
@@ -340,6 +380,20 @@ mod tests {
         let r = check(&note, &transcript());
         assert_eq!(r.invalid_evidence, vec!["/subjective/history/0", "/subjective/history/1"]);
         assert_eq!(r.flagged_paths().len(), 2);
+    }
+
+    #[test]
+    fn numbers_the_vet_entered_are_supported_in_client_documents() {
+        let vet_note = json!({"plan": {"medications": [
+            {"drug": "LRS", "dose": "100 mL", "evidence": [0], "entered_by": "Dr Patel"},
+            {"drug": "Maropitant", "dose": "1 mg/kg", "evidence": [2]}
+        ]}});
+        let numbers = vet_entered_numbers(&vet_note);
+        assert!(numbers.contains("100") && !numbers.contains("1"));
+        let discharge =
+            json!({"treatment": [{"drug": "Fluids under the skin", "dose": "100 mL", "evidence": [0]}]});
+        assert!(!check(&discharge, &transcript()).passed);
+        assert!(check_with(&discharge, &transcript(), &numbers).passed);
     }
 
     #[test]

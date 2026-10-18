@@ -56,6 +56,24 @@ pub struct FieldDef {
     pub label: String,
 }
 
+/// Who a template's output is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Document {
+    /// The medical record: signed by a veterinarian, then locked.
+    #[default]
+    Record,
+    /// A document for the pet owner (discharge instructions, a summary). It can
+    /// be drafted after the record is signed, and follows the vet's note.
+    Client,
+}
+
+impl Document {
+    pub fn is_record(&self) -> bool {
+        *self == Document::Record
+    }
+}
+
 /// A subheading inside a section.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Part {
@@ -112,6 +130,9 @@ pub struct Template {
     pub name: String,
     #[serde(default)]
     pub description: String,
+    /// The medical record (default) or a document for the client.
+    #[serde(default, skip_serializing_if = "Document::is_record")]
+    pub document: Document,
     /// Optional hand-written schema file (advanced). Normally generated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schema: Option<String>,
@@ -170,7 +191,12 @@ pub struct LoadedTemplate {
     pub schema_text: String,
 }
 
-const BUILTIN: &[(&str, &str)] = &[("soap", include_str!("../../../packages/templates/soap/template.yaml"))];
+const BUILTIN: &[(&str, &str)] = &[
+    ("soap", include_str!("../../../packages/templates/soap/template.yaml")),
+    ("callback", include_str!("../../../packages/templates/callback/template.yaml")),
+    ("discharge", include_str!("../../../packages/templates/discharge/template.yaml")),
+    ("client-summary", include_str!("../../../packages/templates/client-summary/template.yaml")),
+];
 
 impl LoadedTemplate {
     pub fn builtin_ids() -> impl Iterator<Item = &'static str> {
@@ -609,6 +635,19 @@ mod tests {
         assert_eq!(t.label(), "soap@0.1.0");
         assert!(t.template.sections.iter().any(|s| s.id == "plan"));
         assert!(t.template.rules.iter().any(|r| r.contains("Differentials")));
+    }
+
+    #[test]
+    fn every_builtin_loads_and_its_empty_note_validates() {
+        for id in LoadedTemplate::builtin_ids() {
+            let t = LoadedTemplate::builtin(id).unwrap();
+            assert_eq!(t.template.id, id);
+            let note = empty_note(&t.template);
+            assert!(jsonschema::validator_for(&t.schema).unwrap().is_valid(&note), "{id}");
+        }
+        assert_eq!(LoadedTemplate::builtin("discharge").unwrap().template.document, Document::Client);
+        assert_eq!(LoadedTemplate::builtin("client-summary").unwrap().template.document, Document::Client);
+        assert_eq!(LoadedTemplate::builtin("callback").unwrap().template.document, Document::Record);
     }
 
     /// The SOAP schema is generated from its headings; the snapshot in

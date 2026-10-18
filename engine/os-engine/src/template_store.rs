@@ -37,6 +37,8 @@ pub struct TemplateSummary {
     pub description: String,
     pub version: String,
     pub builtin: bool,
+    /// "record" or "client".
+    pub document: crate::template::Document,
     pub headings: usize,
     pub standards: usize,
 }
@@ -249,6 +251,7 @@ fn summary(t: &LoadedTemplate, builtin: bool) -> TemplateSummary {
         description: t.template.description.clone(),
         version: t.template.version.clone(),
         builtin,
+        document: t.template.document,
         headings,
         standards: t.template.standards.len(),
     }
@@ -297,7 +300,8 @@ mod tests {
     fn save_list_version_and_delete() {
         let tmp = tempfile::tempdir().unwrap();
         let store = TemplateStore::new(tmp.path().into());
-        assert_eq!(store.list().len(), 1, "only SOAP at first");
+        let builtins = LoadedTemplate::builtin_ids().count();
+        assert_eq!(store.list().len(), builtins, "only the built-ins at first");
 
         let saved = store.save(dental()).unwrap();
         assert_eq!(saved.label(), "dental-procedure@1");
@@ -309,9 +313,9 @@ mod tests {
         assert_eq!(store.save(changed).unwrap().template.version, "2");
 
         let list = store.list();
-        assert_eq!(list.len(), 2);
-        assert!(list[0].builtin && !list[1].builtin);
-        assert_eq!(list[1].headings, 2);
+        assert_eq!(list.len(), builtins + 1);
+        assert!(list[0].builtin && !list[builtins].builtin);
+        assert_eq!(list[builtins].headings, 2);
         assert_eq!(
             LoadedTemplate::from_dir(&tmp.path().join("dental-procedure")).unwrap().template.version,
             "2"
@@ -324,7 +328,7 @@ mod tests {
         assert_eq!(store.save(named_soap).unwrap().template.id, "soap-2");
 
         store.delete("dental-procedure").unwrap();
-        assert_eq!(store.list().len(), 3);
+        assert_eq!(store.list().len(), builtins + 2);
     }
 
     #[test]
@@ -365,7 +369,7 @@ mod tests {
         );
         assert_eq!(store.list()[0].standards, 2);
         // A soap folder holding only standards is not listed as a team template.
-        assert_eq!(store.list().len(), 1);
+        assert_eq!(store.list().len(), LoadedTemplate::builtin_ids().count());
 
         store.remove_standard("soap", &s.id).unwrap();
         assert_eq!(store.load("soap").unwrap().template.standards.len(), 1);

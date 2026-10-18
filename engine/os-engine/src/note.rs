@@ -18,12 +18,30 @@ pub struct NoteOptions {
     /// Details entered by the clinic (patient name, reason for visit). Given
     /// to the model as context, never as evidence.
     pub context: Option<String>,
+    /// For client documents: the veterinarian's note for the visit, which the
+    /// document follows where it differs from the transcript.
+    pub reference: Option<Reference>,
+}
+
+/// The vet's note given to a client document as reference.
+#[derive(Debug, Clone, Default)]
+pub struct Reference {
+    /// The note as rendered Markdown (compact, with "[entered by …]" marks).
+    pub markdown: String,
+    /// Numbers the vet entered by hand: supported even if not in the transcript.
+    pub vet_numbers: std::collections::HashSet<String>,
+}
+
+impl Reference {
+    pub fn from_note(note: &Value, markdown: &str) -> Self {
+        Self { markdown: markdown.to_string(), vet_numbers: faithfulness::vet_entered_numbers(note) }
+    }
 }
 
 impl Default for NoteOptions {
     fn default() -> Self {
         // Low temperature: charting should be deterministic and literal.
-        Self { max_tokens: 4096, temperature: 0.1, seed: 42, context: None }
+        Self { max_tokens: 4096, temperature: 0.1, seed: 42, context: None, reference: None }
     }
 }
 
@@ -177,6 +195,20 @@ pub fn system_prompt(template: &LoadedTemplate) -> String {
     )
 }
 
+fn reference_message(reference: Option<&Reference>) -> String {
+    reference
+        .filter(|r| !r.markdown.trim().is_empty())
+        .map(|r| {
+            format!(
+                "The veterinarian's note for this visit. Follow it where it differs from the transcript \
+                 (the veterinarian corrected it); lines marked [entered by …] are the veterinarian's own. \
+                 Still cite transcript lines as evidence.\n\n{}\n\n",
+                r.markdown.trim()
+            )
+        })
+        .unwrap_or_default()
+}
+
 fn user_message(transcript: &Transcript, context: Option<&str>) -> String {
     let entered = context
         .filter(|c| !c.trim().is_empty())
@@ -241,8 +273,12 @@ pub fn generate_note(
     if transcript.is_empty() {
         return Err(EngineError::EmptyTranscript);
     }
+    let mut messages = build_messages(template, transcript, options.context.as_deref());
+    if let Some(user) = messages.last_mut() {
+        user.content = format!("{}{}", reference_message(options.reference.as_ref()), user.content);
+    }
     let request = GenerateRequest {
-        messages: build_messages(template, transcript, options.context.as_deref()),
+        messages,
         max_tokens: options.max_tokens,
         temperature: options.temperature,
         seed: options.seed,
@@ -254,7 +290,8 @@ pub fn generate_note(
         EngineError::BadJson(format!("{e}{hint}"))
     })?;
     validate(template, &note)?;
-    let faithfulness = faithfulness::check(&note, transcript);
+    let vet_numbers = options.reference.as_ref().map(|r| r.vet_numbers.clone()).unwrap_or_default();
+    let faithfulness = faithfulness::check_with(&note, transcript, &vet_numbers);
     let markdown = render::markdown(template, &note, transcript, &faithfulness);
     Ok(NoteResult {
         status: "draft",

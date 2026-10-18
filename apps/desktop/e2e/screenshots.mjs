@@ -44,7 +44,9 @@ for (const v of variants) {
   await page.getByRole("heading", { name: "Encounters" }).waitFor();
   await shot("encounters");
 
-  const firstRow = page.locator("tr.row-link").first();
+  // A signed encounter if there is one (addenda, client documents), else the newest.
+  const signedRow = page.locator("tr.row-link", { hasText: "Signed" }).first();
+  const firstRow = (await signedRow.count()) ? signedRow : page.locator("tr.row-link").first();
   if (await firstRow.count()) {
     await firstRow.click();
     await page.locator(".note, .pane-pad").first().waitFor();
@@ -60,12 +62,19 @@ for (const v of variants) {
       await addenda.scrollIntoViewIfNeeded();
       await shot("review-signed-addenda");
     }
+    const discharge = page.getByRole("button", { name: "Discharge instructions", exact: true });
+    if (await discharge.count()) {
+      await discharge.click();
+      await page.locator(".ob-sheet .note").waitFor({ timeout: 5000 }).catch(() => {});
+      await shot("review-discharge");
+      await page.keyboard.press("Escape");
+    }
   }
 
   // A draft (second encounter): re-prompt and hand edit.
   await nav("Encounters");
   await page.locator("tr.row-link").first().waitFor().catch(() => {});
-  const draftRow = page.locator("tr.row-link").nth(1);
+  const draftRow = page.locator("tr.row-link", { hasText: "Draft" }).first();
   if (await draftRow.count()) {
     await draftRow.click();
     await page.locator(".note, .pane-pad").first().waitFor();

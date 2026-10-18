@@ -2,6 +2,22 @@
 
 OpenBark writes the note to your team's headings: SOAP, a dental procedure note, a surgical report, a callback note, or anything else your clinic uses. The design is in ADR-0006.
 
+## Built-in templates
+
+| Template | Who it's for |
+|---|---|
+| SOAP note | The medical record |
+| Callback note (a follow-up phone call) | The medical record |
+| Discharge instructions | The client |
+| Client summary | The client |
+
+**Medical-record** templates are signed by a veterinarian and then locked. **Client** documents are written in plain language and are never signed:
+- Open them from the buttons under the note in Review. They open in a side sheet with **Copy**.
+- They can be drafted after the note is signed.
+- They follow the vet's note where it differs from the recording. For example, a dose the vet corrected is used as corrected, and it counts as supported in the number check.
+
+A team template can be either kind (**Who it's for** in the builder).
+
 ## Making a template
 
 Open **Templates**, then **New template** or **Start from SOAP**.

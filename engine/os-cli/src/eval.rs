@@ -2,8 +2,10 @@
 //! consult script declares (packages/eval/fixtures/scripts/*.yaml, `expected:`).
 //!
 //! Checks, per fixture:
-//! - vitals: each expected value appears in the matching note field
-//! - medications: each expected drug is listed with its expected number
+//! - vitals: each expected value appears in the matching note field (skipped
+//!   when the template has no field of that name, e.g. client documents)
+//! - medications: each expected drug is listed, under any heading, with its
+//!   expected number
 //! - must_mention / must_not_mention: phrases in or absent from the note
 //! - invented numbers (hard fail) and citation errors, from the faithfulness pass
 //!
@@ -137,6 +139,25 @@ fn numbers(s: &str) -> Vec<String> {
     out
 }
 
+/// The first value under `key` anywhere in the note.
+fn find_key<'a>(v: &'a Value, key: &str) -> Option<&'a Value> {
+    match v {
+        Value::Object(m) => m.get(key).or_else(|| m.values().find_map(|x| find_key(x, key))),
+        Value::Array(a) => a.iter().find_map(|x| find_key(x, key)),
+        _ => None,
+    }
+}
+
+/// Every medication item (an object with "drug") anywhere in the note.
+fn medications(v: &Value) -> Vec<Value> {
+    match v {
+        Value::Object(m) if m.contains_key("drug") => vec![v.clone()],
+        Value::Object(m) => m.values().flat_map(medications).collect(),
+        Value::Array(a) => a.iter().flat_map(medications).collect(),
+        _ => Vec::new(),
+    }
+}
+
 fn score(id: &str, expected: &Expected, note: &Value, faith: &os_engine::FaithfulnessReport) -> Score {
     let mut s = Score { fixture: id.into(), ..Default::default() };
     let text = note_text(note);
@@ -149,10 +170,11 @@ fn score(id: &str, expected: &Expected, note: &Value, faith: &os_engine::Faithfu
         }
     };
     for (field, want) in &expected.vitals {
-        let got = os_engine::render::field_text(&note["objective"]["vitals"][field]).unwrap_or_default();
+        let Some(value) = find_key(note, field) else { continue };
+        let got = os_engine::render::field_text(value).unwrap_or_default();
         check(numbers(&got).contains(want), format!("vital {field} = {want} (got \"{got}\")"), &mut s);
     }
-    let meds = note["plan"]["medications"].as_array().cloned().unwrap_or_default();
+    let meds = medications(note);
     for m in &expected.medications {
         let drug = m.get("drug").map(|d| d.to_lowercase()).unwrap_or_default();
         let key = drug.split_whitespace().next().unwrap_or("").to_string();

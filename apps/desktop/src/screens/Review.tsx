@@ -3,6 +3,7 @@ import { ArrowClockwise, Copy, FolderOpen, Signature } from "@phosphor-icons/rea
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NoteView } from "../components/NoteView";
 import { PatientFields } from "../components/PatientFields";
+import { DocumentSheet } from "../components/DocumentSheet";
 import { HeadingEditor } from "../components/HeadingEditor";
 import { RefinePanel } from "../components/RefinePanel";
 import { TranscriptList } from "../components/TranscriptList";
@@ -22,6 +23,9 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
   const [editingHeading, setEditingHeading] = useState<string | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
   const [addendum, setAddendum] = useState<string | null>(null);
+  /** The client document open in the sheet, and the one being drafted. */
+  const [openDoc, setOpenDoc] = useState<string | null>(null);
+  const [drafting, setDrafting] = useState<string | null>(null);
   const [refining, setRefining] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [tokens, setTokens] = useState(0);
@@ -67,6 +71,22 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
       setGenerating(false);
     }
   }, [id, app, load, chosen]);
+
+  async function draftDocument(templateId: string) {
+    setError(null);
+    setTokens(0);
+    setDrafting(templateId);
+    setOpenDoc(templateId);
+    try {
+      await engine.generateNote(id, app.settings.llm, templateId);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setOpenDoc(null);
+    } finally {
+      setDrafting(null);
+    }
+  }
 
   async function saveEdit(heading: string, value: unknown) {
     if (!template) return;
@@ -217,7 +237,7 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
               disabled={generating || refining}
               onChange={(e) => setPicked(e.target.value)}
             >
-              {templates.map((t) => (
+              {templates.filter((t) => t.document !== "client").map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.name}
                 </option>
@@ -412,6 +432,21 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
                     {chosen === template?.id ? "Draft again" : `Draft as ${templates.find((t) => t.id === chosen)?.name ?? chosen}`}
                   </Button>
                 )}
+                {templates
+                  .filter((t) => t.document === "client")
+                  .map((t) => {
+                    const has = view?.documents.some((d) => d.template_id === t.id);
+                    return (
+                      <Button
+                        key={t.id}
+                        variant="ghost"
+                        disabled={drafting != null || generating}
+                        onClick={() => (has ? setOpenDoc(t.id) : void draftDocument(t.id))}
+                      >
+                        {t.name}
+                      </Button>
+                    );
+                  })}
                 {engine.canReveal && view && (
                   <Button variant="ghost" onClick={() => engine.reveal(view.dir)}>
                     <FolderOpen size={20} aria-hidden />
@@ -484,6 +519,27 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
           )}
         </section>
       </div>
+      {openDoc && (
+        <DocumentSheet
+          doc={
+            view?.documents.find((d) => d.template_id === openDoc) ?? {
+              template_id: openDoc,
+              name: templates.find((t) => t.id === openDoc)?.name ?? openDoc,
+              created_at: "",
+              run: null,
+              markdown: null,
+              template: null,
+            }
+          }
+          busy={drafting === openDoc}
+          progress={Math.min(0.95, tokens / 900)}
+          onCopy={(text) => void copy(text, templates.find((t) => t.id === openDoc)?.name ?? "Document")}
+          onRedraft={() => void draftDocument(openDoc)}
+          onClose={() => setOpenDoc(null)}
+          onEvidence={(ids) => setLit(new Set(ids ?? []))}
+          onPlay={playIds}
+        />
+      )}
     </div>
   );
 }

@@ -141,6 +141,18 @@ export interface SessionView {
   addenda: Addendum[];
   /** Consent to record, as confirmed before recording. */
   consent: RecordingConsent | null;
+  /** The latest draft of each client document. */
+  documents: DocumentView[];
+}
+
+/** A document for the client (discharge instructions, a summary). */
+export interface DocumentView {
+  template_id: string;
+  name: string;
+  created_at: string;
+  run: NoteRun | null;
+  markdown: string | null;
+  template: Template | null;
 }
 
 export interface Hardware {
@@ -239,6 +251,8 @@ export interface Template {
   version: string;
   name: string;
   description?: string;
+  /** "record" (default): the medical record. "client": for the pet owner. */
+  document?: "record" | "client";
   language?: string;
   instructions?: string;
   rules?: string[];
@@ -252,6 +266,7 @@ export interface TemplateSummary {
   description: string;
   version: string;
   builtin: boolean;
+  document: "record" | "client";
   headings: number;
   standards: number;
 }

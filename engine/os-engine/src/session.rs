@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::note::Refinement;
-use crate::template::LoadedTemplate;
+use crate::template::{Document, LoadedTemplate};
 use crate::transcribe::TranscribeStats;
 use crate::transcript::Transcript;
 use crate::{EngineError, NoteResult};
@@ -73,6 +73,9 @@ pub struct RunInfo {
     /// Set when this run is a veterinarian's hand edit: who, and which heading.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub edited: Option<EditSummary>,
+    /// The medical record (default) or a document for the client.
+    #[serde(default, skip_serializing_if = "Document::is_record")]
+    pub document: Document,
     /// Signed additions to a signed note. The note itself never changes.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub addenda: Vec<Addendum>,
@@ -394,6 +397,7 @@ impl Session {
                 changed: e.changed.len(),
                 removed: e.removed,
             }),
+            document: template.template.document,
             addenda: Vec::new(),
         });
         self.save_meta()?;
@@ -437,7 +441,9 @@ impl Session {
         let run = self
             .meta
             .runs
-            .last_mut()
+            .iter_mut()
+            .rev()
+            .find(|r| r.document.is_record())
             .ok_or_else(|| EngineError::Session("There is no draft to sign yet.".into()))?;
         if run.signed_at.is_some() {
             return Err(EngineError::Session("This note is already signed.".into()));
@@ -452,12 +458,15 @@ impl Session {
         self.save_meta()
     }
 
-    /// The latest run's saved note (`note` from `note.json`).
+    /// The latest medical-record run (client documents aside).
+    pub fn latest_record(&self) -> Option<&RunInfo> {
+        self.meta.runs.iter().rev().find(|r| r.document.is_record())
+    }
+
+    /// The latest record run's saved note (`note` from `note.json`).
     pub fn latest_note(&self) -> Result<(RunInfo, serde_json::Value), EngineError> {
         let run = self
-            .meta
-            .runs
-            .last()
+            .latest_record()
             .cloned()
             .ok_or_else(|| EngineError::Session("There is no draft yet. Draft a note first.".into()))?;
         let path = self.dir.join(&run.dir).join("note.json");
@@ -488,9 +497,16 @@ impl Session {
         if text.is_empty() {
             return Err(EngineError::Session("Write the addendum first.".into()));
         }
-        let run = self.meta.runs.last_mut().filter(|r| r.signed_at.is_some()).ok_or_else(|| {
-            EngineError::Session("Addenda are for signed notes. Edit the draft instead.".into())
-        })?;
+        let run = self
+            .meta
+            .runs
+            .iter_mut()
+            .rev()
+            .find(|r| r.document.is_record())
+            .filter(|r| r.signed_at.is_some())
+            .ok_or_else(|| {
+                EngineError::Session("Addenda are for signed notes. Edit the draft instead.".into())
+            })?;
         let addendum = Addendum {
             id: uuid::Uuid::now_v7().to_string(),
             text: text.into(),
@@ -502,8 +518,9 @@ impl Session {
         Ok(addendum)
     }
 
+    /// Whether the medical record is signed (client documents don't count).
     pub fn is_signed(&self) -> bool {
-        self.meta.runs.last().is_some_and(|r| r.signed_at.is_some())
+        self.latest_record().is_some_and(|r| r.signed_at.is_some())
     }
 
     fn save_meta(&self) -> Result<(), EngineError> {

@@ -135,6 +135,21 @@ pub struct SessionView {
     pub addenda: Vec<Addendum>,
     /// Consent to record, as confirmed before recording.
     pub consent: Option<Consent>,
+    /// The latest draft of each client document (discharge, summary…).
+    pub documents: Vec<DocumentView>,
+}
+
+/// A document for the client, drafted from the visit.
+#[derive(Serialize)]
+pub struct DocumentView {
+    pub template_id: String,
+    pub name: String,
+    pub created_at: String,
+    /// `note.json` as written.
+    pub run: Option<serde_json::Value>,
+    pub markdown: Option<String>,
+    /// The template the document was written with.
+    pub template: Option<Template>,
 }
 
 /// A template for the builder: its headings, and what the model is told.
@@ -235,9 +250,7 @@ impl App {
                 patient: s.meta.patient.as_ref().map(|p| p.display_name()).unwrap_or_default(),
                 reason: s.meta.patient.as_ref().map(|p| p.reason.clone()).unwrap_or_default(),
                 template: s
-                    .meta
-                    .runs
-                    .last()
+                    .latest_record()
                     .map(|r| {
                         self.templates
                             .load(r.template_id())
@@ -401,16 +414,30 @@ impl App {
     ) -> Result<NoteResponse> {
         let _awake = AwakeGuard::acquire(AwakeReason::Processing);
         let mut s = Session::open(&self.session_dir(id)?)?;
-        if s.is_signed() {
+        let template = self.templates.load(if template.is_empty() { "soap" } else { template })?;
+        let record = template.template.document.is_record();
+        if record && s.is_signed() {
             return Err(AppError(
                 "This note is signed, so it can't be redrafted. Add an addendum instead.".into(),
             ));
         }
+        // Client documents follow the vet's note (with their corrections).
+        let reference = if record {
+            None
+        } else {
+            s.latest_record().and_then(|run| {
+                let dir = s.dir.join(&run.dir);
+                let saved: serde_json::Value =
+                    serde_json::from_str(&std::fs::read_to_string(dir.join("note.json")).ok()?).ok()?;
+                let markdown = std::fs::read_to_string(dir.join("note.md")).ok()?;
+                Some(os_engine::note::Reference::from_note(&saved["note"], &markdown))
+            })
+        };
         let backend = self.load_llm(llm)?;
         let transcript = s.load_transcript()?;
-        let template = self.templates.load(if template.is_empty() { "soap" } else { template })?;
         let options = NoteOptions {
             context: s.meta.patient.as_ref().map(|p| p.prompt_context()),
+            reference,
             ..NoteOptions::default()
         };
         let mut result =
@@ -792,9 +819,30 @@ fn source_label(source: &str) -> String {
 }
 
 fn view(s: &Session, transcript: Option<Transcript>) -> SessionView {
-    let latest = s.meta.runs.last().map(|r| s.dir.join(&r.dir));
-    let latest_template = s.meta.runs.last().and_then(|r| s.run_template(r).ok()).map(|t| t.template);
-    let addenda = s.meta.runs.last().map(|r| r.addenda.clone()).unwrap_or_default();
+    let record = s.latest_record();
+    let latest = record.map(|r| s.dir.join(&r.dir));
+    let latest_template = record.and_then(|r| s.run_template(r).ok()).map(|t| t.template);
+    let addenda = record.map(|r| r.addenda.clone()).unwrap_or_default();
+    // The latest run of each client document, in the order first drafted.
+    let mut documents: Vec<DocumentView> = Vec::new();
+    for run in s.meta.runs.iter().filter(|r| !r.document.is_record()) {
+        let dir = s.dir.join(&run.dir);
+        let template = s.run_template(run).ok().map(|t| t.template);
+        let doc = DocumentView {
+            template_id: run.template_id().to_string(),
+            name: template.as_ref().map(|t| t.name.clone()).unwrap_or_else(|| run.template_id().to_string()),
+            created_at: run.created_at.format("%Y-%m-%d %H:%M").to_string(),
+            run: std::fs::read_to_string(dir.join("note.json"))
+                .ok()
+                .and_then(|t| serde_json::from_str(&t).ok()),
+            markdown: std::fs::read_to_string(dir.join("note.md")).ok(),
+            template,
+        };
+        match documents.iter_mut().find(|d| d.template_id == doc.template_id) {
+            Some(slot) => *slot = doc,
+            None => documents.push(doc),
+        }
+    }
     SessionView {
         id: id_of(s),
         dir: s.dir.display().to_string(),
@@ -810,17 +858,13 @@ fn view(s: &Session, transcript: Option<Transcript>) -> SessionView {
         latest_markdown: latest
             .and_then(|d| std::fs::read_to_string(d.join("note.md")).ok())
             .map(|md| with_addenda(md, &addenda)),
-        signed_at: s
-            .meta
-            .runs
-            .last()
-            .and_then(|r| r.signed_at)
-            .map(|t| t.format("%Y-%m-%d %H:%M").to_string()),
-        signed_by: s.meta.runs.last().and_then(|r| r.signed_by.clone()),
+        signed_at: record.and_then(|r| r.signed_at).map(|t| t.format("%Y-%m-%d %H:%M").to_string()),
+        signed_by: record.and_then(|r| r.signed_by.clone()),
         patient: s.meta.patient.clone(),
         latest_template,
         addenda,
         consent: s.meta.consent.clone(),
+        documents,
     }
 }
 

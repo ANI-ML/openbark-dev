@@ -21,8 +21,11 @@ pub fn markdown(
     faithfulness: &FaithfulnessReport,
 ) -> String {
     let flagged = faithfulness.flagged_paths();
-    let mut out =
-        format!("# {}\n\n*Draft: not reviewed or signed by a veterinarian.*\n", template.template.name);
+    let status = match template.template.document {
+        crate::template::Document::Record => "*Draft: not reviewed or signed by a veterinarian.*",
+        crate::template::Document::Client => "*Draft for the client: check it before handing it over.*",
+    };
+    let mut out = format!("# {}\n\n{status}\n", template.template.name);
     if !flagged.is_empty() {
         out.push_str(&format!(
             "\n> {} item(s) could not be matched to the transcript and are marked [check against recording].\n",

@@ -198,7 +198,7 @@ export function Recorder() {
               onChange={(e) => app.setSettings({ template: e.target.value })}
             >
               {templates.length === 0 && <option value={app.settings.template}>SOAP note</option>}
-              {templates.map((t) => (
+              {templates.filter((t) => t.document !== "client").map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.name}
                 </option>

@@ -98,7 +98,10 @@ export function Templates() {
                   <td className="num">{t.headings}</td>
                   <td className="num">{t.standards}</td>
                   <td className="mono">{t.version}</td>
-                  <td>{t.builtin ? <StatusDot>Built in</StatusDot> : <StatusDot tone="accent">Team</StatusDot>}</td>
+                  <td>
+                    {t.builtin ? <StatusDot>Built in</StatusDot> : <StatusDot tone="accent">Team</StatusDot>}
+                    {t.document === "client" && <span className="small muted"> For the client</span>}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -381,6 +384,18 @@ function Builder({ id, from, onClose, onOpen, onSaved }: BuilderProps) {
             placeholder="Who uses it, and when"
             onChange={(e) => set({ description: e.target.value })}
           />
+        </label>
+        <label className="ob-field">
+          <span className="label">Who it's for</span>
+          <select
+            className="ob-select"
+            value={draft.document ?? "record"}
+            disabled={readOnly}
+            onChange={(e) => set({ document: e.target.value === "client" ? "client" : undefined })}
+          >
+            <option value="record">The medical record (signed by a veterinarian)</option>
+            <option value="client">The client (follows the signed note; never signed)</option>
+          </select>
         </label>
         <details className="builder-advanced">
           <summary className="label">Instructions and rules for the whole note</summary>

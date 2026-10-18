@@ -1,0 +1,34 @@
+# OpenBark template: callback note (a phone follow-up, for the medical record).
+id: callback
+version: 0.1.0
+name: Callback note
+description: Record of a follow-up phone call with a client.
+language: en
+
+instructions: |
+  Write the medical record of this follow-up phone call between the clinic and the pet's owner.
+  Use concise clinical veterinary English as a veterinarian would chart it.
+  The transcript is from a recording; speakers are labelled by number, not role. Infer roles from context,
+  but never put words in a speaker's mouth.
+
+rules:
+  - "Record who called whom only if it was said."
+  - "Changes to medication are medications, with dose, route, frequency and duration as said."
+
+sections:
+  - title: Reason for call
+    kind: statements
+    instruction: Why the call was made (results, recheck, owner question).
+  - title: Update from the client
+    kind: statements
+    instruction: How the patient is doing at home, as the owner described it.
+  - title: Results discussed
+    kind: statements
+    instruction: Test results given on the call, with values as said.
+  - title: Advice given
+    kind: statements
+  - title: Medication changes
+    kind: medications
+  - title: Plan
+    kind: statements
+    instruction: Next steps, rechecks and when the clinic will be in touch.
