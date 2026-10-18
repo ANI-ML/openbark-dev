@@ -1,5 +1,6 @@
 import { ChatCircleText, Copy, PencilSimple } from "@phosphor-icons/react";
 import type { ContentKind, Faithfulness, NoteRun, Template, TemplateField, TemplatePart } from "../engine";
+import { useT } from "../i18n";
 
 /**
  * The structured note with the evidence link (DESIGN.md §1, §5 Note editor):
@@ -37,16 +38,23 @@ type Statement = { text?: string; value?: string | number; unit?: string | null;
 const fieldText = (f: Statement) =>
   f.value == null ? "" : f.unit && !String(f.value).endsWith(f.unit) ? `${f.value} ${f.unit}` : String(f.value);
 
-function flagsFor(f: Faithfulness) {
+/** `t` is the translator from the calling component's `useT()`. */
+function flagsFor(f: Faithfulness, t: ReturnType<typeof useT>) {
   const hard = new Map<string, string[]>();
   const soft = new Map<string, string>();
   for (const u of f.unsupported_numbers) hard.set(u.path, [...(hard.get(u.path) ?? []), u.number]);
   for (const m of f.citation_mismatches)
-    soft.set(m.path, `"${m.number}" is in the transcript, but not in the cited line. Check the citation.`);
-  for (const p of f.invalid_evidence) soft.set(p, "No matching transcript. Keep, edit, or remove?");
-  for (const v of f.unverified_values ?? []) soft.set(v, "Not said in the cited line. Check before signing.");
+    soft.set(m.path, t('"{number}" is in the transcript, but not in the cited line. Check the citation.', { number: m.number }));
+  for (const p of f.invalid_evidence) soft.set(p, t("No matching transcript. Keep, edit, or remove?"));
+  for (const v of f.unverified_values ?? []) soft.set(v, t("Not said in the cited line. Check before signing."));
   for (const d of f.disputed_numbers ?? [])
-    soft.set(d.path, `The second recogniser heard ${d.heard_instead.join(" or ")} instead of ${d.number}. Listen to the recording before signing.`);
+    soft.set(
+      d.path,
+      t("The second recogniser heard {heard} instead of {number}. Listen to the recording before signing.", {
+        heard: d.heard_instead.join(` ${t("or")} `),
+        number: d.number,
+      }),
+    );
   return { hard, soft };
 }
 
@@ -55,7 +63,8 @@ function get(obj: unknown, key: string): unknown {
 }
 
 export function NoteView({ template, run, onEvidence, onPlay, onCopySection, onAsk, renderAsk, onEdit, renderEdit }: NoteViewProps) {
-  const { hard, soft } = flagsFor(run.faithfulness);
+  const t = useT();
+  const { hard, soft } = flagsFor(run.faithfulness, t);
 
   const statement = (s: Statement, path: string, content: React.ReactNode) => {
     const ev = Array.isArray(s.evidence) ? s.evidence : [];
@@ -71,8 +80,10 @@ export function NoteView({ template, run, onEvidence, onPlay, onCopySection, onA
         role="button"
         title={
           vet
-            ? `Entered by ${vet}${ev.length ? "; play the recording it came from" : "; not from the recording"}`
-            : (softMsg ?? (ev.length ? "Play the supporting audio" : undefined))
+            ? ev.length
+              ? t("Entered by {name}; play the recording it came from", { name: vet })
+              : t("Entered by {name}; not from the recording", { name: vet })
+            : (softMsg ?? (ev.length ? t("Play the supporting audio") : undefined))
         }
         onMouseEnter={() => onEvidence(ev)}
         onMouseLeave={() => onEvidence(null)}
@@ -82,15 +93,20 @@ export function NoteView({ template, run, onEvidence, onPlay, onCopySection, onA
         onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && ev.length && (e.preventDefault(), onPlay(ev))}
       >
         {content}
-        {vet && <span className="vet-mark small faint">{` Edited by ${vet}`}</span>}
+        {vet && <span className="vet-mark small faint">{` ${t("Edited by {name}", { name: vet })}`}</span>}
       </span>
     );
     return hardNums ? (
       <div className="hardfail">
         {body}
         <p className="small">
-          {hardNums.join(", ")} {hardNums.length === 1 ? "isn't" : "aren't"} anywhere in the transcript. Check the
-          recording and correct this before signing.
+          {hardNums.length === 1
+            ? t("{numbers} isn't anywhere in the transcript. Check the recording and correct this before signing.", {
+                numbers: hardNums.join(", "),
+              })
+            : t("{numbers} aren't anywhere in the transcript. Check the recording and correct this before signing.", {
+                numbers: hardNums.join(", "),
+              })}
         </p>
       </div>
     ) : (
@@ -100,7 +116,7 @@ export function NoteView({ template, run, onEvidence, onPlay, onCopySection, onA
 
   const statements = (value: unknown, path: string) => {
     const items = Array.isArray(value) ? (value as Statement[]) : [];
-    if (items.length === 0) return <p className="not-discussed">Not discussed</p>;
+    if (items.length === 0) return <p className="not-discussed">{t("Not discussed")}</p>;
     return (
       <ul className="stmts">
         {items.map((s, i) => (
@@ -113,7 +129,7 @@ export function NoteView({ template, run, onEvidence, onPlay, onCopySection, onA
   const fields = (defs: TemplateField[], value: unknown, path: string) => {
     const present = defs.filter((d) => get(get(value, d.key), "value") != null);
     const missing = defs.filter((d) => get(get(value, d.key), "value") == null);
-    if (present.length === 0) return <p className="not-discussed">Not discussed</p>;
+    if (present.length === 0) return <p className="not-discussed">{t("Not discussed")}</p>;
     return (
       <dl className="fields">
         {present.map((d) => {
@@ -127,7 +143,7 @@ export function NoteView({ template, run, onEvidence, onPlay, onCopySection, onA
         })}
         {missing.length > 0 && (
           <div className="fields-missing">
-            <dt className="label muted">Not discussed</dt>
+            <dt className="label muted">{t("Not discussed")}</dt>
             <dd className="muted">{missing.map((d) => d.label).join(", ")}</dd>
           </div>
         )}
@@ -137,7 +153,7 @@ export function NoteView({ template, run, onEvidence, onPlay, onCopySection, onA
 
   const medications = (value: unknown, path: string) => {
     const items = Array.isArray(value) ? (value as Statement[]) : [];
-    if (items.length === 0) return <p className="not-discussed">Not discussed</p>;
+    if (items.length === 0) return <p className="not-discussed">{t("Not discussed")}</p>;
     return (
       <ul className="stmts">
         {items.map((m, i) => {
@@ -151,7 +167,7 @@ export function NoteView({ template, run, onEvidence, onPlay, onCopySection, onA
                 `${path}/${i}`,
                 <>
                   <strong>{String(m.drug ?? "")}</strong>
-                  {details.length > 0 ? <span className="mono-num">{`  ${details.join(", ")}`}</span> : <span className="muted">  dose, route and frequency not stated</span>}
+                  {details.length > 0 ? <span className="mono-num">{`  ${details.join(", ")}`}</span> : <span className="muted">{`  ${t("dose, route and frequency not stated")}`}</span>}
                 </>,
               )}
             </li>
@@ -176,11 +192,11 @@ export function NoteView({ template, run, onEvidence, onPlay, onCopySection, onA
         className="ob-button section-tool"
         data-variant="ghost"
         onClick={() => onAsk(heading)}
-        aria-label={`Ask for changes to ${title}`}
-        title="Ask the model to redraft this heading"
+        aria-label={t("Ask for changes to {heading}", { heading: title })}
+        title={t("Ask the model to redraft this heading")}
       >
         <ChatCircleText size={16} aria-hidden />
-        Ask
+        {t("Ask")}
       </button>
     );
   const editButton = (heading: string, title: string) =>
@@ -190,24 +206,32 @@ export function NoteView({ template, run, onEvidence, onPlay, onCopySection, onA
         className="ob-button section-tool"
         data-variant="ghost"
         onClick={() => onEdit(heading)}
-        aria-label={`Edit ${title}`}
-        title="Edit this heading yourself"
+        aria-label={t("Edit {heading}", { heading: title })}
+        title={t("Edit this heading yourself")}
       >
         <PencilSimple size={16} aria-hidden />
-        Edit
+        {t("Edit")}
       </button>
     );
   const edited = run.edit?.heading;
   const refinedNote = (heading: string) =>
     (refined === heading && (
       <p className="refined small muted">
-        Redrafted on request: <q>{run.refinement?.request}</q>
-        {run.refinement?.saved_as_standard ? " Saved as a standard." : ""}
+        {t("Redrafted on request:")} <q>{run.refinement?.request}</q>
+        {run.refinement?.saved_as_standard ? ` ${t("Saved as a standard.")}` : ""}
       </p>
     )) || (edited === heading && run.edit && (
       <p className="refined small muted">
-        Edited by {run.edit.by}: {run.edit.changed.length} changed or added
-        {run.edit.removed ? `, ${run.edit.removed} removed` : ""}. The earlier draft is kept.
+        {run.edit.removed
+          ? t("Edited by {name}: {changed} changed or added, {removed} removed. The earlier draft is kept.", {
+              name: run.edit.by,
+              changed: run.edit.changed.length,
+              removed: run.edit.removed,
+            })
+          : t("Edited by {name}: {changed} changed or added. The earlier draft is kept.", {
+              name: run.edit.by,
+              changed: run.edit.changed.length,
+            })}
       </p>
     ));
 
@@ -234,7 +258,7 @@ export function NoteView({ template, run, onEvidence, onPlay, onCopySection, onA
   };
 
   return (
-    <article className="note" aria-label="Draft note">
+    <article className="note" aria-label={t("Draft note")}>
       {template.sections.map((sec) => {
         const value = run.note[sec.id];
         return (
@@ -246,10 +270,10 @@ export function NoteView({ template, run, onEvidence, onPlay, onCopySection, onA
                 className="ob-button section-tool"
                 data-variant="ghost"
                 onClick={() => onCopySection(sec.title, sectionText(sec.id))}
-                aria-label={`Copy ${sec.title}`}
+                aria-label={t("Copy {heading}", { heading: sec.title })}
               >
                 <Copy size={16} aria-hidden />
-                Copy
+                {t("Copy")}
               </button>
               {sec.kind && editButton(sec.id, sec.title)}
               {askButton(sec.id, sec.title)}

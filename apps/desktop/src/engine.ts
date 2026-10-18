@@ -4,7 +4,7 @@
 //   and the browser's microphone streamed over a WebSocket
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 
 export interface Hint {
@@ -343,16 +343,53 @@ export interface RefineRequest {
   request: string;
   save_as_standard: boolean;
   by: string | null;
+  /** Note language ("fr"…); English when absent. */
+  language?: string | null;
 }
 /** Redraft one heading of the latest draft; saved as a new draft. */
 export const refineNote = (id: string, request: RefineRequest) =>
   isDesktop
     ? invoke<{ markdown: string; run: NoteRun }>("refine_note", { id, request })
     : api<{ markdown: string; run: NoteRun }>(`/api/sessions/${enc(id)}/refine`, post(request));
-export const generateNote = (id: string, llm: string, tpl: string) =>
+/** Draft with a template; `language` is the note language ("fr"…), English when absent. */
+export const generateNote = (id: string, llm: string, tpl: string, language?: string | null) =>
   isDesktop
-    ? invoke<{ markdown: string; run: NoteRun }>("generate_note", { id, llm, template: tpl })
-    : api<{ markdown: string; run: NoteRun }>(`/api/sessions/${enc(id)}/notes`, post({ llm, template: tpl }));
+    ? invoke<{ markdown: string; run: NoteRun }>("generate_note", { id, llm, template: tpl, language: language ?? null })
+    : api<{ markdown: string; run: NoteRun }>(`/api/sessions/${enc(id)}/notes`, post({ llm, template: tpl, language: language ?? null }));
+
+/** Clinic letterhead and paper size for PDFs. */
+export interface PdfRequest {
+  clinic: { name: string; lines: string[] };
+  page: "letter" | "a4";
+  /** A client document's template id; the medical record when absent. */
+  document?: string | null;
+  /** Language for the PDF's own words ("Patient", "Page 1 of 2"). */
+  language?: string | null;
+}
+
+/** Save the note (or a client document) as a PDF. Resolves to false if cancelled. */
+export async function exportPdf(id: string, request: PdfRequest): Promise<boolean> {
+  if (isDesktop) {
+    const name = await invoke<string>("pdf_name", { id, request });
+    const path = await save({ defaultPath: name, filters: [{ name: "PDF", extensions: ["pdf"] }] });
+    if (!path) return false;
+    await invoke<void>("export_pdf", { id, path, request });
+    return true;
+  }
+  const res = await fetch(`/api/sessions/${enc(id)}/pdf`, post(request));
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `${res.status} ${res.statusText}`);
+  }
+  const name = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") ?? "")?.[1] ?? "note.pdf";
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  return true;
+}
 export const updatePatient = (id: string, patient: Patient) =>
   isDesktop
     ? invoke<SessionView>("update_patient", { id, patient })
@@ -446,7 +483,7 @@ async function startDesktopRecording(
   speakers: boolean,
   device: string | null,
   patient: Patient | null,
-  consent: RecordingConsent,
+  consent: RecordingConsent | null,
 ): Promise<Recording> {
   await invoke<string>("start_recording", { device, speakers, patient, consent });
   return { stop: () => invoke<SessionView>("stop_recording") };
@@ -470,7 +507,7 @@ registerProcessor("openbark-tap", Tap);`;
 async function startBrowserRecording(
   speakers: boolean,
   patient: Patient | null,
-  consent: RecordingConsent,
+  consent: RecordingConsent | null,
   onLevel: (l: number, s: number) => void,
 ): Promise<Recording> {
   if (!navigator.mediaDevices?.getUserMedia) {
@@ -555,12 +592,12 @@ async function startBrowserRecording(
   };
 }
 
-/** Start recording; `consent` is required (the engine refuses without it). */
+/** Start recording; `consent` is saved with the encounter when the consent step was used. */
 export function startRecording(
   speakers: boolean,
   device: string | null,
   patient: Patient | null,
-  consent: RecordingConsent,
+  consent: RecordingConsent | null,
   onLevel: (level: number, seconds: number) => void,
 ): Promise<Recording> {
   const p = hasPatient(patient) ? patient : null;

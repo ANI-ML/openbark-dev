@@ -21,6 +21,40 @@ pub struct NoteOptions {
     /// For client documents: the veterinarian's note for the visit, which the
     /// document follows where it differs from the transcript.
     pub reference: Option<Reference>,
+    /// Language to write the note in ("fr", "es"…); the template's when None.
+    pub language: Option<String>,
+}
+
+/// English names of the note languages offered in the app.
+pub const NOTE_LANGUAGES: &[(&str, &str)] = &[
+    ("en", "English"),
+    ("fr", "French"),
+    ("es", "Spanish"),
+    ("de", "German"),
+    ("pt", "Portuguese"),
+    ("it", "Italian"),
+    ("nl", "Dutch"),
+];
+
+/// "Write the note in French…" when the language isn't English.
+fn language_line(code: Option<&str>) -> Option<String> {
+    let code = code?.trim();
+    if code.is_empty() || code == "en" {
+        return None;
+    }
+    let name = NOTE_LANGUAGES.iter().find(|(c, _)| *c == code).map(|(_, n)| *n).unwrap_or(code);
+    Some(format!(
+        "\n\nWrite all text in the note in {name}, whatever language the consultation was in. \
+         Keep drug names, doses, units and numbers exactly as said. Field and heading names stay as given."
+    ))
+}
+
+/// Add the language instruction to a system message.
+fn with_language(mut messages: Vec<ChatMessage>, code: Option<&str>) -> Vec<ChatMessage> {
+    if let (Some(line), Some(system)) = (language_line(code), messages.first_mut()) {
+        system.content.push_str(&line);
+    }
+    messages
 }
 
 /// The vet's note given to a client document as reference.
@@ -41,7 +75,7 @@ impl Reference {
 impl Default for NoteOptions {
     fn default() -> Self {
         // Low temperature: charting should be deterministic and literal.
-        Self { max_tokens: 4096, temperature: 0.1, seed: 42, context: None, reference: None }
+        Self { max_tokens: 4096, temperature: 0.1, seed: 42, context: None, reference: None, language: None }
     }
 }
 
@@ -273,7 +307,10 @@ pub fn generate_note(
     if transcript.is_empty() {
         return Err(EngineError::EmptyTranscript);
     }
-    let mut messages = build_messages(template, transcript, options.context.as_deref());
+    let mut messages = with_language(
+        build_messages(template, transcript, options.context.as_deref()),
+        options.language.as_deref().or(Some(template.template.language.as_str())),
+    );
     if let Some(user) = messages.last_mut() {
         user.content = format!("{}{}", reference_message(options.reference.as_ref()), user.content);
     }
@@ -335,13 +372,16 @@ pub fn refine_note(
         None => note[sec].clone(),
     };
     let generate = GenerateRequest {
-        messages: build_refine_messages(
-            template,
-            transcript,
-            options.context.as_deref(),
-            heading,
-            &current,
-            request,
+        messages: with_language(
+            build_refine_messages(
+                template,
+                transcript,
+                options.context.as_deref(),
+                heading,
+                &current,
+                request,
+            ),
+            options.language.as_deref().or(Some(template.template.language.as_str())),
         ),
         max_tokens: options.max_tokens,
         temperature: options.temperature,
@@ -428,6 +468,15 @@ mod tests {
                 check: None,
             }],
         }
+    }
+
+    #[test]
+    fn note_language_is_asked_for_except_english() {
+        assert!(language_line(Some("en")).is_none());
+        assert!(language_line(None).is_none());
+        let fr = language_line(Some("fr")).unwrap();
+        assert!(fr.contains("in French") && fr.contains("numbers exactly as said"));
+        assert!(language_line(Some("pl")).unwrap().contains("in pl"));
     }
 
     #[test]

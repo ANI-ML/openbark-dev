@@ -8,7 +8,7 @@ const OPTIONS: { value: ThemeChoice; label: string }[] = [
 ];
 
 /** Explicit light/dark/system choice (DESIGN.md §9: user-overridable). */
-export function ThemeToggle() {
+export function ThemeToggle({ translate = (s: string) => s }: { translate?: (english: string) => string } = {}) {
   const [choice, setChoice] = useState<ThemeChoice>(() => readTheme());
 
   useEffect(() => {
@@ -16,7 +16,7 @@ export function ThemeToggle() {
   }, [choice]);
 
   return (
-    <div role="radiogroup" aria-label="Theme" className="ob-segmented">
+    <div role="radiogroup" aria-label={translate("Theme")} className="ob-segmented">
       {OPTIONS.map((o) => (
         <button
           key={o.value}
@@ -26,7 +26,7 @@ export function ThemeToggle() {
           className="ob-segment"
           onClick={() => setChoice(o.value)}
         >
-          {o.label}
+          {translate(o.label)}
         </button>
       ))}
     </div>

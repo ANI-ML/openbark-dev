@@ -3,6 +3,7 @@ import { ArrowLeft, CaretDown, CaretUp, CopySimple, DotsSixVertical, Plus, Trash
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../context";
 import * as engine from "../engine";
+import { useT } from "../i18n";
 import type { ContentKind, Standard, Template, TemplateField, TemplatePart, TemplateSection } from "../engine";
 
 /**
@@ -12,6 +13,7 @@ import type { ContentKind, Standard, Template, TemplateField, TemplatePart, Temp
  * keeps evidence links, "Not discussed" and the faithfulness checks.
  */
 export function Templates() {
+  const t = useT();
   const [open, setOpen] = useState<{ id: string | null; from?: Template } | null>(null);
   const [list, setList] = useState<engine.TemplateSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -34,11 +36,11 @@ export function Templates() {
     );
   }
 
-  const team = list?.filter((t) => !t.builtin) ?? [];
+  const team = list?.filter((x) => !x.builtin) ?? [];
   const startFromSoap = async () => {
     try {
       const soap = await engine.template("soap");
-      setOpen({ id: null, from: copyOf(soap.template, "SOAP note (team)") });
+      setOpen({ id: null, from: copyOf(soap.template, t("SOAP note (team)")) });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -47,22 +49,22 @@ export function Templates() {
   return (
     <div className="screen templates">
       <header className="screen-head">
-        <h1>Templates</h1>
+        <h1>{t("Templates")}</h1>
         <div className="head-actions">
           <Button onClick={startFromSoap}>
             <CopySimple size={20} aria-hidden />
-            Start from SOAP
+            {t("Start from SOAP")}
           </Button>
           <Button variant="primary" onClick={() => setOpen({ id: null, from: blank() })}>
             <Plus size={20} aria-hidden />
-            New template
+            {t("New template")}
           </Button>
         </div>
       </header>
       <p className="small muted measure">
-        A template is the headings of a note and what goes under each. The model fills every heading from the recording
-        and links each line to where it was said; anything not discussed is shown as not discussed. Requests saved as
-        standards while reviewing a note appear under their heading.
+        {t(
+          "A template is the headings of a note and what goes under each. The model fills every heading from the recording and links each line to where it was said; anything not discussed is shown as not discussed. Requests saved as standards while reviewing a note appear under their heading.",
+        )}
       </p>
       {error && (
         <p className="ob-notice" data-tone="danger" role="alert">
@@ -76,31 +78,31 @@ export function Templates() {
           <table className="ob-table">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Description</th>
-                <th className="num">Headings</th>
-                <th className="num">Standards</th>
-                <th>Version</th>
-                <th>Kind</th>
+                <th>{t("Name")}</th>
+                <th>{t("Description")}</th>
+                <th className="num">{t("Headings")}</th>
+                <th className="num">{t("Standards")}</th>
+                <th>{t("Version")}</th>
+                <th>{t("Kind")}</th>
               </tr>
             </thead>
             <tbody>
-              {list.map((t) => (
+              {list.map((tpl) => (
                 <tr
-                  key={t.id}
+                  key={tpl.id}
                   tabIndex={0}
                   className="row-link"
-                  onClick={() => setOpen({ id: t.id })}
-                  onKeyDown={(e) => e.key === "Enter" && setOpen({ id: t.id })}
+                  onClick={() => setOpen({ id: tpl.id })}
+                  onKeyDown={(e) => e.key === "Enter" && setOpen({ id: tpl.id })}
                 >
-                  <td>{t.name}</td>
-                  <td className="muted reason-cell">{t.description}</td>
-                  <td className="num">{t.headings}</td>
-                  <td className="num">{t.standards}</td>
-                  <td className="mono">{t.version}</td>
+                  <td>{tpl.name}</td>
+                  <td className="muted reason-cell">{tpl.description}</td>
+                  <td className="num">{tpl.headings}</td>
+                  <td className="num">{tpl.standards}</td>
+                  <td className="mono">{tpl.version}</td>
                   <td>
-                    {t.builtin ? <StatusDot>Built in</StatusDot> : <StatusDot tone="accent">Team</StatusDot>}
-                    {t.document === "client" && <span className="small muted"> For the client</span>}
+                    {tpl.builtin ? <StatusDot>{t("Built in")}</StatusDot> : <StatusDot tone="accent">{t("Team")}</StatusDot>}
+                    {tpl.document === "client" && <span className="small muted"> {t("For the client")}</span>}
                   </td>
                 </tr>
               ))}
@@ -109,7 +111,7 @@ export function Templates() {
         </div>
       )}
       {list !== null && team.length === 0 && (
-        <p className="empty small muted">No team templates yet. Start from SOAP, or start a new one from blank headings.</p>
+        <p className="empty small muted">{t("No team templates yet. Start from SOAP, or start a new one from blank headings.")}</p>
       )}
     </div>
   );
@@ -171,6 +173,7 @@ interface BuilderProps {
 
 function Builder({ id, from, onClose, onOpen, onSaved }: BuilderProps) {
   const app = useApp();
+  const t = useT();
   const [draft, setDraft] = useState<Template | null>(from ? withUids(from) : null);
   const [saved, setSaved] = useState<Template | null>(null);
   const [builtin, setBuiltin] = useState(false);
@@ -211,7 +214,7 @@ function Builder({ id, from, onClose, onOpen, onSaved }: BuilderProps) {
   // Live check and prompt preview, a moment after typing stops.
   useEffect(() => {
     if (!draft) return;
-    const t = setTimeout(() => {
+    const timer = setTimeout(() => {
       engine.previewTemplate(clean(draft)).then(
         (v) => {
           setPreview(v);
@@ -220,7 +223,7 @@ function Builder({ id, from, onClose, onOpen, onSaved }: BuilderProps) {
         (e) => setProblem(e instanceof Error ? e.message : String(e)),
       );
     }, 300);
-    return () => clearTimeout(t);
+    return () => clearTimeout(timer);
   }, [draft]);
 
   const dirty = useMemo(
@@ -260,7 +263,7 @@ function Builder({ id, from, onClose, onOpen, onSaved }: BuilderProps) {
       setSaved(clean(v.template));
       setStandards(v.template.standards ?? []);
       setBuiltin(v.builtin);
-      app.toast(`Template saved, version ${v.template.version}`);
+      app.toast(t("Template saved, version {v}", { v: v.template.version }));
       onSaved();
       if (wasNew) onOpen(v.template.id);
     } catch (e) {
@@ -274,7 +277,7 @@ function Builder({ id, from, onClose, onOpen, onSaved }: BuilderProps) {
     if (!saved) return;
     try {
       await engine.deleteTemplate(saved.id);
-      app.toast("Template deleted");
+      app.toast(t("Template deleted"));
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -286,7 +289,7 @@ function Builder({ id, from, onClose, onOpen, onSaved }: BuilderProps) {
     try {
       const v = await engine.removeStandard(saved.id, s.id);
       setStandards(v.template.standards ?? []);
-      app.toast("Standard removed");
+      app.toast(t("Standard removed"));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -307,45 +310,45 @@ function Builder({ id, from, onClose, onOpen, onSaved }: BuilderProps) {
         <div className="builder-title">
           {confirm === "leave" ? (
             <span className="inline-confirm">
-              <span className="small">Discard unsaved changes?</span>
-              <Button onClick={onClose}>Discard changes</Button>
+              <span className="small">{t("Discard unsaved changes?")}</span>
+              <Button onClick={onClose}>{t("Discard changes")}</Button>
               <Button variant="ghost" onClick={() => setConfirm(null)}>
-                Keep editing
+                {t("Keep editing")}
               </Button>
             </span>
           ) : (
             <Button variant="ghost" onClick={() => (dirty && !readOnly ? setConfirm("leave") : onClose())}>
               <ArrowLeft size={20} aria-hidden />
-              Templates
+              {t("Templates")}
             </Button>
           )}
-          <h1>{draft.name || "New template"}</h1>
-          {saved && <span className="mono faint">version {saved.version}</span>}
+          <h1>{draft.name || t("New template")}</h1>
+          {saved && <span className="mono faint">{t("version {v}", { v: saved.version })}</span>}
         </div>
         <div className="head-actions">
           {saved && (
-            <Button onClick={() => onOpen(null, copyOf(draft, `${draft.name} copy`))}>
+            <Button onClick={() => onOpen(null, copyOf(draft, t("{name} copy", { name: draft.name })))}>
               <CopySimple size={20} aria-hidden />
-              Duplicate
+              {t("Duplicate")}
             </Button>
           )}
           {saved && !readOnly &&
             (confirm === "delete" ? (
               <span className="inline-confirm">
-                <Button onClick={remove}>Delete for good</Button>
+                <Button onClick={remove}>{t("Delete for good")}</Button>
                 <Button variant="ghost" onClick={() => setConfirm(null)}>
-                  Keep
+                  {t("Keep")}
                 </Button>
               </span>
             ) : (
               <Button variant="ghost" onClick={() => setConfirm("delete")}>
                 <Trash size={20} aria-hidden />
-                Delete
+                {t("Delete")}
               </Button>
             ))}
           {!readOnly && (
             <Button variant="primary" onClick={save} disabled={busy || !dirty || problem != null}>
-              Save template
+              {t("Save template")}
             </Button>
           )}
         </div>
@@ -353,8 +356,10 @@ function Builder({ id, from, onClose, onOpen, onSaved }: BuilderProps) {
 
       {readOnly && (
         <p className="ob-notice">
-          {draft.name} is built in and can't be changed. Duplicate it to make your team's version. Standards saved while
-          reviewing notes still apply to it, and you can remove them here.
+          {t(
+            "{name} is built in and can't be changed. Duplicate it to make your team's version. Standards saved while reviewing notes still apply to it, and you can remove them here.",
+            { name: draft.name },
+          )}
         </p>
       )}
       {error && (
@@ -365,72 +370,73 @@ function Builder({ id, from, onClose, onOpen, onSaved }: BuilderProps) {
 
       <div className="builder-meta">
         <label className="ob-field">
-          <span className="label">Name</span>
+          <span className="label">{t("Name")}</span>
           <input
             ref={nameRef}
             className="ob-input"
             value={draft.name}
             disabled={readOnly}
-            placeholder="Dental procedure"
+            placeholder={t("Dental procedure")}
             onChange={(e) => set({ name: e.target.value })}
           />
         </label>
         <label className="ob-field">
-          <span className="label">Description</span>
+          <span className="label">{t("Description")}</span>
           <input
             className="ob-input"
             value={draft.description ?? ""}
             disabled={readOnly}
-            placeholder="Who uses it, and when"
+            placeholder={t("Who uses it, and when")}
             onChange={(e) => set({ description: e.target.value })}
           />
         </label>
         <label className="ob-field">
-          <span className="label">Who it's for</span>
+          <span className="label">{t("Who it's for")}</span>
           <select
             className="ob-select"
             value={draft.document ?? "record"}
             disabled={readOnly}
             onChange={(e) => set({ document: e.target.value === "client" ? "client" : undefined })}
           >
-            <option value="record">The medical record (signed by a veterinarian)</option>
-            <option value="client">The client (follows the signed note; never signed)</option>
+            <option value="record">{t("The medical record (signed by a veterinarian)")}</option>
+            <option value="client">{t("The client (follows the signed note; never signed)")}</option>
           </select>
         </label>
         <details className="builder-advanced">
-          <summary className="label">Instructions and rules for the whole note</summary>
+          <summary className="label">{t("Instructions and rules for the whole note")}</summary>
           <label className="ob-field">
-            <span className="label muted">Instructions</span>
+            <span className="label muted">{t("Instructions")}</span>
             <textarea
               className="ob-input tb-text"
               rows={4}
               disabled={readOnly}
               value={draft.instructions ?? ""}
-              placeholder="Write the medical record for this consultation under the headings below. Leave empty for the default."
+              placeholder={t("Write the medical record for this consultation under the headings below. Leave empty for the default.")}
               onChange={(e) => set({ instructions: e.target.value || undefined })}
             />
           </label>
           <label className="ob-field">
-            <span className="label muted">Extra rules, one per line</span>
+            <span className="label muted">{t("Extra rules, one per line")}</span>
             <textarea
               className="ob-input tb-text"
               rows={3}
               disabled={readOnly}
               value={(draft.rules ?? []).join("\n")}
-              placeholder="Record the anaesthetic monitoring interval when stated."
+              placeholder={t("Record the anaesthetic monitoring interval when stated.")}
               onChange={(e) => set({ rules: e.target.value.split("\n") })}
             />
           </label>
           <p className="ob-help">
-            Every template also follows the core rules: only what was said, numbers exactly as stated, and every line
-            linked to the transcript.
+            {t(
+              "Every template also follows the core rules: only what was said, numbers exactly as stated, and every line linked to the transcript.",
+            )}
           </p>
-          {wholeNote.length > 0 && <StandardList title="Standards for the whole note" items={wholeNote} onRemove={dropStandard} />}
+          {wholeNote.length > 0 && <StandardList title={t("Standards for the whole note")} items={wholeNote} onRemove={dropStandard} />}
         </details>
       </div>
 
       <div className="builder-split">
-        <section className="pane builder-structure" aria-label="Headings">
+        <section className="pane builder-structure" aria-label={t("Headings")}>
           <ol className="tb-list">
             {draft.sections.map((s, i) => (
               <HeadingRow
@@ -455,18 +461,18 @@ function Builder({ id, from, onClose, onOpen, onSaved }: BuilderProps) {
               }
             >
               <Plus size={20} aria-hidden />
-              Add heading
+              {t("Add heading")}
             </Button>
           )}
         </section>
 
-        <section className="pane builder-preview" aria-label="Preview">
+        <section className="pane builder-preview" aria-label={t("Preview")}>
           <div className="ob-segmented" role="tablist">
             <button className="ob-segment" role="tab" aria-selected={tab === "note"} onClick={() => setTab("note")}>
-              Note
+              {t("Note")}
             </button>
             <button className="ob-segment" role="tab" aria-selected={tab === "prompt"} onClick={() => setTab("prompt")}>
-              What the model is told
+              {t("What the model is told")}
             </button>
           </div>
           {problem && (
@@ -480,16 +486,16 @@ function Builder({ id, from, onClose, onOpen, onSaved }: BuilderProps) {
             <pre className="prompt">{preview?.prompt ?? ""}</pre>
           )}
           <div className="try-on">
-            <span className="label">Try on an encounter</span>
+            <span className="label">{t("Try on an encounter")}</span>
             <div className="try-row">
               <select
                 className="ob-select"
-                aria-label="Encounter to draft"
+                aria-label={t("Encounter to draft")}
                 value={tryOn}
                 onChange={(e) => setTryOn(e.target.value)}
                 disabled={encounters.length === 0}
               >
-                {encounters.length === 0 && <option value="">No encounters yet</option>}
+                {encounters.length === 0 && <option value="">{t("No encounters yet")}</option>}
                 {encounters.map((r) => (
                   <option key={r.id} value={r.id}>
                     {r.created_at} {r.patient || r.source}
@@ -497,10 +503,10 @@ function Builder({ id, from, onClose, onOpen, onSaved }: BuilderProps) {
                 ))}
               </select>
               <Button onClick={tryTemplate} disabled={!saved || dirty || !tryOn}>
-                Draft with this template
+                {t("Draft with this template")}
               </Button>
             </div>
-            {(dirty || !saved) && !readOnly && <span className="ob-help">Save the template first.</span>}
+            {(dirty || !saved) && !readOnly && <span className="ob-help">{t("Save the template first.")}</span>}
           </div>
         </section>
       </div>
@@ -537,6 +543,7 @@ function HeadingRow({
   onRemove,
   onRemoveStandard,
 }: HeadingRowProps) {
+  const t = useT();
   const kind: Kind = s.kind ?? "parts";
   const [armed, setArmed] = useState(false);
   const parts = s.parts ?? [];
@@ -552,7 +559,7 @@ function HeadingRow({
       onChange({ kind: k, parts: [], fields: k === "fields" && !(s.fields ?? []).length ? [{ key: "", label: "" }] : s.fields });
     }
   };
-  const label = s.title || `Heading ${index + 1}`;
+  const label = s.title || t("Heading {n}", { n: index + 1 });
 
   return (
     <li
@@ -579,28 +586,28 @@ function HeadingRow({
           aria-hidden
           onPointerDown={() => setArmed(true)}
           onPointerUp={() => setArmed(false)}
-          title="Drag to reorder"
+          title={t("Drag to reorder")}
         >
           <DotsSixVertical size={20} />
         </span>
         <input
           className="ob-input tb-title"
-          aria-label={`Heading ${index + 1} title`}
+          aria-label={t("Heading {n} title", { n: index + 1 })}
           value={s.title}
           disabled={readOnly}
-          placeholder="Heading, for example Anaesthesia"
+          placeholder={t("Heading, for example Anaesthesia")}
           onChange={(e) => onChange({ title: e.target.value })}
         />
         <select
           className="ob-select"
-          aria-label={`What goes under ${label}`}
+          aria-label={t("What goes under {label}", { label })}
           value={kind}
           disabled={readOnly}
           onChange={(e) => changeKind(e.target.value as Kind)}
         >
           {KINDS.map((k) => (
             <option key={k.value} value={k.value}>
-              {k.label}
+              {t(k.label)}
             </option>
           ))}
         </select>
@@ -611,16 +618,16 @@ function HeadingRow({
       <textarea
         className="ob-input tb-text"
         rows={2}
-        aria-label={`Instruction for ${label}`}
+        aria-label={t("Instruction for {label}", { label })}
         disabled={readOnly}
         value={s.instruction ?? ""}
-        placeholder="Instruction for the model (optional): what belongs here and how to write it"
+        placeholder={t("Instruction for the model (optional): what belongs here and how to write it")}
         onChange={(e) => onChange({ instruction: e.target.value || null })}
       />
       {kind === "fields" && (
         <FieldsEditor fields={s.fields ?? []} readOnly={readOnly} owner={label} onChange={(fields) => onChange({ fields })} />
       )}
-      <StandardList title="Standards" items={standardsFor(s.id)} onRemove={onRemoveStandard} />
+      <StandardList title={t("Standards")} items={standardsFor(s.id)} onRemove={onRemoveStandard} />
       {kind === "parts" && (
         <div className="tb-parts">
           <ol className="tb-list">
@@ -645,7 +652,7 @@ function HeadingRow({
               onClick={() => setParts((ps) => [...ps, { key: "", label: "", kind: "statements", _uid: uid() } as TemplatePart])}
             >
               <Plus size={16} aria-hidden />
-              Add subheading
+              {t("Add subheading")}
             </Button>
           )}
         </div>
@@ -667,21 +674,22 @@ function RowTools({
   onMove: (to: number) => void;
   onRemove: () => void;
 }) {
+  const t = useT();
   return (
     <span className="tb-tools">
-      <button type="button" className="icon-btn" aria-label={`Move ${label} up`} disabled={index === 0} onClick={() => onMove(index - 1)}>
+      <button type="button" className="icon-btn" aria-label={t("Move {label} up", { label })} disabled={index === 0} onClick={() => onMove(index - 1)}>
         <CaretUp size={16} aria-hidden />
       </button>
       <button
         type="button"
         className="icon-btn"
-        aria-label={`Move ${label} down`}
+        aria-label={t("Move {label} down", { label })}
         disabled={index === count - 1}
         onClick={() => onMove(index + 1)}
       >
         <CaretDown size={16} aria-hidden />
       </button>
-      <button type="button" className="icon-btn" aria-label={`Remove ${label}`} onClick={onRemove}>
+      <button type="button" className="icon-btn" aria-label={t("Remove {label}", { label })} onClick={onRemove}>
         <Trash size={16} aria-hidden />
       </button>
     </span>
@@ -701,21 +709,22 @@ interface PartRowProps {
 }
 
 function PartRow({ part: p, index, count, readOnly, standards, onChange, onMove, onRemove, onRemoveStandard }: PartRowProps) {
-  const label = p.label || `Subheading ${index + 1}`;
+  const t = useT();
+  const label = p.label || t("Subheading {n}", { n: index + 1 });
   return (
     <li className="tb-part">
       <div className="tb-row">
         <input
           className="ob-input tb-title"
-          aria-label={`Subheading ${index + 1} title`}
+          aria-label={t("Subheading {n} title", { n: index + 1 })}
           value={p.label}
           disabled={readOnly}
-          placeholder="Subheading"
+          placeholder={t("Subheading")}
           onChange={(e) => onChange({ label: e.target.value })}
         />
         <select
           className="ob-select"
-          aria-label={`What goes under ${label}`}
+          aria-label={t("What goes under {label}", { label })}
           value={p.kind}
           disabled={readOnly}
           onChange={(e) => {
@@ -725,7 +734,7 @@ function PartRow({ part: p, index, count, readOnly, standards, onChange, onMove,
         >
           {KINDS.filter((k) => k.value !== "parts").map((k) => (
             <option key={k.value} value={k.value}>
-              {k.label}
+              {t(k.label)}
             </option>
           ))}
         </select>
@@ -734,16 +743,16 @@ function PartRow({ part: p, index, count, readOnly, standards, onChange, onMove,
       <textarea
         className="ob-input tb-text"
         rows={1}
-        aria-label={`Instruction for ${label}`}
+        aria-label={t("Instruction for {label}", { label })}
         disabled={readOnly}
         value={p.instruction ?? ""}
-        placeholder="Instruction (optional)"
+        placeholder={t("Instruction (optional)")}
         onChange={(e) => onChange({ instruction: e.target.value || null })}
       />
       {p.kind === "fields" && (
         <FieldsEditor fields={p.fields ?? []} readOnly={readOnly} owner={label} onChange={(fields) => onChange({ fields })} />
       )}
-      <StandardList title="Standards" items={standards} onRemove={onRemoveStandard} />
+      <StandardList title={t("Standards")} items={standards} onRemove={onRemoveStandard} />
     </li>
   );
 }
@@ -759,25 +768,26 @@ function FieldsEditor({
   owner: string;
   onChange: (f: TemplateField[]) => void;
 }) {
+  const t = useT();
   return (
     <div className="tb-fields">
-      <span className="label muted">Measurements</span>
+      <span className="label muted">{t("Measurements")}</span>
       <ul>
         {fields.map((f, i) => (
           <li key={i}>
             <input
               className="ob-input"
-              aria-label={`${owner} measurement ${i + 1}`}
+              aria-label={t("{owner} measurement {n}", { owner, n: i + 1 })}
               value={f.label}
               disabled={readOnly}
-              placeholder="Weight"
+              placeholder={t("Weight")}
               onChange={(e) => onChange(fields.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))}
             />
             {!readOnly && (
               <button
                 type="button"
                 className="icon-btn"
-                aria-label={`Remove ${f.label || "measurement"}`}
+                aria-label={t("Remove {label}", { label: f.label || t("measurement") })}
                 onClick={() => onChange(fields.filter((_, j) => j !== i))}
               >
                 <X size={16} aria-hidden />
@@ -789,7 +799,7 @@ function FieldsEditor({
       {!readOnly && (
         <Button variant="ghost" onClick={() => onChange([...fields, { key: "", label: "" }])}>
           <Plus size={16} aria-hidden />
-          Add measurement
+          {t("Add measurement")}
         </Button>
       )}
     </div>
@@ -797,6 +807,7 @@ function FieldsEditor({
 }
 
 function StandardList({ title, items, onRemove }: { title: string; items: Standard[]; onRemove: (s: Standard) => void }) {
+  const t = useT();
   if (items.length === 0) return null;
   return (
     <div className="tb-standards">
@@ -810,7 +821,7 @@ function StandardList({ title, items, onRemove }: { title: string; items: Standa
               {s.added_by ? `${s.added_by}, ` : ""}
               {engine.fmtStamp(s.added_at)}
             </span>
-            <button type="button" className="icon-btn" aria-label={`Remove standard: ${s.text}`} onClick={() => onRemove(s)}>
+            <button type="button" className="icon-btn" aria-label={t("Remove standard: {text}", { text: s.text })} onClick={() => onRemove(s)}>
               <X size={16} aria-hidden />
             </button>
           </li>
@@ -828,30 +839,31 @@ const KIND_HINT: Record<ContentKind, string> = {
 
 /** The note's shape: every heading, with what the model will put there. */
 function TemplatePreview({ template }: { template: Template }) {
+  const t = useT();
   const body = (kind: ContentKind, fields: TemplateField[] | undefined, instruction?: string | null) => (
     <>
       {kind === "fields" ? (
         <dl className="fields">
           {(fields ?? []).map((f, i) => (
             <div key={i}>
-              <dt className="label muted">{f.label || "Unnamed"}</dt>
-              <dd className="not-discussed">Not discussed</dd>
+              <dt className="label muted">{f.label || t("Unnamed")}</dt>
+              <dd className="not-discussed">{t("Not discussed")}</dd>
             </div>
           ))}
         </dl>
       ) : (
-        <p className="not-discussed">{KIND_HINT[kind]}</p>
+        <p className="not-discussed">{t(KIND_HINT[kind])}</p>
       )}
       {instruction && <p className="small faint preview-instruction">{instruction}</p>}
     </>
   );
   return (
-    <article className="note preview-note" aria-label="Template preview">
-      <h2 className="preview-name">{template.name || "New template"}</h2>
+    <article className="note preview-note" aria-label={t("Template preview")}>
+      <h2 className="preview-name">{template.name || t("New template")}</h2>
       {template.sections.map((s, i) => (
         <section key={i} className="note-section">
           <header className="note-section-head">
-            <h2>{s.title || "Untitled heading"}</h2>
+            <h2>{s.title || t("Untitled heading")}</h2>
           </header>
           {s.kind
             ? body(s.kind, s.fields, s.instruction)
@@ -860,7 +872,7 @@ function TemplatePreview({ template }: { template: Template }) {
                   {s.instruction && <p className="small faint preview-instruction">{s.instruction}</p>}
                   {(s.parts ?? []).map((p, j) => (
                     <div className="note-part" key={j}>
-                      <h3 className="label">{p.label || "Untitled subheading"}</h3>
+                      <h3 className="label">{p.label || t("Untitled subheading")}</h3>
                       {body(p.kind, p.fields, p.instruction)}
                     </div>
                   ))}

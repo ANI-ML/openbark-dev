@@ -16,6 +16,31 @@ export interface Settings {
   consentRule: "all_parties" | "one_party";
   /** What to read to the client before recording. */
   consentScript: string;
+  /** When the one-time consent notice was accepted on this device (ISO time). */
+  consentAcknowledgedAt: string | null;
+  /** Record how the client consented for each recording (optional step). */
+  consentEachTime: boolean;
+  /** App language (interface). */
+  uiLanguage: string;
+  /** Language notes are written in ("en", "fr"…). */
+  noteLanguage: string;
+  /** Letterhead on PDFs. */
+  clinicName: string;
+  clinicLines: string;
+  pageSize: "letter" | "a4";
+  /** What Copy note puts on the clipboard. */
+  copyFormat: "plain" | "formatted" | "markdown";
+  copyCitations: boolean;
+}
+
+/** The app language to start in: the browser's, if we have it. */
+function defaultLanguage(): string {
+  try {
+    const nav = (navigator.language || "en").slice(0, 2).toLowerCase();
+    return ["en", "fr", "es", "de", "pt"].includes(nav) ? nav : "en";
+  } catch {
+    return "en";
+  }
 }
 
 export const DEFAULT_CONSENT_SCRIPT =
@@ -31,6 +56,15 @@ const DEFAULTS: Settings = {
   template: "soap",
   consentRule: "all_parties",
   consentScript: DEFAULT_CONSENT_SCRIPT,
+  consentAcknowledgedAt: null,
+  consentEachTime: false,
+  uiLanguage: defaultLanguage(),
+  noteLanguage: "en",
+  clinicName: "",
+  clinicLines: "",
+  pageSize: "letter",
+  copyFormat: "plain",
+  copyCitations: false,
 };
 
 const KEY = "openbark.settings";

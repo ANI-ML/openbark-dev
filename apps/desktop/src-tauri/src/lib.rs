@@ -7,7 +7,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use os_app::{App, AppError, Events, Patient, RecordingConsent, RecordingSource, RefineRequest};
+use os_app::{App, AppError, Events, Patient, PdfRequest, RecordingConsent, RecordingSource, RefineRequest};
 use os_engine::Segment;
 use os_engine::template::{Standard, Template};
 use os_engine::template_store::TemplateSummary;
@@ -133,9 +133,10 @@ async fn generate_note(
     id: String,
     llm: String,
     template: String,
+    language: Option<String>,
 ) -> Result<os_app::NoteResponse, String> {
     let app = app.inner().clone();
-    work(move || app.generate_note(&id, &llm, &template, &TauriEvents(handle))).await
+    work(move || app.generate_note(&id, &llm, &template, language.as_deref(), &TauriEvents(handle))).await
 }
 
 #[tauri::command]
@@ -176,6 +177,29 @@ async fn add_addendum(
 ) -> Result<os_app::SessionView, String> {
     let app = app.inner().clone();
     work(move || app.add_addendum(&id, &text, &by)).await
+}
+
+/// Write the note as a PDF to `path` (chosen in a save dialog).
+#[tauri::command]
+async fn export_pdf(
+    app: State<'_, AppState>,
+    id: String,
+    path: String,
+    request: PdfRequest,
+) -> Result<(), String> {
+    let app = app.inner().clone();
+    work(move || {
+        let (pdf, _) = app.export_pdf(&id, &request)?;
+        std::fs::write(&path, pdf)?;
+        Ok(())
+    })
+    .await
+}
+
+/// The suggested file name for a note's PDF.
+#[tauri::command]
+fn pdf_name(app: State<'_, AppState>, id: String, request: PdfRequest) -> Result<String, String> {
+    app.export_pdf(&id, &request).map(|(_, name)| name).map_err(|e| e.0)
 }
 
 #[tauri::command]
@@ -278,6 +302,8 @@ pub fn run() {
             refine_note,
             edit_note,
             add_addendum,
+            export_pdf,
+            pdf_name,
             list_templates,
             template,
             preview_template,

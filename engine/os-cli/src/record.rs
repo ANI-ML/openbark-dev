@@ -41,8 +41,8 @@ pub struct RecordArgs {
     /// Reason for visit.
     #[arg(long)]
     pub reason: Option<String>,
-    /// How consent to record was given: verbal, written, on-file, or
-    /// clinician-only (one-party rule only). Required for the microphone.
+    /// How consent to record was given, saved with the encounter: verbal,
+    /// written, on-file, or clinician-only (one-party rule only). Optional.
     #[arg(long)]
     pub consent: Option<String>,
     /// Who confirmed consent (default: the signed-in user).
@@ -127,8 +127,8 @@ pub fn record(store: &ModelStore, args: RecordArgs) -> Result<()> {
     options.patient = crate::sessions::patient_from(&args.patient, &args.last_name, &args.reason);
     options.consent = consent_from(&args)?;
     if is_mic && options.consent.is_none() {
-        anyhow::bail!(
-            "confirm consent to record first: --consent verbal|written|on-file (or clinician-only with --consent-rule one-party)"
+        eprintln!(
+            "Reminder: get the client's consent before recording (record it with --consent verbal|written|on-file)."
         );
     }
     options.label_speakers = !args.no_speakers;

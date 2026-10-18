@@ -1,6 +1,7 @@
 import { Button } from "@openbark/ui";
 import { useEffect, useRef, useState } from "react";
 import type { Standard } from "../engine";
+import { useT } from "../i18n";
 
 export interface RefinePanelProps {
   /** "Plan > Medications". */
@@ -16,7 +17,7 @@ export interface RefinePanelProps {
   onCancel: () => void;
 }
 
-/** Suggestions that suit any heading; teams' own requests become standards. */
+/** Suggestions that suit any heading; teams' own requests become standards. Translated where shown. */
 const SUGGESTIONS = [
   "Add any details that were said but left out",
   "Give every value with its unit",
@@ -37,6 +38,7 @@ export function RefinePanel({
   onSubmit,
   onCancel,
 }: RefinePanelProps) {
+  const t = useT();
   const [request, setRequest] = useState("");
   const [save, setSave] = useState(false);
   const box = useRef<HTMLTextAreaElement>(null);
@@ -47,13 +49,13 @@ export function RefinePanel({
   }, []);
 
   const saved = new Set(standards.map((s) => s.text.toLowerCase()));
-  const chips = [...standards.map((s) => s.text), ...SUGGESTIONS.filter((s) => !saved.has(s.toLowerCase()))];
+  const chips = [...standards.map((s) => s.text), ...SUGGESTIONS.map((s) => t(s)).filter((s) => !saved.has(s.toLowerCase()))];
   const alreadyStandard = saved.has(request.trim().toLowerCase());
 
   return (
     <form
       className="ask"
-      aria-label={`Ask for changes to ${title}`}
+      aria-label={t("Ask for changes to {heading}", { heading: title })}
       onSubmit={(e) => {
         e.preventDefault();
         if (request.trim()) onSubmit(request.trim(), save && !alreadyStandard);
@@ -61,7 +63,7 @@ export function RefinePanel({
       onKeyDown={(e) => e.key === "Escape" && !busy && onCancel()}
     >
       <label className="label" htmlFor={id}>
-        What should change under {title}?
+        {t("What should change under {title}?", { title })}
       </label>
       <textarea
         id={id}
@@ -70,7 +72,7 @@ export function RefinePanel({
         rows={2}
         value={request}
         disabled={busy}
-        placeholder="For example: list every fluid with its volume and rate"
+        placeholder={t("For example: list every fluid with its volume and rate")}
         onChange={(e) => setRequest(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && request.trim()) {
@@ -79,7 +81,7 @@ export function RefinePanel({
           }
         }}
       />
-      <div className="ask-chips" aria-label="Reuse a request">
+      <div className="ask-chips" aria-label={t("Reuse a request")}>
         {chips.map((c) => (
           <button
             key={c}
@@ -91,7 +93,7 @@ export function RefinePanel({
               box.current?.focus();
             }}
           >
-            {saved.has(c.toLowerCase()) && <span className="ob-dot" data-tone="accent" aria-label="Standard" />}
+            {saved.has(c.toLowerCase()) && <span className="ob-dot" data-tone="accent" aria-label={t("Standard")} />}
             {c}
           </button>
         ))}
@@ -106,26 +108,27 @@ export function RefinePanel({
           />
           <span>
             {alreadyStandard
-              ? `Already a standard in ${templateName}.`
-              : `Save as a standard: every ${templateName} draft follows it under this heading.`}
+              ? t("Already a standard in {template}.", { template: templateName })
+              : t("Save as a standard: every {template} draft follows it under this heading.", { template: templateName })}
           </span>
         </label>
       )}
       <p className="small faint">
-        The request steers the model; it isn't evidence. Anything not said in the recording stays out, and numbers are
-        checked again.
+        {t(
+          "The request steers the model; it isn't evidence. Anything not said in the recording stays out, and numbers are checked again.",
+        )}
       </p>
       {busy && (
-        <div className="ob-progress" role="progressbar" aria-label={`Redrafting ${title}`}>
+        <div className="ob-progress" role="progressbar" aria-label={t("Redrafting {heading}", { heading: title })}>
           <span style={{ transform: `scaleX(${progress})` }} />
         </div>
       )}
       <div className="ask-actions">
         <Button type="submit" variant="primary" disabled={busy || !request.trim()}>
-          {busy ? "Redrafting" : `Redraft ${title.split(" > ").pop()}`}
+          {busy ? t("Redrafting") : t("Redraft {heading}", { heading: title.split(" > ").pop() ?? "" })}
         </Button>
         <Button variant="ghost" onClick={onCancel} disabled={busy}>
-          Cancel
+          {t("Cancel")}
         </Button>
       </div>
     </form>

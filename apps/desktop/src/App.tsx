@@ -2,7 +2,9 @@ import { createLevelSource } from "@openbark/ui";
 import { Cube, Gear, ListBullets, Microphone, Notebook } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import * as engine from "./engine";
+import { ConsentNotice } from "./components/ConsentNotice";
 import { AppContext, loadSettings, saveSettings, type Settings } from "./context";
+import { translate } from "./i18n";
 import { Encounters } from "./screens/Encounters";
 import { Models } from "./screens/Models";
 import { Recorder } from "./screens/Recorder";
@@ -71,6 +73,11 @@ export function App() {
     levels,
   };
   const active = route.screen === "review" ? "encounters" : route.screen;
+  const t = (text: string) => translate(settings.uiLanguage, text);
+
+  useEffect(() => {
+    document.documentElement.lang = settings.uiLanguage;
+  }, [settings.uiLanguage]);
 
   return (
     <AppContext.Provider value={ctx}>
@@ -81,7 +88,9 @@ export function App() {
             <span className="brand-name">OpenBark</span>
           </div>
           <ul>
-            {NAV.map(({ screen, label, icon: Icon }) => (
+            {NAV.map(({ screen, label: english, icon: Icon }) => {
+              const label = t(english);
+              return (
               <li key={screen}>
                 <button
                   type="button"
@@ -95,10 +104,11 @@ export function App() {
                   <span className="nav-label">{label}</span>
                 </button>
               </li>
-            ))}
+              );
+            })}
           </ul>
           <div className="sidebar-foot small faint">
-            <span className="nav-label">{engine.isDesktop ? "This device" : "Web, this computer only"}</span>
+            <span className="nav-label">{t(engine.isDesktop ? "This device" : "Web, this computer only")}</span>
           </div>
         </nav>
         <main className="content">
@@ -112,6 +122,9 @@ export function App() {
           {route.screen === "settings" && <SettingsScreen />}
         </main>
       </div>
+      {!settings.consentAcknowledgedAt && (
+        <ConsentNotice onAccept={() => setSettings({ consentAcknowledgedAt: new Date().toISOString() })} />
+      )}
       {toast && (
         <div className="ob-toast" role="status">
           {toast}

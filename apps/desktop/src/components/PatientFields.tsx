@@ -1,4 +1,5 @@
 import type { Patient } from "../engine";
+import { useT } from "../i18n";
 
 /** Patient name, last name and reason for visit (DESIGN.md §5 Inputs: label above). */
 export function PatientFields({
@@ -12,43 +13,44 @@ export function PatientFields({
   disabled?: boolean;
   idPrefix?: string;
 }) {
+  const t = useT();
   const set = (k: keyof Patient) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     onChange({ ...value, [k]: e.target.value });
   return (
     <div className="patient-fields">
       <label className="ob-field" htmlFor={`${idPrefix}-name`}>
-        <span className="label">Patient name</span>
+        <span className="label">{t("Patient name")}</span>
         <input
           id={`${idPrefix}-name`}
           className="ob-input"
           value={value.name}
           onChange={set("name")}
           disabled={disabled}
-          placeholder="Maple"
+          placeholder={t("Maple")}
           autoComplete="off"
         />
       </label>
       <label className="ob-field" htmlFor={`${idPrefix}-last`}>
-        <span className="label">Last name</span>
+        <span className="label">{t("Last name")}</span>
         <input
           id={`${idPrefix}-last`}
           className="ob-input"
           value={value.last_name}
           onChange={set("last_name")}
           disabled={disabled}
-          placeholder="Okonkwo"
+          placeholder={t("Okonkwo")}
           autoComplete="off"
         />
       </label>
       <label className="ob-field" htmlFor={`${idPrefix}-reason`}>
-        <span className="label">Reason for visit</span>
+        <span className="label">{t("Reason for visit")}</span>
         <textarea
           id={`${idPrefix}-reason`}
           className="ob-input ob-textarea"
           value={value.reason}
           onChange={set("reason")}
           disabled={disabled}
-          placeholder="Limping on the right hind leg for two weeks"
+          placeholder={t("Limping on the right hind leg for two weeks")}
           rows={3}
         />
       </label>

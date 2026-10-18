@@ -3,6 +3,7 @@ import { DownloadSimple } from "@phosphor-icons/react";
 import { useEffect, useMemo, useState } from "react";
 import { fmtBytes } from "../context";
 import * as engine from "../engine";
+import { useT } from "../i18n";
 
 export interface SetupPanelProps {
   /** Required models (from status) that aren't on this computer yet. */
@@ -15,6 +16,7 @@ export interface SetupPanelProps {
  * first, with one determinate progress rule for the whole set.
  */
 export function SetupPanel({ missing, onReady }: SetupPanelProps) {
+  const t = useT();
   const [rows, setRows] = useState<engine.ModelRow[]>([]);
   const [current, setCurrent] = useState<string | null>(null);
   const [done, setDone] = useState<Record<string, number>>({});
@@ -44,7 +46,12 @@ export function SetupPanel({ missing, onReady }: SetupPanelProps) {
         await engine.downloadModel(m.id);
         setFinished((s) => new Set(s).add(m.id));
       } catch (e) {
-        setError(`${m.name} didn't finish downloading: ${e instanceof Error ? e.message : String(e)} Try again to resume where it stopped.`);
+        setError(
+          t("{model} didn't finish downloading: {error} Try again to resume where it stopped.", {
+            model: m.name,
+            error: e instanceof Error ? e.message : String(e),
+          }),
+        );
         setCurrent(null);
         return;
       }
@@ -54,12 +61,12 @@ export function SetupPanel({ missing, onReady }: SetupPanelProps) {
   }
 
   return (
-    <section className="setup" aria-label="Set up OpenBark">
-      <h2>Download the models to start</h2>
+    <section className="setup" aria-label={t("Set up OpenBark")}>
+      <h2>{t("Download the models to start")}</h2>
       <p className="small muted measure">
-        OpenBark transcribes and writes notes on this computer, so it needs its models once:{" "}
-        <span className="mono">{fmtBytes(total)}</span> in all. After that it works offline. The computer stays awake while
-        they download.
+        {t("OpenBark transcribes and writes notes on this computer, so it needs its models once:")}{" "}
+        <span className="mono">{fmtBytes(total)}</span>{" "}
+        {t("in all. After that it works offline. The computer stays awake while they download.")}
       </p>
       <ul className="setup-list">
         {queue.map((m) => (
@@ -67,26 +74,26 @@ export function SetupPanel({ missing, onReady }: SetupPanelProps) {
             <span>{m.name}</span>
             <span className="mono faint">{fmtBytes(m.size)}</span>
             {finished.has(m.id) ? (
-              <StatusDot tone="ok">Ready</StatusDot>
+              <StatusDot tone="ok">{t("Ready")}</StatusDot>
             ) : current === m.id ? (
-              <StatusDot tone="accent">Downloading</StatusDot>
+              <StatusDot tone="accent">{t("Downloading")}</StatusDot>
             ) : (
-              <StatusDot>Waiting</StatusDot>
+              <StatusDot>{t("Waiting")}</StatusDot>
             )}
           </li>
         ))}
       </ul>
       {fits === "wont_fit" && (
         <p className="ob-notice">
-          The note model may not fit this computer's memory. You can still download it, or choose a smaller one in Models.
+          {t("The note model may not fit this computer's memory. You can still download it, or choose a smaller one in Models.")}
         </p>
       )}
       {current && (
         <div className="setup-progress">
-          <div className="ob-progress" role="progressbar" aria-label="Downloading models" aria-valuenow={Math.round((got / Math.max(1, total)) * 100)}>
+          <div className="ob-progress" role="progressbar" aria-label={t("Downloading models")} aria-valuenow={Math.round((got / Math.max(1, total)) * 100)}>
             <span style={{ transform: `scaleX(${got / Math.max(1, total)})` }} />
           </div>
-          <span className="mono faint small">{fmtBytes(Math.max(0, total - got))} left</span>
+          <span className="mono faint small">{t("{size} left", { size: fmtBytes(Math.max(0, total - got)) })}</span>
         </div>
       )}
       {error && (
@@ -97,7 +104,7 @@ export function SetupPanel({ missing, onReady }: SetupPanelProps) {
       <div className="ask-actions">
         <Button variant="primary" onClick={downloadAll} disabled={current != null || queue.length === 0}>
           <DownloadSimple size={20} aria-hidden />
-          {error ? "Try again" : `Download everything (${fmtBytes(total)})`}
+          {error ? t("Try again") : t("Download everything ({size})", { size: fmtBytes(total) })}
         </Button>
       </div>
     </section>

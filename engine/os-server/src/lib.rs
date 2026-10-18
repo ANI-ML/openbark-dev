@@ -12,11 +12,12 @@
 //!   (patient: `patient_name`, `last_name`, `reason`; consent: `consent_rule`,
 //!   `consent_method`, `consent_by`, `consent_script`; the same on `/api/live`,
 //!   where consent is required)
-//! - `POST /api/sessions/{id}/notes`        `{llm, template}`
+//! - `POST /api/sessions/{id}/notes`        `{llm, template, language?}`
 //! - `POST /api/sessions/{id}/refine`       `{llm, heading, request, save_as_standard, by}`:
 //!   redraft one heading of the latest draft
 //! - `POST /api/sessions/{id}/edit`         `{heading, value, by}`: the vet's own version of a heading
 //! - `POST /api/sessions/{id}/addenda`      `{text, by}`: signed addition to a signed note
+//! - `POST /api/sessions/{id}/pdf`          `{clinic: {name, lines}, page, document?}` → application/pdf
 //! - `GET  /api/templates`, `POST /api/templates` (save), `POST /api/templates/preview`
 //! - `GET|DELETE /api/templates/{id}`
 //! - `POST /api/templates/{id}/standards` `{heading, text, by}`, `DELETE /api/templates/{id}/standards/{sid}`
@@ -40,7 +41,7 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{delete, get, post};
 use os_app::{
-    App, AppError, AudioBlock, ConsentMethod, ConsentRule, Events, Patient, RecordingConsent,
+    App, AppError, AudioBlock, ConsentMethod, ConsentRule, Events, Patient, PdfRequest, RecordingConsent,
     RecordingSource, RefineRequest,
 };
 use os_engine::Segment;
@@ -137,6 +138,7 @@ pub async fn serve(options: ServerOptions) -> std::io::Result<()> {
         .route("/api/sessions/{id}/refine", post(refine_note))
         .route("/api/sessions/{id}/edit", post(edit_note))
         .route("/api/sessions/{id}/addenda", post(add_addendum))
+        .route("/api/sessions/{id}/pdf", post(export_pdf))
         .route("/api/templates", get(list_templates).post(save_template))
         .route("/api/templates/preview", post(preview_template))
         .route("/api/templates/{id}", get(template).delete(delete_template))
@@ -272,6 +274,8 @@ struct CreateNote {
     llm: String,
     #[serde(default = "soap")]
     template: String,
+    #[serde(default)]
+    language: Option<String>,
 }
 
 fn soap() -> String {
@@ -285,7 +289,7 @@ async fn create_note(
 ) -> Result<impl IntoResponse, ApiError> {
     blocking(move || {
         let events = s.events.clone();
-        s.app.generate_note(&id, &req.llm, &req.template, events.as_ref())
+        s.app.generate_note(&id, &req.llm, &req.template, req.language.as_deref(), events.as_ref())
     })
     .await
 }
@@ -336,6 +340,25 @@ async fn edit_note(
     Json(req): Json<EditNote>,
 ) -> Result<impl IntoResponse, ApiError> {
     blocking(move || s.app.edit_note(&id, &req.heading, req.value, &req.by)).await
+}
+
+/// The note as a PDF download.
+async fn export_pdf(
+    State(s): State<St>,
+    UrlPath(id): UrlPath<String>,
+    Json(req): Json<PdfRequest>,
+) -> Result<Response, ApiError> {
+    let (pdf, name) = tokio::task::spawn_blocking(move || s.app.export_pdf(&id, &req))
+        .await
+        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))??;
+    Ok((
+        [
+            (axum::http::header::CONTENT_TYPE, "application/pdf".to_string()),
+            (axum::http::header::CONTENT_DISPOSITION, format!("attachment; filename=\"{name}\"")),
+        ],
+        pdf,
+    )
+        .into_response())
 }
 
 #[derive(Deserialize)]

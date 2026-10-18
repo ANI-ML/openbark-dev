@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { fmtTime } from "../context";
 import type { Hint, Segment } from "../engine";
+import { useT } from "../i18n";
 
 /** Text with each hinted phrase underlined (DESIGN.md §5: low-confidence words, Mist dotted). */
 export function HintedText({ text, hints }: { text: string; hints?: Hint[] }) {
+  const t = useT();
   if (!hints?.length) return <>{text}</>;
   const parts: React.ReactNode[] = [];
   let rest = text;
@@ -11,7 +13,7 @@ export function HintedText({ text, hints }: { text: string; hints?: Hint[] }) {
     const at = rest.toLowerCase().indexOf(h.heard.toLowerCase());
     if (at < 0) return;
     parts.push(rest.slice(0, at));
-    const label = `Heard "${h.heard}". Likely ${h.likely.join(" or ")}.`;
+    const label = t('Heard "{heard}". Likely {likely}.', { heard: h.heard, likely: h.likely.join(` ${t("or")} `) });
     parts.push(
       <span key={i} className="hint" title={label} aria-label={label}>
         {rest.slice(at, at + h.heard.length)}
@@ -35,6 +37,7 @@ export interface TranscriptListProps {
 }
 
 export function TranscriptList({ segments, follow, highlighted, playingId, onSeek, speakerNames }: TranscriptListProps) {
+  const t = useT();
   const box = useRef<HTMLOListElement>(null);
   const [detached, setDetached] = useState(false);
 
@@ -55,7 +58,7 @@ export function TranscriptList({ segments, follow, highlighted, playingId, onSee
   }
 
   const name = (s: Segment) =>
-    s.speaker == null ? "Speaker" : (speakerNames?.[s.speaker] ?? `Speaker ${s.speaker + 1}`);
+    s.speaker == null ? t("Speaker") : (speakerNames?.[s.speaker] ?? t("Speaker {n}", { n: s.speaker + 1 }));
 
   return (
     <div className="transcript-wrap">
@@ -69,7 +72,7 @@ export function TranscriptList({ segments, follow, highlighted, playingId, onSee
           >
             <span className="turn-speaker label">{name(s)}</span>
             {onSeek ? (
-              <button type="button" className="turn-text" onClick={() => onSeek(s)} title="Play from here">
+              <button type="button" className="turn-text" onClick={() => onSeek(s)} title={t("Play from here")}>
                 <HintedText text={s.text} hints={s.hints} />
               </button>
             ) : (
@@ -79,7 +82,7 @@ export function TranscriptList({ segments, follow, highlighted, playingId, onSee
             )}
             <span className="turn-time mono faint">{fmtTime(s.start)}</span>
             {s.check && (s.check.primary_only.length > 0 || s.check.second_only.length > 0) && (
-              <span className="turn-check small">Second listen heard: {s.check.text}</span>
+              <span className="turn-check small">{t("Second listen heard: {text}", { text: s.check.text })}</span>
             )}
           </li>
         ))}
@@ -94,7 +97,7 @@ export function TranscriptList({ segments, follow, highlighted, playingId, onSee
             box.current?.lastElementChild?.scrollIntoView({ block: "nearest" });
           }}
         >
-          Jump to live
+          {t("Jump to live")}
         </button>
       )}
     </div>

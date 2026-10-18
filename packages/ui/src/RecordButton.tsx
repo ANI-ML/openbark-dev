@@ -8,6 +8,8 @@ export interface RecordButtonProps {
   disabled?: boolean;
   onToggle: () => void;
   levels: LevelSource;
+  /** Accessible labels in the app's language. */
+  labels?: { start: string; stop: string };
 }
 
 /**
@@ -15,7 +17,7 @@ export interface RecordButtonProps {
  * Idle: Pulse Red fill, white icon. Recording: a Pulse Red ring around a live
  * waveform, with the 2 s breathing ring (the only perpetual animation).
  */
-export function RecordButton({ recording, busy, disabled, onToggle, levels }: RecordButtonProps) {
+export function RecordButton({ recording, busy, disabled, onToggle, levels, labels }: RecordButtonProps) {
   return (
     <button
       type="button"
@@ -24,7 +26,7 @@ export function RecordButton({ recording, busy, disabled, onToggle, levels }: Re
       onClick={onToggle}
       disabled={disabled || busy}
       aria-pressed={recording}
-      aria-label={recording ? "Stop recording" : "Start recording"}
+      aria-label={recording ? (labels?.stop ?? "Stop recording") : (labels?.start ?? "Start recording")}
     >
       {recording ? (
         <>

@@ -3,6 +3,7 @@ import { UploadSimple } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import { fmtTime, useApp } from "../context";
 import * as engine from "../engine";
+import { useT } from "../i18n";
 import { ConsentStep } from "../components/ConsentStep";
 import { PatientFields } from "../components/PatientFields";
 import { SetupPanel } from "../components/SetupPanel";
@@ -13,6 +14,7 @@ type State = "idle" | "consent" | "starting" | "recording" | "stopping" | "impor
 /** DESIGN.md §6 Recorder (home): Record button, waveform, elapsed, live transcript. */
 export function Recorder() {
   const app = useApp();
+  const t = useT();
   const [state, setState] = useState<State>("idle");
   const [elapsed, setElapsed] = useState(0);
   const [segments, setSegments] = useState<engine.Segment[]>([]);
@@ -42,7 +44,7 @@ export function Recorder() {
       try {
         const view = await recording.current!.stop();
         recording.current = null;
-        app.announce("Recording stopped. Drafting the note.");
+        app.announce(t("Recording stopped. Drafting the note."));
         app.navigate({ screen: "review", id: view.id, draft: app.settings.draftOnStop });
       } catch (e) {
         setError(String(e instanceof Error ? e.message : e));
@@ -50,12 +52,17 @@ export function Recorder() {
       }
       return;
     }
-    // Nothing records until consent is confirmed (M1 item 7).
-    setConsentFor("record");
-    setState("consent");
+    // Consent is the clinic's responsibility (accepted once); the
+    // per-recording step is optional (Settings).
+    if (app.settings.consentEachTime) {
+      setConsentFor("record");
+      setState("consent");
+    } else {
+      void begin(null);
+    }
   }
 
-  async function begin(consent: engine.RecordingConsent) {
+  async function begin(consent: engine.RecordingConsent | null) {
     setState("starting");
     setSegments([]);
     setElapsed(0);
@@ -65,7 +72,7 @@ export function Recorder() {
         setElapsed(seconds);
       });
       setState("recording");
-      app.announce("Recording started");
+      app.announce(t("Recording started"));
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e));
       setState("idle");
@@ -74,11 +81,15 @@ export function Recorder() {
 
   function importFile() {
     setError(null);
-    setConsentFor("import");
-    setState("consent");
+    if (app.settings.consentEachTime) {
+      setConsentFor("import");
+      setState("consent");
+    } else {
+      void importWith(null);
+    }
   }
 
-  async function importWith(consent: engine.RecordingConsent) {
+  async function importWith(consent: engine.RecordingConsent | null) {
     setState("idle");
     try {
       const view = await engine.importRecording(app.settings.labelSpeakers, patient, consent, () => {
@@ -109,32 +120,32 @@ export function Recorder() {
 
   function declineConsent() {
     setState("idle");
-    app.toast("Not recording");
-    app.announce("The client declined. Not recording.");
+    app.toast(t("Not recording"));
+    app.announce(t("The client declined. Not recording."));
   }
 
   const statusLine =
     state === "recording"
-      ? "Recording. Audio is saved as you go."
+      ? t("Recording. Audio is saved as you go.")
       : state === "consent"
-        ? "Confirm consent to record."
+        ? t("Confirm consent to record.")
         : state === "starting"
-        ? "Starting the microphone"
-        : state === "stopping"
-          ? "Finishing the transcript"
-          : state === "importing"
-            ? "Transcribing the recording"
-            : missing.length
-              ? "Download the models above to start recording."
-              : "Press the button or Space to start recording.";
+          ? t("Starting the microphone")
+          : state === "stopping"
+            ? t("Finishing the transcript")
+            : state === "importing"
+              ? t("Transcribing the recording")
+              : missing.length
+                ? t("Download the models above to start recording.")
+                : t("Press the button or Space to start recording.");
 
   return (
     <div className="screen recorder" tabIndex={-1} onKeyDown={onKeyDown}>
       <header className="screen-head">
-        <h1>Record</h1>
+        <h1>{t("Record")}</h1>
         <Button variant="ghost" onClick={importFile} disabled={state !== "idle" || missing.length > 0}>
           <UploadSimple size={20} aria-hidden />
-          Import a recording
+          {t("Import a recording")}
         </Button>
       </header>
 
@@ -145,19 +156,19 @@ export function Recorder() {
       )}
 
       <div className="recorder-grid">
-        <aside className="recorder-patient" aria-label="Patient">
-          <h2>Patient</h2>
+        <aside className="recorder-patient" aria-label={t("Patient")}>
+          <h2>{t("Patient")}</h2>
           <PatientFields value={patient} onChange={setPatient} disabled={state !== "idle"} />
-          <p className="small faint">Saved with the encounter and time-stamped. Optional: you can add or change these later.</p>
+          <p className="small faint">{t("Saved with the encounter and time-stamped. Optional: you can add or change these later.")}</p>
         </aside>
-        <section className="recorder-center" aria-label="Recorder">
+        <section className="recorder-center" aria-label={t("Recorder")}>
           {missing.length > 0 && state === "idle" && (
             <SetupPanel
               missing={missing}
               onReady={() => {
                 app.refreshStatus();
-                app.toast("Models ready");
-                app.announce("Models downloaded. Ready to record.");
+                app.toast(t("Models ready"));
+                app.announce(t("Models downloaded. Ready to record."));
               }}
             />
           )}
@@ -179,9 +190,10 @@ export function Recorder() {
               disabled={missing.length > 0 || state === "importing"}
               onToggle={toggle}
               levels={app.levels}
+              labels={{ start: t("Start recording"), stop: t("Stop recording") }}
             />
             <div className="recorder-meta">
-              <span className="mono elapsed" aria-label="Elapsed time">
+              <span className="mono elapsed" aria-label={t("Elapsed time")}>
                 {fmtTime(elapsed)}
               </span>
               <span className="small muted">{statusLine}</span>
@@ -191,7 +203,7 @@ export function Recorder() {
           <div className="recorder-transcript">
             {segments.length === 0 ? (
               <p className="empty small muted">
-                {live ? "Listening. Each sentence appears here once it's finished." : "The live transcript appears here."}
+                {live ? t("Listening. Each sentence appears here once it's finished.") : t("The live transcript appears here.")}
               </p>
             ) : (
               <TranscriptList segments={segments} follow />
@@ -199,24 +211,26 @@ export function Recorder() {
           </div>
         </section>
 
-        <aside className="recorder-rail" aria-label="Recording options">
+        <aside className="recorder-rail" aria-label={t("Recording options")}>
           <div className="ob-field">
-            <span className="label">Template</span>
+            <span className="label">{t("Template")}</span>
             <select
               className="ob-select"
               value={app.settings.template}
-              aria-label="Template"
+              aria-label={t("Template")}
               onChange={(e) => app.setSettings({ template: e.target.value })}
             >
               {templates.length === 0 && <option value={app.settings.template}>SOAP note</option>}
-              {templates.filter((t) => t.document !== "client").map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
+              {templates
+                .filter((x) => x.document !== "client")
+                .map((x) => (
+                  <option key={x.id} value={x.id}>
+                    {x.name}
+                  </option>
+                ))}
             </select>
             <button type="button" className="link small" onClick={() => app.navigate({ screen: "templates" })}>
-              Edit templates
+              {t("Edit templates")}
             </button>
           </div>
           <label className="check">
@@ -226,19 +240,14 @@ export function Recorder() {
               onChange={(e) => app.setSettings({ labelSpeakers: e.target.checked })}
               disabled={state !== "idle"}
             />
-            <span>Label speakers</span>
+            <span>{t("Label speakers")}</span>
           </label>
           <label className="check">
-            <input
-              type="checkbox"
-              checked={app.settings.draftOnStop}
-              onChange={(e) => app.setSettings({ draftOnStop: e.target.checked })}
-            />
-            <span>Draft the note when I stop</span>
+            <input type="checkbox" checked={app.settings.draftOnStop} onChange={(e) => app.setSettings({ draftOnStop: e.target.checked })} />
+            <span>{t("Draft the note when I stop")}</span>
           </label>
-          <p className="small faint">
-            The machine stays awake while recording and drafting. Recordings are saved on this computer only.
-          </p>
+          <p className="small faint">{t("The machine stays awake while recording and drafting. Recordings are saved on this computer only.")}</p>
+          <p className="small faint">{t("Get the client's consent before recording.")}</p>
         </aside>
       </div>
     </div>

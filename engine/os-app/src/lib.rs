@@ -336,8 +336,9 @@ impl App {
     }
 
     /// Start recording from a microphone on this machine (`Some(device)`/`None`
-    /// = default) or from blocks the caller pushes (`stream`). Refused until
-    /// consent to record has been confirmed (M1 item 7).
+    /// = default) or from blocks the caller pushes (`stream`). Consent is the
+    /// clinic's responsibility (the app shows a one-time notice); when the
+    /// per-recording consent step is used, the consent is checked and saved.
     pub fn start_recording(
         &self,
         source: RecordingSource,
@@ -346,9 +347,9 @@ impl App {
         consent: Option<Consent>,
         events: Arc<dyn Events>,
     ) -> Result<String> {
-        let consent = consent
-            .ok_or_else(|| AppError("Confirm consent to record before starting the recording.".into()))?;
-        consent.check()?;
+        if let Some(c) = &consent {
+            c.check()?;
+        }
         let mut slot = self.recorder.lock().map_err(|_| AppError("recorder lock poisoned".into()))?;
         if slot.is_some() {
             return Err(AppError("A recording is already running. Stop it first.".into()));
@@ -360,7 +361,7 @@ impl App {
         let mut options = LiveOptions::microphone();
         options.label_speakers = label_speakers;
         options.patient = patient.filter(|p| !p.is_empty());
-        options.consent = Some(consent);
+        options.consent = consent;
         let recorder = LiveRecorder::start(
             &self.store,
             &self.sessions_root,
@@ -405,11 +406,14 @@ impl App {
 
     // ---- notes -----------------------------------------------------------
 
+    /// Draft a note (or a client document) with a template. `language`: write
+    /// the note in this language ("fr"…); the template's language when None.
     pub fn generate_note(
         &self,
         id: &str,
         llm: &str,
         template: &str,
+        language: Option<&str>,
         events: &dyn Events,
     ) -> Result<NoteResponse> {
         let _awake = AwakeGuard::acquire(AwakeReason::Processing);
@@ -438,6 +442,7 @@ impl App {
         let options = NoteOptions {
             context: s.meta.patient.as_ref().map(|p| p.prompt_context()),
             reference,
+            language: language.map(String::from),
             ..NoteOptions::default()
         };
         let mut result =
@@ -489,6 +494,7 @@ impl App {
         let transcript = s.load_transcript()?;
         let options = NoteOptions {
             context: s.meta.patient.as_ref().map(|p| p.prompt_context()),
+            language: request.language.clone(),
             ..NoteOptions::default()
         };
         let mut result = os_engine::refine_note(
@@ -560,6 +566,72 @@ impl App {
         let mut s = Session::open(&self.session_dir(id)?)?;
         s.add_addendum(text, by)?;
         Ok(view(&s, None))
+    }
+
+    /// The note (or a client document) as a PDF, with the clinic letterhead.
+    /// Returns the bytes and a suggested file name.
+    pub fn export_pdf(&self, id: &str, request: &PdfRequest) -> Result<(Vec<u8>, String)> {
+        let s = Session::open(&self.session_dir(id)?)?;
+        let run = match &request.document {
+            Some(doc) => s.meta.runs.iter().rev().find(|r| r.template_id() == doc),
+            None => s.latest_record(),
+        }
+        .ok_or_else(|| AppError("There's no draft to export yet. Draft the note first.".into()))?;
+        let template = s.run_template(run)?;
+        let path = s.dir.join(&run.dir).join("note.json");
+        let saved: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path)?)?;
+        let labels = os_engine::pdf::Labels::for_language(request.language.as_deref().unwrap_or("en"));
+        let mut details = Vec::new();
+        if let Some(p) = &s.meta.patient {
+            if !p.display_name().is_empty() {
+                details.push(format!("{}: {}", labels.patient, p.display_name()));
+            }
+            if !p.reason.is_empty() {
+                details.push(format!("{}: {}", labels.reason, p.reason));
+            }
+        }
+        details.push(format!("{}: {}", labels.recorded, s.meta.created_at.format("%Y-%m-%d %H:%M")));
+        let record = run.document.is_record();
+        let header = os_engine::pdf::PdfHeader {
+            clinic: request.clinic.clone(),
+            details,
+            signed: run.signed_at.filter(|_| record).map(|at| {
+                labels.signed(
+                    &run.signed_by.clone().unwrap_or_default(),
+                    &at.format("%Y-%m-%d %H:%M").to_string(),
+                )
+            }),
+            addenda: if record {
+                run.addenda
+                    .iter()
+                    .map(|a| {
+                        let heading =
+                            format!("{}, {}, {}", labels.addendum, a.at.format("%Y-%m-%d %H:%M"), a.by);
+                        (heading, a.text.clone())
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            },
+            page: request.page,
+            labels,
+        };
+        let pdf = os_engine::pdf::note_pdf(&template, &saved["note"], &header);
+        let who = s.meta.patient.as_ref().map(|p| p.display_name()).filter(|n| !n.is_empty());
+        let stem = format!(
+            "{} {} {}",
+            s.meta.created_at.format("%Y-%m-%d"),
+            who.unwrap_or_default(),
+            template.template.name
+        );
+        let name: String = stem
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join("-")
+            .chars()
+            .filter(|c| c.is_alphanumeric() || *c == '-')
+            .collect();
+        Ok((pdf, format!("{name}.pdf")))
     }
 
     /// Mark the latest draft as signed by `by` (refused while numbers are unsupported).
@@ -706,6 +778,21 @@ impl App {
     }
 }
 
+/// What to put in a PDF export.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct PdfRequest {
+    #[serde(default)]
+    pub clinic: os_engine::pdf::Clinic,
+    #[serde(default)]
+    pub page: os_engine::pdf::PageSize,
+    /// A client document's template id; the medical record when absent.
+    #[serde(default)]
+    pub document: Option<String>,
+    /// Language for the PDF's own words ("Patient", "Page 1 of 2").
+    #[serde(default)]
+    pub language: Option<String>,
+}
+
 /// A re-prompt of one heading of the latest draft.
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct RefineRequest {
@@ -715,6 +802,9 @@ pub struct RefineRequest {
     pub request: String,
     #[serde(default)]
     pub save_as_standard: bool,
+    /// Language for the redraft ("fr"…); the template's when None.
+    #[serde(default)]
+    pub language: Option<String>,
     /// Who asked (for the standard's record).
     #[serde(default)]
     pub by: Option<String>,

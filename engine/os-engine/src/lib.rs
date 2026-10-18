@@ -14,6 +14,7 @@ pub mod live;
 pub mod models;
 pub mod note;
 mod numbers;
+pub mod pdf;
 pub mod render;
 pub mod session;
 pub mod template;

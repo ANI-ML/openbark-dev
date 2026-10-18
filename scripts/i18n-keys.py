@@ -1,0 +1,45 @@
+"""List every interface string passed to t() in apps/desktop/src, for translation.
+
+Usage: python scripts/i18n-keys.py > target/i18n-keys.json
+Strings translated indirectly (labels kept in constants and rendered with
+t(x.label)) are listed in INDIRECT; keep it in sync with the code.
+"""
+import io
+import json
+import os
+import re
+import sys
+
+ROOT = os.path.join(os.path.dirname(__file__), "..", "apps", "desktop", "src")
+CALL = re.compile(r'\bt\(\s*("(?:[^"\\]|\\.)*")')
+INDIRECT = [
+    # ConsentStep METHODS, RefinePanel SUGGESTIONS, HeadingEditor MED_LABELS
+    "Agreed out loud just now", "Signed a consent form", "Consent on file for this client",
+    "Only I consent (one-party rule)", "Add any details that were said but left out",
+    "Give every value with its unit", "One finding per line",
+    "Drug", "Dose", "Route", "Frequency", "Duration",
+    # Models SLOT_LABEL / FIT, Templates KINDS / KIND_HINT, App NAV
+    "Notes", "Transcription", "Speech detection", "Speakers", "Fits", "Tight", "Won't fit",
+    "Bullet points", "Measurements", "Medications", "Subheadings",
+    "Bullet points, each linked to where it was said", "Drug, dose, route, frequency, duration",
+    "Record", "Encounters", "Templates", "Models", "Settings", "This device", "Web, this computer only",
+    # @openbark/ui ThemeToggle (translated through its `translate` prop)
+    "Theme", "System", "Light", "Dark",
+]
+
+
+def main() -> None:
+    keys = set(INDIRECT)
+    for folder, _, files in os.walk(ROOT):
+        for name in files:
+            if not name.endswith((".ts", ".tsx")) or ".test." in name:
+                continue
+            with io.open(os.path.join(folder, name), encoding="utf-8") as f:
+                for m in CALL.finditer(f.read()):
+                    keys.add(json.loads(m.group(1)))
+    keys.discard("")
+    json.dump(sorted(keys), sys.stdout, ensure_ascii=False, indent=0)
+
+
+if __name__ == "__main__":
+    main()
