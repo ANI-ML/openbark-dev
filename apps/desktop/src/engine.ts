@@ -61,6 +61,8 @@ export interface NoteRun {
   note: Record<string, unknown>;
   faithfulness: Faithfulness;
   stats: { prompt_tokens: number; completion_tokens: number; total_ms: number; tokens_per_second: number; time_to_first_token_ms: number };
+  /** Set when this draft re-prompted one heading of an earlier draft. */
+  refinement?: Refinement;
 }
 
 /** Clinic-entered details, time-stamped by the engine. */
@@ -85,6 +87,8 @@ export interface SessionSummary {
   signed: boolean;
   patient: string;
   reason: string;
+  /** Name of the template the latest draft used. */
+  template: string;
 }
 
 export interface SessionView {
@@ -100,6 +104,8 @@ export interface SessionView {
   signed_at: string | null;
   signed_by: string | null;
   patient: Patient | null;
+  /** The template the latest draft was written with (saved with the draft). */
+  latest_template: Template | null;
 }
 
 export interface Hardware {
@@ -152,7 +158,13 @@ export interface HubRepoView {
   files: { path: string; size_bytes: number; fit: Fit }[];
 }
 
+// ---- templates ----------------------------------------------------------------
+
+/** What goes under a heading: bullet points, named measurements, or medications. */
+export type ContentKind = "statements" | "fields" | "medications";
+
 export interface TemplateField {
+  /** JSON key; the engine derives it from the label when empty. */
   key: string;
   label: string;
 }
@@ -160,24 +172,77 @@ export interface TemplateField {
 export interface TemplatePart {
   key: string;
   label: string;
-  kind: "statements" | "fields" | "medications";
-  presence: string;
-  fields: TemplateField[];
+  kind: ContentKind;
+  presence?: string;
+  instruction?: string | null;
+  fields?: TemplateField[];
 }
 
 export interface TemplateSection {
   id: string;
   title: string;
-  kind: "statements" | "fields" | "medications" | null;
-  fields: TemplateField[];
-  parts: TemplatePart[];
+  presence?: string;
+  /** Content held directly under the heading; null/absent when it has subheadings. */
+  kind?: ContentKind | null;
+  instruction?: string | null;
+  fields?: TemplateField[];
+  parts?: TemplatePart[];
+}
+
+/** A re-prompt saved against a heading, applied to every later draft. */
+export interface Standard {
+  id: string;
+  /** "plan", "plan/medications", or "" for the whole note. */
+  heading: string;
+  text: string;
+  added_at: string;
+  added_by?: string | null;
 }
 
 export interface Template {
   id: string;
   version: string;
   name: string;
+  description?: string;
+  language?: string;
+  instructions?: string;
+  rules?: string[];
   sections: TemplateSection[];
+  standards?: Standard[];
+}
+
+export interface TemplateSummary {
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  builtin: boolean;
+  headings: number;
+  standards: number;
+}
+
+export interface TemplateView {
+  template: Template;
+  builtin: boolean;
+  /** The system prompt drafts with this template start from. */
+  prompt: string;
+}
+
+export interface Refinement {
+  heading: string;
+  request: string;
+  from_run?: string | null;
+  saved_as_standard: boolean;
+}
+
+/** "Plan > Medications" for a heading path, from a template. */
+export function headingTitle(t: Template, heading: string): string {
+  const [sec, part] = heading.split("/");
+  const s = t.sections.find((x) => x.id === sec);
+  if (!s) return heading;
+  if (!part) return s.title;
+  const p = s.parts?.find((x) => x.key === part);
+  return p ? `${s.title} > ${p.label}` : s.title;
 }
 
 export const isDesktop = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -204,8 +269,36 @@ export const listSessions = () =>
   isDesktop ? invoke<SessionSummary[]>("list_sessions") : api<SessionSummary[]>("/api/sessions");
 export const openSession = (id: string) =>
   isDesktop ? invoke<SessionView>("open_session", { id }) : api<SessionView>(`/api/sessions/${enc(id)}`);
+export const listTemplates = () =>
+  isDesktop ? invoke<TemplateSummary[]>("list_templates") : api<TemplateSummary[]>("/api/templates");
 export const template = (id: string) =>
-  isDesktop ? invoke<Template>("template", { id }) : api<Template>(`/api/templates/${enc(id)}`);
+  isDesktop ? invoke<TemplateView>("template", { id }) : api<TemplateView>(`/api/templates/${enc(id)}`);
+export const previewTemplate = (t: Template) =>
+  isDesktop ? invoke<TemplateView>("preview_template", { template: t }) : api<TemplateView>("/api/templates/preview", post(t));
+export const saveTemplate = (t: Template) =>
+  isDesktop ? invoke<TemplateView>("save_template", { template: t }) : api<TemplateView>("/api/templates", post(t));
+export const deleteTemplate = (id: string) =>
+  isDesktop ? invoke<void>("delete_template", { id }) : api<void>(`/api/templates/${enc(id)}`, { method: "DELETE" });
+export const addStandard = (id: string, heading: string, text: string, by: string | null) =>
+  isDesktop
+    ? invoke<Standard>("add_standard", { id, heading, text, by })
+    : api<Standard>(`/api/templates/${enc(id)}/standards`, post({ heading, text, by }));
+export const removeStandard = (id: string, sid: string) =>
+  isDesktop
+    ? invoke<TemplateView>("remove_standard", { id, sid })
+    : api<TemplateView>(`/api/templates/${enc(id)}/standards/${enc(sid)}`, { method: "DELETE" });
+export interface RefineRequest {
+  llm: string;
+  heading: string;
+  request: string;
+  save_as_standard: boolean;
+  by: string | null;
+}
+/** Redraft one heading of the latest draft; saved as a new draft. */
+export const refineNote = (id: string, request: RefineRequest) =>
+  isDesktop
+    ? invoke<{ markdown: string; run: NoteRun }>("refine_note", { id, request })
+    : api<{ markdown: string; run: NoteRun }>(`/api/sessions/${enc(id)}/refine`, post(request));
 export const generateNote = (id: string, llm: string, tpl: string) =>
   isDesktop
     ? invoke<{ markdown: string; run: NoteRun }>("generate_note", { id, llm, template: tpl })

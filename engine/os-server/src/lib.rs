@@ -10,6 +10,11 @@
 //! - `GET  /api/sessions`, `GET /api/sessions/{id}`, `GET /api/sessions/{id}/audio` (Range)
 //! - `POST /api/sessions?diarize=&name=`    body: WAV bytes → new encounter, transcribed
 //! - `POST /api/sessions/{id}/notes`        `{llm, template}`
+//! - `POST /api/sessions/{id}/refine`       `{llm, heading, request, save_as_standard, by}`:
+//!   redraft one heading of the latest draft
+//! - `GET  /api/templates`, `POST /api/templates` (save), `POST /api/templates/preview`
+//! - `GET|DELETE /api/templates/{id}`
+//! - `POST /api/templates/{id}/standards` `{heading, text, by}`, `DELETE /api/templates/{id}/standards/{sid}`
 //! - `GET  /api/live` (WebSocket)           browser microphone: binary f32 PCM frames
 //!   (16 kHz mono); text "stop" ends it; the reply is the saved encounter
 //! - `POST /api/record/start|stop`          record from this machine's microphone
@@ -28,9 +33,10 @@ use axum::extract::{DefaultBodyLimit, Path as UrlPath, Query, State};
 use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Json, Response};
-use axum::routing::{get, post};
-use os_app::{App, AppError, AudioBlock, Events, Patient, RecordingSource};
+use axum::routing::{delete, get, post};
+use os_app::{App, AppError, AudioBlock, Events, Patient, RecordingSource, RefineRequest};
 use os_engine::Segment;
+use os_engine::template::Template;
 use os_models::ModelStore;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
@@ -120,7 +126,12 @@ pub async fn serve(options: ServerOptions) -> std::io::Result<()> {
         .route("/api/sessions/{id}/notes", post(create_note))
         .route("/api/sessions/{id}/sign", post(sign_note))
         .route("/api/sessions/{id}/patient", post(update_patient))
-        .route("/api/templates/{id}", get(template))
+        .route("/api/sessions/{id}/refine", post(refine_note))
+        .route("/api/templates", get(list_templates).post(save_template))
+        .route("/api/templates/preview", post(preview_template))
+        .route("/api/templates/{id}", get(template).delete(delete_template))
+        .route("/api/templates/{id}/standards", post(add_standard))
+        .route("/api/templates/{id}/standards/{sid}", delete(remove_standard))
         .route("/api/live", get(live))
         .route("/api/record/start", post(record_start))
         .route("/api/record/stop", post(record_stop))
@@ -256,8 +267,66 @@ async fn update_patient(
     blocking(move || s.app.update_patient(&id, p)).await
 }
 
+async fn refine_note(
+    State(s): State<St>,
+    UrlPath(id): UrlPath<String>,
+    Json(req): Json<RefineRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || {
+        let events = s.events.clone();
+        s.app.refine_note(&id, &req, events.as_ref())
+    })
+    .await
+}
+
+async fn list_templates(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || Ok(s.app.list_templates())).await
+}
+
 async fn template(State(s): State<St>, UrlPath(id): UrlPath<String>) -> Result<impl IntoResponse, ApiError> {
     blocking(move || s.app.template(&id)).await
+}
+
+async fn preview_template(
+    State(s): State<St>,
+    Json(t): Json<Template>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app.preview_template(t)).await
+}
+
+async fn save_template(State(s): State<St>, Json(t): Json<Template>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app.save_template(t)).await
+}
+
+async fn delete_template(
+    State(s): State<St>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app.delete_template(&id)).await
+}
+
+#[derive(Deserialize)]
+struct NewStandard {
+    #[serde(default)]
+    heading: String,
+    text: String,
+    #[serde(default)]
+    by: Option<String>,
+}
+
+async fn add_standard(
+    State(s): State<St>,
+    UrlPath(id): UrlPath<String>,
+    Json(req): Json<NewStandard>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app.add_standard(&id, &req.heading, &req.text, req.by.as_deref())).await
+}
+
+async fn remove_standard(
+    State(s): State<St>,
+    UrlPath((id, sid)): UrlPath<(String, String)>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app.remove_standard(&id, &sid)).await
 }
 
 #[derive(Deserialize)]

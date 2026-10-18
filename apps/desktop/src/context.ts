@@ -10,6 +10,8 @@ export interface Settings {
   device: string | null;
   signer: string;
   draftOnStop: boolean;
+  /** Template for new drafts. */
+  template: string;
 }
 
 const DEFAULTS: Settings = {
@@ -18,6 +20,7 @@ const DEFAULTS: Settings = {
   device: null,
   signer: "",
   draftOnStop: true,
+  template: "soap",
 };
 
 const KEY = "openbark.settings";

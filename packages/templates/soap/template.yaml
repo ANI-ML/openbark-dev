@@ -1,11 +1,12 @@
 # OpenBark template: SOAP note (general practice).
-# The JSON Schema (schema.json) is the structured core the model must fill;
-# this file carries the writing instructions and how sections render.
+# A template is headings plus instructions. The JSON Schema the model fills is
+# generated from the headings; schema.json beside this file is a snapshot of it,
+# kept in sync by a test (engine/os-engine/src/template.rs).
+# Every template also gets the core rules in template.rs (evidence, no invention).
 id: soap
 version: 0.1.0
 name: SOAP note
 description: General-practice veterinary SOAP note for any species.
-schema: schema.json
 language: en
 
 instructions: |
@@ -17,17 +18,9 @@ instructions: |
   speaker's mouth.
 
 rules:
-  - Use only information stated in the transcript. Do not add findings, diagnoses, vitals, doses or plans that were not said.
-  - If something was not discussed, leave the array empty or the field null. Never write "normal" or "within normal limits" unless that was said.
-  - Copy numbers (vitals, weights, doses, durations) exactly as stated, always with their units (kg, °C, bpm, breaths/min, mg/kg, mL, days).
-  - Patient details (name, species, breed, age, sex) only if someone said them. A pet's name said anywhere counts; never guess the species from the name or the complaint.
-  - Each evidence id must point to the line where that fact was actually said.
-  - Lines may end with speech-recognition hints such as [heard "marapitin", likely maropitant]. Use the likely spelling for a drug or term only when it fits what was said; otherwise keep the words as heard. Never add a drug because of a hint alone.
-  - Every statement and field must cite the transcript segment ids it comes from in "evidence".
   - Differentials only if the veterinarian voiced them.
   - "Everything given or prescribed is a medication, including injections and fluids given in the clinic. Record drug, dose or volume, route, frequency and duration as said."
   - Record diagnostics the client declined or deferred, and what was said about them.
-  - Keep each statement to one clinical fact or action.
 
 sections:
   - id: patient

@@ -1,5 +1,5 @@
-import { Copy } from "@phosphor-icons/react";
-import type { Faithfulness, NoteRun, Template, TemplateField, TemplatePart } from "../engine";
+import { ChatCircleText, Copy } from "@phosphor-icons/react";
+import type { ContentKind, Faithfulness, NoteRun, Template, TemplateField, TemplatePart } from "../engine";
 
 /**
  * The structured note with the evidence link (DESIGN.md §1, §5 Note editor):
@@ -8,6 +8,9 @@ import type { Faithfulness, NoteRun, Template, TemplateField, TemplatePart } fro
  * - number absent from the transcript: Clay left-ruled callout (blocks signing)
  * - value cited to the wrong line, or no valid citation: Amber dotted underline
  * - nothing said: "Not discussed" in Graphite italic, never omitted
+ *
+ * With `onAsk`, every heading and subheading has an Ask action that opens
+ * `renderAsk(heading)` beneath it (the re-prompt panel).
  */
 export interface NoteViewProps {
   template: Template;
@@ -15,6 +18,10 @@ export interface NoteViewProps {
   onEvidence: (ids: number[] | null) => void;
   onPlay: (ids: number[]) => void;
   onCopySection: (title: string, text: string) => void;
+  /** Re-prompt a heading ("plan" or "plan/medications"). Absent once signed. */
+  onAsk?: (heading: string) => void;
+  /** The re-prompt panel for the heading being asked about, else null. */
+  renderAsk?: (heading: string) => React.ReactNode;
 }
 
 type Statement = { text?: string; value?: string | number; unit?: string | null; evidence?: number[] } & Record<
@@ -43,7 +50,7 @@ function get(obj: unknown, key: string): unknown {
   return obj && typeof obj === "object" ? (obj as Record<string, unknown>)[key] : undefined;
 }
 
-export function NoteView({ template, run, onEvidence, onPlay, onCopySection }: NoteViewProps) {
+export function NoteView({ template, run, onEvidence, onPlay, onCopySection, onAsk, renderAsk }: NoteViewProps) {
   const { hard, soft } = flagsFor(run.faithfulness);
 
   const statement = (s: Statement, path: string, content: React.ReactNode) => {
@@ -143,15 +150,48 @@ export function NoteView({ template, run, onEvidence, onPlay, onCopySection }: N
     );
   };
 
-  const part = (p: TemplatePart, sectionValue: unknown, sectionPath: string) => {
+  const content = (kind: ContentKind, defs: TemplateField[] | undefined, value: unknown, path: string) =>
+    kind === "statements"
+      ? statements(value, path)
+      : kind === "fields"
+        ? fields(defs ?? [], value, path)
+        : medications(value, path);
+
+  const refined = run.refinement?.heading;
+  const askButton = (heading: string, title: string) =>
+    onAsk && (
+      <button
+        type="button"
+        className="ob-button section-tool"
+        data-variant="ghost"
+        onClick={() => onAsk(heading)}
+        aria-label={`Ask for changes to ${title}`}
+        title="Ask the model to redraft this heading"
+      >
+        <ChatCircleText size={16} aria-hidden />
+        Ask
+      </button>
+    );
+  const refinedNote = (heading: string) =>
+    refined === heading && (
+      <p className="refined small muted">
+        Redrafted on request: <q>{run.refinement?.request}</q>
+        {run.refinement?.saved_as_standard ? " Saved as a standard." : ""}
+      </p>
+    );
+
+  const part = (p: TemplatePart, sectionValue: unknown, sectionId: string) => {
     const value = get(sectionValue, p.key);
-    const path = `${sectionPath}/${p.key}`;
+    const heading = `${sectionId}/${p.key}`;
     return (
       <div className="note-part" key={p.key}>
-        <h3 className="label">{p.label}</h3>
-        {p.kind === "statements" && statements(value, path)}
-        {p.kind === "fields" && fields(p.fields, value, path)}
-        {p.kind === "medications" && medications(value, path)}
+        <div className="note-part-head">
+          <h3 className="label">{p.label}</h3>
+          {askButton(heading, p.label)}
+        </div>
+        {refinedNote(heading)}
+        {renderAsk?.(heading)}
+        {content(p.kind, p.fields, value, `/${heading}`)}
       </div>
     );
   };
@@ -179,8 +219,11 @@ export function NoteView({ template, run, onEvidence, onPlay, onCopySection }: N
                 <Copy size={16} aria-hidden />
                 Copy
               </button>
+              {askButton(sec.id, sec.title)}
             </header>
-            {sec.kind === "fields" ? fields(sec.fields, value, `/${sec.id}`) : sec.parts.map((p) => part(p, value, `/${sec.id}`))}
+            {refinedNote(sec.id)}
+            {renderAsk?.(sec.id)}
+            {sec.kind ? content(sec.kind, sec.fields, value, `/${sec.id}`) : (sec.parts ?? []).map((p) => part(p, value, sec.id))}
           </section>
         );
       })}

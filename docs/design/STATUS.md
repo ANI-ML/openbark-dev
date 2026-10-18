@@ -12,14 +12,17 @@ Tracks the build against `DESIGN.md`. Updated 2026-10-17. Screenshots: `apps/des
 - §5 Transcript: a hanging speaker label, mono timestamps on the right, click to seek, follow-live with **Jump to live**.
 - §5 Model manager: catalog rows (not cards), sizes in mono, licence chips, Fits/Tight/Won't fit shown as a dot plus a word, determinate download progress, and a Hugging Face browser in a right-hand sheet. Permissive licences are shown by default; restrictive ones need explicit acceptance.
 - §5 Tables, chips, toasts, skeletons and sheets follow the specs.
+- §5 Template builder: two panes, a structure list with `DotsSixVertical` drag handles (plus Move up/down buttons for the keyboard) and plain-textarea instructions, and a live preview with a "What the model is told" tab. Empty state: "No team templates yet. Start from SOAP, or start a new one from blank headings."
+- §5 Note: **Ask** on every heading and subheading opens an inline re-prompt panel (reuse chips, a "Save as a standard" box, a progress rule). A redrafted heading shows its request beneath the title.
 - §8 copy uses sentence case, outcome verbs and specific errors. §9: keyboard paths, visible focus rings, status shown as text plus a dot, a live region for recording and draft events, and `prefers-reduced-motion` respected.
 
 ## Not yet
 
 - Recorder left column (patient context from the PIMS or entered manually): arrives with patient context in prompts.
-- Note editor toolbar: Accept, Redo with instruction, Dictate correction (M1 item 6). Only Copy exists today.
+- Note editor toolbar: Accept and Dictate correction (M1 item 6). Copy and Ask (redo with an instruction) exist.
 - Draggable Review split that remembers its ratio per device.
 - Renaming speakers (DVM, Client, Tech) and low-confidence word underlines.
 - `[` and `]` keys to jump between unsupported sentences.
-- Onboarding (3 screens), template builder, dental chart, encounter filters, Hub admin, browser extension popup.
+- Template builder conditionals ("Show when species is feline") and building a template from an example note.
+- Onboarding (3 screens), dental chart, encounter filters, Hub admin, browser extension popup.
 - shadcn/ui primitives: plain accessible elements are used for now. Revisit when menus, comboboxes and dialogs grow.

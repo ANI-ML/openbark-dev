@@ -16,6 +16,7 @@ export function Recorder() {
   const [segments, setSegments] = useState<engine.Segment[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [patient, setPatient] = useState<engine.Patient>(engine.emptyPatient);
+  const [templates, setTemplates] = useState<engine.TemplateSummary[]>([]);
   const recording = useRef<engine.Recording | null>(null);
   const live = state === "recording" || state === "stopping" || state === "importing";
 
@@ -24,6 +25,7 @@ export function Recorder() {
       engine.on("segment", (s) => setSegments((prev) => (prev.some((p) => p.id === s.id) ? prev : [...prev, s]))),
       engine.on("level", (l) => setElapsed(l.seconds)),
     ];
+    engine.listTemplates().then(setTemplates, () => {});
     return () => offs.forEach((p) => void p.then((f) => f()));
   }, []);
 
@@ -149,9 +151,22 @@ export function Recorder() {
         <aside className="recorder-rail" aria-label="Recording options">
           <div className="ob-field">
             <span className="label">Template</span>
-            <select className="ob-select" value="soap" disabled aria-label="Template">
-              <option value="soap">SOAP note</option>
+            <select
+              className="ob-select"
+              value={app.settings.template}
+              aria-label="Template"
+              onChange={(e) => app.setSettings({ template: e.target.value })}
+            >
+              {templates.length === 0 && <option value={app.settings.template}>SOAP note</option>}
+              {templates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
             </select>
+            <button type="button" className="link small" onClick={() => app.navigate({ screen: "templates" })}>
+              Edit templates
+            </button>
           </div>
           <label className="check">
             <input

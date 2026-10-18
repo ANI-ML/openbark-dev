@@ -82,4 +82,51 @@ describe("NoteView", () => {
     expect(stmt.getAttribute("data-soft")).toBe("true");
     expect(stmt.getAttribute("title")).toContain("not in the cited line");
   });
+  it("renders content held directly under a heading (team templates)", () => {
+    const team: Template = {
+      id: "dental",
+      version: "1",
+      name: "Dental",
+      sections: [
+        { id: "anaesthesia", title: "Anaesthesia", kind: "medications" },
+        { id: "findings", title: "Findings", kind: "statements" },
+      ],
+    };
+    const r = { ...run(), note: { anaesthesia: [{ drug: "Propofol", dose: "4 mg/kg", route: "IV", frequency: null, duration: null, evidence: [1] }], findings: [] } };
+    render(<NoteView template={team} run={r} onEvidence={() => {}} onPlay={() => {}} onCopySection={() => {}} />);
+    expect(screen.getByText("Propofol")).toBeTruthy();
+    expect(screen.getByText(/4 mg\/kg, IV/)).toBeTruthy();
+    expect(screen.getByText("Not discussed")).toBeTruthy();
+  });
+
+  it("asks about a heading or subheading and shows the panel beneath it", () => {
+    const onAsk = vi.fn();
+    const { rerender } = render(
+      <NoteView template={template} run={run()} onEvidence={() => {}} onPlay={() => {}} onCopySection={() => {}} onAsk={onAsk} renderAsk={() => null} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Ask for changes to Vitals" }));
+    expect(onAsk).toHaveBeenLastCalledWith("objective/vitals");
+    fireEvent.click(screen.getByRole("button", { name: "Ask for changes to Objective" }));
+    expect(onAsk).toHaveBeenLastCalledWith("objective");
+    rerender(
+      <NoteView
+        template={template}
+        run={run()}
+        onEvidence={() => {}}
+        onPlay={() => {}}
+        onCopySection={() => {}}
+        onAsk={onAsk}
+        renderAsk={(h) => (h === "objective/vitals" ? <p>panel for vitals</p> : null)}
+      />,
+    );
+    expect(screen.getByText("panel for vitals")).toBeTruthy();
+  });
+
+  it("has no Ask actions without onAsk (signed notes) and marks a redrafted heading", () => {
+    const r = { ...run(), refinement: { heading: "objective/vitals", request: "Add the weight", saved_as_standard: true } };
+    render(<NoteView template={template} run={r} onEvidence={() => {}} onPlay={() => {}} onCopySection={() => {}} />);
+    expect(screen.queryByRole("button", { name: /Ask for changes/ })).toBeNull();
+    expect(screen.getByText(/Redrafted on request/).textContent).toContain("Add the weight");
+    expect(screen.getByText(/Saved as a standard/)).toBeTruthy();
+  });
 });

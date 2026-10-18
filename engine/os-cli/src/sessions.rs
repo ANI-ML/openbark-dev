@@ -123,7 +123,7 @@ fn draft(
     let template = LoadedTemplate::resolve(&args.template)?;
     let llm = load_llm(store, args)?;
     let result = generate_note(&llm, &template, transcript, &note_options(args), &mut |_| true)?;
-    let run_dir = session.save_run(&args.llm, &result)?;
+    let run_dir = session.save_run(&args.llm, &result, &template)?;
     print!("{}", result.markdown);
     eprintln!("saved: {}", run_dir.display());
     if !result.faithfulness.passed {

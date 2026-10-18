@@ -48,6 +48,26 @@ for (const v of variants) {
       await stmt.hover();
       await shot("review-evidence");
     }
+    const ask = page.getByRole("button", { name: /^Ask for changes to / }).nth(1);
+    if (await ask.count()) {
+      await ask.click();
+      await page.locator("form.ask").scrollIntoViewIfNeeded();
+      await shot("review-ask");
+    }
+  }
+
+  await nav("Templates");
+  await page.getByRole("heading", { name: "Templates" }).waitFor();
+  await shot("templates");
+  const team = page.locator("tr.row-link").nth(1);
+  if (await team.count()) {
+    await team.click();
+    await page.locator(".tb-heading").first().waitFor();
+    await page.waitForTimeout(500);
+    await shot("template-builder");
+    await page.getByRole("tab", { name: "What the model is told" }).click();
+    await shot("template-prompt");
+    await page.getByRole("button", { name: "Templates", exact: true }).nth(1).click().catch(() => {});
   }
 
   await nav("Models");

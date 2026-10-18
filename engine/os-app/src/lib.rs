@@ -11,7 +11,9 @@ use std::sync::{Arc, Mutex};
 use os_engine::awake::{AwakeGuard, AwakeReason};
 use os_engine::live::{LiveOptions, LiveRecorder, LiveSink, LiveSource};
 use os_engine::session::{self, PatientInfo, Session};
-use os_engine::{LoadedTemplate, NoteOptions, Segment, TranscribeStats, Transcript};
+use os_engine::template::{Standard, Template};
+use os_engine::template_store::TemplateSummary;
+use os_engine::{LoadedTemplate, NoteOptions, Segment, TemplateStore, TranscribeStats, Transcript};
 use os_llm::{LlamaCppBackend, LlamaCppOptions};
 use os_models::hub::{self, Fit, HubModel, HubRepo};
 use os_models::{CatalogEntry, ModelStore, Slot, Verify};
@@ -45,6 +47,7 @@ type Result<T> = std::result::Result<T, AppError>;
 pub struct App {
     pub store: ModelStore,
     pub sessions_root: PathBuf,
+    pub templates: TemplateStore,
     llm: Mutex<Option<(String, Arc<LlamaCppBackend>)>>,
     recorder: Mutex<Option<LiveRecorder>>,
     hardware: Hardware,
@@ -104,6 +107,8 @@ pub struct SessionSummary {
     /// "Maple Okonkwo", if the clinic entered it.
     pub patient: String,
     pub reason: String,
+    /// Name of the template the latest draft used.
+    pub template: String,
 }
 
 #[derive(Serialize)]
@@ -122,6 +127,28 @@ pub struct SessionView {
     pub signed_by: Option<String>,
     /// Clinic-entered details with their entry and change times.
     pub patient: Option<PatientInfo>,
+    /// The template the latest draft was written with (its saved snapshot),
+    /// so the note renders under the headings it was drafted to.
+    pub latest_template: Option<Template>,
+}
+
+/// A template for the builder: its headings, and what the model is told.
+#[derive(Serialize)]
+pub struct TemplateView {
+    pub template: Template,
+    pub builtin: bool,
+    /// The system prompt drafts with this template start from.
+    pub prompt: String,
+}
+
+impl TemplateView {
+    fn of(t: LoadedTemplate) -> Self {
+        Self {
+            builtin: LoadedTemplate::is_builtin(&t.template.id),
+            prompt: os_engine::note::system_prompt(&t),
+            template: t.template,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -148,6 +175,7 @@ impl App {
         Self {
             store,
             sessions_root,
+            templates: TemplateStore::default(),
             llm: Mutex::new(None),
             recorder: Mutex::new(None),
             hardware: probe_hardware(),
@@ -201,6 +229,17 @@ impl App {
                 signed: s.is_signed(),
                 patient: s.meta.patient.as_ref().map(|p| p.display_name()).unwrap_or_default(),
                 reason: s.meta.patient.as_ref().map(|p| p.reason.clone()).unwrap_or_default(),
+                template: s
+                    .meta
+                    .runs
+                    .last()
+                    .map(|r| {
+                        self.templates
+                            .load(r.template_id())
+                            .map(|t| t.template.name)
+                            .unwrap_or_else(|_| r.template_id().to_string())
+                    })
+                    .unwrap_or_default(),
             })
             .collect()
     }
@@ -347,7 +386,7 @@ impl App {
         let backend = self.load_llm(llm)?;
         let mut s = Session::open(&self.session_dir(id)?)?;
         let transcript = s.load_transcript()?;
-        let template = LoadedTemplate::resolve(template)?;
+        let template = self.templates.load(if template.is_empty() { "soap" } else { template })?;
         let options = NoteOptions {
             context: s.meta.patient.as_ref().map(|p| p.prompt_context()),
             ..NoteOptions::default()
@@ -358,7 +397,76 @@ impl App {
                 true
             })?;
         result.markdown = with_header(&s, &result.markdown);
-        s.save_run(llm, &result)?;
+        s.save_run(llm, &result, &template)?;
+        Ok(NoteResponse { markdown: result.markdown.clone(), run: serde_json::to_value(&result)? })
+    }
+
+    /// Re-prompt one heading of the latest draft ("plan/medications", or a
+    /// whole section such as "plan"). The redraft is saved as a new run; the
+    /// rest of the note is unchanged. With `save_as_standard`, the request is
+    /// also saved against that heading of the template, so later drafts
+    /// follow it without being asked.
+    pub fn refine_note(
+        &self,
+        id: &str,
+        request: &RefineRequest,
+        events: &dyn Events,
+    ) -> Result<NoteResponse> {
+        let mut s = Session::open(&self.session_dir(id)?)?;
+        if s.is_signed() {
+            return Err(AppError("This note is signed, so it can't be changed.".into()));
+        }
+        let (run, note) = s.latest_note()?;
+        let template = s.run_template(&run)?;
+        let title = template.heading_title(&request.heading).ok_or_else(|| {
+            AppError(format!("{} has no heading called {}.", template.template.name, request.heading))
+        })?;
+        if request.request.trim().is_empty() {
+            return Err(AppError(format!("Say what should change under {title}.")));
+        }
+        if request.save_as_standard {
+            // Fail before drafting if the standard can't be saved.
+            self.templates.load(&template.template.id).map_err(|_| {
+                AppError(format!(
+                    "{} is no longer in your templates, so the request can't be saved as a standard.",
+                    template.template.name
+                ))
+            })?;
+        }
+        let _awake = AwakeGuard::acquire(AwakeReason::Processing);
+        let backend = self.load_llm(&request.llm)?;
+        let transcript = s.load_transcript()?;
+        let options = NoteOptions {
+            context: s.meta.patient.as_ref().map(|p| p.prompt_context()),
+            ..NoteOptions::default()
+        };
+        let mut result = os_engine::refine_note(
+            backend.as_ref(),
+            &template,
+            &transcript,
+            &note,
+            &request.heading,
+            &request.request,
+            &options,
+            &mut |p| {
+                events.token(p);
+                true
+            },
+        )?;
+        if request.save_as_standard {
+            self.templates.add_standard(
+                &template.template.id,
+                &request.heading,
+                &request.request,
+                request.by.as_deref(),
+            )?;
+        }
+        if let Some(r) = result.refinement.as_mut() {
+            r.from_run = Some(run.dir.clone());
+            r.saved_as_standard = request.save_as_standard;
+        }
+        result.markdown = with_header(&s, &result.markdown);
+        s.save_run(&request.llm, &result, &template)?;
         Ok(NoteResponse { markdown: result.markdown.clone(), run: serde_json::to_value(&result)? })
     }
 
@@ -372,9 +480,43 @@ impl App {
         Ok(view(&s, None))
     }
 
-    /// A template's sections and fields, for rendering structured notes.
-    pub fn template(&self, id: &str) -> Result<serde_json::Value> {
-        Ok(serde_json::to_value(&LoadedTemplate::resolve(id)?.template)?)
+    // ---- templates -------------------------------------------------------
+
+    pub fn list_templates(&self) -> Vec<TemplateSummary> {
+        self.templates.list()
+    }
+
+    /// A template's headings, standards and the prompt it produces.
+    pub fn template(&self, id: &str) -> Result<TemplateView> {
+        Ok(TemplateView::of(self.templates.load(id)?))
+    }
+
+    /// Check an unsaved template and show what the model would be told.
+    pub fn preview_template(&self, template: Template) -> Result<TemplateView> {
+        let mut t = LoadedTemplate::new(template)?;
+        if let Ok(saved) = self.templates.load(&t.template.id) {
+            t.template.standards = saved.template.standards;
+        }
+        Ok(TemplateView::of(t))
+    }
+
+    /// Save a team template (new, or a change that bumps its version).
+    pub fn save_template(&self, template: Template) -> Result<TemplateView> {
+        Ok(TemplateView::of(self.templates.save(template)?))
+    }
+
+    pub fn delete_template(&self, id: &str) -> Result<()> {
+        Ok(self.templates.delete(id)?)
+    }
+
+    /// Save a request as a standard for a heading ("" = the whole note).
+    pub fn add_standard(&self, id: &str, heading: &str, text: &str, by: Option<&str>) -> Result<Standard> {
+        Ok(self.templates.add_standard(id, heading, text, by)?)
+    }
+
+    pub fn remove_standard(&self, id: &str, standard_id: &str) -> Result<TemplateView> {
+        self.templates.remove_standard(id, standard_id)?;
+        self.template(id)
     }
 
     fn load_llm(&self, id: &str) -> Result<Arc<LlamaCppBackend>> {
@@ -470,6 +612,20 @@ impl App {
         let entry = hub::add_to_catalog(&self.store, &r, file, accept_license)?;
         Ok(self.row(&entry, false))
     }
+}
+
+/// A re-prompt of one heading of the latest draft.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct RefineRequest {
+    pub llm: String,
+    /// "plan/medications", or a whole section: "plan".
+    pub heading: String,
+    pub request: String,
+    #[serde(default)]
+    pub save_as_standard: bool,
+    /// Who asked (for the standard's record).
+    #[serde(default)]
+    pub by: Option<String>,
 }
 
 pub enum RecordingSource {
@@ -572,6 +728,7 @@ fn source_label(source: &str) -> String {
 
 fn view(s: &Session, transcript: Option<Transcript>) -> SessionView {
     let latest = s.meta.runs.last().map(|r| s.dir.join(&r.dir));
+    let latest_template = s.meta.runs.last().and_then(|r| s.run_template(r).ok()).map(|t| t.template);
     SessionView {
         id: id_of(s),
         dir: s.dir.display().to_string(),
@@ -593,5 +750,6 @@ fn view(s: &Session, transcript: Option<Transcript>) -> SessionView {
             .map(|t| t.format("%Y-%m-%d %H:%M").to_string()),
         signed_by: s.meta.runs.last().and_then(|r| r.signed_by.clone()),
         patient: s.meta.patient.clone(),
+        latest_template,
     }
 }

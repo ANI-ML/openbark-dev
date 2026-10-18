@@ -29,6 +29,7 @@ export function Encounters() {
                 <th>Time</th>
                 <th>Patient</th>
                 <th>Reason for visit</th>
+                <th>Template</th>
                 <th className="num">Length</th>
                 <th className="num">Drafts</th>
                 <th>Status</th>
@@ -46,6 +47,7 @@ export function Encounters() {
                   <td className="mono">{r.created_at}</td>
                   <td>{r.patient || <span className="faint">{r.source}</span>}</td>
                   <td className="reason-cell">{r.reason || <span className="faint">Not entered</span>}</td>
+                  <td>{r.template || <span className="faint">No draft</span>}</td>
                   <td className="num">{fmtTime(r.audio_secs)}</td>
                   <td className="num">{r.runs}</td>
                   <td>

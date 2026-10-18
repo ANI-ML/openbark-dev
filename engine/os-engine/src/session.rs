@@ -9,6 +9,7 @@
 //!   runs/001_gemma-4-e4b-it-q4_0/
 //!     note.json         structured note + faithfulness report + generation stats
 //!     note.md           the rendered draft
+//!     template.yaml     the template (and standards) the draft was written with
 //! ```
 //!
 //! The root defaults to the app's local data directory (never a cloud-synced
@@ -24,6 +25,8 @@ use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::note::Refinement;
+use crate::template::LoadedTemplate;
 use crate::transcribe::TranscribeStats;
 use crate::transcript::Transcript;
 use crate::{EngineError, NoteResult};
@@ -31,6 +34,7 @@ use crate::{EngineError, NoteResult};
 pub const SESSION_FILE: &str = "session.json";
 pub const AUDIO_FILE: &str = "audio.wav";
 pub const TRANSCRIPT_FILE: &str = "transcript.jsonl";
+pub const RUN_TEMPLATE_FILE: &str = "template.yaml";
 
 /// Default sessions root: `OPENBARK_SESSIONS_DIR`, else `<local data>/OpenBark/sessions`.
 pub fn default_root() -> PathBuf {
@@ -63,6 +67,16 @@ pub struct RunInfo {
     pub signed_at: Option<DateTime<Local>>,
     #[serde(default)]
     pub signed_by: Option<String>,
+    /// Set when this run redrafted one heading of an earlier run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refinement: Option<Refinement>,
+}
+
+impl RunInfo {
+    /// "soap" from "soap@0.1.0".
+    pub fn template_id(&self) -> &str {
+        self.template.split('@').next().unwrap_or_default()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -243,7 +257,14 @@ impl Session {
     }
 
     /// Save a generated note as a new numbered run; earlier runs are kept.
-    pub fn save_run(&mut self, llm_id: &str, result: &NoteResult) -> Result<PathBuf, EngineError> {
+    /// The template it was written with is saved beside it, so the run can
+    /// be shown and re-run exactly even after the template changes.
+    pub fn save_run(
+        &mut self,
+        llm_id: &str,
+        result: &NoteResult,
+        template: &LoadedTemplate,
+    ) -> Result<PathBuf, EngineError> {
         let name = format!("{:03}_{}", self.meta.runs.len() + 1, slug(llm_id));
         let dir = self.dir.join("runs").join(&name);
         fs::create_dir_all(&dir).map_err(io(&dir))?;
@@ -252,6 +273,8 @@ impl Session {
             .map_err(io(&json))?;
         let md = dir.join("note.md");
         fs::write(&md, &result.markdown).map_err(io(&md))?;
+        let snapshot = dir.join(RUN_TEMPLATE_FILE);
+        fs::write(&snapshot, template.to_yaml()).map_err(io(&snapshot))?;
         self.meta.runs.push(RunInfo {
             dir: format!("runs/{name}"),
             llm: llm_id.into(),
@@ -261,6 +284,7 @@ impl Session {
             total_ms: result.stats.total_ms,
             signed_at: None,
             signed_by: None,
+            refinement: result.refinement.clone(),
         });
         self.save_meta()?;
         Ok(dir)
@@ -306,6 +330,31 @@ impl Session {
         run.signed_at = Some(Local::now());
         run.signed_by = Some(signed_by.trim().to_string());
         self.save_meta()
+    }
+
+    /// The latest run's saved note (`note` from `note.json`).
+    pub fn latest_note(&self) -> Result<(RunInfo, serde_json::Value), EngineError> {
+        let run = self
+            .meta
+            .runs
+            .last()
+            .cloned()
+            .ok_or_else(|| EngineError::Session("There is no draft yet. Draft a note first.".into()))?;
+        let path = self.dir.join(&run.dir).join("note.json");
+        let text = fs::read_to_string(&path).map_err(io(&path))?;
+        let saved: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|e| EngineError::Session(format!("{}: {e}", path.display())))?;
+        Ok((run, saved["note"].clone()))
+    }
+
+    /// The template a run was written with: its snapshot, or for runs saved
+    /// before snapshots existed, the template by id as it is now.
+    pub fn run_template(&self, run: &RunInfo) -> Result<LoadedTemplate, EngineError> {
+        let snapshot = self.dir.join(&run.dir).join(RUN_TEMPLATE_FILE);
+        match fs::read_to_string(&snapshot) {
+            Ok(yaml) => LoadedTemplate::from_yaml(&yaml),
+            Err(_) => LoadedTemplate::resolve(run.template_id()),
+        }
     }
 
     pub fn is_signed(&self) -> bool {
@@ -391,6 +440,7 @@ mod tests {
             note: serde_json::json!({}),
             faithfulness: FaithfulnessReport { passed: true, ..Default::default() },
             stats: Default::default(),
+            refinement: None,
             markdown: "# SOAP note\n".into(),
         }
     }
@@ -426,10 +476,15 @@ mod tests {
             }],
         };
         s.save_transcript(&t, "parakeet", true, &Default::default()).unwrap();
-        let run1 = s.save_run("gemma-4-e4b-it-q4_0", &note_result()).unwrap();
-        let run2 = s.save_run("gemma-4-12b-it-q4_0", &note_result()).unwrap();
+        let soap = LoadedTemplate::builtin("soap").unwrap();
+        let run1 = s.save_run("gemma-4-e4b-it-q4_0", &note_result(), &soap).unwrap();
+        let run2 = s.save_run("gemma-4-12b-it-q4_0", &note_result(), &soap).unwrap();
         assert!(run1.ends_with("001_gemma-4-e4b-it-q4-0"));
         assert!(run2.join("note.md").is_file());
+        let last = s.meta.runs.last().unwrap().clone();
+        assert_eq!(last.template_id(), "soap");
+        assert_eq!(s.run_template(&last).unwrap().label(), "soap@0.1.0");
+        assert_eq!(s.latest_note().unwrap().1, serde_json::json!({}));
 
         let reopened = Session::open(&s.dir).unwrap();
         assert_eq!(reopened.meta.runs.len(), 2);

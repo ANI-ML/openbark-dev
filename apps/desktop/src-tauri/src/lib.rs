@@ -7,8 +7,10 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use os_app::{App, AppError, Events, Patient, RecordingSource};
+use os_app::{App, AppError, Events, Patient, RecordingSource, RefineRequest};
 use os_engine::Segment;
+use os_engine::template::{Standard, Template};
+use os_engine::template_store::TemplateSummary;
 use os_models::ModelStore;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
@@ -140,8 +142,59 @@ async fn sign_note(app: State<'_, AppState>, id: String, by: String) -> Result<o
 }
 
 #[tauri::command]
-fn template(app: State<'_, AppState>, id: String) -> Result<serde_json::Value, String> {
+async fn refine_note(
+    handle: AppHandle,
+    app: State<'_, AppState>,
+    id: String,
+    request: RefineRequest,
+) -> Result<os_app::NoteResponse, String> {
+    let app = app.inner().clone();
+    work(move || app.refine_note(&id, &request, &TauriEvents(handle))).await
+}
+
+#[tauri::command]
+fn list_templates(app: State<'_, AppState>) -> Vec<TemplateSummary> {
+    app.list_templates()
+}
+
+#[tauri::command]
+fn template(app: State<'_, AppState>, id: String) -> Result<os_app::TemplateView, String> {
     app.template(&id).map_err(|e| e.0)
+}
+
+#[tauri::command]
+fn preview_template(app: State<'_, AppState>, template: Template) -> Result<os_app::TemplateView, String> {
+    app.preview_template(template).map_err(|e| e.0)
+}
+
+#[tauri::command]
+fn save_template(app: State<'_, AppState>, template: Template) -> Result<os_app::TemplateView, String> {
+    app.save_template(template).map_err(|e| e.0)
+}
+
+#[tauri::command]
+fn delete_template(app: State<'_, AppState>, id: String) -> Result<(), String> {
+    app.delete_template(&id).map_err(|e| e.0)
+}
+
+#[tauri::command]
+fn add_standard(
+    app: State<'_, AppState>,
+    id: String,
+    heading: String,
+    text: String,
+    by: Option<String>,
+) -> Result<Standard, String> {
+    app.add_standard(&id, &heading, &text, by.as_deref()).map_err(|e| e.0)
+}
+
+#[tauri::command]
+fn remove_standard(
+    app: State<'_, AppState>,
+    id: String,
+    sid: String,
+) -> Result<os_app::TemplateView, String> {
+    app.remove_standard(&id, &sid).map_err(|e| e.0)
 }
 
 #[tauri::command]
@@ -196,7 +249,14 @@ pub fn run() {
             generate_note,
             sign_note,
             update_patient,
+            refine_note,
+            list_templates,
             template,
+            preview_template,
+            save_template,
+            delete_template,
+            add_standard,
+            remove_standard,
             models,
             download_model,
             hub_search,

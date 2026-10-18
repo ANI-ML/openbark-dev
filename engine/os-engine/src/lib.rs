@@ -16,13 +16,15 @@ mod numbers;
 pub mod render;
 pub mod session;
 pub mod template;
+pub mod template_store;
 pub mod transcribe;
 pub mod transcript;
 pub mod vocab;
 
 pub use faithfulness::FaithfulnessReport;
-pub use note::{NoteOptions, NoteResult, generate_note};
+pub use note::{NoteOptions, NoteResult, Refinement, generate_note, refine_note};
 pub use template::LoadedTemplate;
+pub use template_store::TemplateStore;
 pub use transcribe::{TranscribeStats, Transcriber};
 pub use transcript::{Segment, Transcript};
 

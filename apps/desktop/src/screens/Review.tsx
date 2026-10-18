@@ -3,15 +3,22 @@ import { ArrowClockwise, Copy, FolderOpen, Signature } from "@phosphor-icons/rea
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NoteView } from "../components/NoteView";
 import { PatientFields } from "../components/PatientFields";
+import { RefinePanel } from "../components/RefinePanel";
 import { TranscriptList } from "../components/TranscriptList";
 import { fmtTime, useApp } from "../context";
 import * as engine from "../engine";
 
 /** DESIGN.md §6 Review: slim top bar, 2fr/3fr transcript | note, output row. */
-export function Review({ id, autoDraft }: { id: string; autoDraft: boolean }) {
+/** `draftTemplate`: draft now with this template (from "Try on an encounter"). */
+export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft: boolean; draftTemplate?: string }) {
   const app = useApp();
   const [view, setView] = useState<engine.SessionView | null>(null);
-  const [template, setTemplate] = useState<engine.Template | null>(null);
+  const [templates, setTemplates] = useState<engine.TemplateSummary[]>([]);
+  const [picked, setPicked] = useState<string | null>(draftTemplate ?? null);
+  /** The current version of the draft's template (for its saved standards). */
+  const [current, setCurrent] = useState<engine.TemplateView | null>(null);
+  const [asking, setAsking] = useState<string | null>(null);
+  const [refining, setRefining] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [tokens, setTokens] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -26,20 +33,28 @@ export function Review({ id, autoDraft }: { id: string; autoDraft: boolean }) {
 
   useEffect(() => {
     void load();
-    engine.template("soap").then(setTemplate, () => {});
+    engine.listTemplates().then(setTemplates, () => {});
     const off = engine.on("token", () => setTokens((n) => n + 1));
     return () => void off.then((f) => f());
   }, [load]);
 
   const segments = view?.transcript?.segments ?? [];
   const run = view?.latest_run ?? null;
+  // Notes render under the headings they were drafted to (saved with the draft).
+  const template = view?.latest_template ?? null;
+  const chosen = picked ?? template?.id ?? app.settings.template;
+
+  useEffect(() => {
+    if (!template) return;
+    engine.template(template.id).then(setCurrent, () => setCurrent(null));
+  }, [template]);
 
   const draft = useCallback(async () => {
     setError(null);
     setTokens(0);
     setGenerating(true);
     try {
-      await engine.generateNote(id, app.settings.llm, "soap");
+      await engine.generateNote(id, app.settings.llm, chosen);
       await load();
       app.announce("Draft ready");
     } catch (e) {
@@ -47,14 +62,40 @@ export function Review({ id, autoDraft }: { id: string; autoDraft: boolean }) {
     } finally {
       setGenerating(false);
     }
-  }, [id, app, load]);
+  }, [id, app, load, chosen]);
+
+  async function refine(heading: string, request: string, saveAsStandard: boolean) {
+    if (!template) return;
+    setError(null);
+    setTokens(0);
+    setRefining(true);
+    try {
+      await engine.refineNote(id, {
+        llm: app.settings.llm,
+        heading,
+        request,
+        save_as_standard: saveAsStandard,
+        by: app.settings.signer.trim() || null,
+      });
+      await load();
+      setAsking(null);
+      const title = engine.headingTitle(template, heading);
+      app.toast(saveAsStandard ? `${title} redrafted and saved as a standard` : `${title} redrafted`);
+      app.announce(`${title} redrafted`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRefining(false);
+    }
+  }
 
   useEffect(() => {
-    if (autoDraft && view && !view.latest_run && segments.length > 0 && !drafted.current) {
+    const wanted = draftTemplate != null || (autoDraft && !view?.latest_run);
+    if (wanted && view && segments.length > 0 && !drafted.current) {
       drafted.current = true;
       void draft();
     }
-  }, [autoDraft, view, segments.length, draft]);
+  }, [autoDraft, draftTemplate, view, segments.length, draft]);
 
   function playIds(ids: number[]) {
     const first = segments.find((s) => ids.includes(s.id));
@@ -127,14 +168,30 @@ export function Review({ id, autoDraft }: { id: string; autoDraft: boolean }) {
           {view?.stats && <span className="mono faint">{fmtTime(view.stats.audio_secs)}</span>}
         </div>
         <div className="review-actions">
-          <span className="ob-chip">SOAP note</span>
+          {signed || templates.length === 0 ? (
+            <span className="ob-chip">{template?.name ?? "No draft"}</span>
+          ) : (
+            <select
+              className="ob-select template-pick"
+              aria-label="Template for the next draft"
+              value={chosen}
+              disabled={generating || refining}
+              onChange={(e) => setPicked(e.target.value)}
+            >
+              {templates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          )}
           {run && <span className="ob-chip mono">{run.model}</span>}
           {signed ? (
             <StatusDot tone="ok">
               Signed by {view?.signed_by}, {view?.signed_at}
             </StatusDot>
           ) : run ? (
-            <Button variant="primary" onClick={sign} disabled={generating || hardFails > 0}>
+            <Button variant="primary" onClick={sign} disabled={generating || refining || hardFails > 0}>
               <Signature size={20} aria-hidden />
               Sign note
             </Button>
@@ -252,6 +309,21 @@ export function Review({ id, autoDraft }: { id: string; autoDraft: boolean }) {
                 onEvidence={(ids) => setLit(new Set(ids ?? []))}
                 onPlay={playIds}
                 onCopySection={(title, text) => copy(`${title}\n${text}`, title)}
+                onAsk={signed || generating ? undefined : (heading) => setAsking((a) => (a === heading ? null : heading))}
+                renderAsk={(heading) =>
+                  asking === heading && (
+                    <RefinePanel
+                      title={engine.headingTitle(template, heading)}
+                      templateName={template.name}
+                      standards={(current?.template.standards ?? []).filter((s) => s.heading === heading)}
+                      canSave={current != null}
+                      busy={refining}
+                      progress={Math.min(0.95, tokens / 400)}
+                      onSubmit={(request, save) => void refine(heading, request, save)}
+                      onCancel={() => setAsking(null)}
+                    />
+                  )
+                }
               />
               <footer className="output-row">
                 <Button onClick={() => copy(view?.latest_markdown ?? "", "Note")}>
@@ -259,9 +331,9 @@ export function Review({ id, autoDraft }: { id: string; autoDraft: boolean }) {
                   Copy note
                 </Button>
                 {!signed && (
-                  <Button variant="ghost" onClick={draft} disabled={generating}>
+                  <Button variant="ghost" onClick={draft} disabled={generating || refining}>
                     <ArrowClockwise size={20} aria-hidden />
-                    Draft again
+                    {chosen === template?.id ? "Draft again" : `Draft as ${templates.find((t) => t.id === chosen)?.name ?? chosen}`}
                   </Button>
                 )}
                 {engine.canReveal && view && (

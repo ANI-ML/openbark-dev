@@ -12,6 +12,7 @@ mod models;
 mod probe;
 mod record;
 mod sessions;
+mod templates;
 
 use std::fs;
 use std::io::{IsTerminal, Read, Write};
@@ -61,6 +62,9 @@ enum Command {
     Record(record::RecordArgs),
     /// List microphones.
     Devices,
+    /// Note templates: list, show the prompt, check a team template.
+    #[command(subcommand)]
+    Templates(templates::TemplatesCommand),
     /// Open the OpenBark UI in your browser, served from this machine only (127.0.0.1).
     Serve(ServeArgs),
 }
@@ -222,6 +226,7 @@ fn main() -> Result<()> {
         Command::Serve(args) => serve(store, args),
         Command::Record(args) => record::record(&store, args),
         Command::Devices => record::devices(),
+        Command::Templates(cmd) => templates::run(cmd),
         Command::Eval(args) => eval::run(&store, args),
     }
 }

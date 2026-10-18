@@ -1,5 +1,5 @@
 import { createLevelSource } from "@openbark/ui";
-import { Cube, Gear, ListBullets, Microphone } from "@phosphor-icons/react";
+import { Cube, Gear, ListBullets, Microphone, Notebook } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import * as engine from "./engine";
 import { AppContext, loadSettings, saveSettings, type Settings } from "./context";
@@ -8,17 +8,20 @@ import { Models } from "./screens/Models";
 import { Recorder } from "./screens/Recorder";
 import { Review } from "./screens/Review";
 import { SettingsScreen } from "./screens/Settings";
+import { Templates } from "./screens/Templates";
 
 export type Route =
   | { screen: "record" }
   | { screen: "encounters" }
-  | { screen: "review"; id: string; draft?: boolean }
+  | { screen: "review"; id: string; draft?: boolean; template?: string }
+  | { screen: "templates" }
   | { screen: "models" }
   | { screen: "settings" };
 
 const NAV = [
   { screen: "record", label: "Record", icon: Microphone },
   { screen: "encounters", label: "Encounters", icon: ListBullets },
+  { screen: "templates", label: "Templates", icon: Notebook },
   { screen: "models", label: "Models", icon: Cube },
   { screen: "settings", label: "Settings", icon: Gear },
 ] as const;
@@ -101,7 +104,10 @@ export function App() {
         <main className="content">
           {route.screen === "record" && <Recorder />}
           {route.screen === "encounters" && <Encounters />}
-          {route.screen === "review" && <Review id={route.id} autoDraft={route.draft ?? false} />}
+          {route.screen === "review" && (
+            <Review key={`${route.id}:${route.template ?? ""}`} id={route.id} autoDraft={route.draft ?? false} draftTemplate={route.template} />
+          )}
+          {route.screen === "templates" && <Templates />}
           {route.screen === "models" && <Models />}
           {route.screen === "settings" && <SettingsScreen />}
         </main>

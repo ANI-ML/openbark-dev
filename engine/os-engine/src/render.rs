@@ -33,8 +33,13 @@ pub fn markdown(
         out.push_str(&format!("\n## {}\n", section.title));
         let sec_value = &note[&section.id];
         let sec_path = format!("/{}", section.id);
-        if section.kind == Some(PartKind::Fields) {
-            out.push_str(&fields(&section.fields, sec_value, &sec_path, &flagged));
+        if let Some(kind) = section.kind {
+            out.push('\n');
+            out.push_str(&match kind {
+                PartKind::Statements => statements(sec_value, &sec_path, &flagged),
+                PartKind::Fields => fields(&section.fields, sec_value, &sec_path, &flagged),
+                PartKind::Medications => medications(sec_value, &sec_path, &flagged),
+            });
             continue;
         }
         for part in &section.parts {
