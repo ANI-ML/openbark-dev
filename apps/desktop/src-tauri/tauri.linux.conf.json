@@ -10,12 +10,26 @@
         "depends": [
           "libasound2t64 | libasound2"
         ],
-        "section": "science"
+        "section": "science",
+        "files": {
+          "/usr/lib/OpenBark/libsherpa-onnx-c-api.so": "../../../target/release/libsherpa-onnx-c-api.so",
+          "/usr/lib/OpenBark/libonnxruntime.so": "../../../target/release/libonnxruntime.so"
+        }
       },
       "rpm": {
         "depends": [
           "alsa-lib"
-        ]
+        ],
+        "files": {
+          "/usr/lib/OpenBark/libsherpa-onnx-c-api.so": "../../../target/release/libsherpa-onnx-c-api.so",
+          "/usr/lib/OpenBark/libonnxruntime.so": "../../../target/release/libonnxruntime.so"
+        }
+      },
+      "appimage": {
+        "files": {
+          "/usr/lib/OpenBark/libsherpa-onnx-c-api.so": "../../../target/release/libsherpa-onnx-c-api.so",
+          "/usr/lib/OpenBark/libonnxruntime.so": "../../../target/release/libonnxruntime.so"
+        }
       }
     }
   }

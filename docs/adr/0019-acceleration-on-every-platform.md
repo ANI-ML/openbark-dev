@@ -44,7 +44,7 @@ Other findings:
 - **Start-up race.** Until the GPU self-test passes, a recording uses the processor for the whole visit.
 - **Core ML is a no-op on our Mac build.** sherpa-onnx compiles Core ML out of its static macOS library (`SHERPA_ONNX_DISABLE_COREML`). `OPENBARK_ASR_PROVIDER=coreml` logs "coreml" and runs on the processor.
 - **The Mac library is probably slower than it needs to be.** sherpa-onnx makes its arm64 library by thinning a universal2 build. OpenWhispr measured the arm64-only ONNX Runtime about 2.9 times faster for Parakeet on an Apple M5 (230 ms against 665 ms for an 11 s clip, identical output). That was the shared library; ours is static and not yet measured.
-- **Linux CUDA can't work as linked.** Linux uses sherpa-onnx's static, processor-only ONNX Runtime, so the CUDA provider check in `cuda_pack_installed()` never takes effect there.
+- **Linux CUDA can't work as linked.** Linux uses sherpa-onnx's static, processor-only ONNX Runtime, so the CUDA provider check in `cuda_pack_installed()` never takes effect there. (Since 2026-10-18 Linux links it shared, per the ADR-0001 amendment. The ONNX Runtime it ships is still processor-only.)
 - **Thread counts were tuned on one 20-thread machine.** A third of logical processors, clamped to 2-6. An 8-core M1 or a 4-core laptop gets 2 threads, which ADR-0014's own table shows is about twice as slow as 6. llama.cpp on the processor uses its default of 4 threads on any machine.
 - **The number check (Whisper turbo) is the most expensive stage** wherever there is no GPU speech path.
 

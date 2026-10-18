@@ -174,7 +174,7 @@ What we can't prove: speed on M1 to M5. The runner is one virtual machine. The u
 
 ### Step 11: NVIDIA GPU pack for Linux (WSL, GH-LINUX)
 
-- Link sherpa-onnx `shared` on Linux, so a CUDA build of ONNX Runtime can be loaded.
+- Link sherpa-onnx `shared` on Linux, so a CUDA build of ONNX Runtime can be loaded. Done on 2026-10-18 (ADR-0001 amendment). It also fixed a start-up crash.
 - Pin sherpa-onnx's `cuda-12.x-cudnn-9.x-onnxruntime1.28.2-linux-x64-gpu` archive and NVIDIA's manylinux runtime, cuBLAS and cuDNN wheels.
 - Install into the user's data folder, not beside the program (`.deb` and `.rpm` installs are root-owned, and the AppImage is read-only). Load from there. "Load from there" needs a mechanism, because the program is linked to `libsherpa-onnx-c-api.so` and `libonnxruntime.so` and the loader resolves them before `main` runs. When the pack is present and its check passed, OpenBark re-runs itself once at start-up with `LD_LIBRARY_PATH` putting the pack folder first. ONNX Runtime then finds its CUDA provider beside the CUDA build of `libonnxruntime.so`. The child-process checks use the same environment. The CUDA notes backend, if added for Linux, carries an `$ORIGIN` run path to find the pack's cudart.
 - `gpu_pack.rs` today is Windows-shaped: `.dll` names, files beside the program, and the `onnxruntime.dll` size check. Give it a per-platform file list and install folder rather than branching inside each function.

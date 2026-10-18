@@ -11,11 +11,18 @@ rust-version.workspace = true
 #
 # Windows: the prebuilt static libs use the static CRT (/MT) and fail to link
 # next to llama.cpp (/MD) with LNK2038, so use DLLs (spike S2, finding 1).
+# Linux: the prebuilt static libs (GCC 11) carry weak libstdc++ std::regex
+# instantiations that replace GCC 13's in llama.cpp's common library, which
+# then aborts at start-up with std::bad_alloc; the .so files keep their own
+# copies (ADR-0001, amendment of 2026-10-18). The binaries find them through an
+# $ORIGIN run path set in os-cli's and the desktop app's build scripts.
 # Android/iOS: sherpa-onnx only ships shared libraries for mobile.
-[target.'cfg(any(windows, target_os = "android", target_os = "ios"))'.dependencies]
+# macOS stays static: libc++ tags its internal functions per version, so the
+# two copies don't collide (and the macOS CI job runs the tests).
+[target.'cfg(any(windows, target_os = "linux", target_os = "android", target_os = "ios"))'.dependencies]
 sherpa-onnx = { workspace = true, features = ["shared"] }
 
-[target.'cfg(not(any(windows, target_os = "android", target_os = "ios")))'.dependencies]
+[target.'cfg(not(any(windows, target_os = "linux", target_os = "android", target_os = "ios")))'.dependencies]
 sherpa-onnx = { workspace = true, features = ["static"] }
 
 [dependencies]
