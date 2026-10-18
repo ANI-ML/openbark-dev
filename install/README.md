@@ -42,6 +42,8 @@ Your data is your encounters, recordings, notes, models, templates and team memb
 - macOS: `~/Library/Application Support/OpenBark`
 - Linux: `~/.local/share/OpenBark`
 
+These are the usual places. If you chose other folders for visits or models (Settings > Storage), no uninstaller ever deletes those folders: delete them yourself if you no longer need them.
+
 Every uninstaller keeps it unless you choose otherwise. Deleting your data also deletes this computer's encryption key. **Save your recovery key first** (Settings > Encryption > Show recovery key) if you keep copies of encounters anywhere else; without it they can't be opened.
 
 ## Signing

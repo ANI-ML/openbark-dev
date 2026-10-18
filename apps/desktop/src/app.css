@@ -205,6 +205,10 @@
 .recorder-meta { display: flex; flex-direction: column; gap: 4px; }
 .recorder-stage { flex-wrap: wrap; }
 .stage-wave { flex: 1 1 200px; min-width: 0; height: 40px; }
+/* Import and finishing progress: full width under the stage's controls. */
+.processing { flex: 1 0 100%; display: flex; flex-direction: column; gap: 8px; }
+.processing .ob-progress { height: 6px; }
+.processing-text { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; color: var(--ink-2); }
 .wave-idle > span { opacity: 0.6; }
 .elapsed { font-size: 1.75rem; font-weight: 600; letter-spacing: -0.02em; color: var(--ink); }
 .wave-idle > span { background: var(--border-strong); }
@@ -225,6 +229,8 @@
   .recorder-center > .visit-types { order: 0; }
   .recorder-center > .recorder-transcript { order: 1; }
   .recorder-center > .recorder-stage { order: 2; }
+  /* While an import or a stopped recording is processing, its progress comes first. */
+  .recorder-center.is-processing > .recorder-stage { order: -1; }
 }
 
 /* Transcript */
@@ -741,3 +747,28 @@ p > .ob-dot { display: inline-block; vertical-align: middle; }
 
 /* Tables: numbers and chips never break across lines. */
 .ob-table td.num, .ob-table .ob-chip { white-space: nowrap; }
+
+/* Storage (ADR-0013): where models and visits are kept */
+.storage-rows { display: flex; flex-direction: column; }
+.storage-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 12px 0; }
+.storage-row + .storage-row { border-top: 1px solid var(--border); }
+.storage-text, .folder-target { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.storage-path { overflow-wrap: anywhere; color: var(--ink); }
+@media (max-width: 640px) { .storage-row { flex-direction: column; } }
+.folder-sheet { display: flex; flex-direction: column; gap: 16px; }
+.folder-target { padding: 12px 14px; border-radius: 12px; background: var(--fill); }
+.folder-modes { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.folder-modes legend { margin-bottom: 8px; }
+.folder-mode { align-items: flex-start; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; }
+.folder-mode:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.folder-mode:has(input:disabled) { opacity: 0.55; cursor: default; }
+.folder-mode input { margin-top: 2px; flex: none; }
+.folder-mode > span { display: flex; flex-direction: column; gap: 2px; }
+.folder-mode-title { font-weight: 600; color: var(--ink); }
+.folder-browser { display: flex; flex-direction: column; gap: 10px; }
+.folder-list { list-style: none; margin: 0; padding: 0; max-height: 46dvh; overflow-y: auto; border: 1px solid var(--border); border-radius: 12px; }
+.folder-list li + li { border-top: 1px solid var(--border); }
+.folder-row { width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 0; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.folder-row:hover { background: var(--fill); }
+.folder-name { overflow-wrap: anywhere; }
+.folder-empty { padding: 10px 12px; }

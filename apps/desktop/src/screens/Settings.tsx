@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { DEFAULT_CONSENT_SCRIPT, useApp } from "../context";
 import * as engine from "../engine";
 import { NOTE_LANGUAGES, UI_LANGUAGES, useT } from "../i18n";
+import { StorageSection } from "../components/StorageSection";
 import { TeamSettings } from "../components/TeamSettings";
 
 /** DESIGN.md §6 Settings: hairline-separated groups. */
@@ -72,7 +73,11 @@ export function SettingsScreen() {
         <h2>{t("Language")}</h2>
         <label className="ob-field narrow">
           <span className="label">{t("App language")}</span>
-          <select className="ob-select" value={s.uiLanguage} onChange={(e) => app.setSettings({ uiLanguage: e.target.value })}>
+          <select
+            className="ob-select"
+            value={s.uiLanguage}
+            onChange={(e) => app.setSettings({ uiLanguage: e.target.value })}
+          >
             {UI_LANGUAGES.map((l) => (
               <option key={l.code} value={l.code}>
                 {l.name}
@@ -82,7 +87,11 @@ export function SettingsScreen() {
         </label>
         <label className="ob-field narrow">
           <span className="label">{t("Write notes in")}</span>
-          <select className="ob-select" value={s.noteLanguage} onChange={(e) => app.setSettings({ noteLanguage: e.target.value })}>
+          <select
+            className="ob-select"
+            value={s.noteLanguage}
+            onChange={(e) => app.setSettings({ noteLanguage: e.target.value })}
+          >
             {NOTE_LANGUAGES.map((l) => (
               <option key={l.code} value={l.code}>
                 {l.name}
@@ -90,11 +99,15 @@ export function SettingsScreen() {
             ))}
           </select>
           <span className="ob-help">
-            {t("Consultations can be in English or most European languages; notes are written in the language you choose here.")}
+            {t(
+              "Consultations can be in English or most European languages; notes are written in the language you choose here.",
+            )}
           </span>
         </label>
         <p className="small faint measure">
-          {t("Translations of the app are new; tell us if something reads oddly. Number checks are most reliable when the consultation is in English.")}
+          {t(
+            "Translations of the app are new; tell us if something reads oddly. Number checks are most reliable when the consultation is in English.",
+          )}
         </p>
       </section>
 
@@ -108,7 +121,11 @@ export function SettingsScreen() {
         {engine.isDesktop ? (
           <label className="ob-field narrow">
             <span className="label">{t("Microphone")}</span>
-            <select className="ob-select" value={s.device ?? ""} onChange={(e) => app.setSettings({ device: e.target.value || null })}>
+            <select
+              className="ob-select"
+              value={s.device ?? ""}
+              onChange={(e) => app.setSettings({ device: e.target.value || null })}
+            >
               <option value="">{t("System default")}</option>
               {devices.map((d) => (
                 <option key={d} value={d}>
@@ -118,14 +135,24 @@ export function SettingsScreen() {
             </select>
           </label>
         ) : (
-          <p className="small muted">{t("In the browser, the microphone is the one you allow when you first record.")}</p>
+          <p className="small muted">
+            {t("In the browser, the microphone is the one you allow when you first record.")}
+          </p>
         )}
         <label className="check">
-          <input type="checkbox" checked={s.labelSpeakers} onChange={(e) => app.setSettings({ labelSpeakers: e.target.checked })} />
+          <input
+            type="checkbox"
+            checked={s.labelSpeakers}
+            onChange={(e) => app.setSettings({ labelSpeakers: e.target.checked })}
+          />
           <span>{t("Label speakers")}</span>
         </label>
         <label className="check">
-          <input type="checkbox" checked={s.draftOnStop} onChange={(e) => app.setSettings({ draftOnStop: e.target.checked })} />
+          <input
+            type="checkbox"
+            checked={s.draftOnStop}
+            onChange={(e) => app.setSettings({ draftOnStop: e.target.checked })}
+          />
           <span>{t("Draft the note when I stop recording")}</span>
         </label>
       </section>
@@ -143,7 +170,11 @@ export function SettingsScreen() {
           </button>
         </p>
         <label className="check">
-          <input type="checkbox" checked={s.consentEachTime} onChange={(e) => app.setSettings({ consentEachTime: e.target.checked })} />
+          <input
+            type="checkbox"
+            checked={s.consentEachTime}
+            onChange={(e) => app.setSettings({ consentEachTime: e.target.checked })}
+          />
           <span>{t("Record how the client consented, each time I record")}</span>
         </label>
         {s.consentEachTime && (
@@ -151,20 +182,39 @@ export function SettingsScreen() {
             <fieldset className="consent-methods narrow">
               <legend className="label">{t("Your clinic's rule")}</legend>
               <label className="check">
-                <input type="radio" name="consent-rule" checked={s.consentRule === "all_parties"} onChange={() => app.setSettings({ consentRule: "all_parties" })} />
+                <input
+                  type="radio"
+                  name="consent-rule"
+                  checked={s.consentRule === "all_parties"}
+                  onChange={() => app.setSettings({ consentRule: "all_parties" })}
+                />
                 <span>{t("Everyone on the recording agrees (recommended)")}</span>
               </label>
               <label className="check">
-                <input type="radio" name="consent-rule" checked={s.consentRule === "one_party"} onChange={() => app.setSettings({ consentRule: "one_party" })} />
+                <input
+                  type="radio"
+                  name="consent-rule"
+                  checked={s.consentRule === "one_party"}
+                  onChange={() => app.setSettings({ consentRule: "one_party" })}
+                />
                 <span>{t("One party to the conversation may consent")}</span>
               </label>
             </fieldset>
             <label className="ob-field">
               <span className="label">{t("What to read to the client")}</span>
-              <textarea className="ob-input tb-text measure" rows={3} value={s.consentScript} onChange={(e) => app.setSettings({ consentScript: e.target.value })} />
+              <textarea
+                className="ob-input tb-text measure"
+                rows={3}
+                value={s.consentScript}
+                onChange={(e) => app.setSettings({ consentScript: e.target.value })}
+              />
             </label>
             {s.consentScript !== DEFAULT_CONSENT_SCRIPT && (
-              <button type="button" className="link small" onClick={() => app.setSettings({ consentScript: DEFAULT_CONSENT_SCRIPT })}>
+              <button
+                type="button"
+                className="link small"
+                onClick={() => app.setSettings({ consentScript: DEFAULT_CONSENT_SCRIPT })}
+              >
                 {t("Use the default wording")}
               </button>
             )}
@@ -177,15 +227,29 @@ export function SettingsScreen() {
         <h2>{t("PDFs and copying")}</h2>
         <label className="ob-field narrow">
           <span className="label">{t("Clinic name (letterhead)")}</span>
-          <input className="ob-input" value={s.clinicName} onChange={(e) => app.setSettings({ clinicName: e.target.value })} placeholder="Maple Street Animal Hospital" />
+          <input
+            className="ob-input"
+            value={s.clinicName}
+            onChange={(e) => app.setSettings({ clinicName: e.target.value })}
+            placeholder="Maple Street Animal Hospital"
+          />
         </label>
         <label className="ob-field narrow">
           <span className="label">{t("Address, phone and email, one per line")}</span>
-          <textarea className="ob-input tb-text" rows={3} value={s.clinicLines} onChange={(e) => app.setSettings({ clinicLines: e.target.value })} />
+          <textarea
+            className="ob-input tb-text"
+            rows={3}
+            value={s.clinicLines}
+            onChange={(e) => app.setSettings({ clinicLines: e.target.value })}
+          />
         </label>
         <label className="ob-field narrow">
           <span className="label">{t("Paper size")}</span>
-          <select className="ob-select" value={s.pageSize} onChange={(e) => app.setSettings({ pageSize: e.target.value === "a4" ? "a4" : "letter" })}>
+          <select
+            className="ob-select"
+            value={s.pageSize}
+            onChange={(e) => app.setSettings({ pageSize: e.target.value === "a4" ? "a4" : "letter" })}
+          >
             <option value="letter">{t("Letter")}</option>
             <option value="a4">A4</option>
           </select>
@@ -203,7 +267,11 @@ export function SettingsScreen() {
           </select>
         </label>
         <label className="check">
-          <input type="checkbox" checked={s.copyCitations} onChange={(e) => app.setSettings({ copyCitations: e.target.checked })} />
+          <input
+            type="checkbox"
+            checked={s.copyCitations}
+            onChange={(e) => app.setSettings({ copyCitations: e.target.checked })}
+          />
           <span>{t("Include transcript line numbers when copying")}</span>
         </label>
       </section>
@@ -224,11 +292,15 @@ export function SettingsScreen() {
                 ? t("The key is kept in this computer's keychain.")
                 : enc.source === "environment"
                   ? t("The key comes from the OPENBARK_DATA_KEY setting.")
-                  : t("The key is kept in a file in your user folder, because this computer's keychain isn't available.")}
+                  : t(
+                      "The key is kept in a file in your user folder, because this computer's keychain isn't available.",
+                    )}
             </p>
             {(app.status?.plain_encounters ?? 0) > 0 && (
               <p className="ob-notice">
-                {t("{n} visits were saved before encryption and are still unencrypted.", { n: app.status?.plain_encounters ?? 0 })}{" "}
+                {t("{n} visits were saved before encryption and are still unencrypted.", {
+                  n: app.status?.plain_encounters ?? 0,
+                })}{" "}
                 <button type="button" className="link" onClick={() => void encryptNow()} disabled={encrypting}>
                   {encrypting ? t("Encrypting") : t("Encrypt them now")}
                 </button>
@@ -237,12 +309,20 @@ export function SettingsScreen() {
             <div className="ob-field">
               <span className="label">{t("Recovery key")}</span>
               <p className="small muted measure">
-                {t("Without this key, encrypted visits can't be opened on another computer or after reinstalling. Print it or keep it in your clinic's password manager.")}
+                {t(
+                  "Without this key, encrypted visits can't be opened on another computer or after reinstalling. Print it or keep it in your clinic's password manager.",
+                )}
               </p>
               {key ? (
                 <div className="recovery-key">
                   <code>{key}</code>
-                  <button type="button" className="link small" onClick={() => void navigator.clipboard.writeText(key).then(() => app.toast(t("Recovery key copied")))}>
+                  <button
+                    type="button"
+                    className="link small"
+                    onClick={() =>
+                      void navigator.clipboard.writeText(key).then(() => app.toast(t("Recovery key copied")))
+                    }
+                  >
                     {t("Copy")}
                   </button>
                   <button type="button" className="link small" onClick={() => setKey(null)}>
@@ -258,30 +338,20 @@ export function SettingsScreen() {
           </>
         ) : (
           <p className="ob-notice" data-tone="danger">
-            {t("Encryption isn't running, so new visits are saved unencrypted. Restart OpenBark; if this stays, check the log.")}
+            {t(
+              "Encryption isn't running, so new visits are saved unencrypted. Restart OpenBark; if this stays, check the log.",
+            )}
           </p>
         )}
       </section>
 
-      <section className="group">
-        <h2>{t("Storage")}</h2>
-        <dl className="slots">
-          <div>
-            <dt className="label muted">{t("Visits")}</dt>
-            <dd className="mono">{app.status?.sessions_dir}</dd>
-          </div>
-          <div>
-            <dt className="label muted">{t("Models")}</dt>
-            <dd className="mono">{app.status?.models_dir}</dd>
-          </div>
-        </dl>
-        <p className="small faint">{t("Recordings and notes stay on this computer.")}</p>
-      </section>
+      <StorageSection />
 
       <section className="group">
         <h2>{t("About")}</h2>
         <p className="small muted">
-          OpenBark <span className="mono">{app.status?.version}</span>. {t("Notes are drafts until a veterinarian signs them.")}
+          OpenBark <span className="mono">{app.status?.version}</span>.{" "}
+          {t("Notes are drafts until a veterinarian signs them.")}
         </p>
       </section>
     </div>

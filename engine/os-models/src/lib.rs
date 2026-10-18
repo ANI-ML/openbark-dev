@@ -7,6 +7,7 @@
 mod catalog;
 mod download;
 pub mod hub;
+pub mod locations;
 mod store;
 
 pub use catalog::{Catalog, CatalogEntry, FileSpec, Layout, Slot, Source};

@@ -46,10 +46,20 @@ function overlay() {
     wrap.id = "__help_overlay";
     wrap.append(cap, ptr);
     document.body.appendChild(wrap);
-    addEventListener("mousemove", (e) => { ptr.style.left = e.clientX + "px"; ptr.style.top = e.clientY + "px"; }, true);
+    addEventListener(
+      "mousemove",
+      (e) => {
+        ptr.style.left = e.clientX + "px";
+        ptr.style.top = e.clientY + "px";
+      },
+      true,
+    );
     addEventListener("mousedown", () => ptr.classList.add("down"), true);
     addEventListener("mouseup", () => ptr.classList.remove("down"), true);
-    window.__caption = (text) => { cap.textContent = text; cap.style.opacity = text ? "1" : "0"; };
+    window.__caption = (text) => {
+      cap.textContent = text;
+      cap.style.opacity = text ? "1" : "0";
+    };
   };
   if (document.readyState === "loading") addEventListener("DOMContentLoaded", install);
   else install();
@@ -106,19 +116,26 @@ const TOPICS = {
     const lang = page.locator(".settings select").first();
     await point(lang);
     await caption("Choose the app language, and the language notes are written in.", 3200);
+    const storage = page.locator(".storage-row").first();
+    await storage.scrollIntoViewIfNeeded();
+    await point(storage.getByRole("button", { name: "Change folder" }));
+    await caption("In Storage, choose where visits and models are kept, such as another drive.", 3400);
     await point(nav(5));
     await caption("Help has these walkthroughs whenever you need them.", 3000);
   },
 
   async record(page) {
-    const { caption, click, type } = helpers(page);
+    const { caption, point, click, type } = helpers(page);
     await page.goto(base);
     await page.locator(".recorder").waitFor();
-    await caption("Enter the patient and the reason for the visit. These are optional.");
-    const fields = page.locator(".recorder-patient .ob-input");
+    await point(page.locator(".patient-search input"));
+    await caption("Find a patient you've seen before, or enter a new one. These are optional.", 3200);
+    const fields = page.locator(".patient-fields .ob-input");
     await type(fields.nth(0), "Pepper");
     await type(fields.nth(1), "Okonkwo");
     await type(fields.nth(2), "Ear infection recheck");
+    await click(page.locator(".visit-types button", { hasText: "Recheck" }).first());
+    await caption("Choose the kind of visit. Each has its own headings.", 2800);
     await caption("Press Record, or the Space bar.");
     await click(page.locator(".ob-record"));
     await caption("Each sentence appears in the transcript as soon as it's finished.", 6000);
@@ -126,14 +143,41 @@ const TOPICS = {
     await caption("Keep the conversation natural; OpenBark listens in the background.", 6000);
     await caption("Press the button again to stop.", 1800);
     await click(page.locator(".ob-record"));
+    await caption("A progress bar shows the last words being transcribed and the numbers checked.", 2400);
     await page.locator(".review").waitFor({ timeout: 60000 });
-    await caption("The note is drafted automatically. Numbers are checked against the transcript when it finishes.", 5000);
+    await caption(
+      "The note is drafted automatically. Numbers are checked against the transcript when it finishes.",
+      5000,
+    );
+  },
+
+  async patients(page) {
+    const { caption, point, click, type, nav } = helpers(page);
+    await page.goto(base);
+    await click(nav(1));
+    await page.locator(".patient-list").waitFor();
+    await caption("Patients lists every animal, most recently seen first.", 3000);
+    await type(page.locator(".patient-filter input"), "Jun");
+    await caption("Type a name to find one.", 2200);
+    await click(page.locator(".patient-row").first());
+    await page.locator(".visit-list").waitFor();
+    await caption("A patient's page has every visit, newest first, with its type and whether it's signed.", 3600);
+    await point(page.getByRole("button", { name: "Edit details" }));
+    await caption("Edit details corrects the name or species. Past visits keep what was entered at the time.", 3600);
+    await click(page.locator(".head-actions").getByRole("button", { name: "New visit" }));
+    await page.locator(".picked-patient").waitFor();
+    await caption("New visit opens Record with the patient already filled in.", 3200);
+    await click(nav(1));
+    await click(page.locator(".patients-bar .ob-segment").nth(1));
+    await page.locator("tr.row-link").first().waitFor();
+    await caption("Recent visits lists the day's recordings.", 3000);
   },
 
   async review(page) {
     const { caption, point, click, type, nav } = helpers(page);
     await page.goto(base);
     await click(nav(1));
+    await click(page.locator(".patients-bar .ob-segment").nth(1));
     await click(page.locator('tr.row-link:has(.ob-dot[data-tone="warn"])').first());
     await page.locator(".note").waitFor();
     await caption("Review shows the transcript on the left and the draft note on the right.", 3200);
@@ -146,7 +190,10 @@ const TOPICS = {
     await point(part.locator(".note-part-head"));
     await click(part.getByRole("button", { name: /^Ask for changes/ }));
     await type(page.locator("form.ask textarea"), "One line per follow-up, with when and why");
-    await caption("Ask redrafts just that heading from the recording. Save it as a standard to make it the rule.", 3800);
+    await caption(
+      "Ask redrafts just that heading from the recording. Save it as a standard to make it the rule.",
+      3800,
+    );
     await click(page.locator("form.ask .ob-button[data-variant=ghost]"));
     await point(part.locator(".note-part-head"));
     await click(part.getByRole("button", { name: /^Edit / }));
@@ -166,19 +213,22 @@ const TOPICS = {
     const { caption, click, type, nav } = helpers(page);
     await page.goto(base);
     await click(nav(2));
-    await caption("Templates are the headings of your notes.");
-    await click(page.locator(".head-actions .ob-button").first());
+    await caption("Templates are the headings of your notes. Each kind of visit has its own.", 3000);
+    await click(page.getByRole("button", { name: "Start from SOAP" }));
     await page.locator(".tb-heading").first().waitFor();
     await type(page.locator(".builder-meta input.ob-input").first(), "Dental procedure");
     await caption("Start from SOAP, or from blank headings.");
     await click(page.locator(".builder-structure > .ob-button").last());
     const heading = page.locator(".tb-heading").last();
     await type(heading.locator("input.tb-title"), "Anaesthesia");
-    await heading.locator("select").selectOption("medications");
+    await heading.locator("select", { has: page.locator('option[value="medications"]') }).selectOption("medications");
     await type(heading.locator("textarea"), "Premedication, induction and maintenance as said.");
     await caption("Give each heading what goes under it, and plain-language instructions.", 3200);
     await click(page.locator(".builder-preview [role=tab]").nth(1));
-    await caption("This is exactly what the model is told. Every template keeps the core rules: only what was said.", 3800);
+    await caption(
+      "This is exactly what the model is told. Every template keeps the core rules: only what was said.",
+      3800,
+    );
     await click(page.locator(".head-actions .ob-button[data-variant=primary]"));
     await caption("Save it, then try it on a recorded consult.", 2800);
   },
@@ -187,11 +237,13 @@ const TOPICS = {
     const { caption, point, click, nav } = helpers(page);
     await page.goto(base);
     await click(nav(1));
+    await click(page.locator(".patients-bar .ob-segment").nth(1));
     await click(page.locator('tr.row-link:has(.ob-dot[data-tone="ok"])').first());
     await page.locator(".note").waitFor();
     await caption("Under a note: copy it, save a PDF, or make documents for the owner.");
     await click(page.getByRole("button", { name: "Discharge instructions", exact: true }));
-    await page.locator(".ob-sheet .note").waitFor({ timeout: 10000 });
+    // Written by the note model: give it time.
+    await page.locator(".ob-sheet .note").waitFor({ timeout: 180000 });
     await caption("Discharge instructions are in plain language and follow your corrected note.", 3400);
     await page.locator(".ob-sheet .sheet-body").evaluate((el) => el.scrollBy({ top: 500, behavior: "smooth" }));
     await page.waitForTimeout(1500);
@@ -224,15 +276,25 @@ const TOPICS = {
     await team2.locator(".team-add select").selectOption("rvt");
     await type(team2.locator(".team-add input.ob-input").nth(1), "1357");
     await click(team2.locator(".team-add .ob-button").first());
-    await caption("Veterinarians sign. Technicians draft and edit. Reception records. Every revision records who did it.", 4000);
+    await caption(
+      "Veterinarians sign. Technicians draft and edit. Reception records. Every revision records who did it.",
+      4000,
+    );
     await point(page.locator("section.group", { hasText: "Encryption" }).locator("h2"));
-    await caption("Recordings, transcripts and notes are encrypted on this computer. Keep the recovery key safe.", 4000);
+    await caption(
+      "Recordings, transcripts and notes are encrypted on this computer. Keep the recovery key safe.",
+      4000,
+    );
   },
 };
 
 const wanted = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(TOPICS);
 const browser = await chromium.launch({
-  args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", `--use-file-for-fake-audio-capture=${fakeMic}`],
+  args: [
+    "--use-fake-ui-for-media-stream",
+    "--use-fake-device-for-media-stream",
+    `--use-file-for-fake-audio-capture=${fakeMic}`,
+  ],
 });
 for (const id of wanted) {
   rmSync(tmpDir, { recursive: true, force: true });
@@ -245,7 +307,8 @@ for (const id of wanted) {
   const fresh = id === "getting-started";
   await ctx.addInitScript(
     ({ seed, fresh }) => {
-      if (!fresh && !localStorage.getItem("openbark.settings")) localStorage.setItem("openbark.settings", JSON.stringify(seed));
+      if (!fresh && !localStorage.getItem("openbark.settings"))
+        localStorage.setItem("openbark.settings", JSON.stringify(seed));
     },
     { seed: SEEDED, fresh },
   );

@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use os_engine::awake::{AwakeGuard, AwakeReason};
 use os_engine::live::{LiveOptions, LiveRecorder, LiveSink, LiveSource};
+pub use os_engine::live::{Progress, Stage};
 use os_engine::patients::{PatientRecord, PatientStore};
 use os_engine::session::{self, Addendum, Consent, PatientInfo, Session};
 use os_engine::template::{Standard, Template};
@@ -18,6 +19,8 @@ use os_engine::users::{Role, User, UserStore, Who};
 use os_engine::{LoadedTemplate, NoteOptions, Segment, TemplateStore, TranscribeStats, Transcript};
 use os_llm::{LlamaCppBackend, LlamaCppOptions};
 use os_models::hub::{self, Fit, HubModel, HubRepo};
+use os_models::locations::{self, Contents};
+pub use os_models::locations::{FolderKind, Moved, Source as FolderSource};
 use os_models::{CatalogEntry, ModelStore, Slot, Verify};
 use serde::Serialize;
 
@@ -32,6 +35,69 @@ pub trait Events: Send + Sync {
     /// Microphone level 0..1 and elapsed seconds, ~20 times a second.
     fn level(&self, level: f32, seconds: f32);
     fn download(&self, model: &str, done: u64, total: u64);
+    /// How far an import, or a stopped recording, has got (a progress bar).
+    fn progress(&self, _progress: &Progress) {}
+    /// Bytes moved so far when a folder changes (ADR-0013).
+    fn moving(&self, _done: u64, _total: u64) {}
+}
+
+/// Where models or visits are kept (Settings, Storage).
+#[derive(Debug, Clone, Serialize)]
+pub struct FolderView {
+    pub kind: FolderKind,
+    pub path: String,
+    pub source: FolderSource,
+    /// What fixed it, when it can't be changed in the app.
+    pub fixed_by: Option<String>,
+    pub used_bytes: u64,
+    pub free_bytes: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct StorageView {
+    pub models: FolderView,
+    pub visits: FolderView,
+}
+
+/// What choosing a folder would do, shown before anything changes.
+#[derive(Debug, Clone, Serialize)]
+pub struct FolderCheck {
+    pub kind: FolderKind,
+    /// The folder chosen.
+    pub chosen: String,
+    /// Where OpenBark's files would go: the chosen folder, or an "OpenBark
+    /// models" / "OpenBark visits" folder inside it when it holds other things.
+    pub target: String,
+    /// The target already holds OpenBark data of this kind.
+    pub has_data: bool,
+    /// Why this folder can't be used; nothing changes while there is one.
+    pub problem: Option<String>,
+    /// Things worth knowing (cloud sync, removable or network drives).
+    pub notices: Vec<String>,
+    /// Size of what's in the current folder.
+    pub needed_bytes: u64,
+    pub free_bytes: Option<u64>,
+    /// Same disk: moving is instant.
+    pub same_disk: bool,
+    /// Room to move the current folder's contents there.
+    pub can_move: bool,
+}
+
+/// How to change a folder.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChangeMode {
+    /// Bring everything in the current folder along.
+    Move,
+    /// Use the new folder as it is; the current one is left where it is.
+    Switch,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FolderChanged {
+    pub kind: FolderKind,
+    pub path: String,
+    pub moved: Option<Moved>,
 }
 
 /// A user-facing error message (written per docs/design/DESIGN.md §5 Errors).
@@ -612,7 +678,9 @@ impl App {
         }
         let recorded_by = self.who(by, Need::Any)?;
         let _awake = AwakeGuard::acquire(AwakeReason::Processing);
-        let (tx, rx) = std::sync::mpsc::channel::<Segment>();
+        // The bar starts now: loading the models and decoding take a few seconds.
+        events.progress(&Progress::new(Stage::Read, 0.0, 1.0));
+        let (tx, rx) = std::sync::mpsc::channel::<Live>();
         let mut options = LiveOptions::microphone();
         options.label_speakers = label_speakers;
         options.patient = patient.filter(|p| !p.is_empty());
@@ -627,8 +695,11 @@ impl App {
         )?;
         let dir = recorder.session_dir.clone();
         // The worker drops the sink when it finishes, which ends this loop.
-        for segment in rx {
-            events.segment(&segment);
+        for msg in rx {
+            match msg {
+                Live::Segment(segment) => events.segment(&segment),
+                Live::Progress(progress) => events.progress(&progress),
+            }
         }
         let result = match recorder.wait() {
             Ok(r) => r,
@@ -1067,6 +1138,173 @@ impl App {
         Ok(backend)
     }
 
+    // ---- storage (ADR-0013) ----------------------------------------------
+
+    fn folder(&self, kind: FolderKind) -> PathBuf {
+        match kind {
+            FolderKind::Models => self.store.root().to_path_buf(),
+            FolderKind::Visits => self.sessions_root.clone(),
+        }
+    }
+
+    fn folder_view(&self, kind: FolderKind) -> FolderView {
+        let path = self.folder(kind);
+        let (resolved, mut source) = locations::resolve(kind);
+        let mut fixed_by = (source == FolderSource::Fixed).then(|| locations::env_var(kind).to_string());
+        // Started with a command-line folder (openbark serve --models-dir ...).
+        if resolved != path {
+            source = FolderSource::Fixed;
+            fixed_by.get_or_insert_with(|| "the command line".to_string());
+        }
+        FolderView {
+            kind,
+            path: locations::plain(&path).display().to_string(),
+            source,
+            fixed_by,
+            used_bytes: locations::dir_size(&path),
+            free_bytes: locations::free_space(&path),
+        }
+    }
+
+    pub fn storage(&self) -> StorageView {
+        StorageView {
+            models: self.folder_view(FolderKind::Models),
+            visits: self.folder_view(FolderKind::Visits),
+        }
+    }
+
+    /// Look at a folder the clinic chose, without changing anything (except a
+    /// quick write test, cleaned up after).
+    pub fn check_folder(&self, kind: FolderKind, chosen: &str) -> FolderCheck {
+        let chosen_path = PathBuf::from(chosen.trim());
+        let current = self.folder(kind);
+        let other = self.folder(match kind {
+            FolderKind::Models => FolderKind::Visits,
+            FolderKind::Visits => FolderKind::Models,
+        });
+        let ids: Vec<String> = hub::full_catalog(&self.store).models.into_iter().map(|m| m.id).collect();
+        let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
+        let target = match locations::contents(kind, &chosen_path, &ids) {
+            Contents::Other => chosen_path.join(kind.subfolder()),
+            _ => chosen_path.clone(),
+        };
+        let has_data = locations::contents(kind, &target, &ids) == Contents::OpenBark;
+        let needed_bytes = locations::dir_size(&current);
+        let free_bytes = locations::free_space(&target);
+        let same_disk = matches!(
+            (locations::disk_of(&target), locations::disk_of(&current)),
+            (Some((a, _)), Some((b, _))) if a == b
+        );
+        let view = self.folder_view(kind);
+        let what = match kind {
+            FolderKind::Models => "models",
+            FolderKind::Visits => "visits",
+        };
+        let problem = if let Some(by) = &view.fixed_by {
+            Some(format!("This folder is set by {by}, so it can't be changed here."))
+        } else if !chosen_path.is_absolute() {
+            Some(r"Choose a full folder path, such as D:\OpenBark.".to_string())
+        } else if locations::overlaps(&target, &current)
+            && locations::plain(&target) == locations::plain(&current)
+        {
+            Some(format!("That's the folder OpenBark already uses for {what}."))
+        } else if locations::overlaps(&target, &current) {
+            Some(format!("Choose a folder that isn't inside the current {what} folder, or around it."))
+        } else if locations::overlaps(&target, &other) {
+            Some("Models and visits need separate folders, not one inside the other.".to_string())
+        } else {
+            writable(&target).err()
+        };
+        let mut notices = Vec::new();
+        if let Some(service) = locations::synced_by(&target) {
+            notices.push(match kind {
+                FolderKind::Visits => format!(
+                    "This folder is synced by {service}. Visits are encrypted, so {service} keeps copies it can't read: they open only with this computer's key or the recovery key."
+                ),
+                FolderKind::Models => format!(
+                    "This folder is synced by {service}. Models are several gigabytes, so syncing them uses a lot of upload and cloud space."
+                ),
+            });
+        }
+        let s = target.to_string_lossy();
+        if s.starts_with(r"\")
+            || s.starts_with("/Volumes/")
+            || s.starts_with("/mnt/")
+            || s.starts_with("/media/")
+        {
+            notices.push(format!(
+                "This is a network or external drive. OpenBark can only use the {what} while it's connected, and is slower over a network."
+            ));
+        } else if let Some((_, true)) = locations::disk_of(&target) {
+            notices
+                .push(format!("This drive can be unplugged. OpenBark can't use the {what} while it's away."));
+        }
+        let can_move = same_disk || free_bytes.is_none_or(|free| free > needed_bytes + (512 << 20));
+        FolderCheck {
+            kind,
+            chosen: locations::plain(&chosen_path).display().to_string(),
+            target: locations::plain(&target).display().to_string(),
+            has_data,
+            problem,
+            notices,
+            needed_bytes,
+            free_bytes,
+            same_disk,
+            can_move,
+        }
+    }
+
+    /// Use a new folder for models or visits, moving what's there when asked.
+    /// Saved in `locations.json`; the caller then starts a fresh [`App`] on the
+    /// new folders (web mode) or restarts (desktop).
+    pub fn change_folder(
+        &self,
+        kind: FolderKind,
+        chosen: &str,
+        mode: ChangeMode,
+        events: &dyn Events,
+    ) -> Result<FolderChanged> {
+        let check = self.check_folder(kind, chosen);
+        if let Some(problem) = check.problem {
+            return Err(AppError(problem));
+        }
+        let recorder = self.recorder.lock().map_err(|_| AppError("recorder lock poisoned".into()))?;
+        if recorder.is_some() {
+            return Err(AppError("Stop the recording first, then change the folder.".into()));
+        }
+        let target = PathBuf::from(&check.target);
+        let moved = match mode {
+            ChangeMode::Move => {
+                if !check.can_move {
+                    return Err(AppError(format!(
+                        "There isn't room on that drive to move {} there. Free some space, or choose another folder.",
+                        os_models::locations::plain(&self.folder(kind)).display()
+                    )));
+                }
+                // The note model is memory-mapped while loaded; free it so its file can move.
+                if kind == FolderKind::Models {
+                    *self.llm.lock().map_err(|_| AppError("model lock poisoned".into()))? = None;
+                }
+                let from = self.folder(kind);
+                let moved =
+                    locations::move_tree(&from, &target, kind == FolderKind::Models, |done, total| {
+                        events.moving(done, total)
+                    })
+                    .map_err(|e| AppError(format!("Nothing was moved: {e}.")))?;
+                Some(moved)
+            }
+            ChangeMode::Switch => {
+                std::fs::create_dir_all(&target)?;
+                None
+            }
+        };
+        drop(recorder);
+        let mut saved = locations::load();
+        saved.set(kind, Some(target.clone()));
+        locations::save(&saved)?;
+        Ok(FolderChanged { kind, path: check.target, moved })
+    }
+
     // ---- models ----------------------------------------------------------
 
     pub fn models(&self) -> Vec<ModelRow> {
@@ -1222,13 +1460,22 @@ pub struct HubRepoView {
     pub files: Vec<HubFileView>,
 }
 
-/// Sends live segments to the thread that started an import.
-struct ChannelSink(std::sync::mpsc::Sender<Segment>);
+/// What an import's worker reports to the thread that started it.
+enum Live {
+    Segment(Segment),
+    Progress(Progress),
+}
+
+/// Sends live segments and progress to the thread that started an import.
+struct ChannelSink(std::sync::mpsc::Sender<Live>);
 
 impl LiveSink for ChannelSink {
     fn level(&mut self, _level: f32, _seconds: f32) {}
     fn segment(&mut self, segment: &Segment) {
-        let _ = self.0.send(segment.clone());
+        let _ = self.0.send(Live::Segment(segment.clone()));
+    }
+    fn progress(&mut self, progress: &Progress) {
+        let _ = self.0.send(Live::Progress(progress.clone()));
     }
 }
 
@@ -1240,6 +1487,26 @@ impl LiveSink for EventsSink {
     }
     fn segment(&mut self, segment: &Segment) {
         self.0.segment(segment);
+    }
+    fn progress(&mut self, progress: &Progress) {
+        self.0.progress(progress);
+    }
+}
+
+/// Make `dir` (and its parents) and write a test file there. What the test
+/// created is removed again.
+fn writable(dir: &Path) -> std::result::Result<(), String> {
+    let created: Vec<PathBuf> = dir.ancestors().take_while(|p| !p.exists()).map(Path::to_path_buf).collect();
+    let probe = dir.join(".openbark-write-test");
+    let ok = std::fs::create_dir_all(dir).and_then(|_| std::fs::write(&probe, b"ok")).is_ok();
+    let _ = std::fs::remove_file(&probe);
+    for p in &created {
+        let _ = std::fs::remove_dir(p);
+    }
+    if ok {
+        Ok(())
+    } else {
+        Err("OpenBark can't write to that folder. Choose another, or ask whoever manages this computer for access.".into())
     }
 }
 

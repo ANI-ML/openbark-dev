@@ -7,6 +7,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+dirs.workspace = true
 os-app.workspace = true
 os-engine.workspace = true
 os-models.workspace = true

@@ -86,6 +86,37 @@ pub trait LiveSink: Send {
     /// Input level, 0.0 (silence) to 1.0 (full scale), about 20 times a second.
     fn level(&mut self, level: f32, seconds: f32);
     fn segment(&mut self, segment: &Segment);
+    /// How far processing has got, for a progress bar (imports, and the
+    /// finishing steps after a recording stops).
+    fn progress(&mut self, _progress: &Progress) {}
+}
+
+/// A step of turning audio into a saved transcript.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stage {
+    /// Decoding a file or upload.
+    Read,
+    /// Speech to text: `done` and `total` are seconds of audio. A live
+    /// recording finishing its last words has `total` 0 (not known).
+    Transcribe,
+    /// The second recogniser re-hearing segments with numbers: segments.
+    Check,
+    /// Writing the transcript and audio.
+    Save,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Progress {
+    pub stage: Stage,
+    pub done: f32,
+    pub total: f32,
+}
+
+impl Progress {
+    pub fn new(stage: Stage, done: f32, total: f32) -> Self {
+        Self { stage, done, total }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -115,7 +146,7 @@ impl LiveRecorder {
     ) -> Result<Self, EngineError> {
         // Load models up front so errors surface before recording starts.
         let vad = os_asr::SileroVad::new(os_asr::VadOptions::new(models::single_file(store, models::VAD)?))?;
-        let asr = os_asr::OfflineAsr::new(models::asr_model(store, &options.stt)?)?;
+        let asr = os_asr::OfflineAsr::new(models::asr_model(store, &models::best_stt(store, &options.stt))?)?;
         let tracker = if options.label_speakers {
             Some(os_diar::SpeakerTracker::new(
                 &models::single_file(store, models::EMBEDDING)?,
@@ -136,7 +167,9 @@ impl LiveRecorder {
         };
         let lexicon = crate::vocab::Lexicon::default_with_user();
         // Second recogniser for segments that matter (M1 item 4); optional.
-        let second = models::asr_model(store, SECOND_STT).ok().and_then(|m| os_asr::OfflineAsr::new(m).ok());
+        let second = models::asr_model(store, &models::best_stt(store, SECOND_STT))
+            .ok()
+            .and_then(|m| os_asr::OfflineAsr::with_threads(m, os_asr::second_threads()).ok());
         if second.is_none() {
             tracing::info!("second recogniser not installed; number cross-check off");
         }
@@ -192,12 +225,13 @@ impl Drop for LiveRecorder {
 }
 
 /// Feed blocks to `tx` from the chosen source until `stop` is set (or the
-/// file ends). Returns the device name.
+/// file ends). Returns the device name, and for a file or upload its length
+/// in seconds.
 fn spawn_source(
     source: LiveSource,
     tx: mpsc::Sender<AudioBlock>,
     stop: Arc<AtomicBool>,
-) -> Result<(JoinHandle<()>, String), EngineError> {
+) -> Result<(JoinHandle<()>, String, Option<f32>), EngineError> {
     if let LiveSource::Stream { label, blocks } = source {
         // Forward caller-pushed blocks until the caller hangs up or we stop.
         let handle = std::thread::spawn(move || {
@@ -213,15 +247,15 @@ fn spawn_source(
                 }
             }
         });
-        return Ok((handle, label));
+        return Ok((handle, label, None));
     }
-    let (ready_tx, ready_rx) = mpsc::channel::<Result<String, String>>();
+    let (ready_tx, ready_rx) = mpsc::channel::<Result<(String, Option<f32>), String>>();
     let handle = std::thread::spawn(move || match source {
         LiveSource::Microphone(device) => {
             // cpal streams aren't Send: create, hold and drop on this thread.
             match MicCapture::start(device.as_deref(), tx) {
                 Ok(mic) => {
-                    let _ = ready_tx.send(Ok(mic.device_name.clone()));
+                    let _ = ready_tx.send(Ok((mic.device_name.clone(), None)));
                     while !stop.load(Ordering::SeqCst) {
                         std::thread::sleep(Duration::from_millis(20));
                     }
@@ -241,7 +275,8 @@ fn spawn_source(
             };
             match loaded {
                 Ok(audio) => {
-                    let _ = ready_tx.send(Ok(format!("file: {origin}")));
+                    let secs = audio.samples.len() as f32 / SAMPLE_RATE as f32;
+                    let _ = ready_tx.send(Ok((format!("file: {origin}"), Some(secs))));
                     let block = (SAMPLE_RATE / 50) as usize; // 20 ms
                     for chunk in audio.samples.chunks(block) {
                         if stop.load(Ordering::SeqCst) {
@@ -263,11 +298,11 @@ fn spawn_source(
         }
         LiveSource::Stream { .. } => unreachable!("handled above"),
     });
-    let device = ready_rx
+    let (device, secs) = ready_rx
         .recv()
         .map_err(|_| EngineError::Session("audio source failed to start".into()))?
         .map_err(EngineError::Session)?;
-    Ok((handle, device))
+    Ok((handle, device, secs))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -313,7 +348,13 @@ fn run(
     let _awake = AwakeGuard::acquire(AwakeReason::Recording);
     let started = Instant::now();
     let (tx, rx) = mpsc::channel::<AudioBlock>();
-    let (source, device) = spawn_source(source, tx, stop.clone())?;
+    let (source, device, total_secs) = spawn_source(source, tx, stop.clone())?;
+    // Imports report seconds transcribed, at most every 1% (or 2 s of audio).
+    let report_every = total_secs.map(|t| (t / 100.0).max(2.0));
+    let mut reported = 0.0f32;
+    if let Some(total) = total_secs {
+        sink.progress(&Progress::new(Stage::Transcribe, 0.0, total));
+    }
     // Encrypted as it's written when the vault is on (ADR-0008).
     let mut wav = if crate::vault::enabled() {
         crate::vault::AudioWriter::create(&session.audio_path())
@@ -329,6 +370,7 @@ fn run(
     let level_every = (SAMPLE_RATE / 20) as usize;
     let mut asr_ms = 0u64;
 
+    let mut checks_queued = 0usize;
     let mut handle_utterances = |utterances: Vec<os_asr::Utterance>,
                                  transcript: &mut Transcript,
                                  sink: &mut Box<dyn LiveSink>,
@@ -357,8 +399,9 @@ fn run(
             sink.segment(&segment);
             if let Some(tx) = &job_tx
                 && crate::crosscheck::worth_checking(&segment)
+                && tx.send((transcript.segments.len(), u.samples.clone(), segment.text.clone())).is_ok()
             {
-                let _ = tx.send((transcript.segments.len(), u.samples.clone(), segment.text.clone()));
+                checks_queued += 1;
             }
             transcript.segments.push(segment);
         }
@@ -411,17 +454,33 @@ fn run(
         }
         let utterances = streaming.accept(&samples);
         handle_utterances(utterances, &mut transcript, &mut sink, &mut asr_ms)?;
+        if let (Some(total), Some(every)) = (total_secs, report_every) {
+            let done = wav.duration_secs();
+            if done - reported >= every {
+                reported = done;
+                sink.progress(&Progress::new(Stage::Transcribe, done.min(total), total));
+            }
+        }
     }
     let stopped_at = stopped_at.unwrap_or_else(Instant::now);
     let _ = source.join();
 
+    // The last words: a stopped recording's total isn't known (0).
+    let heard = wav.duration_secs();
+    sink.progress(&Progress::new(Stage::Transcribe, heard, total_secs.unwrap_or(0.0)));
     let last = streaming.finish();
     handle_utterances(last, &mut transcript, &mut sink, &mut asr_ms)?;
-    // Collect second opinions (only the last few are still pending at stop).
+    // Collect second opinions. A recording has only the last few still
+    // pending at stop; an import may have many, so count them as they land.
     drop(job_tx);
     if let (Some(done_rx), Some(checker)) = (done_rx, checker) {
-        let _ = checker.join();
-        for (i, opinion, hints) in done_rx.try_iter() {
+        let total = checks_queued as f32;
+        let mut checked = 0usize;
+        if checks_queued > 0 {
+            sink.progress(&Progress::new(Stage::Check, 0.0, total));
+        }
+        // Ends when the checker has worked through the queue and hung up.
+        for (i, opinion, hints) in done_rx {
             if let Some(seg) = transcript.segments.get_mut(i) {
                 for h in hints {
                     if !seg.hints.iter().any(|x| x.heard.eq_ignore_ascii_case(&h.heard)) {
@@ -430,8 +489,12 @@ fn run(
                 }
                 seg.check = Some(opinion);
             }
+            checked += 1;
+            sink.progress(&Progress::new(Stage::Check, checked as f32, total));
         }
+        let _ = checker.join();
     }
+    sink.progress(&Progress::new(Stage::Save, 0.0, 1.0));
     let audio_secs = wav.finish().map_err(|e| EngineError::Session(e.to_string()))?;
     session.finish_live_audio(&device, audio_secs)?;
 

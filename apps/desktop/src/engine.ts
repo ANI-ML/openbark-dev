@@ -374,9 +374,39 @@ export const isDesktop = typeof window !== "undefined" && "__TAURI_INTERNALS__" 
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, init);
+  // An older engine than these screens answers unknown API paths with the web page.
+  if ((res.headers.get("content-type") ?? "").includes("text/html")) {
+    throw new Error("OpenBark was updated but is still running the older version. Stop OpenBark and open it again.");
+  }
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((body as { error?: string }).error ?? `${res.status} ${res.statusText}`);
   return body as T;
+}
+
+/**
+ * POST a file, reporting bytes sent (fetch can't report upload progress).
+ * Errors read like `api`'s.
+ */
+function uploadWithProgress<T>(path: string, body: Blob, onSent: (sent: number, total: number) => void): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", path);
+    xhr.setRequestHeader("content-type", body.type || "application/octet-stream");
+    xhr.upload.onprogress = (e) => onSent(e.loaded, e.lengthComputable ? e.total : body.size);
+    xhr.onerror = () =>
+      reject(new Error("OpenBark stopped responding. Check that it's still running, then try again."));
+    xhr.onload = () => {
+      let parsed: unknown = {};
+      try {
+        parsed = JSON.parse(xhr.responseText);
+      } catch {
+        // Not JSON: report the status below.
+      }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(parsed as T);
+      else reject(new Error((parsed as { error?: string }).error ?? `${xhr.status} ${xhr.statusText}`));
+    };
+    xhr.send(body);
+  });
 }
 
 const post = (body: unknown): RequestInit => ({
@@ -389,6 +419,78 @@ const enc = encodeURIComponent;
 
 export const status = () => (isDesktop ? invoke<Status>("status") : api<Status>("/api/status"));
 export const inputDevices = () => (isDesktop ? invoke<string[]>("input_devices") : api<string[]>("/api/devices"));
+// ---- storage (ADR-0013) ----------------------------------------------------
+
+export type FolderKind = "models" | "visits";
+
+export interface FolderView {
+  kind: FolderKind;
+  path: string;
+  source: "default" | "chosen" | "fixed";
+  /** What fixed it (an environment variable, or the command line). */
+  fixed_by: string | null;
+  used_bytes: number;
+  free_bytes: number | null;
+}
+
+export interface StorageView {
+  models: FolderView;
+  visits: FolderView;
+}
+
+/** What choosing a folder would do, shown before anything changes. */
+export interface FolderCheck {
+  kind: FolderKind;
+  chosen: string;
+  /** The chosen folder, or an "OpenBark models/visits" folder inside it. */
+  target: string;
+  has_data: boolean;
+  problem: string | null;
+  notices: string[];
+  needed_bytes: number;
+  free_bytes: number | null;
+  same_disk: boolean;
+  can_move: boolean;
+}
+
+export type ChangeMode = "move" | "switch";
+
+export interface FolderChanged {
+  kind: FolderKind;
+  path: string;
+  moved: { files: number; bytes: number; already_there: number } | null;
+}
+
+export interface FolderListing {
+  path: string;
+  parent: string | null;
+  folders: { name: string; path: string }[];
+}
+
+export const storage = () => (isDesktop ? invoke<StorageView>("storage") : api<StorageView>("/api/storage"));
+
+export const checkFolder = (kind: FolderKind, path: string) =>
+  isDesktop
+    ? invoke<FolderCheck>("check_folder", { kind, path })
+    : api<FolderCheck>("/api/storage/check", post({ kind, path }));
+
+export const changeFolder = (kind: FolderKind, path: string, mode: ChangeMode) =>
+  isDesktop
+    ? invoke<FolderChanged>("change_folder", { kind, path, mode })
+    : api<FolderChanged>("/api/storage/change", post({ kind, path, mode }));
+
+/** Desktop: start again so everything opens from the new folders. */
+export const restartApp = () => invoke<void>("restart_app");
+
+/** Desktop: the system's folder picker. Null if cancelled. */
+export async function pickFolder(start?: string): Promise<string | null> {
+  const picked = await open({ directory: true, multiple: false, defaultPath: start });
+  return typeof picked === "string" ? picked : null;
+}
+
+/** Web mode: folders inside `path` (drives and the usual places when empty). */
+export const listFolders = (path: string) => api<FolderListing>(`/api/folders?path=${enc(path)}`);
+
 // ---- patients (ADR-0011) ---------------------------------------------------
 
 export interface PatientRecord {
@@ -695,11 +797,26 @@ function pickBrowserFile(): Promise<File | null> {
 }
 
 /** Ask for a WAV, then create an encounter from it. Null if cancelled. */
+/**
+ * Steps of turning audio into a saved transcript, for a progress bar. The
+ * engine reports `read`, `transcribe` (seconds of audio), `check` (segments)
+ * and `save`; web mode adds `upload` (bytes) and `convert` (the browser
+ * decoding a format the engine can't read).
+ */
+export type ProcessingStage = "upload" | "convert" | "read" | "transcribe" | "check" | "save";
+export interface ProcessingProgress {
+  stage: ProcessingStage;
+  done: number;
+  /** 0 when not known (a stopped recording finishing its last words). */
+  total: number;
+}
+
 export async function importRecording(
   speakers: boolean,
   patient: Patient | null,
   consent: RecordingConsent | null,
   onPicked: () => void,
+  onProgress: (p: ProcessingProgress) => void = () => {},
 ): Promise<SessionView | null> {
   const p = hasPatient(patient) ? patient : null;
   if (isDesktop) {
@@ -727,17 +844,16 @@ export async function importRecording(
       ...consentQuery(consent),
       by: actor ?? "",
     });
-    return api<SessionView>(`/api/sessions?${q}`, {
-      method: "POST",
-      headers: { "content-type": body.type || "application/octet-stream" },
-      body,
-    });
+    return uploadWithProgress<SessionView>(`/api/sessions?${q}`, body, (done, total) =>
+      onProgress({ stage: "upload", done, total }),
+    );
   };
   try {
     return await upload(file, file.name);
   } catch (e) {
     // The engine can't read this kind of file: try the browser's decoders.
     if (!String(e instanceof Error ? e.message : e).includes("can't read")) throw e;
+    onProgress({ stage: "convert", done: 0, total: 1 });
     const wav = await decodeInBrowser(file);
     if (!wav) throw e;
     return upload(wav, `${file.name.replace(/\.[^.]+$/, "")}.wav`);
@@ -918,8 +1034,17 @@ type Handlers = {
   token: Set<(t: string) => void>;
   level: Set<(l: { level: number; seconds: number }) => void>;
   download: Set<(d: { model: string; done: number; total: number }) => void>;
+  progress: Set<(p: ProcessingProgress) => void>;
+  moving: Set<(m: { done: number; total: number }) => void>;
 };
-const handlers: Handlers = { segment: new Set(), token: new Set(), level: new Set(), download: new Set() };
+const handlers: Handlers = {
+  segment: new Set(),
+  token: new Set(),
+  level: new Set(),
+  download: new Set(),
+  progress: new Set(),
+  moving: new Set(),
+};
 let source: EventSource | null = null;
 
 function sse() {
@@ -936,6 +1061,8 @@ const TAURI_EVENT: Record<keyof Handlers, string> = {
   token: "note-token",
   level: "audio-level",
   download: "download-progress",
+  progress: "processing-progress",
+  moving: "move-progress",
 };
 
 export async function on<K extends keyof Handlers>(

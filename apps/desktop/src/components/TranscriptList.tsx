@@ -36,13 +36,27 @@ export interface TranscriptListProps {
   speakerNames?: string[];
 }
 
-export function TranscriptList({ segments, follow, highlighted, playingId, onSeek, speakerNames }: TranscriptListProps) {
+export function TranscriptList({
+  segments,
+  follow,
+  highlighted,
+  playingId,
+  onSeek,
+  speakerNames,
+}: TranscriptListProps) {
   const t = useT();
   const box = useRef<HTMLOListElement>(null);
   const [detached, setDetached] = useState(false);
 
+  /** Scroll the list itself to its end. scrollIntoView would scroll the page
+   * too, carrying the recorder's controls and progress off a phone's screen. */
+  const toEnd = () => {
+    const el = box.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  };
+
   useEffect(() => {
-    if (follow && !detached) box.current?.lastElementChild?.scrollIntoView({ block: "nearest" });
+    if (follow && !detached) toEnd();
   }, [segments.length, follow, detached]);
 
   useEffect(() => {
@@ -94,7 +108,7 @@ export function TranscriptList({ segments, follow, highlighted, playingId, onSee
           data-variant="ghost"
           onClick={() => {
             setDetached(false);
-            box.current?.lastElementChild?.scrollIntoView({ block: "nearest" });
+            toEnd();
           }}
         >
           {t("Jump to live")}

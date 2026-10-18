@@ -27,6 +27,10 @@ In the browser version, a file OpenBark can't read itself is decoded by the brow
 
 To chart a **phone call**, record it with your phone's own call recording, export the audio, then import it and draft with the **Callback note** template.
 
+### How long it takes
+
+A progress bar shows each step: reading the file, transcribing (minutes of audio done out of the total), checking numbers with the second recogniser, and saving. Once it has enough to go on, it shows the time left. Stopping a live recording shows the same bar while the last words are transcribed.
+
 ## Tips for good transcripts
 
 - Put the computer or microphone between the people talking, not behind a monitor.

@@ -17,6 +17,19 @@ export const HELP_TOPICS = [
       "If the models aren't on this computer yet, choose Download everything on the Record screen. It's a one-time download; after that OpenBark works offline.",
       "Use the sidebar: Record, Patients, Templates, Models, Settings and Help.",
       "In Settings, add your name for signing, and choose the app language and the language notes are written in.",
+      "In Settings, Storage, choose where visits and models are kept, such as another drive.",
+    ],
+  },
+  {
+    id: "patients",
+    title: "Patients and visits",
+    summary: "Find an animal, see every visit, and start a new one from its page.",
+    steps: [
+      "Patients lists every animal, most recently seen first. Type a name to find one.",
+      "Open a patient to see every visit, newest first, with its type and whether it's signed.",
+      "New visit on a patient's page opens Record with the patient filled in.",
+      "Recent visits shows the day's recordings as a list.",
+      "Edit details corrects the name or species. Past visits keep what was entered at the time.",
     ],
   },
   {
@@ -24,11 +37,11 @@ export const HELP_TOPICS = [
     title: "Recording a consult",
     summary: "Enter the patient, press Record, and watch the transcript appear.",
     steps: [
-      "On Record, enter the patient's name, the client's last name and the reason for the visit. They're optional and can be added later.",
-      "Choose the template, then press the red button or Space to start.",
+      "On Record, choose Find a patient to pick an animal you've seen before, or enter a new patient's name, the client's last name and the reason for the visit. They're optional and can be added later.",
+      "Choose the kind of visit, then press the red button or Space to start.",
       "Each sentence appears in the live transcript once it's finished. The audio is saved, encrypted, as you go.",
-      "Press the button again to stop. The note is drafted automatically and opens in Review.",
-      "You can also import a recording made elsewhere, such as a phone's call recording.",
+      "Press the button again to stop. A progress bar shows the transcript being finished, then the note is drafted and opens in Review.",
+      "You can also import a recording made elsewhere, such as a phone's call recording. A progress bar shows how far it has got and the time left.",
     ],
   },
   {
@@ -95,7 +108,12 @@ export function Help() {
           <ol>
             {HELP_TOPICS.map((x, i) => (
               <li key={x.id}>
-                <button type="button" className="help-topic" aria-current={x.id === open ? "true" : undefined} onClick={() => setOpen(x.id)}>
+                <button
+                  type="button"
+                  className="help-topic"
+                  aria-current={x.id === open ? "true" : undefined}
+                  onClick={() => setOpen(x.id)}
+                >
                   <span className="mono faint">{i + 1}</span>
                   <span>{t(x.title)}</span>
                 </button>
@@ -106,8 +124,17 @@ export function Help() {
         <article className="help-body">
           <h2>{t(topic.title)}</h2>
           <p className="muted">{t(topic.summary)}</p>
-          <video key={topic.id} className="help-video" src={`help/${topic.id}.webm`} controls preload="metadata" playsInline />
-          {app.settings.uiLanguage !== "en" && <p className="small faint">{t("The videos are in English; the steps below are in your language.")}</p>}
+          <video
+            key={topic.id}
+            className="help-video"
+            src={`help/${topic.id}.webm`}
+            controls
+            preload="metadata"
+            playsInline
+          />
+          {app.settings.uiLanguage !== "en" && (
+            <p className="small faint">{t("The videos are in English; the steps below are in your language.")}</p>
+          )}
           <ol className="help-steps">
             {topic.steps.map((s) => (
               <li key={s}>{t(s)}</li>

@@ -39,6 +39,18 @@ As a rule of thumb: older laptops, Gemma 4 E2B (about 3 GB); most laptops, E4B (
 - **Language:** the app's language, and the language notes are written in (see [Languages](../languages.md)).
 - **PDFs and copying:** your clinic's name and address for PDFs, the paper size, and how **Copy note** pastes into your PIMS.
 
+## Where visits and models are kept
+
+**Settings > Storage** shows the two folders OpenBark uses, how much each holds and how much room is left on its drive:
+- **Visits**: recordings, transcripts, notes and the patient list. Your clinic's data, encrypted.
+- **Models**: the speech and note models. Large, and can be downloaded again.
+
+Choose **Change folder** to put either one somewhere else, such as a bigger second drive, or a drive that's backed up. OpenBark shows the exact folder it will use and the free space before anything changes. Then choose:
+- **Move them there:** copied, checked, then removed from the old folder;
+- **Start with an empty folder:** what you have now stays where it is.
+
+A folder that already holds other files gets an **OpenBark visits** or **OpenBark models** folder inside it, so nothing is mixed in. OpenBark also tells you if the folder is synced by OneDrive or a similar service, or is on a drive that can be unplugged.
+
 ## Where things are
 
 | Screen | What it's for |

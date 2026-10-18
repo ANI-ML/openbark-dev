@@ -3938,6 +3938,7 @@ name = "os-server"
 version = "0.0.1"
 dependencies = [
  "axum",
+ "dirs",
  "os-app",
  "os-engine",
  "os-models",

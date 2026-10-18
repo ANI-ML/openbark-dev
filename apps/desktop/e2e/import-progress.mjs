@@ -1,0 +1,133 @@
+// Import a long recording through the web UI and watch the progress bar:
+// every step should show, the percentage should only go up, and the visit
+// should open when it's done. Run against a demo server, never a clinic's
+// own data:
+//   OPENBARK_URL=http://localhost:4321 node e2e/import-progress.mjs <recording>
+import { mkdirSync } from "node:fs";
+import { chromium } from "@playwright/test";
+
+const base = process.env.OPENBARK_URL ?? "http://localhost:4321";
+const out = process.env.OUT_DIR ?? "../../target/progress";
+const file = process.argv[2];
+if (!file) throw new Error("usage: node e2e/import-progress.mjs <recording>");
+mkdirSync(out, { recursive: true });
+
+const browser = await chromium.launch();
+const problems = [];
+for (const v of [
+  { name: "desktop", viewport: { width: 1440, height: 900 }, colorScheme: "light" },
+  { name: "mobile", viewport: { width: 390, height: 844 }, colorScheme: "dark", isMobile: true, hasTouch: true },
+]) {
+  const ctx = await browser.newContext({
+    viewport: v.viewport,
+    colorScheme: v.colorScheme,
+    isMobile: v.isMobile,
+    hasTouch: v.hasTouch,
+  });
+  await ctx.addInitScript(() => {
+    const key = "openbark.settings";
+    const current = JSON.parse(localStorage.getItem(key) ?? "{}");
+    localStorage.setItem(
+      key,
+      JSON.stringify({
+        ...current,
+        consentAcknowledgedAt: "2026-10-17T20:00:00Z",
+        uiLanguage: "en",
+        draftOnStop: false,
+      }),
+    );
+  });
+  const page = await ctx.newPage();
+  page.on("pageerror", (e) => problems.push(`${v.name}: ${e}`));
+  await page.goto(base);
+  await page.locator(".recorder").waitFor();
+
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import a recording" }).click();
+  await (await chooser).setFiles(file);
+
+  // Sample the bar until the visit opens.
+  const seen = [];
+  let last = -1;
+  let shots = 0;
+  const started = Date.now();
+  while (Date.now() - started < 15 * 60_000) {
+    if (await page.locator(".review-bar, .pane-pad").count()) break;
+    const bar = page.locator(".processing [role=progressbar]");
+    if (await bar.count()) {
+      const pct = Number(await bar.getAttribute("aria-valuenow"));
+      const text = (await page.locator(".processing-text").innerText()).replace(/\s+/g, " ");
+      const step = text.split(":")[0];
+      if (!seen.length || seen[seen.length - 1].step !== step) seen.push({ step, pct, text, at: Date.now() - started });
+      if (pct < last) problems.push(`${v.name}: went back from ${last}% to ${pct}% (${text})`);
+      last = pct;
+      // A few frames: early, middle, and late.
+      if ((shots === 0 && pct >= 8) || (shots === 1 && pct >= 45) || (shots === 2 && pct >= 85)) {
+        await page.screenshot({ path: `${out}/${v.name}-${++shots}.png` });
+      }
+    }
+    await page.waitForTimeout(250);
+  }
+  const opened = (await page.locator(".review-bar, .pane-pad").count()) > 0;
+  if (!opened) problems.push(`${v.name}: the visit didn't open`);
+  console.log(`${v.name}: ${opened ? "opened" : "did not open"} after ${Math.round((Date.now() - started) / 1000)} s`);
+  for (const s of seen)
+    console.log(`  ${String(Math.round(s.at / 1000)).padStart(4)} s  ${String(s.pct).padStart(3)}%  ${s.text}`);
+  await ctx.close();
+}
+await browser.close();
+
+// A recording that stops: the finishing steps show the same bar. Chromium
+// plays a WAV as the microphone.
+const mic = process.argv[3];
+if (mic) {
+  const rec = await chromium.launch({
+    args: [
+      "--use-fake-ui-for-media-stream",
+      "--use-fake-device-for-media-stream",
+      `--use-file-for-fake-audio-capture=${mic}`,
+    ],
+  });
+  const ctx = await rec.newContext({ viewport: { width: 1440, height: 900 }, permissions: ["microphone"] });
+  await ctx.addInitScript(() => {
+    const key = "openbark.settings";
+    const current = JSON.parse(localStorage.getItem(key) ?? "{}");
+    localStorage.setItem(
+      key,
+      JSON.stringify({
+        ...current,
+        consentAcknowledgedAt: "2026-10-17T20:00:00Z",
+        uiLanguage: "en",
+        draftOnStop: false,
+      }),
+    );
+  });
+  const page = await ctx.newPage();
+  page.on("pageerror", (e) => problems.push(`record: ${e}`));
+  await page.goto(base);
+  await page.locator(".recorder").waitFor();
+  await page.getByRole("button", { name: "Start recording" }).click();
+  await page.getByRole("button", { name: "Stop recording" }).waitFor();
+  await page.waitForTimeout(25_000);
+  await page.getByRole("button", { name: "Stop recording" }).click();
+  const seen = [];
+  const started = Date.now();
+  while (Date.now() - started < 5 * 60_000) {
+    if (await page.locator(".review-bar, .pane-pad").count()) break;
+    const bar = page.locator(".processing [role=progressbar]");
+    if (await bar.count()) {
+      const text = (await page.locator(".processing-text").innerText()).replace(/\s+/g, " ");
+      if (seen[seen.length - 1] !== text) seen.push(text);
+      if (seen.length === 1) await page.screenshot({ path: `${out}/record-stop.png` });
+    }
+    await page.waitForTimeout(100);
+  }
+  const opened = (await page.locator(".review-bar, .pane-pad").count()) > 0;
+  if (!opened) problems.push("record: the visit didn't open after stopping");
+  console.log(
+    `record: ${opened ? "opened" : "did not open"} ${Math.round((Date.now() - started) / 1000)} s after stop`,
+  );
+  for (const s of seen) console.log(`  ${s}`);
+  await rec.close();
+}
+console.log(problems.length ? `PROBLEMS:\n${problems.join("\n")}` : "all checks passed");

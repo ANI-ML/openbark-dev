@@ -44,6 +44,18 @@ impl Events for TauriEvents {
     fn download(&self, model: &str, done: u64, total: u64) {
         let _ = self.0.emit("download-progress", Download { model, done, total });
     }
+    fn progress(&self, p: &os_app::Progress) {
+        let _ = self.0.emit("processing-progress", p);
+    }
+    fn moving(&self, done: u64, total: u64) {
+        let _ = self.0.emit("move-progress", Moving { done, total });
+    }
+}
+
+#[derive(Clone, Serialize)]
+struct Moving {
+    done: u64,
+    total: u64,
 }
 
 type AppState = Arc<App>;
@@ -111,6 +123,43 @@ async fn open_session(
 ) -> Result<os_app::SessionView, String> {
     let app = app.inner().clone();
     work(move || app.open_session(&id, pet.as_deref())).await
+}
+
+// ---- storage (ADR-0013) ------------------------------------------------------
+
+#[tauri::command]
+async fn storage(app: State<'_, AppState>) -> Result<os_app::StorageView, String> {
+    let app = app.inner().clone();
+    work(move || Ok(app.storage())).await
+}
+
+#[tauri::command]
+async fn check_folder(
+    app: State<'_, AppState>,
+    kind: os_app::FolderKind,
+    path: String,
+) -> Result<os_app::FolderCheck, String> {
+    let app = app.inner().clone();
+    work(move || Ok(app.check_folder(kind, &path))).await
+}
+
+/// Change a folder; the window then calls `restart_app` so everything opens
+/// from the new place.
+#[tauri::command]
+async fn change_folder(
+    handle: AppHandle,
+    app: State<'_, AppState>,
+    kind: os_app::FolderKind,
+    path: String,
+    mode: os_app::ChangeMode,
+) -> Result<os_app::FolderChanged, String> {
+    let app = app.inner().clone();
+    work(move || app.change_folder(kind, &path, mode, &TauriEvents(handle))).await
+}
+
+#[tauri::command]
+fn restart_app(handle: AppHandle) {
+    handle.restart();
 }
 
 #[tauri::command]
@@ -423,6 +472,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             status,
             input_devices,
+            storage,
+            check_folder,
+            change_folder,
+            restart_app,
             list_patients,
             patient,
             create_patient,

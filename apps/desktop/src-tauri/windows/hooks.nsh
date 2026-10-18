@@ -29,7 +29,7 @@
   ${AndIf} $UpdateMode <> 1
   ${AndIfNot} ${Silent}
     MessageBox MB_YESNO|MB_ICONEXCLAMATION|MB_DEFBUTTON2 \
-      "Also delete everything OpenBark stored on this computer?$\r$\n$\r$\nThis deletes every encounter, recording, note, model, template and team member in$\r$\n$LOCALAPPDATA\OpenBark$\r$\nand the encryption key. Copies of encounters kept elsewhere can then only be opened with your recovery key (Settings, Encryption).$\r$\n$\r$\nChoose No to keep your data." \
+      "Also delete everything OpenBark stored on this computer?$\r$\n$\r$\nThis deletes every encounter, recording, note, model, template and team member in$\r$\n$LOCALAPPDATA\OpenBark$\r$\nand the encryption key. Copies of visits kept elsewhere can then only be opened with your recovery key (Settings, Encryption). Visits or models you moved to another folder in Settings, Storage, are not deleted.$\r$\n$\r$\nChoose No to keep your data." \
       IDYES openbark_delete_data IDNO openbark_keep_data
     openbark_delete_data:
       nsExec::Exec 'cmdkey /delete:data-key.OpenBark'

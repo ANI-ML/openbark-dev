@@ -34,7 +34,7 @@
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use axum::Router;
 use axum::body::Bytes;
@@ -67,8 +67,15 @@ pub struct ServerOptions {
 }
 
 struct Shared {
-    app: App,
+    /// Replaced by a fresh one on the new folders when a folder changes (ADR-0013).
+    app: RwLock<Arc<App>>,
     events: Arc<Broadcaster>,
+}
+
+impl Shared {
+    fn app(&self) -> Arc<App> {
+        self.app.read().expect("app lock").clone()
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -78,6 +85,8 @@ enum ServerEvent {
     Token(String),
     Level { level: f32, seconds: f32 },
     Download { model: String, done: u64, total: u64 },
+    Progress(os_app::Progress),
+    Moving { done: u64, total: u64 },
 }
 
 struct Broadcaster(broadcast::Sender<ServerEvent>);
@@ -94,6 +103,12 @@ impl Events for Broadcaster {
     }
     fn download(&self, model: &str, done: u64, total: u64) {
         let _ = self.0.send(ServerEvent::Download { model: model.to_string(), done, total });
+    }
+    fn progress(&self, p: &os_app::Progress) {
+        let _ = self.0.send(ServerEvent::Progress(p.clone()));
+    }
+    fn moving(&self, done: u64, total: u64) {
+        let _ = self.0.send(ServerEvent::Moving { done, total });
     }
 }
 
@@ -127,13 +142,13 @@ async fn blocking<T: Send + 'static>(
 pub async fn serve(options: ServerOptions) -> std::io::Result<()> {
     let (tx, _) = broadcast::channel(4096);
     let state: St = Arc::new(Shared {
-        app: App::new(options.store, options.sessions_root),
+        app: RwLock::new(Arc::new(App::new(options.store, options.sessions_root))),
         events: Arc::new(Broadcaster(tx)),
     });
     let index = options.ui_dir.join("index.html");
     let api = Router::new()
-        .route("/api/status", get(|State(s): State<St>| async move { Json(s.app.status()) }))
-        .route("/api/devices", get(|State(s): State<St>| async move { Json(s.app.input_devices()) }))
+        .route("/api/status", get(|State(s): State<St>| async move { Json(s.app().status()) }))
+        .route("/api/devices", get(|State(s): State<St>| async move { Json(s.app().input_devices()) }))
         .route("/api/patients", get(list_patients).post(create_patient))
         .route("/api/patients/{id}", get(patient).post(update_patient_record))
         .route("/api/sessions", get(list_sessions).post(create_session))
@@ -155,7 +170,7 @@ pub async fn serve(options: ServerOptions) -> std::io::Result<()> {
         .route("/api/live", get(live))
         .route("/api/record/start", post(record_start))
         .route("/api/record/stop", post(record_stop))
-        .route("/api/models", get(|State(s): State<St>| async move { Json(s.app.models()) }))
+        .route("/api/models", get(|State(s): State<St>| async move { Json(s.app().models()) }))
         .route("/api/models/{id}/download", post(download_model))
         .route("/api/hub/search", get(hub_search))
         .route("/api/hub/repo", get(hub_repo))
@@ -166,6 +181,10 @@ pub async fn serve(options: ServerOptions) -> std::io::Result<()> {
         .route("/api/users/{uid}", delete(remove_user))
         .route("/api/users/{uid}/pin", post(set_user_pin))
         .route("/api/users/{uid}/verify", post(verify_user))
+        .route("/api/storage", get(|State(s): State<St>| async move { Json(s.app().storage()) }))
+        .route("/api/storage/check", post(check_folder))
+        .route("/api/storage/change", post(change_folder))
+        .route("/api/folders", get(list_folders))
         .route("/api/events", get(events_stream))
         .layer(DefaultBodyLimit::max(1 << 30))
         .with_state(state);
@@ -178,12 +197,126 @@ pub async fn serve(options: ServerOptions) -> std::io::Result<()> {
     axum::serve(listener, app).await
 }
 
+// ---- storage (ADR-0013) ------------------------------------------------------
+
+#[derive(Deserialize)]
+struct FolderRequest {
+    kind: os_app::FolderKind,
+    path: String,
+    #[serde(default = "switch")]
+    mode: os_app::ChangeMode,
+}
+
+fn switch() -> os_app::ChangeMode {
+    os_app::ChangeMode::Switch
+}
+
+async fn check_folder(
+    State(s): State<St>,
+    Json(r): Json<FolderRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || Ok(s.app().check_folder(r.kind, &r.path))).await
+}
+
+/// Change a folder, then carry on with a fresh app on the new folders.
+async fn change_folder(
+    State(s): State<St>,
+    Json(r): Json<FolderRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || {
+        let app = s.app();
+        let changed = app.change_folder(r.kind, &r.path, r.mode, s.events.as_ref())?;
+        let (models, visits) = match r.kind {
+            os_app::FolderKind::Models => (PathBuf::from(&changed.path), app.sessions_root.clone()),
+            os_app::FolderKind::Visits => (app.store.root().to_path_buf(), PathBuf::from(&changed.path)),
+        };
+        drop(app);
+        *s.app.write().expect("app lock") = Arc::new(App::new(ModelStore::new(models), visits));
+        Ok(changed)
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+struct FolderQuery {
+    #[serde(default)]
+    path: String,
+}
+
+#[derive(Serialize)]
+struct FolderListing {
+    /// The folder listed; empty for the starting places.
+    path: String,
+    parent: Option<String>,
+    folders: Vec<FolderEntry>,
+}
+
+#[derive(Serialize)]
+struct FolderEntry {
+    name: String,
+    path: String,
+}
+
+/// Folders inside `path`, for choosing a folder in the browser (web mode has
+/// no native folder picker). With no path: drives and the usual places.
+async fn list_folders(Query(q): Query<FolderQuery>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || {
+        let entry = |p: PathBuf| FolderEntry {
+            name: p
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| p.display().to_string()),
+            path: p.display().to_string(),
+        };
+        if q.path.trim().is_empty() {
+            let mut folders: Vec<FolderEntry> = Vec::new();
+            for dir in [dirs::home_dir(), dirs::document_dir(), dirs::desktop_dir()].into_iter().flatten() {
+                folders.push(entry(dir));
+            }
+            if cfg!(windows) {
+                for letter in b'A'..=b'Z' {
+                    let root = PathBuf::from(format!("{}:\\", letter as char));
+                    if root.exists() {
+                        folders.push(FolderEntry {
+                            name: root.display().to_string(),
+                            path: root.display().to_string(),
+                        });
+                    }
+                }
+            } else {
+                for root in ["/", "/Volumes", "/media", "/mnt"] {
+                    if PathBuf::from(root).is_dir() {
+                        folders.push(FolderEntry { name: root.into(), path: root.into() });
+                    }
+                }
+            }
+            return Ok(FolderListing { path: String::new(), parent: None, folders });
+        }
+        let dir = PathBuf::from(q.path.trim());
+        let read =
+            std::fs::read_dir(&dir).map_err(|e| AppError(format!("Can't open {}: {e}", dir.display())))?;
+        let mut folders: Vec<FolderEntry> = read
+            .flatten()
+            .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+            .filter(|e| !e.file_name().to_string_lossy().starts_with(['.', '$']))
+            .map(|e| entry(e.path()))
+            .collect();
+        folders.sort_by_key(|f| f.name.to_lowercase());
+        Ok(FolderListing {
+            path: dir.display().to_string(),
+            parent: Some(dir.parent().map(|p| p.display().to_string()).unwrap_or_default()),
+            folders,
+        })
+    })
+    .await
+}
+
 async fn list_patients(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app.list_patients()).await
+    blocking(move || s.app().list_patients()).await
 }
 
 async fn patient(State(s): State<St>, UrlPath(id): UrlPath<String>) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app.patient(&id)).await
+    blocking(move || s.app().patient(&id)).await
 }
 
 #[derive(Deserialize)]
@@ -195,8 +328,11 @@ struct PatientDetails {
     species: String,
 }
 
-async fn create_patient(State(s): State<St>, Json(p): Json<PatientDetails>) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app.create_patient(&p.name, &p.last_name, &p.species)).await
+async fn create_patient(
+    State(s): State<St>,
+    Json(p): Json<PatientDetails>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().create_patient(&p.name, &p.last_name, &p.species)).await
 }
 
 async fn update_patient_record(
@@ -204,11 +340,11 @@ async fn update_patient_record(
     UrlPath(id): UrlPath<String>,
     Json(p): Json<PatientDetails>,
 ) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app.update_patient_record(&id, &p.name, &p.last_name, &p.species)).await
+    blocking(move || s.app().update_patient_record(&id, &p.name, &p.last_name, &p.species)).await
 }
 
 async fn list_sessions(State(s): State<St>) -> impl IntoResponse {
-    Json(s.app.list_sessions())
+    Json(s.app().list_sessions())
 }
 
 #[derive(Deserialize, Default)]
@@ -222,7 +358,7 @@ async fn open_session(
     UrlPath(id): UrlPath<String>,
     Query(q): Query<PetQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app.open_session(&id, q.pet.as_deref())).await
+    blocking(move || s.app().open_session(&id, q.pet.as_deref())).await
 }
 
 /// The recording, decrypted in memory (never as a plain file), with byte
@@ -233,7 +369,7 @@ async fn session_audio(
     headers: axum::http::HeaderMap,
 ) -> Result<Response, ApiError> {
     use axum::http::header;
-    let wav = tokio::task::spawn_blocking(move || s.app.session_audio(&id))
+    let wav = tokio::task::spawn_blocking(move || s.app().session_audio(&id))
         .await
         .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))??;
     let total = wav.len();
@@ -263,7 +399,7 @@ async fn session_audio(
 }
 
 async fn list_users(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app.list_users()).await
+    blocking(move || s.app().list_users()).await
 }
 
 #[derive(Deserialize)]
@@ -276,7 +412,7 @@ struct NewUser {
 }
 
 async fn add_user(State(s): State<St>, Json(u): Json<NewUser>) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app.add_user(&u.name, u.role, &u.pin, u.by.as_deref())).await
+    blocking(move || s.app().add_user(&u.name, u.role, &u.pin, u.by.as_deref())).await
 }
 
 #[derive(Deserialize)]
@@ -290,7 +426,7 @@ async fn remove_user(
     UrlPath(uid): UrlPath<String>,
     Query(q): Query<ByQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app.remove_user(&uid, q.by.as_deref())).await
+    blocking(move || s.app().remove_user(&uid, q.by.as_deref())).await
 }
 
 #[derive(Deserialize)]
@@ -305,7 +441,7 @@ async fn set_user_pin(
     UrlPath(uid): UrlPath<String>,
     Json(p): Json<PinChange>,
 ) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app.set_user_pin(&uid, &p.pin, p.by.as_deref())).await
+    blocking(move || s.app().set_user_pin(&uid, &p.pin, p.by.as_deref())).await
 }
 
 #[derive(Deserialize)]
@@ -318,15 +454,15 @@ async fn verify_user(
     UrlPath(uid): UrlPath<String>,
     Json(p): Json<PinCheck>,
 ) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app.verify_user(&uid, &p.pin)).await
+    blocking(move || s.app().verify_user(&uid, &p.pin)).await
 }
 
 async fn encrypt_existing(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app.encrypt_existing()).await
+    blocking(move || s.app().encrypt_existing()).await
 }
 
 async fn recovery_key(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app.recovery_key()).await
+    blocking(move || s.app().recovery_key()).await
 }
 
 /// Patient details passed as query parameters (bodies carry audio).
@@ -412,7 +548,7 @@ async fn create_session(
     blocking(move || {
         let events = s.events.clone();
         let name = q.name.clone().unwrap_or_else(|| "recording.wav".into());
-        s.app.import_bytes(
+        s.app().import_bytes(
             &name,
             &body,
             q.diarize,
@@ -449,7 +585,7 @@ async fn create_note(
 ) -> Result<impl IntoResponse, ApiError> {
     blocking(move || {
         let events = s.events.clone();
-        s.app.generate_note(
+        s.app().generate_note(
             &id,
             &req.llm,
             &req.template,
@@ -474,7 +610,7 @@ async fn sign_note(
     UrlPath(id): UrlPath<String>,
     Json(req): Json<Sign>,
 ) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app.sign(&id, &req.by, req.pet.as_deref())).await
+    blocking(move || s.app().sign(&id, &req.by, req.pet.as_deref())).await
 }
 
 async fn update_patient(
@@ -482,7 +618,7 @@ async fn update_patient(
     UrlPath(id): UrlPath<String>,
     Json(p): Json<Patient>,
 ) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app.update_patient(&id, p)).await
+    blocking(move || s.app().update_patient(&id, p)).await
 }
 
 async fn refine_note(
@@ -492,7 +628,7 @@ async fn refine_note(
 ) -> Result<impl IntoResponse, ApiError> {
     blocking(move || {
         let events = s.events.clone();
-        s.app.refine_note(&id, &req, events.as_ref())
+        s.app().refine_note(&id, &req, events.as_ref())
     })
     .await
 }
@@ -511,7 +647,7 @@ async fn edit_note(
     UrlPath(id): UrlPath<String>,
     Json(req): Json<EditNote>,
 ) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app.edit_note(&id, &req.heading, req.value, &req.by, req.pet.as_deref())).await
+    blocking(move || s.app().edit_note(&id, &req.heading, req.value, &req.by, req.pet.as_deref())).await
 }
 
 /// The note as a PDF download.
@@ -520,7 +656,7 @@ async fn export_pdf(
     UrlPath(id): UrlPath<String>,
     Json(req): Json<PdfRequest>,
 ) -> Result<Response, ApiError> {
-    let (pdf, name) = tokio::task::spawn_blocking(move || s.app.export_pdf(&id, &req))
+    let (pdf, name) = tokio::task::spawn_blocking(move || s.app().export_pdf(&id, &req))
         .await
         .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))??;
     Ok((
@@ -546,33 +682,33 @@ async fn add_addendum(
     UrlPath(id): UrlPath<String>,
     Json(req): Json<NewAddendum>,
 ) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app.add_addendum(&id, &req.text, &req.by, req.pet.as_deref())).await
+    blocking(move || s.app().add_addendum(&id, &req.text, &req.by, req.pet.as_deref())).await
 }
 
 async fn list_templates(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || Ok(s.app.list_templates())).await
+    blocking(move || Ok(s.app().list_templates())).await
 }
 
 async fn template(State(s): State<St>, UrlPath(id): UrlPath<String>) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app.template(&id)).await
+    blocking(move || s.app().template(&id)).await
 }
 
 async fn preview_template(
     State(s): State<St>,
     Json(t): Json<Template>,
 ) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app.preview_template(t)).await
+    blocking(move || s.app().preview_template(t)).await
 }
 
 async fn save_template(State(s): State<St>, Json(t): Json<Template>) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app.save_template(t)).await
+    blocking(move || s.app().save_template(t)).await
 }
 
 async fn delete_template(
     State(s): State<St>,
     UrlPath(id): UrlPath<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app.delete_template(&id)).await
+    blocking(move || s.app().delete_template(&id)).await
 }
 
 #[derive(Deserialize)]
@@ -585,7 +721,7 @@ async fn template_from_example(
     State(s): State<St>,
     Json(req): Json<FromExample>,
 ) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app.template_from_example(&req.llm, &req.text)).await
+    blocking(move || s.app().template_from_example(&req.llm, &req.text)).await
 }
 
 #[derive(Deserialize)]
@@ -602,14 +738,14 @@ async fn add_standard(
     UrlPath(id): UrlPath<String>,
     Json(req): Json<NewStandard>,
 ) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app.add_standard(&id, &req.heading, &req.text, req.by.as_deref())).await
+    blocking(move || s.app().add_standard(&id, &req.heading, &req.text, req.by.as_deref())).await
 }
 
 async fn remove_standard(
     State(s): State<St>,
     UrlPath((id, sid)): UrlPath<(String, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app.remove_standard(&id, &sid)).await
+    blocking(move || s.app().remove_standard(&id, &sid)).await
 }
 
 #[derive(Deserialize)]
@@ -648,7 +784,7 @@ async fn live_session(s: St, mut q: LiveQuery, mut socket: WebSocket) {
     let started = {
         let s = s.clone();
         tokio::task::spawn_blocking(move || {
-            s.app.start_recording(
+            s.app().start_recording(
                 RecordingSource::Stream(rx),
                 q.speakers,
                 patient,
@@ -693,7 +829,7 @@ async fn live_session(s: St, mut q: LiveQuery, mut socket: WebSocket) {
         }
     }
     drop(tx); // ends the stream source
-    let result = tokio::task::spawn_blocking(move || s.app.stop_recording()).await;
+    let result = tokio::task::spawn_blocking(move || s.app().stop_recording()).await;
     let reply = match result {
         Ok(Ok(view)) => serde_json::json!({ "session": view }),
         Ok(Err(e)) => serde_json::json!({ "error": e.0 }),
@@ -723,7 +859,7 @@ async fn record_start(
 ) -> Result<impl IntoResponse, ApiError> {
     blocking(move || {
         let events: Arc<dyn Events> = s.events.clone();
-        s.app.start_recording(
+        s.app().start_recording(
             RecordingSource::Microphone(req.device),
             req.speakers,
             req.patient,
@@ -736,7 +872,7 @@ async fn record_start(
 }
 
 async fn record_stop(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app.stop_recording()).await
+    blocking(move || s.app().stop_recording()).await
 }
 
 async fn download_model(
@@ -745,7 +881,7 @@ async fn download_model(
 ) -> Result<impl IntoResponse, ApiError> {
     blocking(move || {
         let events = s.events.clone();
-        s.app.download_model(&id, None, events.as_ref())
+        s.app().download_model(&id, None, events.as_ref())
     })
     .await
 }
@@ -757,7 +893,7 @@ struct Search {
 }
 
 async fn hub_search(State(s): State<St>, Query(q): Query<Search>) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app.hub_search(&q.q)).await
+    blocking(move || s.app().hub_search(&q.q)).await
 }
 
 #[derive(Deserialize)]
@@ -766,7 +902,7 @@ struct RepoQuery {
 }
 
 async fn hub_repo(State(s): State<St>, Query(q): Query<RepoQuery>) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app.hub_repo(&q.id)).await
+    blocking(move || s.app().hub_repo(&q.id)).await
 }
 
 #[derive(Deserialize)]
@@ -778,7 +914,7 @@ struct HubAdd {
 }
 
 async fn hub_add(State(s): State<St>, Json(req): Json<HubAdd>) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app.hub_add(&req.repo, &req.file, req.accept_license)).await
+    blocking(move || s.app().hub_add(&req.repo, &req.file, req.accept_license)).await
 }
 
 async fn events_stream(

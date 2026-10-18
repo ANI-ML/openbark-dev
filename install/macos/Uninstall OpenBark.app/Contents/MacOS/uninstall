@@ -68,7 +68,7 @@ if [ -d "$DATA" ]; then
   SIZE="$(du -sh "$DATA" 2>/dev/null | cut -f1 | tr -d ' ')"
   choice="$(dialog "Do you also want to delete everything OpenBark stored on this Mac?
 
-That's ${SIZE:-all} of encounters, recordings, notes, models, templates and team members, plus this Mac's encryption key.
+That's ${SIZE:-all} of visits, recordings, notes, models, templates and team members, plus this Mac's encryption key. Visits or models you moved to another folder in Settings, Storage, are not deleted.
 
 If copies of encounters are kept anywhere else, they can only be opened with your recovery key afterwards. To save it first, choose Cancel, open OpenBark, and go to Settings, then Encryption, then Show recovery key." \
     caution "Keep my data" "Cancel" "Delete my data" "Keep my data")" || exit 0

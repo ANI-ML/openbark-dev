@@ -14,6 +14,25 @@ pub const VAD: &str = "silero-vad";
 pub const SEGMENTATION: &str = "pyannote-segmentation-3.0";
 pub const EMBEDDING: &str = "wespeaker-en-resnet34-lm";
 
+/// Full-precision recognisers for NVIDIA graphics (ADR-0014). The int8 ones
+/// run faster on the processor than on the GPU, so the GPU is only used with
+/// these, and only when the GPU speech pack is installed.
+pub const GPU_STT: &str = "parakeet-tdt-0.6b-v3-fp32";
+pub const GPU_SECOND_STT: &str = "whisper-large-v3-turbo-fp32";
+
+/// The recogniser to use for `id`: its full-precision version when the GPU
+/// speech pack and that model are installed, else `id` itself.
+pub fn best_stt(store: &ModelStore, id: &str) -> String {
+    let gpu = match id {
+        DEFAULT_STT => GPU_STT,
+        crate::live::SECOND_STT => GPU_SECOND_STT,
+        _ => return id.to_string(),
+    };
+    let catalog = Catalog::builtin();
+    let ready = os_asr::cuda_pack_installed() && installed(&catalog, store, gpu).is_ok();
+    if ready { gpu.to_string() } else { id.to_string() }
+}
+
 fn installed<'a>(
     catalog: &'a Catalog,
     store: &ModelStore,

@@ -8,6 +8,7 @@ import { templateName, useT } from "../i18n";
 import { ConsentStep } from "../components/ConsentStep";
 import { PatientFields } from "../components/PatientFields";
 import { PatientPicker } from "../components/PatientPicker";
+import { ProcessingBar } from "../components/ProcessingBar";
 import { SetupPanel } from "../components/SetupPanel";
 import { TranscriptList } from "../components/TranscriptList";
 
@@ -20,6 +21,8 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
   const [state, setState] = useState<State>("idle");
   const [elapsed, setElapsed] = useState(0);
   const [segments, setSegments] = useState<engine.Segment[]>([]);
+  /** How far an import, or a stopped recording, has got. */
+  const [progress, setProgress] = useState<engine.ProcessingProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [patient, setPatient] = useState<engine.Patient>(engine.emptyPatient);
   // Opened from a patient's page: start with that patient (ADR-0011).
@@ -52,6 +55,7 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
     const offs = [
       engine.on("segment", (s) => setSegments((prev) => (prev.some((p) => p.id === s.id) ? prev : [...prev, s]))),
       engine.on("level", (l) => setElapsed(l.seconds)),
+      engine.on("progress", setProgress),
     ];
     engine.listTemplates().then(setTemplates, () => {});
     return () => offs.forEach((p) => void p.then((f) => f()));
@@ -62,6 +66,7 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
   async function toggle() {
     setError(null);
     if (state === "recording") {
+      setProgress(null);
       setState("stopping");
       try {
         const view = await recording.current!.stop();
@@ -120,10 +125,19 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
   async function importWith(consent: engine.RecordingConsent | null) {
     setState("idle");
     try {
-      const view = await engine.importRecording(app.settings.labelSpeakers, patient, consent, () => {
-        setSegments([]);
-        setState("importing");
-      });
+      const view = await engine.importRecording(
+        app.settings.labelSpeakers,
+        patient,
+        consent,
+        () => {
+          setSegments([]);
+          setProgress(null);
+          setState("importing");
+        },
+        // The browser's last upload event can land after the engine's first
+        // step (they travel separately); once the engine has started, it leads.
+        (next) => setProgress((prev) => (next.stage === "upload" && prev && prev.stage !== "upload" ? prev : next)),
+      );
       if (view) app.navigate({ screen: "review", id: view.id, draft: app.settings.draftOnStop });
       else setState("idle");
     } catch (e) {
@@ -192,7 +206,10 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
             {t("Saved with the visit and time-stamped. Optional: you can add or change these later.")}
           </p>
         </aside>
-        <section className="recorder-center" aria-label={t("Recorder")}>
+        <section
+          className={`recorder-center${state === "importing" || state === "stopping" ? " is-processing" : ""}`}
+          aria-label={t("Recorder")}
+        >
           {missing.length > 0 && state === "idle" && (
             <SetupPanel
               missing={missing}
@@ -236,6 +253,7 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
               <span className="small muted">{statusLine}</span>
             </div>
             <Waveform levels={app.levels} bars={48} className={`stage-wave ${live ? "wave-live" : "wave-idle"}`} />
+            {(state === "importing" || state === "stopping") && <ProcessingBar progress={progress} />}
           </div>
           <div className="recorder-transcript">
             {segments.length === 0 ? (

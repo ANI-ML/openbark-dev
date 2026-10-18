@@ -37,12 +37,10 @@ pub const AUDIO_FILE: &str = "audio.wav";
 pub const TRANSCRIPT_FILE: &str = "transcript.jsonl";
 pub const RUN_TEMPLATE_FILE: &str = "template.yaml";
 
-/// Default sessions root: `OPENBARK_SESSIONS_DIR`, else `<local data>/OpenBark/sessions`.
+/// Default sessions root: `OPENBARK_SESSIONS_DIR`, else the visits folder
+/// chosen in Settings, else `<local data>/OpenBark/sessions` (ADR-0013).
 pub fn default_root() -> PathBuf {
-    if let Some(dir) = std::env::var_os("OPENBARK_SESSIONS_DIR") {
-        return PathBuf::from(dir);
-    }
-    dirs::data_local_dir().unwrap_or_else(|| PathBuf::from(".")).join("OpenBark").join("sessions")
+    os_models::locations::resolve(os_models::locations::FolderKind::Visits).0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

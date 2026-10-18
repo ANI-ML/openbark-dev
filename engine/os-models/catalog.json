@@ -54,6 +54,22 @@
       "layout": { "type": "asr_nemo_transducer", "encoder": "encoder.int8.onnx", "decoder": "decoder.int8.onnx", "joiner": "joiner.int8.onnx", "tokens": "tokens.txt" }
     },
     {
+      "id": "parakeet-tdt-0.6b-v3-fp32",
+      "display_name": "Parakeet TDT 0.6B v3 (full precision, for NVIDIA graphics)",
+      "slot": "stt",
+      "license": "CC-BY-4.0",
+      "attribution": "Parakeet TDT 0.6B v3 by NVIDIA, CC-BY-4.0; ONNX export by the k2-fsa/sherpa-onnx project",
+      "source": { "kind": "huggingface", "repo": "csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3", "revision": "1a468a35cbba69418f126de829e75261dea4a4e4" },
+      "files": [
+        { "path": "encoder.onnx", "size": 41766257, "sha256": "3eed7ce424bf8339ad09233533c687e2dbd07e74ccf5027b5e7344019ea373b0" },
+        { "path": "encoder.weights", "size": 2435420160, "sha256": "3af3f51af5f2d01dbbf5af47d42c7962a2c205f11004254bb4f2b979862f39a8" },
+        { "path": "decoder.onnx", "size": 47233743, "sha256": "d593cdb0e571f5a457ec2219af9968cbf6b0e8198e8f7839b40a8754593bf68c" },
+        { "path": "joiner.onnx", "size": 25286330, "sha256": "b9b0bcf88ac571902e69a6536223ed2d94885e981b85045410f1403d53121a63" },
+        { "path": "tokens.txt", "size": 93939, "sha256": "d58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d" }
+      ],
+      "layout": { "type": "asr_nemo_transducer", "encoder": "encoder.onnx", "decoder": "decoder.onnx", "joiner": "joiner.onnx", "tokens": "tokens.txt" }
+    },
+    {
       "id": "whisper-large-v3-turbo-int8",
       "display_name": "Whisper large-v3-turbo (int8, multilingual; second opinion on numbers)",
       "slot": "stt",
@@ -66,6 +82,21 @@
         { "path": "turbo-tokens.txt", "size": 816730, "sha256": "b34b360dbb493e781e479794586d661700670d65564001f23024971d1f2fa126" }
       ],
       "layout": { "type": "asr_whisper", "encoder": "turbo-encoder.int8.onnx", "decoder": "turbo-decoder.int8.onnx", "tokens": "turbo-tokens.txt" }
+    },
+    {
+      "id": "whisper-large-v3-turbo-fp32",
+      "display_name": "Whisper large-v3-turbo (full precision, for NVIDIA graphics; second opinion on numbers)",
+      "slot": "stt",
+      "license": "MIT",
+      "attribution": "Whisper large-v3-turbo by OpenAI, MIT; ONNX export by the k2-fsa/sherpa-onnx project",
+      "source": { "kind": "huggingface", "repo": "csukuangfj/sherpa-onnx-whisper-turbo", "revision": "2ca6ff69fc878651b770880507669577ac41c2ff" },
+      "files": [
+        { "path": "turbo-encoder.onnx", "size": 735920, "sha256": "1b960f278564fb8bbacd544d4f85f4dd6d8a64d3aa89543d8f2c4021c926f976" },
+        { "path": "turbo-encoder.weights", "size": 2600325120, "sha256": "746f879ecf066450ab0cdecc05383380b85157270ff6c0a9fb7cfdd917036e12" },
+        { "path": "turbo-decoder.onnx", "size": 636209532, "sha256": "b24db5d90fa230c5eaa6b823d74862ced9e0d1dc3e01ec46601968e8db0e09ec" },
+        { "path": "turbo-tokens.txt", "size": 816730, "sha256": "b34b360dbb493e781e479794586d661700670d65564001f23024971d1f2fa126" }
+      ],
+      "layout": { "type": "asr_whisper", "encoder": "turbo-encoder.onnx", "decoder": "turbo-decoder.onnx", "tokens": "turbo-tokens.txt" }
     },
     {
       "id": "silero-vad",

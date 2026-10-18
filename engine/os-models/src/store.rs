@@ -26,13 +26,10 @@ impl ModelStore {
         Self { root: root.into() }
     }
 
-    /// `OPENBARK_MODELS_DIR`, else the platform data directory.
+    /// `OPENBARK_MODELS_DIR`, else the folder chosen in Settings, else the
+    /// platform data directory (ADR-0013, [`crate::locations`]).
     pub fn default_location() -> Self {
-        if let Some(dir) = std::env::var_os("OPENBARK_MODELS_DIR") {
-            return Self::new(dir);
-        }
-        let base = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
-        Self::new(base.join("OpenBark").join("models"))
+        Self::new(crate::locations::resolve(crate::locations::FolderKind::Models).0)
     }
 
     pub fn root(&self) -> &Path {

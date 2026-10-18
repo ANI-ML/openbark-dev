@@ -15,7 +15,7 @@ pub enum AsrModel {
 }
 
 impl AsrModel {
-    fn files(&self) -> Vec<&str> {
+    pub(crate) fn files(&self) -> Vec<&str> {
         match self {
             Self::NemoTransducer { encoder, decoder, joiner, tokens } => {
                 vec![encoder, decoder, joiner, tokens]
@@ -39,12 +39,18 @@ pub struct OfflineAsr {
 
 impl OfflineAsr {
     pub fn new(model: AsrModel) -> Result<Self, AsrError> {
+        Self::with_threads(model, default_threads())
+    }
+
+    /// A recogniser with its own thread count (the second recogniser runs
+    /// beside the main one, so it gets fewer; see [`crate::second_threads`]).
+    pub fn with_threads(model: AsrModel, threads: i32) -> Result<Self, AsrError> {
         for file in model.files() {
             require_file(file)?;
         }
         let mut model_config = OfflineModelConfig {
-            num_threads: default_threads(),
-            provider: Some("cpu".into()),
+            num_threads: threads,
+            provider: Some(crate::provider_for(&model)),
             ..Default::default()
         };
         match &model {
@@ -69,12 +75,31 @@ impl OfflineAsr {
                 model_config.tokens = Some(tokens.clone());
             }
         }
-        let config = OfflineRecognizerConfig {
+        let mut config = OfflineRecognizerConfig {
             model_config,
             decoding_method: Some("greedy_search".into()),
             ..Default::default()
         };
-        let recognizer = OfflineRecognizer::create(&config).ok_or(AsrError::Create)?;
+        let recognizer = match OfflineRecognizer::create(&config) {
+            Some(r) => r,
+            // The GPU couldn't start (an NVIDIA library missing or mismatched):
+            // the processor still works, just slower.
+            None if config.model_config.provider.as_deref() != Some("cpu") => {
+                tracing::warn!(
+                    model = model.label(),
+                    "GPU speech recognition unavailable; using the processor"
+                );
+                config.model_config.provider = Some("cpu".into());
+                OfflineRecognizer::create(&config).ok_or(AsrError::Create)?
+            }
+            None => return Err(AsrError::Create),
+        };
+        tracing::info!(
+            model = model.label(),
+            provider = config.model_config.provider.as_deref().unwrap_or("cpu"),
+            threads,
+            "speech recogniser ready"
+        );
         Ok(Self { recognizer, model })
     }
 }
