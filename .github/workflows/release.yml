@@ -94,7 +94,11 @@ jobs:
       - name: Draft release with the installers
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${{ github.ref_name }}" --draft --repo "${{ github.repository }}" --title "OpenBark ${{ github.ref_name }}" --notes "Installers: Windows (setup wizard), macOS (disk image), Linux (.deb, .rpm, AppImage). See install/README.md." dist/*/*
+        run: |
+          gh release create "${{ github.ref_name }}" --draft --repo "${{ github.repository }}" \
+            --title "OpenBark ${{ github.ref_name }}" \
+            --notes "Installers: Windows (setup wizard), macOS (disk image), Linux (.deb, .rpm, AppImage). See install/README.md." \
+            dist/*/*
 
   # The public downloads: a draft release in the public releases repo (the
   # main repo stays private). Publish it on GitHub when ready, then run the
