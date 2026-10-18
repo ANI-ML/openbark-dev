@@ -1,0 +1,2040 @@
+{
+  "updated": "2026-10-18",
+  "headline_stats": [
+    {
+      "value": "0",
+      "label": "numbers in evaluated drafts that weren't in the transcript, across every scripted test consult",
+      "source": "docs/eval/M1.md (4 consults, every prompt revision); docs/eval/M2.md (9 specialty consults, 3 GP templates, 3 client documents)"
+    },
+    {
+      "value": "91%",
+      "label": "of facts captured in SOAP notes (40 of 44) at the end of M1, with the optional second recogniser installed, up from 75%",
+      "source": "docs/eval/M1.md table, Gemma 4 E4B on synthetic consults"
+    },
+    {
+      "value": "91%",
+      "label": "of facts captured across 9 specialty consults (89 of 98) in the latest measured build",
+      "source": "docs/eval/heading-order.md (current build, Gemma 4 E4B)"
+    },
+    {
+      "value": "13.1 s",
+      "label": "from pressing stop to a saved note, on a 9.6-minute consult",
+      "source": "docs/perf/M0.md 'Live recording' (RTX 4080, real-time playback, 30 s target)"
+    },
+    {
+      "value": "20",
+      "label": "built-in templates: 16 for the record and 4 for owners",
+      "source": "packages/templates/ (20 folders)"
+    },
+    {
+      "value": "25",
+      "label": "consult languages recognised, with notes in 7 and the app in 5",
+      "source": "docs/languages.md; engine/os-engine/src/note.rs NOTE_LANGUAGES; apps/desktop/src/i18n.ts UI_LANGUAGES"
+    },
+    {
+      "value": "43 s",
+      "label": "to import an 8.5-minute recording with the NVIDIA speech pack, against 152 s on the processor",
+      "source": "docs/adr/0014-gpu-speech-recognition.md (RTX 4080)"
+    },
+    {
+      "value": "5",
+      "label": "network connections the app can make, each started by the user",
+      "source": "docs/network.md (R1 to R5)"
+    }
+  ],
+  "categories": [
+    {
+      "id": "recording",
+      "name": "Recording",
+      "intro": "Record the consult on the computer, or import audio from a phone, dictaphone or call app, and nothing is lost if the power goes.",
+      "items": [
+        {
+          "name": "One-button recording with a live waveform",
+          "benefit": "One large red button starts and stops the recording, and the waveform shows the microphone is hearing you.",
+          "detail": "The round button is 64px (72px on touch screens) and shows a breathing ring, a 48-bar rolling waveform and the elapsed time while recording. The breathing ring is the only animation in the app that never stops.",
+          "evidence": "packages/ui/src/RecordButton.tsx; packages/ui/src/Waveform.tsx; packages/ui/src/RecordButton.test.tsx; docs/design/DESIGN.md section 5",
+          "status": "shipped"
+        },
+        {
+          "name": "Space bar starts and stops recording",
+          "benefit": "With your hands busy, you can start or stop recording from the keyboard.",
+          "detail": "When the Recorder has focus, Space toggles recording. The button can't be pressed while recording is starting or stopping, so a double press can't happen.",
+          "evidence": "apps/desktop/src/screens/Recorder.tsx onKeyDown; packages/ui/src/RecordButton.test.tsx 'can't be pressed while starting or stopping'",
+          "status": "shipped"
+        },
+        {
+          "name": "Live transcript while you talk",
+          "benefit": "The transcript builds during the consult, so it is finished the moment you press stop.",
+          "detail": "Voice detection, speech recognition and speaker labelling run while you talk. On a 9.6-minute test consult played in real time, the transcript was complete 0.0 s after stop.",
+          "evidence": "engine/os-engine/src/live.rs; apps/desktop/src/components/TranscriptList.tsx; docs/perf/M0.md 'Live recording'",
+          "status": "shipped"
+        },
+        {
+          "name": "Live speaker labels",
+          "benefit": "The transcript shows who said what as the consult happens, so the vet's findings stand apart from the owner's history.",
+          "detail": "Each utterance's voice fingerprint (WeSpeaker ResNet34) is matched to the speakers heard so far, and utterances under 1 s never start a new speaker. Across four test consults, 98 to 100% of speech went to the right speaker.",
+          "evidence": "engine/os-engine/src/live.rs DEFAULT_SPEAKER_THRESHOLD (0.65); engine/os-diar/src/lib.rs MIN_EMBED_SECS; docs/perf/M0.md 'Live recording' table ('purity 98-100% across all four fixtures')",
+          "status": "shipped"
+        },
+        {
+          "name": "Record from the browser version",
+          "benefit": "The browser version on the same computer records from the microphone too, and explains how to fix a blocked microphone.",
+          "detail": "The browser sends 16 kHz mono audio to the local engine as you speak, with live speaker labels. If microphone permission was denied, a message explains how to allow it again.",
+          "evidence": "engine/os-server/src/lib.rs (/api/live); apps/desktop/src/engine.ts startBrowserRecording; docs/guide/recording.md; docs/guide/troubleshooting.md",
+          "status": "shipped"
+        },
+        {
+          "name": "Any microphone, on every desktop system",
+          "benefit": "Use the clinic's preferred USB microphone instead of the laptop's built-in one.",
+          "detail": "Settings lists every input device with a System default option. Capture uses each system's own audio layer: WASAPI on Windows, CoreAudio on macOS, ALSA or PulseAudio on Linux.",
+          "evidence": "engine/os-asr/src/capture.rs; engine/os-cli/src/record.rs (openbark devices); apps/desktop/src/screens/Settings.tsx Recording group",
+          "status": "shipped"
+        },
+        {
+          "name": "Crash-safe, encrypted recording",
+          "benefit": "If the computer crashes or loses power mid-consult, everything recorded up to that moment is kept.",
+          "detail": "Audio is written to disk as it is recorded, already encrypted, and a cut-off recording is repaired so all of it can still be read. The status line tells you the audio is saved as you go.",
+          "evidence": "engine/os-asr/src/wav.rs; engine/os-engine/src/vault.rs test a_recording_cut_off_mid_way_keeps_what_was_written; apps/desktop/src/screens/Recorder.tsx",
+          "status": "shipped"
+        },
+        {
+          "name": "Screen stays on while recording",
+          "benefit": "The screen doesn't go dark mid-consult, so you can always see that recording is still running.",
+          "detail": "Recording keeps the display on as well as keeping the computer awake. Transcribing and drafting only stop the computer sleeping, so the screen may turn off.",
+          "evidence": "engine/os-engine/src/awake.rs (AwakeReason::Recording, display hold); engine/os-engine/src/live.rs",
+          "status": "shipped"
+        },
+        {
+          "name": "Computer stays awake until the job is done",
+          "benefit": "A laptop won't go to sleep halfway through a consult, a draft or a model download.",
+          "detail": "Recording, transcribing, drafting and downloading hold a keep-awake lock on Windows, macOS and Linux. If the lock can't be taken, this is logged and the job carries on.",
+          "evidence": "engine/os-engine/src/awake.rs; engine/os-app/src/lib.rs (AwakeGuard::acquire); docs/plans/M0.md decision 7",
+          "status": "shipped"
+        },
+        {
+          "name": "Draft the note when I stop",
+          "benefit": "Stop recording and the note is already being written by the time Review opens.",
+          "detail": "An option, on by default, in the Recorder side panel and in Settings. Stopping opens Review and starts the draft straight away.",
+          "evidence": "apps/desktop/src/screens/Recorder.tsx; apps/desktop/src/context.ts DEFAULTS.draftOnStop; docs/guide/recording.md",
+          "status": "shipped"
+        },
+        {
+          "name": "Visit-type tiles",
+          "benefit": "Pick the kind of visit with one tap, and the right note template is used.",
+          "detail": "Icon tiles for six common visit types (New consult, Recheck, Annual exam, Phone call, Results, Clinician rounds) come first, then the team's own templates. Every other record template is under More types.",
+          "evidence": "apps/desktop/src/components/VisitTypePicker.tsx; apps/desktop/src/templateIcons.tsx COMMON_TYPES; docs/templates.md 'Built-in templates'",
+          "status": "shipped"
+        },
+        {
+          "name": "Patient details beside the recorder",
+          "benefit": "Enter the animal, family name and reason for visit while recording, or skip them and add them later.",
+          "detail": "Every field is optional. Details are saved with the visit and time-stamped.",
+          "evidence": "apps/desktop/src/components/PatientFields.tsx; apps/desktop/src/screens/Recorder.tsx",
+          "status": "shipped"
+        },
+        {
+          "name": "Import almost any recording",
+          "benefit": "Recordings from phones, dictaphones, browsers, call apps and video files become notes too.",
+          "detail": "WAV (including dictaphone ADPCM), AIFF, MP3, MP2, M4A, MP4, MOV, CAF, FLAC, Ogg, Opus, WebM and MKV are read, using the audio track of a video, and go through the same steps as a live recording. An AAC .m4a encoded from a test consult gave the same transcript as the WAV, and 11 generated formats were transcribed to check them.",
+          "evidence": "engine/os-asr/src/audio.rs (Audio::load); apps/desktop/src/engine.ts AUDIO_EXTENSIONS; docs/guide/recording.md; commits 86d8e1b (m4a from the Windows Media Foundation encoder), 75dc765",
+          "status": "shipped"
+        },
+        {
+          "name": "Voice notes and call recordings without extra software",
+          "benefit": "WhatsApp voice notes and recordings from browsers or call apps import without installing anything else.",
+          "detail": "Decoding uses symphonia 0.6.1 and opus-decoder 0.1.1, both written in Rust, chosen over native libopus to keep one native build. It was checked on browser WebM, Ogg Opus, .opus files and WebM video.",
+          "evidence": "docs/versions.md (symphonia and opus-decoder rows); engine/os-asr/Cargo.toml",
+          "status": "shipped"
+        },
+        {
+          "name": "Browser conversion and plain format messages",
+          "benefit": "More file types work in the browser version, and files that can't be read say so plainly.",
+          "detail": "In the browser version, a file the engine can't read (such as HE-AAC) is converted by the browser first. WMA, AMR and Olympus or Philips DSS and DS2 files are refused with a message suggesting the recorder's own converter.",
+          "evidence": "apps/desktop/src/engine.ts decodeInBrowser; docs/guide/recording.md",
+          "status": "shipped"
+        },
+        {
+          "name": "A failed import leaves nothing behind",
+          "benefit": "A file that can't be read doesn't leave an empty visit cluttering the patient list.",
+          "detail": "If an import fails, its half-made visit folder is deleted. You get a plain message listing the formats that work.",
+          "evidence": "engine/os-app/src/lib.rs import_source ('An import that couldn't be read leaves no empty visit behind'); commit 75dc765",
+          "status": "shipped"
+        },
+        {
+          "name": "Notes from recorded phone calls",
+          "benefit": "Turn a recorded call with an owner into a callback note.",
+          "detail": "Record the call with the phone's own call recorder, export the file, import it and draft it with the Phone call template.",
+          "evidence": "docs/adr/0007-phone-calls.md Phase 1; docs/guide/recording.md; docs/templates.md",
+          "status": "shipped"
+        },
+        {
+          "name": "Calls placed from OpenBark",
+          "benefit": "Calls to owners could be placed from OpenBark and charted automatically, without a cloud call service.",
+          "detail": "The design makes OpenBark an extension on the clinic's own phone system, recording each side on its own channel so speaker labels are exact, with a recorded consent announcement. It stays off until configured.",
+          "evidence": "docs/adr/0007-phone-calls.md Phase 2; docs/network.md 'Planned'",
+          "status": "coming"
+        },
+        {
+          "name": "Dictation and spoken corrections",
+          "benefit": "Vets will be able to dictate a correction over an ambient draft.",
+          "detail": "Dictation and a hybrid mode are in the product brief. 'Dictate correction' in the note editor is listed as not built yet.",
+          "evidence": "OPENSCRIBE_CLAUDE_CODE_PROMPT.md section 2.2; docs/design/STATUS.md 'Not yet'",
+          "status": "coming"
+        },
+        {
+          "name": "Pause and bookmarks",
+          "benefit": "Pause a recording and mark important moments during a consult.",
+          "detail": "The brief asks for pause and resume and 'mark moment' bookmarks. The Recorder design puts bookmarks in the side panel.",
+          "evidence": "OPENSCRIBE_CLAUDE_CODE_PROMPT.md section 5; docs/design/DESIGN.md section 6 Recorder",
+          "status": "coming"
+        },
+        {
+          "name": "Phone recording with the screen locked",
+          "benefit": "A phone in the exam room could record a full consult in the background without going to sleep.",
+          "detail": "A test is designed for iPhone and Android background recording: it must lose no more than 0.5% of audio over a 15-minute locked-screen run and still produce a note. It hasn't been run yet.",
+          "evidence": "docs/spikes/S1-mobile-audio-and-inference.md; engine/os-engine/src/awake.rs",
+          "status": "coming"
+        }
+      ]
+    },
+    {
+      "id": "transcription",
+      "name": "Transcription",
+      "intro": "Speech becomes text on the clinic's own computer, with silence skipped, speakers separated and misheard veterinary words pointed out.",
+      "items": [
+        {
+          "name": "Speech recognition on the computer",
+          "benefit": "Consults are transcribed on the clinic's own computer, and no audio is sent anywhere.",
+          "detail": "Parakeet TDT 0.6B v3 runs through sherpa-onnx 1.13.8 and recognises English and 24 other European languages with no setting to change. The standard build is 0.67 GB, and a full-precision build (2.55 GB) is used when the optional NVIDIA speech pack is installed.",
+          "evidence": "docs/adr/0001-inference-libraries.md; engine/os-asr/src/lib.rs; engine/os-models/catalog.json; docs/languages.md",
+          "status": "shipped"
+        },
+        {
+          "name": "Voice detection",
+          "benefit": "Silence and background noise are skipped, so only speech is transcribed.",
+          "detail": "Silero VAD v6.2.3 finds the speech, and passages longer than 20 s are split. During live recording each utterance is handed on as soon as the pause after it is heard.",
+          "evidence": "engine/os-asr/src/vad.rs; docs/versions.md Models table",
+          "status": "shipped"
+        },
+        {
+          "name": "Imports labelled by speaker too",
+          "benefit": "An imported recording gets speaker labels the same way a live one does.",
+          "detail": "Imports run through the live pipeline at full speed with the same speaker tracker. That tracker was more accurate than whole-recording separation on short clips during tuning.",
+          "evidence": "engine/os-app/src/lib.rs import_file (doc comment); docs/plans/M1.md",
+          "status": "shipped"
+        },
+        {
+          "name": "Hints for misheard drug and condition names",
+          "benefit": "A misheard drug name ('marapitin') gets a visible suggestion (maropitant), and the transcript keeps exactly what was said.",
+          "detail": "Words are compared with the vocabulary by spelling and by sound, with a stricter match for short condition names than for drugs, and hinted words get a dotted underline showing what was heard and the likely term. All 8 hints on the M1 test consults were correct; hints were chosen because biasing the recogniser toward listed terms made Parakeet worse in a test.",
+          "evidence": "engine/os-engine/src/vocab.rs (THRESHOLD_DRUG 0.87, THRESHOLD_OTHER 0.95; test suggests_misheard_drug_names); apps/desktop/src/components/TranscriptList.test.tsx; docs/eval/M1.md finding 3; engine/os-asr/examples/hotwords.rs",
+          "status": "shipped"
+        },
+        {
+          "name": "296-term veterinary vocabulary",
+          "benefit": "The drugs, conditions and procedures clinics say are covered, across small animal, equine, farm and exotics.",
+          "detail": "168 drugs, 81 conditions, 31 procedures, 8 vaccines, 5 products and 3 routes, including 63 farm, equine, exotics, anaesthesia and suture terms added after ceftiofur came out as 'Seftiapha'. Everyday clinical words such as milligram or vomiting are never hinted.",
+          "evidence": "packages/vocab/veterinary.tsv (296 rows, counted by kind); engine/os-engine/src/vocab.rs COMMON; docs/eval/M2.md 'What the specialty consults found' item 4",
+          "status": "shipped"
+        },
+        {
+          "name": "The clinic's own vocabulary",
+          "benefit": "A clinic can add its own drugs, products or terms without changing any code.",
+          "detail": "Terms listed in vocab.tsv in OpenBark's data folder (term, a tab, then the kind) are added to the built-in list. OPENBARK_VOCAB can point to another file.",
+          "evidence": "engine/os-engine/src/vocab.rs (default_with_user; test user_terms_are_added)",
+          "status": "shipped"
+        },
+        {
+          "name": "Hints for routes and drug names stuck to doses",
+          "benefit": "Common slips such as 'Roman 4' for IV are flagged instead of quietly entering the note.",
+          "detail": "'Roman 4' gets a hint of likely IV after it happened in three test consults, and a dose stuck to a drug name ('sepromazine.02') is split so both get hints. A first syllable heard as 'a' is rejoined ('a sepromazine' to acepromazine), after a test draft turned acepromazine into xylazine.",
+          "evidence": "engine/os-engine/src/vocab.rs (spoken_form_hints, split_glued_decimals; test iv_heard_as_roman_four_is_hinted); docs/eval/M2.md items 2 and 3",
+          "status": "shipped"
+        },
+        {
+          "name": "Hints for misheard pet names",
+          "benefit": "In a multi-pet visit, 'Arlive' is recognised as Olive, so findings go to the right animal.",
+          "detail": "Capitalised words that sound like one of the visit's animals (similarity 0.80 or more) get a name hint that only the note model sees. Ordinary words such as 'alive' are left alone.",
+          "evidence": "engine/os-engine/src/vocab.rs (name_hints, NAME_THRESHOLD; test misheard_pet_names_are_hinted)",
+          "status": "shipped"
+        },
+        {
+          "name": "Transcript pane",
+          "benefit": "Follow, scroll and replay the conversation easily.",
+          "detail": "Speaker labels sit in the margin and timestamps on the right, and clicking a line plays the recording from there. Lines the second recogniser heard differently show 'Second listen heard: ...'.",
+          "evidence": "apps/desktop/src/components/TranscriptList.tsx; docs/design/STATUS.md 'Done' section 5 Transcript",
+          "status": "shipped"
+        },
+        {
+          "name": "Transcript follows the recording",
+          "benefit": "During a live recording the newest line stays in view without you scrolling.",
+          "detail": "The list follows new lines until you scroll up, then offers Jump to live. Scrolling stays inside the list, so the page and its controls don't move.",
+          "evidence": "apps/desktop/src/components/TranscriptList.tsx; commit 4dd018e ('The transcript follows new lines without scrolling the page')",
+          "status": "shipped"
+        },
+        {
+          "name": "Rename speakers and mark uncertain words",
+          "benefit": "Speakers could be labelled DVM, Client or Tech, and words the recogniser was unsure of could be underlined.",
+          "detail": "Both are in the design and listed under 'Not yet' in the design status.",
+          "evidence": "docs/design/STATUS.md 'Not yet'; docs/design/DESIGN.md section 5 Transcript pane",
+          "status": "coming"
+        }
+      ]
+    },
+    {
+      "id": "notes",
+      "name": "Notes and review",
+      "intro": "An open model drafts the record on the computer, and the vet reviews it beside the transcript, asks for changes, edits, signs and adds addenda.",
+      "items": [
+        {
+          "name": "The note is drafted on the computer by Gemma 4",
+          "benefit": "The medical record is drafted by an open model on the clinic's own hardware, with no cloud service.",
+          "detail": "Gemma 4 E2B (3.35 GB), E4B (5.15 GB, the default) and 12B (6.98 GB), all Apache-2.0, run through llama.cpp on the graphics chip where there is one, or on the processor. The context grows with each request up to 32,768 tokens.",
+          "evidence": "engine/os-llm/src/llama.rs; engine/os-models/catalog.json; docs/adr/0001-inference-libraries.md",
+          "status": "shipped"
+        },
+        {
+          "name": "Every draft comes out in the template's shape",
+          "benefit": "Every draft is a complete note under the team's headings, with no free text to tidy up.",
+          "detail": "The note is generated against a structure built from the template, which llama.cpp enforces as the model writes. Every item must cite the transcript lines it came from.",
+          "evidence": "docs/spikes/S2-native-linking.md step 4; docs/adr/0006-templates-from-headings.md Decision 2; engine/os-engine/src/template.rs generate_schema",
+          "status": "shipped"
+        },
+        {
+          "name": "Headings written in the template's order",
+          "benefit": "The note is written top to bottom in your template's order, so Subjective comes before Assessment as you would write it.",
+          "detail": "Before, the model wrote headings alphabetically, so it reached the assessment before the history and exam. Measured on 13 test consults: recall about level (141/155 against 143/155), unsupported wording halved (45 to 23) and wrong citations down from 12 to 3.",
+          "evidence": "docs/eval/heading-order.md; engine/os-engine/src/template.rs test schema_keeps_the_templates_heading_order",
+          "status": "shipped"
+        },
+        {
+          "name": "Measurements with their units",
+          "benefit": "Every vital sign comes out with the right value and unit.",
+          "detail": "Measurements are written as a value, a unit and the line they came from. Since this change, every numeric vital in the evaluation has come out right with its unit.",
+          "evidence": "docs/eval/M1.md finding 2; docs/adr/0006-templates-from-headings.md Context",
+          "status": "shipped"
+        },
+        {
+          "name": "Multi-pet visits: one note per animal",
+          "benefit": "One recording of several animals gives a separate note for each, with no values mixed between them.",
+          "detail": "The model first labels which animal each transcript line is about, then drafts each note only from that animal's lines and the shared ones. On a 7-minute test visit with two cats, facts found went from 17/23 with 6 values in the wrong cat's note to 21/23 with none, at about 6 s more per animal.",
+          "evidence": "engine/os-engine/src/note.rs (attribute_lines, lines_for_pet; test each_animal_drafts_from_its_own_and_shared_lines); docs/eval/M2.md item 2; docs/plans/M2.md item 2",
+          "status": "shipped"
+        },
+        {
+          "name": "A tab for each animal",
+          "benefit": "Each animal's note has its own tab in Review and is signed, edited and amended on its own.",
+          "detail": "Add another animal before recording to make a multi-pet visit. If labelling the lines fails, each note is drafted from the whole visit with an instruction to write only about that animal.",
+          "evidence": "apps/desktop/src/screens/Review.tsx pet-tabs; engine/os-engine/src/note.rs; docs/plans/M2.md item 2",
+          "status": "shipped"
+        },
+        {
+          "name": "Transcript and note side by side",
+          "benefit": "Check the draft against the conversation and the recording without switching windows.",
+          "detail": "On wide screens the transcript, audio player and note sit side by side, and smaller screens switch to Transcript and Note tabs. The line being played is highlighted.",
+          "evidence": "apps/desktop/src/screens/Review.tsx; apps/desktop/src/app.css (.review-split, max-width 1023px); docs/design/STATUS.md 'Done' sections 4 and 5",
+          "status": "shipped"
+        },
+        {
+          "name": "Ask: redraft one heading",
+          "benefit": "Ask for a change to just the Plan, or just the medications, and the rest of the note stays as it was.",
+          "detail": "Ask on any heading opens a panel with suggestions for that heading, and only that heading is redrafted from the transcript. The whole note is then checked again and saved as a new numbered draft with the request recorded.",
+          "evidence": "engine/os-engine/src/note.rs (refine_note; test refine_prompt_covers_only_the_heading); apps/desktop/src/components/RefinePanel.tsx; RefinePanel.test.tsx; docs/adr/0006-templates-from-headings.md Decision 6",
+          "status": "shipped"
+        },
+        {
+          "name": "Edit a heading yourself",
+          "benefit": "Type your own correction; it is marked as yours, and a corrected dose doesn't block signing.",
+          "detail": "Editors cover bullet lines, medications (drug, dose, route, frequency, duration) and measurements with units, and each save makes a new draft. Changed lines are marked 'Edited by' with your name, and lines from the recording keep their evidence links.",
+          "evidence": "engine/os-engine/src/edit.rs (tests edited_items_are_the_vets_and_unchanged_items_keep_their_checks, edits_must_fit_the_heading); apps/desktop/src/components/HeadingEditor.tsx; HeadingEditor.test.tsx",
+          "status": "shipped"
+        },
+        {
+          "name": "Every draft kept",
+          "benefit": "Nothing is overwritten, so you can see how a note changed.",
+          "detail": "Ask, hand edits, reprocessing and drafting again each save a new numbered draft. The earlier drafts stay on disk.",
+          "evidence": "engine/os-engine/src/session.rs (save_run); docs/guide/review.md; docs/templates.md",
+          "status": "shipped"
+        },
+        {
+          "name": "Draft again with another template",
+          "benefit": "Draft the same consult a different way without recording it again.",
+          "detail": "A template picker in the Review bar offers Draft again and Draft as another template. The model used is shown beside the draft.",
+          "evidence": "apps/desktop/src/screens/Review.tsx (template-pick, output-row); docs/guide/review.md",
+          "status": "shipped"
+        },
+        {
+          "name": "Sign note, and signed notes are locked",
+          "benefit": "A note stays a draft until a veterinarian signs it, and a signed record can't be quietly changed.",
+          "detail": "Sign note records who signed and when. Signed notes refuse edits, Ask and redrafts with 'Add an addendum instead.', and signing twice is refused.",
+          "evidence": "engine/os-engine/src/session.rs (sign_latest_by); engine/os-app/src/lib.rs (generate_note); apps/desktop/src/screens/Review.tsx sign(); docs/plans/M1.md item 6",
+          "status": "shipped"
+        },
+        {
+          "name": "Dated, signed addenda",
+          "benefit": "Add later information, like a day-2 phone update, without altering the signed note.",
+          "detail": "Add addendum appends a dated addition signed with your name, and your role when a team is set up. Addenda appear under the note, in copies and in PDFs.",
+          "evidence": "engine/os-engine/src/session.rs (add_addendum_by, Addendum); apps/desktop/src/screens/Review.tsx signAddendum; docs/templates.md",
+          "status": "shipped"
+        },
+        {
+          "name": "Check summary under every note",
+          "benefit": "Each draft says how much was checked against the recording and how long it took.",
+          "detail": "It reads '{n} statements, {n} numbers checked against the transcript', with the number of lines the vet entered and 'Drafted in x s'. A notice counts any flagged items.",
+          "evidence": "apps/desktop/src/screens/Review.tsx (output-meta, note-summary)",
+          "status": "shipped"
+        },
+        {
+          "name": "Visit details at the top of Review",
+          "benefit": "Reason, species, recording time and how the client consented are shown on every review.",
+          "detail": "A visit details panel with Edit details sits above the note. Consent reads, for example, 'Client agreed out loud; confirmed by Dr Patel, 2026-10-17 20:07'.",
+          "evidence": "apps/desktop/src/screens/Review.tsx visit-facts; apps/desktop/src/engine.ts consentText",
+          "status": "shipped"
+        },
+        {
+          "name": "Resizable split and jump keys",
+          "benefit": "Reviewers could resize the panes and jump straight to the lines that need checking.",
+          "detail": "A draggable split remembered on each device, and keys to move between flagged sentences, are listed as not built yet.",
+          "evidence": "docs/design/STATUS.md 'Not yet'; docs/design/DESIGN.md section 9",
+          "status": "coming"
+        }
+      ]
+    },
+    {
+      "id": "accuracy",
+      "name": "Accuracy safeguards",
+      "intro": "Every statement is checked against the transcript, so numbers, findings, citations and patient details that it doesn't support are flagged before a vet signs.",
+      "items": [
+        {
+          "name": "Core rules no template can remove",
+          "benefit": "However a team customises its template, the rules against made-up content stay in force.",
+          "detail": "Core rules come ahead of every template's own: use only what was said, never write 'normal' unless it was said, copy numbers exactly with units, cite the line each fact came from, and one clinical fact per statement. Teams can add rules and can't remove these.",
+          "evidence": "engine/os-engine/src/template.rs CORE_RULES; docs/adr/0006-templates-from-headings.md Decision 3; apps/desktop/src/screens/Templates.tsx",
+          "status": "shipped"
+        },
+        {
+          "name": "Evidence link on every statement",
+          "benefit": "Check any line of the note in a second by hearing the moment it came from.",
+          "detail": "Resting on or focusing a statement lights up its transcript lines. Clicking it, or pressing Enter, plays that moment of the recording.",
+          "evidence": "apps/desktop/src/components/NoteView.tsx; NoteView.test.tsx 'lights the cited transcript lines on hover and plays them on click'; docs/design/DESIGN.md section 1",
+          "status": "shipped"
+        },
+        {
+          "name": "Made-up numbers block signing",
+          "benefit": "A number in the draft that isn't anywhere in the transcript blocks signing until the vet fixes it. A number the recogniser misheard can still pass, which is what the optional second listen is for.",
+          "detail": "Every number in the note must appear in the transcript; one that doesn't gets a red callout ('isn't anywhere in the transcript') and Sign note is disabled. It also fails the evaluation and the offline test that runs on every change.",
+          "evidence": "engine/os-engine/src/faithfulness.rs (tests supported_numbers_pass, invented_vital_is_flagged); NoteView.test.tsx 'wraps a number absent from the transcript in a hard-fail callout'; scripts/ci/e2e-offline.sh",
+          "status": "shipped"
+        },
+        {
+          "name": "The engine refuses to sign, too",
+          "benefit": "A note with an unsupported number or a citation to a line that doesn't exist can't be signed, even if the screen allowed it.",
+          "detail": "A draft passes only with no unsupported numbers and no invalid evidence links, and the engine refuses to sign any draft that hasn't passed. On screen an invalid link is a softer flag, so the engine is the stricter of the two.",
+          "evidence": "engine/os-engine/src/faithfulness.rs (passed = invalid_evidence.is_empty() && unsupported_numbers.is_empty()); engine/os-engine/src/session.rs sign_latest_by; apps/desktop/src/screens/Review.tsx",
+          "status": "shipped"
+        },
+        {
+          "name": "Zero invented numbers on every evaluated consult",
+          "benefit": "On every scripted test consult so far, from wellness visits to euthanasia, the draft contained no number that wasn't in the transcript.",
+          "detail": "M1 reported 0 at every prompt revision across 4 consults, and M2 reported 0 across 9 specialty consults, 3 GP templates and 3 client documents. M0 reported 0 for both E4B and 12B.",
+          "evidence": "docs/eval/M1.md; docs/eval/M2.md; docs/perf/M0.md faithfulness row",
+          "status": "shipped"
+        },
+        {
+          "name": "Wrong citations underlined",
+          "benefit": "A correct value linked to the wrong moment of the recording is marked, so the evidence trail stays trustworthy.",
+          "detail": "A number that is in the transcript but not in the lines a statement cites gets an amber dotted underline and a tooltip. M0 measured 5 per note on the paced test consult, which is why it has its own flag.",
+          "evidence": "engine/os-engine/src/faithfulness.rs test number_from_wrong_segment_is_a_citation_mismatch; NoteView.test.tsx 'underlines a value cited to the wrong line'; docs/perf/M0.md safety finding 3",
+          "status": "shipped"
+        },
+        {
+          "name": "Missing or unknown evidence caught",
+          "benefit": "Every statement must point to a real moment in the consult.",
+          "detail": "Every cited line must exist in the transcript. Missing or unknown references are reported as invalid evidence.",
+          "evidence": "engine/os-engine/src/faithfulness.rs test missing_or_unknown_evidence_is_flagged",
+          "status": "shipped"
+        },
+        {
+          "name": "Word-level check of each statement",
+          "benefit": "A finding the vet never mentioned, or a dropped 'no' that flips a finding, is flagged even when no number is involved.",
+          "detail": "The important words of each statement must appear in the lines it cites, with negations counted and 152 abbreviation and spoken-form pairs treated as the same (SC and under the skin, PO and by mouth, BID and twice). On the M1 consults it raised 22 flags (13 wrong-line citations, 5 real embellishments and 4 false flags since fixed), and flags ask for a check without blocking signing.",
+          "evidence": "engine/os-engine/src/align.rs (FOLD table, 152 pairs; NEGATIONS; tests invented_claims_are_flagged, supported_and_paraphrased_statements_pass); docs/eval/M2.md item 1; docs/plans/M2.md item 1",
+          "status": "shipped"
+        },
+        {
+          "name": "Suggests the right line when a citation is wrong",
+          "benefit": "Instead of only saying a citation is wrong, the app points to where it was actually said.",
+          "detail": "When a flagged statement's words are found elsewhere, up to three lines that together hold at least 75% of them are suggested. The note reads 'It may come from line n'.",
+          "evidence": "engine/os-engine/src/align.rs test wrong_citations_get_a_suggestion; NoteView.test.tsx 'flags a line whose words aren't in its cited line, with the likely line'",
+          "status": "shipped"
+        },
+        {
+          "name": "Patient details must have been said",
+          "benefit": "The draft can't guess a species or other detail from a pet's name or the complaint.",
+          "detail": "Species, breed, sex, age and name are checked against their cited line, with synonyms such as dog, canine and puppy understood. This was added after a draft wrote 'Species: dog' for an animal never described.",
+          "evidence": "engine/os-engine/src/faithfulness.rs (SPECIES; test guessed_species_is_unverified); docs/eval/M1.md 'Patient details'",
+          "status": "shipped"
+        },
+        {
+          "name": "Second listen on numbers (optional download)",
+          "benefit": "When the second recogniser is installed, it catches slips like '100 mL' heard as '10 mL' that a transcript-only check could never see.",
+          "detail": "Lines with numbers, hints or one of 31 drug- and condition-like endings (-itis, -osis, -mycin, -pril and 27 more) are recognised again by Whisper large-v3-turbo, and a number that differs is shown as 'The second recogniser heard X instead of Y'. It isn't in the first-run download, so add it from the Models screen; on a 9.6-minute test consult it checked 19 of 57 segments and caught both recognition errors ('10 mL' for 100, '$120' for $320).",
+          "evidence": "engine/os-engine/src/crosscheck.rs (CLINICAL_ENDINGS, 31 entries; tests dropped_magnitude_is_a_disagreement, chooses_segments_that_matter); engine/os-engine/src/models.rs required_status (Whisper turbo not included); engine/os-engine/src/live.rs; docs/eval/M1.md 'Second-opinion recognition'",
+          "status": "shipped"
+        },
+        {
+          "name": "Both readings kept, with no extra wait",
+          "benefit": "The second listen never overwrites the transcript. During a live recording it runs in the background, so usually only the last few checks are left when you stop, though a slower computer may take longer.",
+          "detail": "Both readings are kept side by side and the vet decides. During a live recording the second listen runs in the background.",
+          "evidence": "engine/os-engine/src/faithfulness.rs DisputedNumber; engine/os-engine/src/live.rs; docs/plans/M1.md item 4",
+          "status": "shipped"
+        },
+        {
+          "name": "Terms the second listen heard become hints",
+          "benefit": "If Parakeet writes 'artitis' but the second recogniser hears 'otitis', the reviewer sees the suggestion.",
+          "detail": "When the second recogniser is installed, known veterinary terms that only its reading contains are attached as hints labelled 'second recogniser'. In M1, adding it together with new rules for medications and declined tests raised facts found from 36/44 to 39/44, with 0 invented numbers.",
+          "evidence": "engine/os-engine/src/crosscheck.rs test second_reading_suggests_the_term_it_heard; docs/eval/M1.md table",
+          "status": "shipped"
+        },
+        {
+          "name": "Spoken numbers read as digits",
+          "benefit": "'Thirty-nine point two' said aloud and '39.2' in the note are recognised as the same value, so the check is fair and strict at once.",
+          "detail": "'One hundred and twenty' becomes 120, 'four and a half weeks' 4.5 and 'point seven' 0.7. Both sides are put in one standard form before comparing.",
+          "evidence": "engine/os-engine/src/numbers.rs (tests normalises_spoken_numbers, canonicalises, spoken_then_extracted_matches_note); engine/os-engine/src/crosscheck.rs test spelled_and_written_numbers_agree",
+          "status": "shipped"
+        },
+        {
+          "name": "Tooth numbers and times read correctly",
+          "benefit": "'One oh eight' stays tooth 108, and 'three forty' isn't added up into 43.",
+          "detail": "Digits said one by one ('four oh four') are joined into one number, while 'three forty' stays as two numbers. This was found during the specialty-template evaluation.",
+          "evidence": "engine/os-engine/src/numbers.rs test normalises_spoken_numbers; docs/eval/M2.md",
+          "status": "shipped"
+        },
+        {
+          "name": "Tenfold dose error guard",
+          "benefit": "A dose said as 'point one milligrams per kilo' can't quietly become 1 mg/kg.",
+          "detail": "Recognition writes 'point one' as '.1', sometimes stuck to the drug ('hydromorphone.1'), and this is always read as 0.1 with a visible hint. Before the fix a test surgery note had 1 mg/kg and the check passed it; it now gives 0.1 mg/kg.",
+          "evidence": "engine/os-engine/src/numbers.rs test a_decimal_without_its_leading_zero_is_still_a_decimal; engine/os-engine/src/vocab.rs test dose_written_without_a_leading_zero_is_hinted; docs/eval/M2.md finding 1",
+          "status": "shipped"
+        },
+        {
+          "name": "Misleading hints held back",
+          "benefit": "Condition names get a hint only on a near-exact match, so a misleading suggestion is much less likely.",
+          "detail": "Condition names need a near-exact match: 'artitis' scores 0.948 against arthritis but was really otitis, so no hint is given. The rule is that a missing hint beats a misleading one.",
+          "evidence": "engine/os-engine/src/vocab.rs test crowded_condition_names_get_no_misleading_hint; docs/eval/M1.md finding 4",
+          "status": "shipped"
+        },
+        {
+          "name": "'Not discussed' instead of guesses",
+          "benefit": "Sections nobody talked about say so plainly instead of being filled in.",
+          "detail": "Empty headings show 'Not discussed' in the app, in copies and in PDFs, and a medication without details reads 'dose, route and frequency not stated'. Every draft is labelled 'Draft: not reviewed or signed by a veterinarian.'",
+          "evidence": "engine/os-engine/src/render.rs (NOT_DISCUSSED; test empty_note_says_not_discussed_everywhere); NoteView.test.tsx; apps/desktop/src/copyFormats.test.ts",
+          "status": "shipped"
+        },
+        {
+          "name": "Flagged lines marked in copies",
+          "benefit": "Anything that couldn't be matched to the recording stays visibly marked, even after copying.",
+          "detail": "The copied draft says how many items couldn't be matched. Each one is marked '[check against recording]'.",
+          "evidence": "engine/os-engine/src/render.rs (FLAG; test renders_statements_fields_medications_and_flags); docs/plans/M1.md item 12",
+          "status": "shipped"
+        },
+        {
+          "name": "Requests steer and are never evidence",
+          "benefit": "An Ask request guides the model but never counts as evidence: numbers are checked again and unsupported wording is flagged. The model is told to keep every supported fact, but one test redraft dropped one, so compare the new draft with the earlier one.",
+          "detail": "An Ask request guides the model without counting as evidence, and numbers are checked again afterwards. Every supported fact is kept unless the vet asked to remove it.",
+          "evidence": "docs/adr/0006-templates-from-headings.md Decision 6 and Consequences; docs/templates.md",
+          "status": "shipped"
+        },
+        {
+          "name": "Vet edits listed, never blocked",
+          "benefit": "A vet correcting a dose is never stopped from signing, and their own lines are clearly marked as theirs.",
+          "detail": "Hand-edited items are marked as entered by the vet and listed for review. Unchanged items keep their checks against the recording.",
+          "evidence": "engine/os-engine/src/faithfulness.rs test vet_entered_items_are_listed_not_failed; engine/os-engine/src/edit.rs",
+          "status": "shipped"
+        },
+        {
+          "name": "Specialty safety rules",
+          "benefit": "Each specialty template carries the extra guardrails its risks need.",
+          "detail": "Oncology never calculates a dose or body surface area, production animal leaves withdrawal times empty unless said, and dental keeps Triadan numbers as said. Estimate explanation copies prices exactly and never adds them up.",
+          "evidence": "docs/templates.md 'Built-in templates'; packages/templates/*/template.yaml",
+          "status": "shipped"
+        },
+        {
+          "name": "Note quality improved only by measurement",
+          "benefit": "Each prompt and schema change was measured for facts found and invented numbers, and changes that hurt were fixed or weighed against other gains.",
+          "detail": "SOAP facts found went 33/44 (75%), 37, 28, 36, 39 and 40/44 (91%) across a baseline and five measured changes, with 0 invented numbers each time; the drop to 28 came when vocabulary hints were first added and was fixed by writing measurements with separate units. After M2 the SOAP template still scores canine 9/10, feline 17/19 and smoke 5/5.",
+          "evidence": "docs/eval/M1.md table (six rows); docs/eval/M2.md ('canine 9/10, feline 17/19, smoke 5/5'); commits 591ad1b, 837f400, f7fbc20",
+          "status": "shipped"
+        },
+        {
+          "name": "Safety findings published openly",
+          "benefit": "Known weaknesses are written down with what is done about each.",
+          "detail": "Published findings include 'hundred' dropped in slow speech (now caught by the second listen), misheard drug names (hinted) and wrong citations (flagged). Still-open cases, such as 'ASA one' heard as 'A sat one', are listed too.",
+          "evidence": "docs/perf/M0.md 'Safety findings'; docs/eval/M2.md 'Still open'",
+          "status": "shipped"
+        },
+        {
+          "name": "Validation in clinics",
+          "benefit": "OpenBark will be checked in real clinics before it is offered for clinical use.",
+          "detail": "OpenBark is pre-alpha today. Every figure on this page comes from scripted test consults voiced on a computer, or from developer machines.",
+          "evidence": "README.md ('Status: pre-alpha ... hasn't been validated for clinical use yet'); packages/eval/fixtures/",
+          "status": "coming"
+        }
+      ]
+    },
+    {
+      "id": "privacy",
+      "name": "Privacy and security",
+      "intro": "Everything runs on the clinic's computer, visit files are encrypted, and every network connection the app can make is listed.",
+      "items": [
+        {
+          "name": "Everything stays on the computer",
+          "benefit": "Recordings and notes never leave the computer unless you copy or export them.",
+          "detail": "Transcription, drafting and checking run with the network unplugged once the models are downloaded. The sidebar shows 'This device' or 'Web, this computer only'.",
+          "evidence": "docs/network.md; docs/guide/README.md; apps/desktop/src/App.tsx sidebar-foot",
+          "status": "shipped"
+        },
+        {
+          "name": "No telemetry, licence server or cloud fallback",
+          "benefit": "Nothing about the clinic or its patients is collected, and nothing phones home.",
+          "detail": "There is no analytics, crash reporting, update check, licence server or fallback to a cloud model.",
+          "evidence": "docs/network.md 'Nothing else at run time'; OPENSCRIBE_CLAUDE_CODE_PROMPT.md section 3",
+          "status": "shipped"
+        },
+        {
+          "name": "Every network connection listed, each with an off switch",
+          "benefit": "Clinics and IT can see exactly what OpenBark connects to, when, and how to stop it.",
+          "detail": "There are five, all started by the user: two kinds of model download, the browser version listening on this computer only, Hugging Face search and the optional NVIDIA speech pack. Any other connection is treated as a bug.",
+          "evidence": "docs/network.md (R1 to R5, plus build-time hosts B1 to B6)",
+          "status": "shipped"
+        },
+        {
+          "name": "Network guard in every build",
+          "benefit": "Every CI run fails if any Rust part of the app other than the model downloader depends directly on a web-client library.",
+          "detail": "A CI script walks the dependency tree for web-client libraries (reqwest, ureq, isahc, attohttpc, surf). Only the model downloader may use one.",
+          "evidence": "scripts/ci/check-network.sh; .github/workflows/ci.yml; docs/plans/M0.md M0-6",
+          "status": "shipped"
+        },
+        {
+          "name": "Browser version reachable only from this computer",
+          "benefit": "The browser version can't be reached from phones or other computers on the network.",
+          "detail": "openbark serve listens only on 127.0.0.1, port 4317 by default. It won't listen on the clinic network until the Clinic Hub adds sign-in and encrypted connections.",
+          "evidence": "docs/network.md R3; install/README.md; engine/os-server/src/lib.rs (Ipv4Addr::LOCALHOST)",
+          "status": "shipped"
+        },
+        {
+          "name": "Other websites can't use the browser version",
+          "benefit": "A web page open in another tab can't read or change OpenBark's data through the local browser version.",
+          "detail": "The server answers only requests addressed to itself (which blocks DNS rebinding) and coming from its own pages, and every change must carry an X-OpenBark header that another site can't add. Network and device paths are refused however they are spelled, and the folder browser needs the same header.",
+          "evidence": "engine/os-server/src/lib.rs (Host, Origin and X-OpenBark middleware with tests); commit 3888f20 'Web mode'",
+          "status": "shipped"
+        },
+        {
+          "name": "The server enforces licences and downloads",
+          "benefit": "The browser version can't be made to skip a licence or start two downloads at once.",
+          "detail": "Licence acceptance and one download at a time are enforced by the server, as well as on screen. A restart is refused while work is running.",
+          "evidence": "commit 3888f20 ('licence acceptance and a single download enforced by the server, restart refused while busy'); engine/os-server/src/lib.rs",
+          "status": "shipped"
+        },
+        {
+          "name": "Access tokens sent only where needed",
+          "benefit": "A Hugging Face token is never sent to other hosts.",
+          "detail": "A token goes only to huggingface.co, and only for a gated model the user chose. Search sends only the search words or the model's name.",
+          "evidence": "docs/network.md R1 and R4",
+          "status": "shipped"
+        },
+        {
+          "name": "NVIDIA libraries fetched only with consent, and verified",
+          "benefit": "The clinic accepts NVIDIA's licence knowingly, and every downloaded file is checked.",
+          "detail": "NVIDIA's CUDA runtime, cuBLAS and cuDNN are fetched from NVIDIA's own packages after the clinic ticks acceptance, and are never shipped with the app. Every file is pinned by address, size and SHA-256.",
+          "evidence": "docs/adr/0014-gpu-speech-recognition.md Decision 2; docs/network.md R5; engine/os-models/src/gpu_pack.rs",
+          "status": "shipped"
+        },
+        {
+          "name": "Encryption at rest for every visit file",
+          "benefit": "A copied, backed-up or synced visit folder gives nothing away without the clinic's key. For a lost or stolen computer, turn on BitLocker or FileVault as well.",
+          "detail": "Each file is encrypted with XChaCha20-Poly1305 under a random 256-bit key, with its file name bound in so files can't be swapped. It was checked on 6 older visits migrated and a new import, with no patient names left on disk.",
+          "evidence": "engine/os-engine/src/vault.rs; docs/adr/0008-encryption-at-rest.md; docs/plans/M1.md item 10; docs/versions.md chacha20poly1305 row",
+          "status": "shipped"
+        },
+        {
+          "name": "Audio encrypted as it records",
+          "benefit": "A recording is never on disk unencrypted, not even briefly.",
+          "detail": "Audio streams into encrypted 64 KiB chunks of about 2 s each, each bound to its position so chunks can't be reordered. Fixed-size chunks let playback jump to any point.",
+          "evidence": "engine/os-engine/src/vault.rs (AUDIO_MAGIC, CHUNK); docs/adr/0008-encryption-at-rest.md Decision 1",
+          "status": "shipped"
+        },
+        {
+          "name": "Uploads decoded in memory",
+          "benefit": "A recording uploaded in the browser version is never written to disk unencrypted.",
+          "detail": "Uploaded audio is decoded from memory. It goes into the encrypted visit folder as it is processed.",
+          "evidence": "engine/os-app/src/lib.rs import_bytes ('Decoded from memory: the upload never touches the disk unencrypted'); docs/plans/M1.md item 10",
+          "status": "shipped"
+        },
+        {
+          "name": "Team list and patient list encrypted too",
+          "benefit": "Staff names, roles, PIN hashes and the patient list are protected like the visits.",
+          "detail": "The team and patient files are read and written only through the encryption module. They use the same data key as the visits.",
+          "evidence": "engine/os-engine/src/users.rs (crate::vault); engine/os-engine/src/patients.rs; docs/plans/M1.md item 11",
+          "status": "shipped"
+        },
+        {
+          "name": "Key kept in the system keychain",
+          "benefit": "Normally the encryption key is held by the operating system's keychain. Where there is none, it is kept in a file in the user's OpenBark folder, which is weaker, and Settings says so.",
+          "detail": "The key lives in Windows Credential Manager, macOS Keychain or Linux Secret Service. Where no keychain is available, such as over a remote connection, a key file readable only by the user account is used, and Settings says which is in use.",
+          "evidence": "engine/os-engine/src/vault.rs (KeySource, FILE_WARNING); docs/adr/0008-encryption-at-rest.md Decision 2; apps/desktop/src/screens/Settings.tsx Encryption",
+          "status": "shipped"
+        },
+        {
+          "name": "Recovery key for a new computer",
+          "benefit": "Move to a new computer or reinstall without losing access to records.",
+          "detail": "Settings shows the recovery key on request, to print or keep in a password manager, and it can be imported on another computer. Import refuses to replace a different key unless asked, and uninstallers warn to save it before deleting data.",
+          "evidence": "engine/os-engine/src/vault.rs (recovery_key, import_key); engine/os-cli/src/main.rs KeyCommand; docs/adr/0008-encryption-at-rest.md Decision 3; install/README.md",
+          "status": "shipped"
+        },
+        {
+          "name": "Encrypt older visits in place",
+          "benefit": "Visits saved before encryption existed can be protected with one button.",
+          "detail": "Settings lists visits saved before encryption with Encrypt them now, which rewrites every file in place. Old plain files stay readable until then.",
+          "evidence": "engine/os-engine/src/vault.rs (encrypt_folder; test folders_encrypt_in_place); engine/os-cli/src/sessions.rs; engine/os-server/src/lib.rs /api/encryption/encrypt-existing; docs/adr/0008 Decision 4",
+          "status": "shipped"
+        },
+        {
+          "name": "Playback without plain files",
+          "benefit": "Recordings play back without ever being decrypted to disk.",
+          "detail": "Audio is decrypted into memory for playback, and all clinical reads and writes go through one encryption module. A test guards that no visit file goes around it.",
+          "evidence": "docs/adr/0008-encryption-at-rest.md Decision 5 and Consequences; apps/desktop/src/engine.ts audioUrl",
+          "status": "shipped"
+        },
+        {
+          "name": "Forget the key",
+          "benefit": "A clinic retiring a computer can make its encrypted visits unreadable there.",
+          "detail": "The command openbark key forget deletes the key from the keychain and the key file, after a confirmation flag. The visits can then be opened only with the recovery key.",
+          "evidence": "engine/os-engine/src/vault.rs (forget; test forgetting_removes_the_key_file); engine/os-cli/src/main.rs KeyCommand::Forget",
+          "status": "shipped"
+        },
+        {
+          "name": "Encryption tested: nothing plain on disk",
+          "benefit": "Tests show recordings and notes can't be read without the key, even if a recording stops mid-way.",
+          "detail": "Tests cover round trips, a wrong key failing, files bound to their names and audio encrypted as it streams. A saved visit is checked to leave nothing readable on disk.",
+          "evidence": "engine/os-engine/src/vault.rs tests (small_files_round_trip_and_are_bound_to_their_name, another_key_cannot_read); engine/os-engine/src/session.rs test encrypted_sessions_round_trip_with_nothing_plain_on_disk",
+          "status": "shipped"
+        },
+        {
+          "name": "Minimal patient list",
+          "benefit": "OpenBark holds just enough about each animal to group its visits.",
+          "detail": "Patient records hold only the animal's name, family name, species and timestamps. There is no medical history or client contact information.",
+          "evidence": "docs/adr/0011-patients-and-visits.md Context and Decision 1; engine/os-engine/src/patients.rs",
+          "status": "shipped"
+        },
+        {
+          "name": "One-time recording consent notice",
+          "benefit": "Each computer reminds the clinic of its duty to get clients' consent before the first recording.",
+          "detail": "A dialog stays until 'I understand, and I'll get consent from clients before recording' is ticked. It can be shown again from Settings.",
+          "evidence": "apps/desktop/src/components/ConsentNotice.tsx; packages/ui/src/Sheet.test.tsx 'a notice that needs an answer ignores Escape until answered'; docs/guide/getting-started.md",
+          "status": "shipped"
+        },
+        {
+          "name": "Optional consent record for each visit",
+          "benefit": "Record how each client agreed, saved with the visit, with the clinic's rule enforced.",
+          "detail": "When switched on, the clinic sets its rule (all parties or one party), a script to read and the method, and each consent is saved with who confirmed it and when. Consent is taken before recording or importing starts, clinician-only consent is refused under an all-parties rule, and 'Client declined' means recording never begins.",
+          "evidence": "engine/os-engine/src/session.rs (ConsentRule, ConsentMethod, Consent::check); apps/desktop/src/components/ConsentStep.tsx; ConsentStep.test.tsx; apps/desktop/src/screens/Recorder.tsx declineConsent; docs/plans/M1.md item 7",
+          "status": "shipped"
+        },
+        {
+          "name": "Consent step covers imports too",
+          "benefit": "When consent is recorded for each visit, an imported phone or call recording asks for it just like a live one.",
+          "detail": "Import opens the same consent panel before the file is read. The consent is checked against the clinic's rule and saved with the visit.",
+          "evidence": "apps/desktop/src/screens/Recorder.tsx (consentFor 'import'); engine/os-app/src/lib.rs import_source; docs/design/STATUS.md",
+          "status": "shipped"
+        },
+        {
+          "name": "Exports are clearly the only plain copies",
+          "benefit": "Clinics know exactly which copies need handling as medical records.",
+          "detail": "The guide says PDFs and copied text are the only way clinical text leaves OpenBark unencrypted. They should be kept as carefully as any record.",
+          "evidence": "docs/guide/documents.md (last paragraph)",
+          "status": "shipped"
+        },
+        {
+          "name": "Optional end-to-end encrypted sync",
+          "benefit": "A vet's notes, templates and settings could follow them across devices without the server being able to read them.",
+          "detail": "The proposed design is opt-in and off by default, encrypted on the device with a key the server never holds, and audio never syncs. It could be self-hosted.",
+          "evidence": "docs/adr/0005-optional-cloud-sync.md (status proposed); docs/network.md 'Planned'",
+          "status": "coming"
+        },
+        {
+          "name": "Startup passphrase and per-user keys",
+          "benefit": "Clinics could add a passphrase or per-user keys on shared computers.",
+          "detail": "A passphrase protecting the data key can be added as an option. Per-user keys come with Clinic Hub sign-in.",
+          "evidence": "docs/adr/0008-encryption-at-rest.md Alternatives and Consequences",
+          "status": "coming"
+        }
+      ]
+    },
+    {
+      "id": "patients",
+      "name": "Patients and visits",
+      "intro": "Visits are organised under each animal and linked automatically, with what the clinic typed kept apart from what was said.",
+      "items": [
+        {
+          "name": "Patients list",
+          "benefit": "Every animal you have seen, most recent first, with a search box to find one fast.",
+          "detail": "One row per animal shows a species icon, visit count, last visit type and date. The list filters by animal or family name.",
+          "evidence": "apps/desktop/src/screens/Patients.tsx; docs/adr/0011-patients-and-visits.md; apps/desktop/e2e/patients.mjs",
+          "status": "shipped"
+        },
+        {
+          "name": "Patient page with every visit",
+          "benefit": "See all of an animal's visits and whether each is transcribed, drafted or signed.",
+          "detail": "Each visit shows its type icon, reason, date, length and a status written in words (Transcribed, Draft, Signed). New visit opens the Recorder with the patient filled in.",
+          "evidence": "apps/desktop/src/screens/PatientDetail.tsx; docs/adr/0011-patients-and-visits.md",
+          "status": "shipped"
+        },
+        {
+          "name": "Automatic patient linking",
+          "benefit": "Visits group under the right animal with nothing to set up, including older visits.",
+          "detail": "Visits link by animal and family name, ignoring case, spacing and accents, and older visits link themselves the first time patients are listed. A multi-pet visit appears under every animal in it.",
+          "evidence": "engine/os-engine/src/patients.rs (match_key, find_or_create; test records_are_found_by_name_and_family_whatever_the_spelling); docs/adr/0011 Decisions 2 and 3",
+          "status": "shipped"
+        },
+        {
+          "name": "Find a patient when recording",
+          "benefit": "Link today's visit to an animal you've seen before in a couple of keystrokes.",
+          "detail": "A search box suggests up to 6 matching patients with species and visit count, and choosing one fills the name, family name and species. Typing a new name makes a new patient.",
+          "evidence": "apps/desktop/src/components/PatientPicker.tsx; docs/adr/0011-patients-and-visits.md Decision 5",
+          "status": "shipped"
+        },
+        {
+          "name": "Edit details without rewriting history",
+          "benefit": "Correct a name or species while past visits keep what was entered at the time.",
+          "detail": "Patient name, family name and reason for visit are time-stamped when entered and when changed. Editing a patient doesn't alter past visits.",
+          "evidence": "apps/desktop/src/screens/PatientDetail.tsx save(); engine/os-engine/src/session.rs (PatientInfo, set_patient); docs/adr/0011 Decision 4",
+          "status": "shipped"
+        },
+        {
+          "name": "Clinic-entered details are context, never evidence",
+          "benefit": "Details typed by reception help the model and are never treated as something said.",
+          "detail": "They reach the model marked as entered by the clinic and not evidence. Species decides which species-only headings appear and is never taken from the recording.",
+          "evidence": "engine/os-engine/src/session.rs prompt_context; engine/os-engine/src/note.rs user_message",
+          "status": "shipped"
+        },
+        {
+          "name": "Recent visits table",
+          "benefit": "The day's recordings in one table.",
+          "detail": "Time, patient, reason, template, length, drafts and status. It works by keyboard, and Enter opens a visit.",
+          "evidence": "apps/desktop/src/screens/Encounters.tsx; apps/desktop/src/screens/Patients.tsx",
+          "status": "shipped"
+        },
+        {
+          "name": "Reprocess a visit",
+          "benefit": "Redraft an unsigned visit from its recording, as the same visit type or another one.",
+          "detail": "A button beside each visit on the patient page drafts it again from the same recording, as the same type when a draft went wrong or as another type. Earlier drafts are kept, and signed notes stay final with addenda for anything new.",
+          "evidence": "apps/desktop/src/components/ReprocessSheet.tsx; apps/desktop/src/screens/PatientDetail.tsx; docs/guide/recording.md 'Drafting a visit again'; apps/desktop/e2e/patients.mjs; commit 3888f20",
+          "status": "shipped"
+        },
+        {
+          "name": "11 species",
+          "benefit": "Dogs, cats, horses, farm animals and exotics are all first-class patients.",
+          "detail": "Dog, Cat, Horse, Cattle, Sheep or goat, Pig, Bird, Reptile, Rabbit, Small rodent and Ferret. Six have their own icon (dog, cat, horse, cow, bird, rabbit), and pigs, reptiles, ferrets and unknown species show a paw.",
+          "evidence": "apps/desktop/src/species.ts; apps/desktop/src/templateIcons.tsx SPECIES_ICONS; apps/desktop/src/species.test.ts",
+          "status": "shipped"
+        },
+        {
+          "name": "Merge, split and delete patients",
+          "benefit": "Clinics could fix patients merged by the same name, or carry the practice system's patient number.",
+          "detail": "This is named as a later change if same-name merging becomes a problem. Deleting patients needs its own careful flow.",
+          "evidence": "docs/adr/0011-patients-and-visits.md Consequences",
+          "status": "coming"
+        }
+      ]
+    },
+    {
+      "id": "templates",
+      "name": "Templates",
+      "intro": "Twenty ready-made templates, and a builder that lets any team write its own from plain headings without touching code or prompts.",
+      "items": [
+        {
+          "name": "20 built-in templates",
+          "benefit": "Ready-made notes for general practice, specialties, farm, equine, exotics and owners from day one.",
+          "detail": "16 record templates, from SOAP, New consult and Recheck to Dental, Surgery and anaesthesia, Oncology, Exotics, Equine, Production animal and Euthanasia and quality of life, plus 4 client documents. Tests check that each one loads, validates and prints to PDF with all its headings.",
+          "evidence": "packages/templates/*/template.yaml (20 folders); engine/os-engine/src/template.rs test every_builtin_loads_and_its_empty_note_validates; engine/os-engine/src/pdf.rs test every_builtin_template_renders_a_pdf_with_its_headings",
+          "status": "shipped"
+        },
+        {
+          "name": "Specialty templates tested on their own consults",
+          "benefit": "Each specialty template was checked on a test consult of its kind, with no made-up numbers.",
+          "detail": "9 scripted specialty consults found 91 of 98 facts (93%) with 0 invented numbers. Dental 10/10, spay 14/16, hit by car 13/13, equine lameness 11/11, mastitis 9/11, bearded dragon 10/10, atopic dog 8/9, lymphoma 10/11 and quality of life 6/7.",
+          "evidence": "docs/eval/M2.md item 3; docs/plans/M2.md item 3; packages/eval/fixtures/scripts/*.yaml",
+          "status": "shipped"
+        },
+        {
+          "name": "Templates made from plain headings",
+          "benefit": "A team can build a dental, surgical, exotics or callback template without knowing anything about schemas.",
+          "detail": "A template is headings and subheadings holding bullet points, a text box, measurements with units or medications, with optional plain instructions. The structure the model fills is generated from them, so every team template gets the same evidence links, 'Not discussed' handling and checks.",
+          "evidence": "engine/os-engine/src/template.rs (generate_schema, PartKind; test team_template_from_headings_only); docs/adr/0006-templates-from-headings.md Decisions 1 and 2; docs/templates.md",
+          "status": "shipped"
+        },
+        {
+          "name": "Text boxes keep their evidence links",
+          "benefit": "A heading written as a paragraph can still be checked line by line against the recording.",
+          "detail": "The text box writes connected sentences shown as a paragraph. Each sentence still cites its own transcript lines, so the evidence link works inside it.",
+          "evidence": "engine/os-engine/src/template.rs PartKind::Text; commit 6408787",
+          "status": "shipped"
+        },
+        {
+          "name": "Template builder",
+          "benefit": "Build a template in two panes with a live preview, by mouse or keyboard.",
+          "detail": "A structure list with drag handles and Move up and Move down buttons sits beside instructions per heading, icon, level of detail and audience. Delete asks for confirmation, and unsaved changes prompt before leaving.",
+          "evidence": "apps/desktop/src/screens/Templates.tsx Builder; docs/design/STATUS.md 'Done' section 5 Template builder",
+          "status": "shipped"
+        },
+        {
+          "name": "Live preview and 'What the model is told'",
+          "benefit": "See the note's shape and the exact instructions the model gets before saving.",
+          "detail": "The preview updates 300 ms after typing stops and checks the template. A second tab shows the exact instructions the model will receive.",
+          "evidence": "apps/desktop/src/screens/Templates.tsx preview tabs; docs/templates.md",
+          "status": "shipped"
+        },
+        {
+          "name": "Template from an example note",
+          "benefit": "Paste a note the clinic already writes and get a matching template, with no patient details copied.",
+          "detail": "The model lists the example's headings in the clinic's own words and picks a content kind and instruction for each, and the example (up to 20,000 characters) is never saved. On three test notes it found 4/4, 9/9 and 8/8 headings, copied nothing about the patient and recognised a discharge letter as a client document.",
+          "evidence": "engine/os-engine/src/from_example.rs (MAX_EXAMPLE; tests a_draft_becomes_a_valid_template_and_mends_gaps, a_client_draft_is_a_client_document); apps/desktop/src/components/ExampleSheet.tsx; docs/eval/M2.md item 5",
+          "status": "shipped"
+        },
+        {
+          "name": "Example instructions by heading and by practice type",
+          "benefit": "Teams see what a good instruction looks like for their work, instead of a blank box.",
+          "detail": "Team headings get one of 17 example sets matched on the title (dental, lameness, anaesthesia, vaccines, withdrawal times and more), and 8 whole-note examples cover practice types from small-animal GP to shelter and referral. Examples reach the model only when the vet uses one.",
+          "evidence": "apps/desktop/src/promptExamples.ts (BY_TITLE, NOTE_EXAMPLES); apps/desktop/src/promptExamples.test.ts; engine/os-engine/src/template.rs test heading_examples_load_but_stay_out_of_the_prompt",
+          "status": "shipped"
+        },
+        {
+          "name": "Headings for one species",
+          "benefit": "One template serves dogs and cats: a cat's note asks about FeLV and FIV, and a dog's about heartworm.",
+          "detail": "Any heading can be limited to one of 11 species groups, to dogs and cats, to farm animals or to exotics, and other species' headings are removed before drafting. The same consult entered as a cat and as a dog gave only the right headings.",
+          "evidence": "engine/os-engine/src/template.rs (SPECIES, for_species; test headings_for_other_species_are_left_out_of_prompt_and_schema); apps/desktop/src/species.ts SHOW_FOR; docs/eval/M2.md item 4",
+          "status": "shipped"
+        },
+        {
+          "name": "Level of detail and audience",
+          "benefit": "Choose concise, standard or thorough notes, and whether a template is for the record or the owner.",
+          "detail": "Concise asks for the fewest words that keep every fact, and thorough includes every relevant detail said and nothing unsaid. Record templates are signed by a veterinarian, and client templates follow the signed note and are never signed.",
+          "evidence": "engine/os-engine/src/template.rs Detail; engine/os-engine/src/note.rs rules; apps/desktop/src/screens/Templates.tsx builder-meta",
+          "status": "shipped"
+        },
+        {
+          "name": "Team standards from one-off requests",
+          "benefit": "A correction a vet asks for once can become how every later note is written.",
+          "detail": "Save as a standard stores an Ask request against a heading or the whole note, and later drafts follow it as a team standard. Each standard shows who added it and when, and can be removed.",
+          "evidence": "engine/os-engine/src/template_store.rs (add_standard; test standards_for_builtin_and_team_templates); engine/os-engine/src/note.rs test standards_reach_the_prompt; apps/desktop/src/components/RefinePanel.tsx; docs/adr/0006 Decision 7",
+          "status": "shipped"
+        },
+        {
+          "name": "Try a template on a past visit",
+          "benefit": "Test a new template on a past consult before using it live.",
+          "detail": "Try on a visit lists the last 20 visits. It drafts the chosen one with the template.",
+          "evidence": "apps/desktop/src/screens/Templates.tsx tryTemplate; docs/templates.md",
+          "status": "shipped"
+        },
+        {
+          "name": "Templates as shareable, versioned files",
+          "benefit": "Share templates between clinics by copying a folder, or keep them under version control.",
+          "detail": "Each template is a template.yaml file in its own folder, and each saved change raises its version. Built-ins are read-only (Duplicate to change them), and a new template never takes over an existing one.",
+          "evidence": "engine/os-engine/src/template_store.rs (tests builtins_are_read_only, save_list_version_and_delete); docs/adr/0006 Decision 4; docs/templates.md 'Files'",
+          "status": "shipped"
+        },
+        {
+          "name": "Every draft keeps its own template",
+          "benefit": "Old notes still read correctly after a template changes, and any draft can be reproduced.",
+          "detail": "Each draft saves the template it was written with, standards included. Changing the template later doesn't touch it.",
+          "evidence": "engine/os-engine/src/session.rs run_template; docs/adr/0006-templates-from-headings.md Decision 5",
+          "status": "shipped"
+        },
+        {
+          "name": "Template limits and helpful errors",
+          "benefit": "An unfinished or oversized template gets a clear message instead of a broken draft.",
+          "detail": "Templates can hold up to 30 sections, 20 subheadings, 30 fields, 80 headings in all and 1,500 characters of text. A hand-written structure that doesn't match the headings is refused.",
+          "evidence": "engine/os-engine/src/template.rs (MAX_SECTIONS to MAX_TEXT; tests helpful_errors_for_unfinished_templates, mismatched_handwritten_schema_is_rejected)",
+          "status": "shipped"
+        },
+        {
+          "name": "Template icons",
+          "benefit": "Each visit type is recognisable at a glance.",
+          "detail": "A picker offers 39 icons, such as a stethoscope, tooth, horse and syringe. Record notes default to a clipboard and client documents to a speech bubble.",
+          "evidence": "apps/desktop/src/templateIcons.tsx TEMPLATE_ICONS; apps/desktop/src/screens/Templates.tsx IconPicker",
+          "status": "shipped"
+        },
+        {
+          "name": "Dental chart",
+          "benefit": "A tooth chart could be filled from the transcript and edited by click.",
+          "detail": "The plan is a chart with canine and feline Triadan numbering for missing, fractured and mobile teeth, periodontal stage, extraction and resorption. Each finding would link to its transcript line and appear in the note and PDF.",
+          "evidence": "docs/plans/M2.md item 7 ('Not started'); docs/design/DESIGN.md section 5 Dental chart",
+          "status": "coming"
+        },
+        {
+          "name": "Summaries of past records",
+          "benefit": "Prior records, including scanned PDFs, could be summarised on the computer and used as context for a new note.",
+          "detail": "The plan reads scanned pages on the computer and links every summary item to its source page. History would count as context and never as evidence.",
+          "evidence": "docs/plans/M2.md item 8 and 'Decisions for the product owner'",
+          "status": "coming"
+        },
+        {
+          "name": "Notes straight from audio (experiment)",
+          "benefit": "A future option could write notes from audio without a separate transcription step.",
+          "detail": "An audio-capable model would run as an experiment. It stays only if it comes within 10% of Parakeet's word error rate.",
+          "evidence": "docs/spikes/S2-native-linking.md configuration C; OPENSCRIBE_CLAUDE_CODE_PROMPT.md section 4.4",
+          "status": "coming"
+        },
+        {
+          "name": "Structured research output",
+          "benefit": "Problem lists, diagnoses and medications could be exported as data for registries and quality review.",
+          "detail": "Optional structured data alongside the written note is one of the product brief's goals.",
+          "evidence": "OPENSCRIBE_CLAUDE_CODE_PROMPT.md section 2.3 item 8",
+          "status": "coming"
+        }
+      ]
+    },
+    {
+      "id": "documents",
+      "name": "Client documents and export",
+      "intro": "Handouts for owners that follow the vet's corrected note, plus PDFs and copy formats for any practice system.",
+      "items": [
+        {
+          "name": "Client documents that follow the vet's note",
+          "benefit": "Discharge instructions and summaries use the vet's corrected doses and spellings, in plain language.",
+          "detail": "Discharge instructions, client summary, estimate explanation and euthanasia aftercare open from buttons under the note, with the evidence link, Copy, Save PDF and Draft again. They are never signed and are labelled 'Draft for the client: check it before handing it over.'",
+          "evidence": "engine/os-engine/src/note.rs (Reference, reference_message); apps/desktop/src/components/DocumentSheet.tsx; docs/plans/M1.md item 9; docs/guide/documents.md",
+          "status": "shipped"
+        },
+        {
+          "name": "Estimate explanation and euthanasia aftercare",
+          "benefit": "Help owners understand costs and aftercare, with accurate, gentle wording.",
+          "detail": "Estimate explanation copies prices exactly and never adds them up. Euthanasia aftercare covers arrangements and support in gentle words.",
+          "evidence": "packages/templates/estimate-explanation/template.yaml; packages/templates/euthanasia-aftercare/template.yaml; docs/guide/documents.md",
+          "status": "shipped"
+        },
+        {
+          "name": "Medications exact, numbers checked",
+          "benefit": "Owner handouts never paraphrase or recalculate a dose, and drug names are spelled right.",
+          "detail": "Client documents give medications exactly as in the note and write doses in digits, after a test discharge listed 'Marapitin' and doses in words. They go through the same invented-number check, with numbers the vet entered counting as supported.",
+          "evidence": "engine/os-engine/src/faithfulness.rs test numbers_the_vet_entered_are_supported_in_client_documents; docs/eval/M2.md 'Client documents'",
+          "status": "shipped"
+        },
+        {
+          "name": "Client documents in the client's language",
+          "benefit": "A discharge can go home in French from a consult held in English.",
+          "detail": "Each document's language, any of the 7 note languages, is chosen in its panel. A French discharge from an English consult kept the medication and every number unchanged.",
+          "evidence": "apps/desktop/src/components/DocumentSheet.tsx doc-language; docs/plans/M2.md item 6; docs/eval/M2.md 'Client documents'",
+          "status": "shipped"
+        },
+        {
+          "name": "PDFs with the clinic's letterhead",
+          "benefit": "Signed notes and client handouts print as clean PDFs ready to file or send.",
+          "detail": "PDFs carry the clinic's letterhead, visit details, the signature or a clear draft line, every heading, addenda and page numbers, on Letter or A4. The same output comes out on every platform, and citations are left out so it reads cleanly.",
+          "evidence": "engine/os-engine/src/pdf.rs (note_pdf, PageSize; tests every_builtin_template_renders_a_pdf_with_its_headings, long_notes_flow_onto_more_pages); docs/plans/M1.md item 12",
+          "status": "shipped"
+        },
+        {
+          "name": "Copy into any practice system",
+          "benefit": "Paste the whole note, or one heading, cleanly into whatever practice software the clinic uses.",
+          "detail": "Copy as plain text (most practice systems), formatted text or Markdown, with an optional header, addenda and transcript line numbers. Each section has its own Copy button.",
+          "evidence": "apps/desktop/src/copyFormats.ts; apps/desktop/src/copyFormats.test.ts; docs/guide/documents.md; docs/plans/M1.md item 12",
+          "status": "shipped"
+        },
+        {
+          "name": "Practice system integration",
+          "benefit": "Notes could go straight into ezyVet, Instinct, Shepherd, Digitail and others.",
+          "detail": "Planned: a browser extension for web-based practice systems, an ezyVet connector, clipboard presets for desktop systems, and HL7v2 and FHIR R4 exports.",
+          "evidence": "OPENSCRIBE_CLAUDE_CODE_PROMPT.md sections 4.6 and 6 (M3)",
+          "status": "coming"
+        }
+      ]
+    },
+    {
+      "id": "team",
+      "name": "Team",
+      "intro": "Several people can share one computer, each in their role, with a record of who did what on every note.",
+      "items": [
+        {
+          "name": "Team members, roles and PINs",
+          "benefit": "Vets, technicians and reception each do what their role allows, and only veterinarians can sign.",
+          "detail": "Veterinarians can do everything, technicians record, draft and edit, and reception records and enters patient details; the engine enforces these roles. PINs of 4 to 8 digits are stored as salted hashes with 100,000 rounds, and the first member must be a veterinarian.",
+          "evidence": "engine/os-engine/src/users.rs (Role, ROUNDS; test team_members_roles_and_pins); apps/desktop/src/components/TeamSettings.tsx; docs/plans/M1.md item 11",
+          "status": "shipped"
+        },
+        {
+          "name": "Quick switch between staff",
+          "benefit": "Staff pick their name and enter their PIN to take over the computer.",
+          "detail": "A 'Who's using OpenBark?' picker with Switch sits at the bottom of the sidebar. The last veterinarian can't be removed while others remain.",
+          "evidence": "apps/desktop/src/components/UserPicker.tsx; engine/os-engine/src/users.rs",
+          "status": "shipped"
+        },
+        {
+          "name": "Change your own PIN",
+          "benefit": "Staff can change their PIN themselves without asking a veterinarian.",
+          "detail": "Settings has 'Change my PIN'. A veterinarian resets someone else's PIN by removing and re-adding them.",
+          "evidence": "apps/desktop/src/components/TeamSettings.tsx ('Change my PIN'); engine/os-app/src/lib.rs set_user_pin; docs/guide/team-and-security.md",
+          "status": "shipped"
+        },
+        {
+          "name": "Who did what, on every draft",
+          "benefit": "The record shows who recorded, drafted, edited, asked for changes and signed each note.",
+          "detail": "Each visit stores who recorded it, and each draft who drafted, edited or asked for it. Each signature and addendum records who made it, with their role.",
+          "evidence": "docs/plans/M1.md item 11; apps/desktop/src/engine.ts setActor; docs/guide/team-and-security.md",
+          "status": "shipped"
+        },
+        {
+          "name": "Roles stated plainly in the guide",
+          "benefit": "Clinics know what team roles protect against and what they don't.",
+          "detail": "The user guide says roles keep an honest record on a shared computer and aren't a security boundary against someone with access to the computer's account. Clinic-wide accounts and audit come with the Clinic Hub.",
+          "evidence": "docs/guide/team-and-security.md; docs/plans/M1.md item 11",
+          "status": "shipped"
+        },
+        {
+          "name": "Solo mode",
+          "benefit": "Working alone needs no team setup.",
+          "detail": "With no team set up, the app runs for one person. Your name in Settings is saved with each note you sign.",
+          "evidence": "docs/guide/team-and-security.md; docs/guide/getting-started.md",
+          "status": "shipped"
+        },
+        {
+          "name": "Clinic Hub",
+          "benefit": "One clinic computer could serve phones and thin laptops across the clinic network.",
+          "detail": "Planned: discovery on the clinic network, pairing by QR code, encrypted connections, a shared clinic store, an audit log and an admin dashboard. It would stay off unless Hub mode is switched on.",
+          "evidence": "OPENSCRIBE_CLAUDE_CODE_PROMPT.md sections 4.7 and 6 (M4); docs/network.md 'Planned' M4",
+          "status": "coming"
+        }
+      ]
+    },
+    {
+      "id": "languages",
+      "name": "Languages",
+      "intro": "Consults in 25 languages, notes in 7, the interface in 5, with the limits stated plainly.",
+      "items": [
+        {
+          "name": "Consults in 25 European languages",
+          "benefit": "Consults can be held in English or 24 other European languages with no setting.",
+          "detail": "Parakeet TDT v3 recognises the language automatically. Nothing needs to be chosen before recording.",
+          "evidence": "docs/languages.md; docs/plans/M1.md 'Extra'",
+          "status": "shipped"
+        },
+        {
+          "name": "Notes in seven languages",
+          "benefit": "Write the record in the clinic's language whatever language the consult was in.",
+          "detail": "Notes can be written in English, French, Spanish, German, Portuguese, Italian or Dutch, with drug names, doses, units and numbers kept exactly as said. When the note's language differs from the consult's, the word-level check is switched off and the number check still runs.",
+          "evidence": "engine/os-engine/src/note.rs (NOTE_LANGUAGES; test note_language_is_asked_for_except_english); engine/os-engine/src/faithfulness.rs check_opts; docs/languages.md",
+          "status": "shipped"
+        },
+        {
+          "name": "App in five languages",
+          "benefit": "Staff can use the interface in English, French, Spanish, German or Portuguese.",
+          "detail": "Each of the four translations holds 745 strings, and the app starts in the browser's language when available, falling back to English. The translations were machine-generated and are waiting for review by native-speaking veterinary staff.",
+          "evidence": "packages/i18n/i18n-{de,es,fr,pt}.json (745 keys each); apps/desktop/src/i18n.ts UI_LANGUAGES; scripts/i18n-keys.py; docs/languages.md",
+          "status": "shipped"
+        },
+        {
+          "name": "PDF labels in five languages",
+          "benefit": "The fixed words on a PDF, such as Patient, Signed by and Page 1 of 2, match the clinic's language.",
+          "detail": "Labels come in English, French, Spanish, German and Portuguese. Anything missing falls back to English.",
+          "evidence": "engine/os-engine/src/pdf.rs (LABELS; test labels_follow_the_language)",
+          "status": "shipped"
+        },
+        {
+          "name": "Translation integrity tests",
+          "benefit": "Translated screens never lose names, dates or values from their text.",
+          "detail": "Tests check that every translation keeps the English placeholders and that English fallback works. The build scripts check placeholders too.",
+          "evidence": "apps/desktop/src/i18n.test.ts; scripts/i18n-keys.py",
+          "status": "shipped"
+        },
+        {
+          "name": "Built-in headings stay in English",
+          "benefit": "A clinic writing notes in another language knows to rename its headings.",
+          "detail": "Headings come from the template, so built-in headings stay in English whatever the note language. A French clinic can duplicate a template and rename its headings.",
+          "evidence": "docs/languages.md 'Note language'; docs/eval/M2.md 'Client documents'; docs/plans/M2.md item 6",
+          "status": "shipped"
+        },
+        {
+          "name": "Language limits stated plainly",
+          "benefit": "You know where checking is weaker outside English.",
+          "detail": "Spoken-number reading and vocabulary hints work in English only. Numbers said in words in other languages may be flagged even when right.",
+          "evidence": "docs/languages.md",
+          "status": "shipped"
+        }
+      ]
+    },
+    {
+      "id": "models",
+      "name": "Models and hardware",
+      "intro": "Open models picked, pinned and tuned for the computer the clinic already owns, with optional graphics-card speed-ups.",
+      "items": [
+        {
+          "name": "First-run 'Download everything'",
+          "benefit": "A new install gets to a working note with one button, and after that it works offline.",
+          "detail": "About 6 GB (voice detection, Parakeet, the speaker models and Gemma 4 E4B) downloads smallest first, with one progress bar, the computer kept awake and a resumable Try again. The second recogniser for number checks is a separate download on the Models screen.",
+          "evidence": "apps/desktop/src/components/SetupPanel.tsx; SetupPanel.test.tsx 'downloads every missing model, smallest first, then reports ready'; engine/os-engine/src/models.rs required_status; docs/plans/M1.md item 8",
+          "status": "shipped"
+        },
+        {
+          "name": "Model manager with a fit check",
+          "benefit": "See which models suit this computer before downloading.",
+          "detail": "Each model shows its use, size, licence and Fits, Tight or Won't fit, estimating its size plus about 25% against 90% of graphics memory, or against 70% of (RAM minus 4 GB) without a graphics card. Fits means at most 80% of that budget and Tight at most 105%, and models that won't fit can't be downloaded.",
+          "evidence": "engine/os-models/src/hub.rs fit (test fit_uses_gpu_memory_first); apps/desktop/src/screens/Models.tsx; docs/guide/getting-started.md",
+          "status": "shipped"
+        },
+        {
+          "name": "Model names explained in plain words",
+          "benefit": "Vets who don't follow AI can understand names like 'gemma-4-12b-it-Q4_K_M'.",
+          "detail": "Names become chips (12B, E4B, it, QAT, Q4_K_M, GGUF, MLX and others) with one-line meanings, a 9-term legend and a recommended size for this computer's memory. As a rule of thumb, E2B suits older laptops, E4B most computers and 12B cards with 10 GB or more, or Macs with 24 GB or more.",
+          "evidence": "apps/desktop/src/modelGuide.ts; apps/desktop/src/components/ModelGuide.tsx; apps/desktop/src/modelGuide.test.ts; docs/guide/getting-started.md",
+          "status": "shipped"
+        },
+        {
+          "name": "Browse Hugging Face from inside the app",
+          "benefit": "Find and add other note-writing models, with licences checked before download.",
+          "detail": "Search lists GGUF models, most downloaded first, pinned to their current version. Permissive licences such as Apache-2.0 or MIT download in one click, and restrictive or unstated ones must be accepted first.",
+          "evidence": "engine/os-models/src/hub.rs (PERMISSIVE; tests restricted_licence_needs_acceptance, licences_are_classified); apps/desktop/src/screens/Models.tsx HubBrowser; docs/network.md R4",
+          "status": "shipped"
+        },
+        {
+          "name": "Restrictive licences only by choice",
+          "benefit": "Restrictively licensed models are never slipped in; the clinic chooses them knowingly.",
+          "detail": "A model with a restrictive or unstated licence found in the Hugging Face browser, such as one under Google's HAI-DEF terms, must be accepted before download and is kept out of the built-in list. A test checks the built-in list has only redistributable licences, with attribution in the licence notice file.",
+          "evidence": "engine/os-models/src/hub.rs test licences_are_classified; engine/os-models/src/catalog.rs (line 160 and test only_redistributable_licenses_in_builtin_catalog); NOTICE",
+          "status": "shipped"
+        },
+        {
+          "name": "Pinned, verified, resumable model downloads",
+          "benefit": "Every model is exactly the file that was tested, and multi-gigabyte downloads survive a dropped connection.",
+          "detail": "10 built-in models are each pinned to a Hugging Face revision with licence and attribution, and OpenBark's own downloader resumes and checks size, SHA-256 and free disk space. It was written because hf-hub 1.0 dropped resumable downloads.",
+          "evidence": "engine/os-models/catalog.json (10 models); engine/os-models/src/download.rs; engine/os-models/src/store.rs test sha256_of_known_content; docs/plans/M0.md change 4",
+          "status": "shipped"
+        },
+        {
+          "name": "Choose the note model, or bring your own",
+          "benefit": "Pick a faster or more careful model to suit the computer.",
+          "detail": "An 'In use' panel picks the note model (Gemma 4 E4B by default) and shows the transcription and speaker models. Any .gguf model file can be used as well as the built-in ones.",
+          "evidence": "apps/desktop/src/screens/Models.tsx; engine/os-engine/src/models.rs; engine/os-cli/src/main.rs --llm",
+          "status": "shipped"
+        },
+        {
+          "name": "'MLX optimized' labels on the Mac",
+          "benefit": "Mac users can see which models are MLX builds and aren't misled into downloading files the app can't run yet.",
+          "detail": "On a Mac, the Hugging Face browser also lists MLX builds with a chip and a filter and points to the GGUF build that runs on the Mac's graphics chip today. Windows and Linux never list MLX builds.",
+          "evidence": "docs/adr/0009-mlx-on-mac.md Decision 1; apps/desktop/src/screens/Models.tsx mlx-chip; docs/network.md R4",
+          "status": "testing"
+        },
+        {
+          "name": "Graphics-chip drafting on every platform",
+          "benefit": "The graphics chip is used for faster drafting wherever there is one.",
+          "detail": "The installers draft with Metal on Apple silicon and Vulkan on Windows and Linux, including NVIDIA cards, and fall back to the processor. CUDA is used only when the browser version is built from source on a computer with NVIDIA's toolkit.",
+          "evidence": ".github/workflows/release.yml (features: vulkan, metal); install/install.ps1 and install/install.sh (nvcc check); engine/os-llm/Cargo.toml",
+          "status": "shipped"
+        },
+        {
+          "name": "Optional speech pack for NVIDIA cards",
+          "benefit": "On a Windows PC with an NVIDIA card, an 8.5-minute import is ready in about 43 s instead of about 150 s.",
+          "detail": "Measured on an RTX 4080, the whole 8.5-minute import took 152 s on the processor and 43 s with the pack, and the number check kept pace. The pack downloads about 1.9 GB of runtime and 5.7 GB of full-precision models, resumably and checked, and Remove takes it away again.",
+          "evidence": "docs/adr/0014-gpu-speech-recognition.md (table and Consequences); engine/os-models/src/gpu_pack.rs; apps/desktop/src/components/GpuCard.tsx; commit 3888f20",
+          "status": "shipped"
+        },
+        {
+          "name": "Graphics self-test in a separate process",
+          "benefit": "A broken graphics driver can never crash the app; it stays on the processor and says why.",
+          "detail": "After install and at each start, a separate process loads both models on the graphics card and transcribes a second of silence, and only a clean exit turns the card on. A failure shows Try again, and it was tested with every CUDA folder removed from the system path.",
+          "evidence": "docs/adr/0014-gpu-speech-recognition.md Decision 4 and Consequences; engine/os-asr/src/lib.rs",
+          "status": "shipped"
+        },
+        {
+          "name": "Speech pack state you can trust",
+          "benefit": "The Models screen shows whether the graphics card is really in use, and Remove works in every state.",
+          "detail": "Full precision is used only when CUDA really runs, an app update that changes the runtime is noticed, and download progress survives leaving the screen. A library of the same name that was there first is kept and put back.",
+          "evidence": "commit 3888f20 ('GPU state'); engine/os-models/src/gpu_pack.rs; apps/desktop/src/components/GpuCard.tsx",
+          "status": "shipped"
+        },
+        {
+          "name": "Each recogniser on its fastest chip",
+          "benefit": "Every speech model runs where it is quickest.",
+          "detail": "The compact speech models stay on the processor (Parakeet took 43 s on the RTX 4080 against 28 s on 6 processor threads), and the full-precision builds use the graphics card. Whisper turbo at full precision took 166 s on the processor and 22 s on the card for 5.5 minutes of audio.",
+          "evidence": "engine/os-asr/src/lib.rs provider selection; docs/adr/0014-gpu-speech-recognition.md table",
+          "status": "shipped"
+        },
+        {
+          "name": "Choose where speech recognition runs",
+          "benefit": "IT can force speech recognition onto the processor or the graphics card while troubleshooting.",
+          "detail": "OPENBARK_ASR_PROVIDER (cpu, cuda or coreml) overrides the automatic choice. Core ML is accepted but hasn't been measured.",
+          "evidence": "engine/os-asr/src/lib.rs asr_provider; docs/adr/0014-gpu-speech-recognition.md Decisions 5 and 6",
+          "status": "testing"
+        },
+        {
+          "name": "One inference engine of each kind",
+          "benefit": "A stable app, free of crashes from clashing native libraries.",
+          "detail": "Exactly one copy of llama.cpp's engine and at most one ONNX Runtime go into each program, checked in CI on Linux and macOS. whisper-rs was ruled out after it corrupted memory with a second copy.",
+          "evidence": "scripts/ci/check-symbols.sh; docs/adr/0001-inference-libraries.md; docs/spikes/S2-native-linking.md; docs/versions.md 'Deliberately excluded'",
+          "status": "shipped"
+        },
+        {
+          "name": "Chat format read from each model",
+          "benefit": "New model families work without code changes.",
+          "detail": "Each model's own chat template, stored in its file, is used to talk to it. There are no hard-coded turn markers.",
+          "evidence": "engine/os-llm/src/chat_template.rs",
+          "status": "shipped"
+        },
+        {
+          "name": "Hardware probe and benchmark",
+          "benefit": "A clinic can see what its computer can run and measure speed on its own hardware.",
+          "detail": "openbark probe reports memory, graphics card and processor features, and openbark bench measures time to first word, words per second and peak memory for each step. scripts/bench.sh runs a warm-up first and saves the results per computer and date.",
+          "evidence": "engine/os-cli/src/main.rs (Probe, Bench); engine/os-cli/src/probe.rs; scripts/bench.sh",
+          "status": "shipped"
+        },
+        {
+          "name": "Speech pack for Mac and Linux",
+          "benefit": "Faster transcription could come to Macs and Linux PCs too.",
+          "detail": "Core ML on the Mac hasn't been measured, and Linux CUDA needs its own pins and a test machine.",
+          "evidence": "docs/adr/0014-gpu-speech-recognition.md Decision 6",
+          "status": "coming"
+        },
+        {
+          "name": "MLX engine on Apple silicon",
+          "benefit": "Macs could run MLX models directly if they prove faster.",
+          "detail": "This comes only after measuring llama.cpp on Metal against MLX for Gemma 4 E4B and 12B on the test consults. Until then the app says MLX models need this engine.",
+          "evidence": "docs/adr/0009-mlx-on-mac.md Decisions 2 and 3; apps/desktop/src/screens/Models.tsx",
+          "status": "coming"
+        },
+        {
+          "name": "Model slots, profiles and your own model server",
+          "benefit": "Clinics could swap each model separately or use a model server they already run.",
+          "detail": "Planned: separate slots for transcription, notes, fast edits and speakers, profiles such as 'Laptop, balanced', and an optional OpenAI-compatible server. It would be off by default, clearly labelled and never a silent fallback.",
+          "evidence": "OPENSCRIBE_CLAUDE_CODE_PROMPT.md section 4.3; docs/network.md 'Planned'",
+          "status": "coming"
+        }
+      ]
+    },
+    {
+      "id": "speed",
+      "name": "Speed and progress",
+      "intro": "Speed measured on one high-end Windows desktop so far, and named steps that tick off while you wait.",
+      "items": [
+        {
+          "name": "Note ready 13.1 s after stopping",
+          "benefit": "The vet sees a draft within seconds of the consult ending.",
+          "detail": "On a desktop with an RTX 4080 graphics card, a 9.6-minute test consult played in real time had its transcript complete 0.0 s after stop and its E4B note saved 13.1 s after stop, against a 30 s target. The same consult from a file took 76.8 s with E4B and 115.1 s with 12B on a shared graphics card.",
+          "evidence": "docs/perf/M0.md 'Live recording' and stage tables; docs/perf/results/rtx4080-win11-20261017/",
+          "status": "shipped"
+        },
+        {
+          "name": "Import board with named steps",
+          "benefit": "While a recording is imported or finished, you see each step tick off and how long is left.",
+          "detail": "Reading the recording, Transcribing (minutes of audio done out of the total), Checking numbers with the second recogniser and Saving tick off under one bar that only moves forward, with an 'About n minutes left' estimate. The same board appears after you stop a live recording, and in the browser version uploading and in-browser conversion show as steps too.",
+          "evidence": "apps/desktop/src/components/ProgressBoard.tsx; apps/desktop/src/components/ProcessingBar.tsx; engine/os-engine/src/live.rs Stage; apps/desktop/e2e/import-progress.mjs",
+          "status": "shipped"
+        },
+        {
+          "name": "Skipped steps explained",
+          "benefit": "If a step doesn't apply, the board says why.",
+          "detail": "When the second recogniser isn't installed, its step is marked skipped with 'Not installed: the Models screen can add it'. Skipped steps get their own icon, separate from finished ones.",
+          "evidence": "apps/desktop/src/components/ProcessingBar.tsx (state 'skipped'); apps/desktop/src/components/ProgressBoard.tsx",
+          "status": "shipped"
+        },
+        {
+          "name": "Drafting board with each heading ticked",
+          "benefit": "While a note drafts, you see which heading is being written and every step tick off.",
+          "detail": "The board shows Loading the note model (only for the first draft after opening OpenBark), Reading the transcript with its line count, Writing the note with each heading ticked in turn, and Checking every number against the transcript. It shows the time so far and how long the last draft of this visit took.",
+          "evidence": "apps/desktop/src/components/DraftProgress.tsx (DraftBoard); engine/os-engine/src/live.rs Stage (LoadModel, ReadTranscript, Write, Verify); engine/os-app/src/lib.rs load_llm_with_progress; apps/desktop/e2e/draft-board.mjs",
+          "status": "shipped"
+        },
+        {
+          "name": "Redrafts keep the current note visible",
+          "benefit": "When you draft again, the current note stays on screen underneath until the new one is ready.",
+          "detail": "The board names the template being used and says the current draft stays until the new one is ready, with earlier drafts kept. For a multi-pet visit it names the animal being drafted, such as Animal 1 of 2.",
+          "evidence": "apps/desktop/src/screens/Review.tsx (noteBoard, note-under-redraft, petRound)",
+          "status": "shipped"
+        },
+        {
+          "name": "Progress for heading redrafts and client documents",
+          "benefit": "Asking for a change to one heading, or drafting a client handout, shows its own progress board.",
+          "detail": "A compact board sits inside the Ask panel while one heading is redrafted, and the client document panel shows a board with each heading of the handout. Step changes are announced to screen readers.",
+          "evidence": "apps/desktop/src/components/RefinePanel.tsx (board); apps/desktop/src/components/DocumentSheet.tsx (board); apps/desktop/src/components/ProgressBoard.tsx",
+          "status": "shipped"
+        },
+        {
+          "name": "Faster structured drafting",
+          "benefit": "The note structure is checked one word at a time, and fully only when a word breaks it. Checking every word in full was about 6 times slower with no gain in quality.",
+          "detail": "The note structure is checked one word at a time and fully only when a word breaks it, which took E4B from 20.7 to between 45 and 58 tokens a second. Full checking was about 6 times slower with no gain in quality.",
+          "evidence": "engine/os-llm/src/llama.rs; docs/perf/M0.md fixes table; docs/eval/M1.md finding 1",
+          "status": "shipped"
+        },
+        {
+          "name": "Processor threads tuned by measurement",
+          "benefit": "Transcription on an ordinary processor runs at its fastest instead of slowing itself down.",
+          "detail": "On 8.5 minutes of audio, 2 threads took 56 s, 4 took 34 s, 6 took 28 s, 8 took 39 s and 16 took 92 s. The main recogniser now uses a third of the processor (2 to 6 threads) and the second up to 8.",
+          "evidence": "engine/os-asr/src/lib.rs (asr_threads, second_threads); docs/adr/0014-gpu-speech-recognition.md Context and Decision 1",
+          "status": "shipped"
+        },
+        {
+          "name": "Published speed measurements",
+          "benefit": "Real timings from one high-end desktop with an RTX 4080, published with their caveats.",
+          "detail": "On an RTX 4080, E4B read a 2,590-token prompt in 0.64 s and wrote 58 tokens a second with 3.4 GB peak memory, and 12B wrote 22 tokens a second with 7.2 GB. The graphics card was shared with a game, so these are treated as upper bounds.",
+          "evidence": "docs/perf/M0.md; docs/perf/results/rtx4080-win11-20261017/",
+          "status": "shipped"
+        },
+        {
+          "name": "60-second drafting target on a Mac",
+          "benefit": "A concrete speed target to confirm on Apple silicon.",
+          "detail": "The target is a 10-minute consult drafted in 60 s or less, benchmarked on E4B and 12B. The Apple silicon run is still to do.",
+          "evidence": "docs/runbooks/macos.md step 3; docs/perf/M0.md 'Pending'",
+          "status": "testing"
+        },
+        {
+          "name": "Clean benchmarks still to run",
+          "benefit": "Remaining measurements are tracked in the open.",
+          "detail": "A rerun on an idle graphics card, the Apple silicon benchmark, and the macOS disk image and uninstaller check are listed as pending.",
+          "evidence": "docs/perf/M0.md 'Pending'; docs/runbooks/macos.md steps 3 and 5",
+          "status": "coming"
+        }
+      ]
+    },
+    {
+      "id": "installers",
+      "name": "Installers and platforms",
+      "intro": "A desktop app for Windows, macOS and Linux and a browser version for the same computer, installed with a double-click and removed without risk to the clinic's records.",
+      "items": [
+        {
+          "name": "Desktop app plus browser version",
+          "benefit": "Use the installed app, or the same screens in a browser on the same computer.",
+          "detail": "A desktop app built and tested on Windows, with macOS and Linux versions built but not yet tried on real machines. openbark serve runs the browser version locally with the same screens. After a folder change or speech pack install, the browser version offers Restart now and the desktop app restarts itself.",
+          "evidence": "docs/adr/0004-monorepo-and-tooling.md; apps/desktop/src/engine.ts; docs/network.md R3; docs/adr/0013 Decision 7; docs/adr/0014 Decision 3",
+          "status": "shipped"
+        },
+        {
+          "name": "Windows setup wizard, no administrator needed",
+          "benefit": "Installs like any Windows app, without IT rights.",
+          "detail": "A per-user wizard in English, French, Spanish, German or Portuguese installs the program apart from the clinic's data. Uninstall is in the Start menu, and a newer setup updates in place.",
+          "evidence": "docs/adr/0012-point-and-click-installers.md Decision 1; apps/desktop/src-tauri/windows/installer.nsi; install/README.md",
+          "status": "shipped"
+        },
+        {
+          "name": "Windows installer tested on a PC",
+          "benefit": "Install, update and uninstall work cleanly, and uninstalling left 13.9 GB of data untouched.",
+          "detail": "A silent install, an update in place and a silent uninstall were run, and the 13.9 GB data folder was byte-for-byte unchanged afterwards. The delete-data path waits for a separate test machine, since the development PC holds real data.",
+          "evidence": "docs/adr/0012-point-and-click-installers.md Consequences",
+          "status": "shipped"
+        },
+        {
+          "name": "Uninstall keeps data unless you confirm twice",
+          "benefit": "Uninstalling or updating can't wipe the clinic's visits by mistake.",
+          "detail": "The 'Delete the application data' box is unticked by default and needs a second Yes or No that defaults to No. Silent and update uninstalls never delete data, and the script uninstaller asks you to type a confirmation word first.",
+          "evidence": "docs/adr/0012-point-and-click-installers.md Decision 2; install/README.md",
+          "status": "shipped"
+        },
+        {
+          "name": "Uninstall removes the speech pack; updates keep it",
+          "benefit": "The large NVIDIA libraries don't linger after OpenBark is removed, and updating doesn't download them again.",
+          "detail": "After the app has closed, the Windows uninstaller deletes exactly the files listed in the pack's manifest. An update leaves them in place.",
+          "evidence": "apps/desktop/src-tauri/windows/hooks.nsh; docs/adr/0014-gpu-speech-recognition.md Consequences; commit 3888f20",
+          "status": "testing"
+        },
+        {
+          "name": "Mac disk image with an uninstaller",
+          "benefit": "Mac users get a drag-to-install image and a clear way to remove data if they choose.",
+          "detail": "The image holds OpenBark, an Applications shortcut and an Uninstall OpenBark app that offers Keep my data (the default) or Delete my data with a second confirmation. The uninstaller's paths were tested with stand-in dialogs, and the real image is waiting for a test on a Mac.",
+          "evidence": "scripts/macos-dmg.sh; install/macos/Uninstall OpenBark.app; docs/adr/0012 Decision 3; docs/runbooks/macos.md step 5",
+          "status": "testing"
+        },
+        {
+          "name": "Linux .deb, .rpm and AppImage",
+          "benefit": "Install from the Software app on Ubuntu, Debian, Mint, Fedora or openSUSE, or run the AppImage.",
+          "detail": "Packages appear in the app menu, and removing them keeps data in ~/.local/share/OpenBark. They are built by the release workflow and are waiting for a hands-on test.",
+          "evidence": "docs/adr/0012-point-and-click-installers.md Decision 4 and Consequences; .github/workflows/release.yml; install/README.md",
+          "status": "testing"
+        },
+        {
+          "name": "Release workflow builds every installer",
+          "benefit": "All five installers (Windows setup, macOS disk image with its uninstaller, Linux .deb, .rpm and AppImage) come from one tagged build, and signing can be added once certificates exist.",
+          "detail": "A version tag builds the Windows setup, the macOS disk image with its uninstaller, and the Linux .deb, .rpm and AppImage. The build fails if any installer is missing, and it can sign once certificates exist.",
+          "evidence": ".github/workflows/release.yml; scripts/macos-dmg.sh",
+          "status": "shipped"
+        },
+        {
+          "name": "Install scripts for the browser version",
+          "benefit": "Run OpenBark in a browser where the desktop app can't run.",
+          "detail": "Double-click Install and Uninstall scripts build the browser version from source, choose the graphics option automatically and share the desktop app's data folder. CI checks that the .sh and .command scripts parse.",
+          "evidence": "install/install.ps1; install/install.sh; install/README.md; .github/workflows/ci.yml 'Install scripts parse' (bash -n on install/*.sh and install/*.command)",
+          "status": "shipped"
+        },
+        {
+          "name": "WebView2 fetched only if missing",
+          "benefit": "The Windows installer downloads nothing on a typical PC.",
+          "detail": "Microsoft's WebView2 is downloaded only on a computer without it. The macOS image and Linux packages make no network calls.",
+          "evidence": "docs/network.md; docs/adr/0012-point-and-click-installers.md Decision 1",
+          "status": "shipped"
+        },
+        {
+          "name": "Signed installers",
+          "benefit": "Signing would remove the Windows and macOS security warnings on first open.",
+          "detail": "Code signing and Apple notarisation wait on buying certificates. Until then the Mac app shows Open Anyway, and the release workflow can sign once certificates exist.",
+          "evidence": "docs/adr/0012-point-and-click-installers.md Decisions 3 and 6",
+          "status": "coming"
+        },
+        {
+          "name": "Phone apps",
+          "benefit": "iPhone and Android apps could record and draft on the device or through the Clinic Hub.",
+          "detail": "A test of background recording and on-phone models is designed with pass and fail criteria. No phone app has been built or tested yet.",
+          "evidence": "docs/spikes/S1-mobile-audio-and-inference.md; OPENSCRIBE_CLAUDE_CODE_PROMPT.md section 6 (M4)",
+          "status": "coming"
+        },
+        {
+          "name": "Web app with models in the browser",
+          "benefit": "A browser-only version could run Gemma 4 with WebGPU.",
+          "detail": "A browser test and an installable web app are scheduled for a later milestone (M5).",
+          "evidence": "docs/plans/M0.md item 6 (S3); OPENSCRIBE_CLAUDE_CODE_PROMPT.md section 6 (M5)",
+          "status": "coming"
+        }
+      ]
+    },
+    {
+      "id": "storage",
+      "name": "Storage",
+      "intro": "The clinic decides where visits and models live, sees what will happen first, and moves data without risk.",
+      "items": [
+        {
+          "name": "Choose where models and visits are kept",
+          "benefit": "Put models on a big drive and visits on a backed-up drive or clinic share.",
+          "detail": "Settings shows each folder with its size and free space, and Change folder uses the system picker, or a small folder browser in the browser version. You can move what's there, use a folder as it is, or start empty.",
+          "evidence": "apps/desktop/src/components/StorageSection.tsx; apps/desktop/src/components/ChangeFolderSheet.tsx; docs/adr/0013-choose-where-data-is-kept.md Decisions 1, 2 and 5",
+          "status": "shipped"
+        },
+        {
+          "name": "Folder check before any change",
+          "benefit": "The clinic sees exactly what will happen before data moves, and synced or removable drives are flagged.",
+          "detail": "The check shows the exact folder and free space and warns about OneDrive, Dropbox, Google Drive or iCloud Drive folders and removable or network drives. It refuses the current folder, overlapping folders, folders inside the app's own data folder and folders OpenBark can't write to.",
+          "evidence": "engine/os-models/src/locations.rs (synced_by); docs/adr/0013 Decision 3; commit 3888f20 ('Folders inside the app's data folder can't be chosen')",
+          "status": "shipped"
+        },
+        {
+          "name": "Cloud-synced folders stay private",
+          "benefit": "A visits folder kept in OneDrive or Dropbox gives the sync service nothing it can read.",
+          "detail": "Visits stay encrypted wherever they are kept, and the key stays on the computer. The sync service keeps copies it can't open.",
+          "evidence": "docs/adr/0013-choose-where-data-is-kept.md Decision 3 and Consequences; docs/adr/0008-encryption-at-rest.md",
+          "status": "shipped"
+        },
+        {
+          "name": "Never mixed with other files",
+          "benefit": "OpenBark's data is never spread among the clinic's other files.",
+          "detail": "A chosen folder that already holds other things gets an 'OpenBark visits' or 'OpenBark models' folder inside it. A folder counts as OpenBark's only when everything in it is OpenBark's, so a move never sweeps up other files.",
+          "evidence": "docs/adr/0013 Decision 4; commit 3888f20 ('A folder only counts as OpenBark's when everything in it is ours')",
+          "status": "shipped"
+        },
+        {
+          "name": "Safe move with rollback",
+          "benefit": "Moving data can't lose or overwrite anything.",
+          "detail": "On the same drive files are renamed instantly; across drives each is copied, checked and only then removed, with a progress bar, and a clash stops the move before anything changes. A failed copy is undone, and moves are refused while recording.",
+          "evidence": "engine/os-models/src/locations.rs (move_tree and tests); apps/desktop/e2e/storage.mjs; docs/adr/0013 Decision 5",
+          "status": "shipped"
+        },
+        {
+          "name": "Folder changes wait for work to finish",
+          "benefit": "Changing the data folder can't lose a draft, a signature or a patient being saved at the same moment.",
+          "detail": "Imports, drafts, signing, edits, patient changes, downloads and recordings each hold a ticket, and a folder change is refused while any of them is writing. Late requests can't write to the old folder, and a move is put back if the new choice can't be saved.",
+          "evidence": "commit 3888f20 ('Data safety: a work gate'); engine/os-app/src/lib.rs",
+          "status": "shipped"
+        },
+        {
+          "name": "Locations IT can fix",
+          "benefit": "IT can set folder locations for managed installs.",
+          "detail": "OPENBARK_MODELS_DIR, OPENBARK_SESSIONS_DIR and command-line options override the setting. Settings then shows 'Set by ...'.",
+          "evidence": "docs/adr/0013-choose-where-data-is-kept.md Decision 6",
+          "status": "shipped"
+        },
+        {
+          "name": "Data kept apart from the program",
+          "benefit": "Reinstalling or updating never touches the records.",
+          "detail": "Data lives in the system's own app-data folder, apart from the program. Uninstallers never delete folders the clinic chose elsewhere.",
+          "evidence": "install/README.md 'Your data, and the recovery key'; docs/adr/0013 Consequences",
+          "status": "shipped"
+        },
+        {
+          "name": "One folder per visit, re-runnable",
+          "benefit": "Every recording, transcript and draft can be found again, replayed and redrafted, and nothing is overwritten.",
+          "detail": "Each visit folder holds the visit's details, the audio, the transcript and numbered drafts, each with its note and template. The models and settings used are recorded too.",
+          "evidence": "engine/os-engine/src/session.rs (save_run; test session_round_trip_with_runs); docs/plans/M0.md decision 8",
+          "status": "shipped"
+        },
+        {
+          "name": "Imports kept as a playable recording",
+          "benefit": "Any imported format can be replayed and redrafted later, even if the original file is gone.",
+          "detail": "Every visit folder keeps the audio as an encrypted 16 kHz WAV, whatever format was imported.",
+          "evidence": "commit 86d8e1b ('session folders always keep a 16 kHz WAV for playback'); engine/os-engine/src/vault.rs",
+          "status": "shipped"
+        },
+        {
+          "name": "Recordings are kept",
+          "benefit": "Audio stays with the visit after signing, so a note can be checked or redrafted later.",
+          "detail": "The brief's default of deleting audio at signing was changed so recordings are kept with their visit. They are removed only when their folder is deleted by hand or the app is uninstalled with its data.",
+          "evidence": "docs/plans/M0.md decision 8 ('Retention changes from the master prompt'); engine/os-app/src/lib.rs (no delete-visit function)",
+          "status": "shipped"
+        },
+        {
+          "name": "Delete a visit, and a retention policy",
+          "benefit": "Clinics will be able to delete a visit from the app and set how long recordings are kept.",
+          "detail": "There is no delete button for a visit yet, in the app, the browser version or the command line. An optional auto-delete policy was planned in M0 and hasn't been built.",
+          "evidence": "docs/plans/M0.md decision 8; engine/os-app/src/lib.rs; apps/desktop/src/engine.ts",
+          "status": "coming"
+        },
+        {
+          "name": "Show files",
+          "benefit": "Open a visit's folder on disk straight from Review.",
+          "detail": "Show files opens the visit folder in the system file manager. It is available in the desktop app.",
+          "evidence": "apps/desktop/src/screens/Review.tsx; apps/desktop/src/engine.ts canReveal/reveal",
+          "status": "shipped"
+        }
+      ]
+    },
+    {
+      "id": "design",
+      "name": "Design and accessibility",
+      "intro": "A calm, native-feeling interface that works by keyboard, screen reader and touch, in light or dark.",
+      "items": [
+        {
+          "name": "Apple-style design",
+          "benefit": "The app feels native and calm on every platform.",
+          "detail": "The system's own font, gentle spring motion, translucent materials for floating controls only, and grouped panels with rounded corners. Buttons give a small press response.",
+          "evidence": "docs/adr/0010-apple-style-refresh.md; packages/ui/src/spring.ts; packages/ui/src/tokens.css; docs/design/DESIGN.md",
+          "status": "shipped"
+        },
+        {
+          "name": "Follows reduced motion, transparency and contrast settings",
+          "benefit": "The app respects the operating system's accessibility settings.",
+          "detail": "Reduced motion swaps springs for short fades and stops the breathing ring, and reduced transparency makes frosted surfaces solid. Increased contrast strengthens borders and text.",
+          "evidence": "packages/ui/src/tokens.css (prefers-reduced-motion, prefers-reduced-transparency, prefers-contrast); packages/ui/src/record.css; docs/adr/0010-apple-style-refresh.md",
+          "status": "shipped"
+        },
+        {
+          "name": "Keyboard and screen reader support",
+          "benefit": "Recording, drafting and signing can be done without a mouse and are announced to screen readers.",
+          "detail": "WCAG 2.2 AA contrast, keyboard paths, visible focus rings, status shown as text as well as colour, and labelled icon buttons. Recording started, draft ready and note signed are announced aloud.",
+          "evidence": "apps/desktop/src/App.tsx aria-live region; apps/desktop/src/components/NoteView.tsx; docs/design/STATUS.md 'Done' section 9",
+          "status": "shipped"
+        },
+        {
+          "name": "Progress announced to screen readers",
+          "benefit": "Screen reader users hear what OpenBark is doing during long imports and drafts.",
+          "detail": "Each progress board names its bar and reads out the current step and its detail. Step changes are announced as they happen.",
+          "evidence": "apps/desktop/src/components/ProgressBoard.tsx (aria-valuetext, announced step changes)",
+          "status": "shipped"
+        },
+        {
+          "name": "Touch-friendly targets",
+          "benefit": "Buttons are easy to hit on tablets and touch screens.",
+          "detail": "Buttons, inputs and icon buttons are 44px on touch screens, and the Record button grows to 72px. Heading tools are always visible on touch.",
+          "evidence": "packages/ui/src/tokens.css; apps/desktop/src/app.css (pointer: coarse)",
+          "status": "shipped"
+        },
+        {
+          "name": "Light, dark or system theme",
+          "benefit": "Comfortable in a bright clinic or a dim imaging room.",
+          "detail": "A System, Light or Dark switch in Settings follows the system by default. An explicit choice is remembered on the device.",
+          "evidence": "packages/ui/src/ThemeToggle.tsx; packages/ui/src/theme.ts; packages/ui/src/ThemeToggle.test.tsx",
+          "status": "shipped"
+        },
+        {
+          "name": "Layouts for every window size",
+          "benefit": "The layout fits a large monitor, a laptop or a narrow window.",
+          "detail": "The sidebar becomes an icon rail below 1200px and a bottom tab bar below 640px, ready for the phone apps to come. The browser version runs on the same computer only, so phones can't open it today.",
+          "evidence": "apps/desktop/src/app.css media queries; docs/network.md R3; docs/design/STATUS.md 'Done' section 4",
+          "status": "shipped"
+        },
+        {
+          "name": "Native-feeling sheets",
+          "benefit": "Side panels behave like the sheets in native apps.",
+          "detail": "On desktop, panels float inset; in narrow windows they become bottom sheets with a grabber that follows the finger and closes on a downward flick. Dialogs scale and fade.",
+          "evidence": "packages/ui/src/Sheet.tsx; packages/ui/src/Sheet.test.tsx; docs/adr/0010-apple-style-refresh.md Sheets row",
+          "status": "shipped"
+        },
+        {
+          "name": "Works offline: fonts and icons bundled",
+          "benefit": "The interface looks right with no internet connection and calls no font servers.",
+          "detail": "Geist fonts are bundled under OFL-1.1 as the fallback font, and Phosphor icons are bundled too. There is no emoji anywhere in the interface.",
+          "evidence": "packages/ui/src/tokens.css; packages/ui/src/fonts/OFL.txt; docs/design/STATUS.md 'Done'",
+          "status": "shipped"
+        },
+        {
+          "name": "Plain clinical wording",
+          "benefit": "Buttons and errors say what happens in plain veterinary English.",
+          "detail": "Sentence case, buttons named for what they do, and specific error messages. 'Visit' replaced 'encounter' throughout the interface.",
+          "evidence": "docs/design/STATUS.md 'Done' section 8; docs/adr/0011-patients-and-visits.md Decision 6",
+          "status": "shipped"
+        },
+        {
+          "name": "Tested interaction details",
+          "benefit": "Buttons and panels behave predictably while work is running.",
+          "detail": "Tests cover the record button being disabled while starting or stopping and sheets that ignore Escape while work runs. They also check that the theme follows the system and remembers an explicit choice.",
+          "evidence": "packages/ui/src/RecordButton.test.tsx; packages/ui/src/Sheet.test.tsx; packages/ui/src/ThemeToggle.test.tsx",
+          "status": "shipped"
+        },
+        {
+          "name": "Three-screen onboarding",
+          "benefit": "New users could be guided through setup in three screens.",
+          "detail": "Where to run, downloading models and recording consent. It is listed as not built yet.",
+          "evidence": "docs/design/STATUS.md 'Not yet'; docs/design/DESIGN.md section 6 Onboarding",
+          "status": "coming"
+        }
+      ]
+    },
+    {
+      "id": "help",
+      "name": "Help",
+      "intro": "Short videos of the real app, a written guide for every screen, and runbooks for building and benchmarking.",
+      "items": [
+        {
+          "name": "In-app help videos",
+          "benefit": "Seven short videos of the real app show each main task, and they work offline.",
+          "detail": "Getting started, Patients and visits, Recording a consult, Reviewing and signing, Templates, Client documents and PDFs, and Team and security, about 26 MB in all, each with written steps in the app's language. They were recorded on 2026-10-18 before Reprocess, the speech pack card and the progress boards were added, so those aren't shown yet.",
+          "evidence": "apps/desktop/public/help/*.webm (7 files, 26,477,487 bytes); apps/desktop/src/screens/Help.tsx HELP_TOPICS; last changed in commit 4dd018e",
+          "status": "shipped"
+        },
+        {
+          "name": "Videos recorded by driving the real app",
+          "benefit": "The help shows the genuine product, and can be re-recorded whenever it changes.",
+          "detail": "A script drives the app against demo data with captions and a visible pointer, playing a test recording as the microphone. Another captures chosen frames to check the videos without a player.",
+          "evidence": "apps/desktop/e2e/help-videos.mjs; apps/desktop/e2e/frames.mjs",
+          "status": "shipped"
+        },
+        {
+          "name": "Written user guide and troubleshooting",
+          "benefit": "A plain-language guide for every part of the app and its common messages.",
+          "detail": "Pages cover getting started, recording, review, documents, templates, and team and security. A troubleshooting table explains 12 common messages and what to do.",
+          "evidence": "docs/guide/ (8 pages); docs/guide/troubleshooting.md (12 rows)",
+          "status": "shipped"
+        },
+        {
+          "name": "Mac and Windows runbooks",
+          "benefit": "Anyone can build, run and benchmark OpenBark by following written steps.",
+          "detail": "The Mac runbook covers setup, building, the 60 s benchmark, the desktop app and the disk image with its uninstaller. The Windows runbook covers the browser version and the desktop app.",
+          "evidence": "docs/runbooks/macos.md; docs/runbooks/windows.md",
+          "status": "shipped"
+        },
+        {
+          "name": "Updated videos for the newest features",
+          "benefit": "The help videos will show Reprocess, the speech pack and the progress boards.",
+          "detail": "The videos are recorded by a script, so they can be re-recorded on the current app.",
+          "evidence": "apps/desktop/e2e/help-videos.mjs; commit history of apps/desktop/public/help",
+          "status": "coming"
+        }
+      ]
+    },
+    {
+      "id": "quality",
+      "name": "Developer and quality",
+      "intro": "Note quality is measured on realistic synthetic consults, every safeguard is pinned by tests on three platforms, and every decision is written down.",
+      "items": [
+        {
+          "name": "Note-quality evaluation",
+          "benefit": "Every change to prompts or models is measured against consults with known facts before it ships.",
+          "detail": "openbark eval drafts each synthetic consult and scores expected vitals, doses and phrases, invented numbers (a hard fail), citation errors and, in multi-pet visits, values in the wrong animal's note. Transcripts are cached, so a prompt change reruns only the note.",
+          "evidence": "engine/os-cli/src/eval.rs (tests phrase_matching_is_forgiving_but_not_loose, numbers_are_extracted_plainly); docs/eval/M1.md; docs/eval/M2.md",
+          "status": "shipped"
+        },
+        {
+          "name": "Synthetic consults with known answers",
+          "benefit": "The scribe is tested on realistic consults without any real client's data.",
+          "detail": "14 recorded consults, 36 minutes in all, come from 13 scripts listing the expected facts, from canine wellness and feline vomiting to equine, exotics, oncology, production animal and surgery. Each has a reference file with speaker, text and timing.",
+          "evidence": "packages/eval/fixtures/scripts/*.yaml (13); packages/eval/fixtures/audio/*.wav (14, 35.98 minutes) and *.ref.json",
+          "status": "shipped"
+        },
+        {
+          "name": "Test voices made on the computer",
+          "benefit": "New test consults can be voiced from a script, so coverage grows without recording real clients.",
+          "detail": "A tool renders a script to audio plus its reference using Kokoro-82M (Apache-2.0), with a different voice for each speaker.",
+          "evidence": "tools/fixture-tts/src/main.rs",
+          "status": "shipped"
+        },
+        {
+          "name": "Example clinic notes for template tests",
+          "benefit": "'Template from an example note' is tested on notes written the way clinics chart.",
+          "detail": "A SOAP note, feline dental charting by tooth and a cystotomy surgical report, each with its expected headings.",
+          "evidence": "packages/eval/fixtures/example-notes/ (dental, soap, surgery); docs/eval/M2.md item 5",
+          "status": "shipped"
+        },
+        {
+          "name": "Speaker-label scoring",
+          "benefit": "Speaker-label accuracy is measured against the truth.",
+          "detail": "A script matches predicted segments to reference lines. It reports the speakers found and the share of speech given to the right speaker.",
+          "evidence": "packages/eval/score_diarization.py",
+          "status": "shipped"
+        },
+        {
+          "name": "Whole-recording speaker separation for batch runs",
+          "benefit": "Command-line batch runs split a finished recording by speaker, even with crosstalk and short interjections.",
+          "detail": "The command-line transcribe, run, rerun, bench and eval paths use pyannote segmentation 3.0 with WeSpeaker fingerprints, numbering speakers in the order they first speak. The app's own imports use the live speaker tracker instead.",
+          "evidence": "engine/os-cli/src/main.rs; engine/os-cli/src/sessions.rs; engine/os-diar/src/lib.rs (tests); engine/os-engine/src/transcribe.rs test speakers_renumbered_by_first_appearance",
+          "status": "shipped"
+        },
+        {
+          "name": "Batch speaker separation tuned by measurement",
+          "benefit": "Two-person test consults are labelled as two people in batch runs, and labelling got faster.",
+          "detail": "Raising the clustering threshold from 0.5 to 0.7 took the speakers found from 6 to the true 2, with 99.7% purity on the feline consult and 99.6% on the three-speaker multi-pet one. A window step of 0.25 instead of 0.1 cut labelling from 37.5 s to 14.9 s with identical purity.",
+          "evidence": "docs/perf/M0.md 'Fixes made during the spike'; packages/eval/score_diarization.py",
+          "status": "shipped"
+        },
+        {
+          "name": "Recognition and speaker labelling side by side in batch runs",
+          "benefit": "Command-line batch runs finish sooner because transcription and speaker labelling run at the same time.",
+          "detail": "The wait is the longer of the two, not their sum: about 45 s together instead of about 84 s. The app's imports take the live path and don't use this.",
+          "evidence": "docs/perf/M0.md stage and fixes tables; engine/os-engine/src/transcribe.rs (used by os-cli only)",
+          "status": "shipped"
+        },
+        {
+          "name": "Offline end-to-end test in CI",
+          "benefit": "Every change proves the whole pipeline, from audio to a draft ready to sign, works with the network cut off.",
+          "detail": "Linux CI runs transcription and drafting with networking disabled, first checking that huggingface.co can't be reached. It then requires a draft that passes the faithfulness check.",
+          "evidence": ".github/workflows/ci.yml 'Offline end-to-end (M0-2, M0-4, M0-6)'; scripts/ci/e2e-offline.sh",
+          "status": "shipped"
+        },
+        {
+          "name": "Three-platform CI",
+          "benefit": "Every change is built and tested on Linux, Windows and Apple-silicon Mac.",
+          "detail": "Linux runs formatting, lint with warnings as errors, all tests, the symbol check and the offline test; Windows and macOS build and run the tests. A separate job typechecks and tests the interface.",
+          "evidence": ".github/workflows/ci.yml",
+          "status": "shipped"
+        },
+        {
+          "name": "119 engine tests",
+          "benefit": "The safety logic is covered by automated tests, so behaviour can't drift unnoticed.",
+          "detail": "Tests cover number reading, word-level checks, the second listen, vocabulary, encryption, templates, PDFs, team, patients, storage moves, licences, the speech pack and the browser version's protections. A snapshot fails if the generated SOAP structure changes.",
+          "evidence": "118 #[test] and 1 #[tokio::test] in engine/ and tools/ (grep -c, 2026-10-18); engine/os-engine/src/template.rs test generated_soap_schema_matches_snapshot",
+          "status": "shipped"
+        },
+        {
+          "name": "43 interface tests",
+          "benefit": "The screens a vet relies on behave as designed after every change.",
+          "detail": "Vitest cases in 14 files cover the note view, sheets, copy formats, prompt examples, translations, species, the model guide, consent, the heading editor, the Ask panel, setup, the transcript, the record button and the theme switch.",
+          "evidence": "apps/desktop/src/**/*.test.ts(x) and packages/ui/src/*.test.tsx (14 files, 43 it/test cases)",
+          "status": "shipped"
+        },
+        {
+          "name": "Browser-driven checks on demo data only",
+          "benefit": "The real app is exercised click by click without ever touching a clinic's records.",
+          "detail": "Eight Playwright scripts cover screenshots (failing on console errors or sideways scrolling), patients with Reprocess, storage, import progress, the drafting board, a feature showcase, help videos and frames. Each runs against a demo server with its own data.",
+          "evidence": "apps/desktop/e2e/*.mjs (8 scripts)",
+          "status": "shipped"
+        },
+        {
+          "name": "Full command line",
+          "benefit": "Everything the app does can also be scripted or audited from a terminal.",
+          "detail": "14 commands: probe, models, transcribe, note, bench, run, rerun, sessions, eval, record, devices, key, templates and serve.",
+          "evidence": "engine/os-cli/src/main.rs enum Command; engine/os-cli/src/{models,sessions,templates,record,probe}.rs",
+          "status": "shipped"
+        },
+        {
+          "name": "Audit, re-run and replay from the command line",
+          "benefit": "Reviewers and developers can re-check a saved note, re-transcribe a visit, or replay a recording as if it were live.",
+          "detail": "openbark sessions check prints every faithfulness flag on a visit's latest note, and rerun --retranscribe transcribes the saved audio again. record --file --realtime plays a recording through the live pipeline at microphone pace, which is how the 13.1 s figure was measured.",
+          "evidence": "engine/os-cli/src/sessions.rs (SessionsCommand::Check, RerunArgs.retranscribe); engine/os-cli/src/record.rs (file, realtime); docs/perf/M0.md 'Live recording'",
+          "status": "shipped"
+        },
+        {
+          "name": "One app layer for desktop and browser",
+          "benefit": "The desktop app and the browser version behave the same because they share the same code.",
+          "detail": "One layer holds everything the screens can ask for, and the 47 desktop commands and 43 browser routes are thin wrappers over it. Progress travels as events in both.",
+          "evidence": "engine/os-app/src/lib.rs; apps/desktop/src-tauri/src/lib.rs (47 handlers in generate_handler!); engine/os-server/src/lib.rs (43 routes, excluding a test-only route)",
+          "status": "shipped"
+        },
+        {
+          "name": "Pinned versions and supply-chain protection",
+          "benefit": "Builds are reproducible and new packages aren't pulled in blindly.",
+          "detail": "Native and inference libraries and very new releases are pinned to exact versions, ordinary ones use ranges, and lock files fix every resolved version; models are pinned by commit. Packages must be at least 24 hours old and their build scripts are denied unless allowed.",
+          "evidence": "docs/versions.md 'Pinning policy'; Cargo.toml; Cargo.lock (706 packages); pnpm-workspace.yaml (catalog, allowBuilds); docs/adr/0004-monorepo-and-tooling.md (pnpm 11 minimumReleaseAge)",
+          "status": "shipped"
+        },
+        {
+          "name": "Apache-2.0 licence with licence discipline",
+          "benefit": "The code is Apache-2.0 licensed, and nothing bundled restricts how clinics use it.",
+          "detail": "The licence is shown in the Windows wizard, Parakeet's attribution is in the licence notice file, and GPL libraries such as PJSIP aren't bundled. NVIDIA's libraries are fetched with consent and never shipped.",
+          "evidence": "LICENSE; NOTICE; README.md 'License'; docs/versions.md; docs/adr/0007-phone-calls.md; docs/adr/0014-gpu-speech-recognition.md",
+          "status": "shipped"
+        },
+        {
+          "name": "Source published with the public beta",
+          "benefit": "Anyone will be able to read, check and build the code.",
+          "detail": "The repository is private while OpenBark is pre-alpha. The source will be published under Apache-2.0 with the public beta.",
+          "evidence": "README.md ('Status: pre-alpha'); LICENSE",
+          "status": "coming"
+        },
+        {
+          "name": "Every decision written down",
+          "benefit": "Anyone can see why OpenBark is built the way it is.",
+          "detail": "12 architecture decision records cover inference libraries, tooling, sync, templates, phone calls, encryption, MLX, the design refresh, patients, installers, storage and graphics-card speech. Two test designs, milestone plans M0 to M2 and a list of deliberately excluded dependencies sit beside them.",
+          "evidence": "docs/adr/ (0001 and 0004 to 0014; 0000 is the template); docs/spikes/; docs/plans/M0.md, M1.md, M2.md; docs/versions.md 'Deliberately excluded'",
+          "status": "shipped"
+        },
+        {
+          "name": "Independent multi-agent code review",
+          "benefit": "Data-safety and security problems were hunted down by independent reviewers before release.",
+          "detail": "A review by 107 agents raised findings that were each checked by three sceptical agents, and the 30 confirmed by a majority were fixed and re-verified. The fixes cover folder moves, the browser version's protections, speech pack state and uninstall.",
+          "evidence": "commit 3888f20 ('fixes from a 107-agent review'; '30 confirmed by majority of 3 skeptics, all re-verified')",
+          "status": "shipped"
+        },
+        {
+          "name": "Product name in one constant",
+          "benefit": "The product can be renamed cheaply if a trademark search requires it.",
+          "detail": "The name lives in one constant plus the desktop app's product name. A formal trademark search is planned before public launch.",
+          "evidence": "docs/adr/0004-monorepo-and-tooling.md; docs/plans/M0.md decision 1",
+          "status": "shipped"
+        }
+      ]
+    }
+  ],
+  "built_together": {
+    "intro": "OpenBark is being built by a veterinarian, the product owner, working together with Claude, Anthropic's AI. The veterinarian sets the direction and makes the clinical and product calls; Claude writes the code, tests and documents, measures changes to speed and note quality, and reports back. Every number below was counted from the repository on 2026-10-18.",
+    "stats": [
+      {
+        "value": "30+",
+        "label": "commits in the first two days, 17 and 18 October 2026",
+        "source": "git rev-list --count HEAD; git log --reverse (bb8ae01 to 3888f20, times -0400)"
+      },
+      {
+        "value": "61,991",
+        "label": "lines added across 891 file changes (5,462 removed)",
+        "source": "git log --shortstat summed over all commits (5,383 lines removed)"
+      },
+      {
+        "value": "12",
+        "label": "architecture decision records",
+        "source": "ls docs/adr (0001 and 0004 to 0014; 0000 is the template)"
+      },
+      {
+        "value": "162",
+        "label": "automated tests: 119 for the engine and 43 for the interface, plus 8 browser-driven scripts",
+        "source": "grep -c '#[test]' and '#[tokio::test]' in engine/ and tools/ (118 + 1); it/test cases in 14 *.test.ts(x) files (43); ls apps/desktop/e2e/*.mjs (8)"
+      },
+      {
+        "value": "17,994",
+        "label": "lines of Rust in 53 files, and 12,881 of TypeScript",
+        "source": "git ls-files '*.rs' | xargs cat | wc -l; the same for '*.ts' '*.tsx' plus 2 new components"
+      },
+      {
+        "value": "2,892",
+        "label": "translated interface strings: 723 in each of 4 languages, with English as the fifth",
+        "source": "packages/i18n/i18n-{de,es,fr,pt}.json (745 keys each)"
+      },
+      {
+        "value": "20",
+        "label": "built-in templates",
+        "source": "ls packages/templates (20 folders)"
+      },
+      {
+        "value": "296",
+        "label": "veterinary vocabulary terms, 168 of them drugs",
+        "source": "packages/vocab/veterinary.tsv, counted by kind"
+      },
+      {
+        "value": "7",
+        "label": "help videos recorded by driving the real app",
+        "source": "apps/desktop/public/help/*.webm (26,477,487 bytes in all)"
+      },
+      {
+        "value": "14",
+        "label": "synthetic test consults, 36 minutes of audio from 13 scripts, plus 3 example clinic notes",
+        "source": "packages/eval/fixtures/audio/*.wav (35.98 minutes by frame count); fixtures/scripts/*.yaml; fixtures/example-notes/"
+      },
+      {
+        "value": "107",
+        "label": "review agents, whose findings gave 30 confirmed fixes",
+        "source": "commit 3888f20 message; each fix confirmed by a majority of 3 sceptical agents and re-verified"
+      },
+      {
+        "value": "10",
+        "label": "pinned models, and 706 locked Rust packages",
+        "source": "engine/os-models/catalog.json; grep -c '[[package]]' Cargo.lock"
+      },
+      {
+        "value": "41,297",
+        "label": "words of documentation",
+        "source": "git ls-files '*.md' | xargs cat | wc -w"
+      }
+    ],
+    "milestones": [
+      {
+        "when": "2026-10-17 14:49",
+        "what": "The plan for the first milestone was approved and the repository started: the OpenBark name, two technical test designs, versions checked live and pinned, and the Apache-2.0 licence.",
+        "evidence": "commit bb8ae01; docs/plans/M0.md"
+      },
+      {
+        "when": "2026-10-17 17:35",
+        "what": "A working offline pipeline: llama.cpp and sherpa-onnx with the faithfulness check, the command line and browser version, the desktop app, the first decision records, the performance report and CI.",
+        "evidence": "commits 4b23fd8, c46c040, 116ac57, b496a2b"
+      },
+      {
+        "when": "2026-10-17 18:26",
+        "what": "Live recording with a live transcript and speaker labels, browser microphone recording, the design system, the Hugging Face browser and signing.",
+        "evidence": "commit 81d49c6"
+      },
+      {
+        "when": "2026-10-17 19:10",
+        "what": "The evaluation harness and vocabulary hints arrived, then the second listen on numbers, templates built from headings and team standards; SOAP notes reached 40 of 44 facts with 0 invented numbers.",
+        "evidence": "commits 591ad1b, 837f400, f38ea78, f7fbc20; docs/eval/M1.md"
+      },
+      {
+        "when": "2026-10-17 21:20",
+        "what": "Hand edits and signed addenda, the consent step, callback and client document templates, phone recording imports and first-run downloads.",
+        "evidence": "commits b8e12ec, 84f000c, d62fec9, 86d8e1b, 8f9be0f"
+      },
+      {
+        "when": "2026-10-17 23:13",
+        "what": "Interface languages, the consent notice, PDF export and copy formats, encryption at rest for every visit file, and team roles with PINs.",
+        "evidence": "commits d51a23c, 5e357a6, 9ce6219; docs/adr/0008-encryption-at-rest.md"
+      },
+      {
+        "when": "2026-10-18 00:21",
+        "what": "The user guide and in-app help with walkthrough videos.",
+        "evidence": "commit 6e1ed70"
+      },
+      {
+        "when": "2026-10-18 02:11",
+        "what": "The specialty template library, claim-level checks, multi-pet visits, client documents in the client's language and MLX labels.",
+        "evidence": "commit 299313c; docs/plans/M2.md; docs/eval/M2.md"
+      },
+      {
+        "when": "2026-10-18 09:00",
+        "what": "Species-only headings and templates from an example note, then the Apple-style design refresh, visit types with icons and the plain-language model guide.",
+        "evidence": "commits a06874e, f951cbf, 6408787, 82953de; docs/adr/0010-apple-style-refresh.md"
+      },
+      {
+        "when": "2026-10-18 09:51",
+        "what": "Importing almost any recording, including WebM, Opus, AIFF, MKV and video files, with clearer errors.",
+        "evidence": "commit 75dc765"
+      },
+      {
+        "when": "2026-10-18 10:14",
+        "what": "Point-and-click installers and uninstallers, then patients with their visits.",
+        "evidence": "commits 9e11fdd, bf60de8; docs/adr/0012-point-and-click-installers.md; docs/adr/0011-patients-and-visits.md"
+      },
+      {
+        "when": "2026-10-18 11:43",
+        "what": "Progress bars, choosing where data is kept, faster transcription and re-recorded help videos.",
+        "evidence": "commit 4dd018e; docs/adr/0013-choose-where-data-is-kept.md"
+      },
+      {
+        "when": "2026-10-18 13:10",
+        "what": "The NVIDIA speech pack (import 152 s to 43 s), Reprocess a visit, and 30 fixes confirmed by a 107-agent review.",
+        "evidence": "commit 3888f20; docs/adr/0014-gpu-speech-recognition.md"
+      },
+      {
+        "when": "2026-10-18",
+        "what": "Loading boards with named steps for importing and drafting, and notes written in the template's heading order.",
+        "evidence": "apps/desktop/src/components/ProgressBoard.tsx; apps/desktop/src/components/DraftProgress.tsx; engine/os-engine/src/template.rs test schema_keeps_the_templates_heading_order (after commit 3888f20)"
+      }
+    ],
+    "practices": [
+      "Every significant decision is written up as an architecture decision record, with the alternatives and their consequences.",
+      "Every network call the app can make is listed with what it sends and how to stop it, and CI fails if any Rust part of the app other than the model downloader depends on a web-client library.",
+      "Dependency and model versions were checked against their registries and pinned to exact versions or commits.",
+      "Changes to speed or note quality are measured before and after, with zero invented numbers required every time.",
+      "A large change was reviewed by 107 independent agents, and each finding was checked by three sceptical agents before it counted as confirmed.",
+      "Browser tests and help videos run against demo servers with their own isolated data.",
+      "Deleting data is never tested on real clinic data; that path waits for a separate test machine.",
+      "Known weaknesses and pending device tests are published alongside the results."
+    ]
+  }
+}

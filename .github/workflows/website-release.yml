@@ -1,0 +1,37 @@
+name: Website release
+
+# After a release is published in the public releases repo, point the
+# website's download buttons at it: update website/public/release.json,
+# rebuild website/dist and commit. Vercel redeploys on the push.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Published release tag, e.g. v0.1.0"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Read the published release
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_RELEASES_TOKEN }}
+        run: python scripts/website-release.py "${{ inputs.tag }}"
+      - name: Rebuild the site
+        run: python scripts/website-build.py
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add website/public/release.json website/dist
+          git diff --cached --quiet && { echo "No change"; exit 0; }
+          git commit -m "Website: downloads for ${{ inputs.tag }}"
+          git push

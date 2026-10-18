@@ -95,3 +95,25 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "${{ github.ref_name }}" --draft --repo "${{ github.repository }}" --title "OpenBark ${{ github.ref_name }}" --notes "Installers: Windows (setup wizard), macOS (disk image), Linux (.deb, .rpm, AppImage). See install/README.md." dist/*/*
+
+  # The public downloads: a draft release in the public releases repo (the
+  # main repo stays private). Publish it on GitHub when ready, then run the
+  # "Website release" workflow to point the website's buttons at it.
+  # Needs the PUBLIC_RELEASES_TOKEN secret (contents: write on that repo).
+  public-draft:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: installers
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Draft the public release
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_RELEASES_TOKEN }}
+        run: |
+          (cd dist && sha256sum */* | sed 's#  [^/]*/#  #' > SHA256SUMS.txt)
+          gh release create "${{ github.ref_name }}" --draft --repo ANI-ML/openbark-releases \
+            --title "OpenBark ${{ github.ref_name }}" \
+            --notes "OpenBark, the open-source veterinary scribe by Dr. Christopher Pinard and ANI.ML Health Inc. Pre-alpha: review every draft. Windows: run the setup wizard. macOS: open the disk image and drag OpenBark to Applications. Linux: .deb, .rpm or AppImage. Checksums in SHA256SUMS.txt." \
+            dist/*/* dist/SHA256SUMS.txt
