@@ -1,11 +1,12 @@
 /*
  * OpenBark design tokens: docs/design/DESIGN.md §10, as amended by ADR-0010
- * (the Apple-style refresh, 2026-10-18). Components use only these
- * variables; no raw colours anywhere else.
+ * (the Apple-style refresh) and ADR-0015 (Geist and ANI.ML Health orange,
+ * 2026-10-18). Components use only these variables; no raw colours anywhere
+ * else.
  *
- * Type is the platform's system font (SF Pro on Apple devices, Segoe UI on
- * Windows), which carries its own optical sizing; Geist is bundled as the
- * fallback where no good system face exists. Fonts never load from a CDN.
+ * Type is Geist, bundled, on every platform (ADR-0015): one face that reads
+ * the same in every clinic, with Geist Mono for times and sizes. Fonts never
+ * load from a CDN.
  */
 @font-face {
   font-family: "Geist Sans";
@@ -29,7 +30,9 @@
   --fill: rgba(118, 118, 128, 0.12); --fill-strong: rgba(118, 118, 128, 0.2);
   --segment-thumb: #FFFFFF;
   /* One accent; Pulse Red is for recording only. */
-  --accent: #2F6F6A; --accent-soft: #E1EFEC;
+  --accent: #B35209; --accent-soft: #FDF0E6;
+  /* The ANI.ML Health mark colour, for the logo only (not text). */
+  --brand: #F47C20;
   --record: #B3443C; --danger: #A8453A; --warn: #9A6414; --ok: #3C7A4F;
   --on-accent: #FFFFFF;
   /* §5: the Record button's icon is white in both modes. */
@@ -44,8 +47,8 @@
   --shadow: 0 16px 40px -12px rgba(0, 0, 0, 0.22), 0 2px 8px rgba(0, 0, 0, 0.06);
   --shadow-thumb: 0 1px 3px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.06);
   --radius-control: 9px; --radius-panel: 14px; --radius-sheet: 18px; --radius-mark: 3px;
-  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", "Geist Sans", sans-serif;
-  --font-mono: ui-monospace, "SF Mono", "Geist Mono", "Cascadia Mono", monospace;
+  --font-sans: "Geist Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", "Cascadia Mono", monospace;
   /* Motion: critically damped springs (damping 1.0). The curve is the same
      at every speed; the duration sets the response (0.35 s / 0.25 s). */
   --spring: linear(0, 0.0671, 0.2058, 0.3592, 0.5008, 0.6207, 0.7171, 0.792, 0.8488, 0.8911, 0.9222, 0.9447, 0.961, 0.9726, 0.9808, 0.9866, 0.9907, 0.9936, 0.9956, 0.9969, 0.9979, 0.9986, 1);
@@ -60,9 +63,9 @@
   --ink: #F2F2F4; --ink-2: #A1A1A6; --ink-3: #75757B;
   --fill: rgba(118, 118, 128, 0.24); --fill-strong: rgba(118, 118, 128, 0.34);
   --segment-thumb: #636366;
-  --accent: #6FB3AC; --accent-soft: #1E3533;
+  --accent: #FF9A4D; --accent-soft: #3A2414;
   --record: #D9655C; --danger: #D46A5E; --warn: #D29A3A; --ok: #6FB07F;
-  --on-accent: #101213;
+  --on-accent: #1A0E04;
   --material-chrome: rgba(30, 30, 32, 0.78);
   --material-sheet: rgba(38, 38, 40, 0.86);
   --material-edge: rgba(255, 255, 255, 0.08);
@@ -78,9 +81,9 @@
   --ink: #F2F2F4; --ink-2: #A1A1A6; --ink-3: #75757B;
   --fill: rgba(118, 118, 128, 0.24); --fill-strong: rgba(118, 118, 128, 0.34);
   --segment-thumb: #636366;
-  --accent: #6FB3AC; --accent-soft: #1E3533;
+  --accent: #FF9A4D; --accent-soft: #3A2414;
   --record: #D9655C; --danger: #D46A5E; --warn: #D29A3A; --ok: #6FB07F;
-  --on-accent: #101213;
+  --on-accent: #1A0E04;
   --material-chrome: rgba(30, 30, 32, 0.78);
   --material-sheet: rgba(38, 38, 40, 0.86);
   --material-edge: rgba(255, 255, 255, 0.08);

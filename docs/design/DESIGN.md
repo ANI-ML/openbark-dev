@@ -45,7 +45,7 @@ ADR-0010 retunes the neutrals towards Apple's grouped style and adds fills and m
 | `--ink` | Ink | `#1B1F24` | Primary text |
 | `--ink-2` | Graphite | `#5B6471` | Secondary text, labels, metadata |
 | `--ink-3` | Mist | `#8A93A0` | Placeholder, disabled, timestamps |
-| `--accent` | Scrub Teal | `#2F6F6A` | Primary actions, active nav, focus ring, links, evidence highlight |
+| `--accent` | ANI.ML orange (ADR-0015; was Scrub Teal #2F6F6A) | `#B35209` | Primary actions, active nav, focus ring, links, evidence highlight. The logo uses `--brand` #F47C20. |
 | `--accent-soft` | Scrub Wash | `#E3F0EE` | Evidence highlight fill, selected row, active tab background |
 | `--record` | Pulse Red | `#B3443C` | Recording state only. Never used for errors or destructive buttons |
 | `--danger` | Clay | `#A8453A` | Destructive actions, hard errors (hallucinated vitals, failed write-back) |
@@ -266,7 +266,7 @@ ADR-0010 supersedes the values in this block; the source of truth is `packages/u
   --bg: #F6F7F8; --surface: #FFFFFF; --surface-2: #EEF0F2;
   --border: #E1E4E8; --border-strong: #C9CED5;
   --ink: #1B1F24; --ink-2: #5B6471; --ink-3: #8A93A0;
-  --accent: #2F6F6A; --accent-soft: #E3F0EE;
+  --accent: #B35209; --accent-soft: #FDF0E6; /* ADR-0015 */
   --record: #B3443C; --danger: #A8453A; --warn: #9A6414; --ok: #3C7A4F;
   --shadow: 0 8px 24px -12px rgba(27,31,36,0.18), 0 1px 2px rgba(27,31,36,0.06);
   --radius-control: 6px; --radius-panel: 10px; --radius-mark: 2px;

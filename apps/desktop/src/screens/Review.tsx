@@ -1,5 +1,5 @@
 import { Button, StatusDot } from "@openbark/ui";
-import { ArrowClockwise, Copy, FilePdf, FolderOpen, Signature } from "@phosphor-icons/react";
+import { ArrowClockwise, Copy, FilePdf, FolderOpen, Notepad, Signature } from "@phosphor-icons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NoteView } from "../components/NoteView";
 import { PatientFields } from "../components/PatientFields";
@@ -738,8 +738,15 @@ export function Review({
             </div>
           ) : (
             !generating && (
-              <div className="pane-pad">
-                <p className="small muted">{t("No draft yet. Draft the note to see it here.")}</p>
+              <div className="pane-pad empty-state">
+                <span className="empty-icon" aria-hidden>
+                  <Notepad size={26} />
+                </span>
+                <h2>{t("No draft yet")}</h2>
+                <p className="small muted">{t("Draft the note and every line will link back to the moment in the recording it came from.")}</p>
+                <Button variant="primary" onClick={draft} disabled={!app.can.notes || segments.length === 0}>
+                  {t("Draft note")}
+                </Button>
               </div>
             )
           )}

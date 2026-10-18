@@ -22,6 +22,54 @@
     });
     // Start with one line lit, so the page shows the idea before anyone touches it.
     if (buttons[1]) light(buttons[1].getAttribute("data-ev"), buttons[1]);
+
+    // Then step through the note on its own, until the visitor takes over or
+    // the demo scrolls out of view. Never with reduced motion.
+    var demo = tx.closest(".demo");
+    var still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (demo && !still && buttons.length) {
+      var step = 1, timer = null, taken = false;
+      var tick = function () {
+        step = (step + 1) % buttons.length;
+        light(buttons[step].getAttribute("data-ev"), buttons[step]);
+      };
+      var play = function () { if (!taken && !timer) timer = setInterval(tick, 2600); };
+      var pause = function () { clearInterval(timer); timer = null; };
+      ["pointerenter", "focusin", "touchstart"].forEach(function (type) {
+        demo.addEventListener(type, function () { taken = true; pause(); }, { passive: true });
+      });
+      if ("IntersectionObserver" in window) {
+        new IntersectionObserver(function (entries) {
+          entries[0].isIntersecting ? play() : pause();
+        }, { threshold: 0.4 }).observe(demo);
+      } else {
+        play();
+      }
+      document.addEventListener("visibilitychange", function () { document.hidden ? pause() : play(); });
+    }
+  }
+
+  // ---- Parts of each section rise in, staggered, once.
+  var parts = document.querySelectorAll(".reveal");
+  if ("IntersectionObserver" in window) {
+    var groups = new Map();
+    parts.forEach(function (el) {
+      var key = el.closest("section") || document.body;
+      var n = groups.get(key) || 0;
+      el.style.setProperty("--i", String(n));
+      groups.set(key, n + 1);
+    });
+    var seen = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) {
+          e.target.classList.add("is-in");
+          seen.unobserve(e.target);
+        }
+      });
+    }, { rootMargin: "0px 0px -8% 0px", threshold: 0.08 });
+    parts.forEach(function (el) { seen.observe(el); });
+  } else {
+    parts.forEach(function (el) { el.classList.add("is-in"); });
   }
 
   // ---- Platform and release.

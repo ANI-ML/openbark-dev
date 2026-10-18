@@ -130,7 +130,16 @@ export function App() {
       <div className="frame">
         <nav className="sidebar" aria-label="Main">
           <div className="brand">
-            <span className="brand-mark" aria-hidden />
+            <svg className="brand-mark" viewBox="0 0 1024 1024" aria-hidden="true">
+              <rect className="brand-mark-tile" width="1024" height="1024" rx="224" />
+              <g className="brand-mark-paw">
+                <ellipse cx="512" cy="640" rx="190" ry="160" />
+                <ellipse cx="300" cy="430" rx="78" ry="100" transform="rotate(-18 300 430)" />
+                <ellipse cx="430" cy="300" rx="80" ry="108" transform="rotate(-6 430 300)" />
+                <ellipse cx="594" cy="300" rx="80" ry="108" transform="rotate(6 594 300)" />
+                <ellipse cx="724" cy="430" rx="78" ry="100" transform="rotate(18 724 430)" />
+              </g>
+            </svg>
             <span className="brand-name">OpenBark</span>
           </div>
           <ul>

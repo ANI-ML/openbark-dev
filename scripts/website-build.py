@@ -30,13 +30,12 @@ CREDIT = "Created by Dr. Christopher Pinard and ANI.ML Health Inc."
 FONTS = (
     '<link rel="preconnect" href="https://fonts.googleapis.com">'
     '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
-    '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500'
-    '&family=Schibsted+Grotesk:wght@600;700;800&display=swap">'
+    '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400..700&family=Geist+Mono:wght@400;500&display=swap">'
 )
 
 LOGO = (
-    '<svg viewBox="0 0 1024 1024" aria-hidden="true"><rect width="1024" height="1024" rx="224" fill="#2f6f62"/>'
-    '<g fill="#f7f5f2"><ellipse cx="512" cy="640" rx="190" ry="160"/>'
+    '<svg viewBox="0 0 1024 1024" aria-hidden="true"><rect width="1024" height="1024" rx="224" fill="#F47C20"/>'
+    '<g fill="#ffffff"><ellipse cx="512" cy="640" rx="190" ry="160"/>'
     '<ellipse cx="300" cy="430" rx="78" ry="100" transform="rotate(-18 300 430)"/>'
     '<ellipse cx="430" cy="300" rx="80" ry="108" transform="rotate(-6 430 300)"/>'
     '<ellipse cx="594" cy="300" rx="80" ry="108" transform="rotate(6 594 300)"/>'
@@ -58,7 +57,10 @@ def head(title, description, page):
         f'<meta name="description" content="{e(description)}">\n'
         f'<meta property="og:title" content="{e(title)}">\n'
         f'<meta property="og:description" content="{e(description)}">\n'
-        '<meta name="theme-color" content="#2f6f6a">\n'
+        '<meta name="theme-color" content="#F47C20">\n'
+        # Marks the page as scripted before first paint, so reveal-on-scroll
+        # never hides content when script is off.
+        '<script>document.documentElement.classList.add("js")</script>\n'
         '<link rel="icon" href="icon.svg" type="image/svg+xml">\n'
         f"{FONTS}\n"
         '<link rel="stylesheet" href="site.css">\n'
@@ -67,9 +69,10 @@ def head(title, description, page):
 
 def header(page):
     cur = lambda p: ' aria-current="page"' if p == page else ""
-    return f"""<header class="site-head">
+    return f"""<a class="skip" href="#main">Skip to content</a>
+<header class="site-head">
   <div class="wrap">
-    <a class="brand" href="index.html">{LOGO}<span>{e(PRODUCT)}</span><span class="pill">Pre-alpha</span></a>
+    <a class="brand" href="index.html">{LOGO}<span>{e(PRODUCT)}</span><span class="stage">Pre-alpha</span></a>
     <nav class="site-nav" aria-label="Site">
       <a href="features.html"{cur("features")}>Features</a>
       <a href="index.html#download">Download</a>
@@ -82,15 +85,32 @@ def header(page):
 
 FOOTER = f"""<footer class="site-foot">
   <div class="wrap">
-    <p>{e(PRODUCT)}, {e(TAGLINE.lower())}. {e(CREDIT)} Apache-2.0 licensed.<br>
-    Drafts are not medical records until a veterinarian reviews and signs them.</p>
-    <nav aria-label="Footer">
-      <a href="features.html">Features</a>
-      <a href="index.html#download">Download</a>
-      <a href="features.html#privacy-and-security">Privacy</a>
-    </nav>
+    <p class="foot-name">{LOGO}<span>{e(PRODUCT)}</span></p>
+    <div class="foot-row">
+      <p>{e(PRODUCT)}, {e(TAGLINE.lower())}. {e(CREDIT)}<br>
+      Drafts are not medical records until a veterinarian reviews and signs them.</p>
+      <nav aria-label="Footer">
+        <a href="features.html">Features</a>
+        <a href="index.html#download">Download</a>
+        <a href="features.html#privacy-and-security">Privacy</a>
+        <a href="https://www.apache.org/licenses/LICENSE-2.0">Licence: Apache-2.0</a>
+      </nav>
+    </div>
   </div>
 </footer>
+"""
+
+
+LOST = f"""<section class="lost">
+  <div class="wrap">
+    <h1>This page wandered off.</h1>
+    <p>The address may be mistyped, or the page moved when the site changed. Everything {e(PRODUCT)} does is on the features page, and the installers are on the home page.</p>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="index.html">Go to the home page</a>
+      <a class="link-more" href="features.html">See every feature</a>
+    </div>
+  </div>
+</section>
 """
 
 
@@ -139,31 +159,29 @@ def features_body(content):
         f'<li><span class="when">{e(m["when"])}</span><span>{e(m["what"])}</span></li>' for m in bt.get("milestones", [])
     )
     practices = "".join(f"<li>{e(p)}</li>" for p in bt.get("practices", []))
-    together = f"""<section class="band" id="built-together">
+    together = f"""<section class="band band-gray" id="built-together">
   <div class="wrap">
     <div class="band-head">
-      <p class="eyebrow">Built together</p>
       <h2>Created by Dr. Christopher Pinard and ANI.ML Health Inc.</h2>
       <p>{e(bt.get("intro", ""))}</p>
     </div>
-    <div class="stats">{stat_tiles(bt.get("stats", []), 12)}</div>
-    <div class="together" style="margin-top:32px">
-      <div><h3>Milestones</h3><ol class="timeline" style="margin-top:12px">{timeline}</ol></div>
+    <div class="stats stats-4">{stat_tiles(bt.get("stats", []), 12)}</div>
+    <div class="together">
+      <div><h3>Milestones</h3><ol class="timeline">{timeline}</ol></div>
       <div><h3>How the work was done</h3><ul class="practices">{practices}</ul></div>
     </div>
   </div>
 </section>"""
     return f"""<section class="fx-hero">
   <div class="wrap">
-    <p class="eyebrow">Every feature</p>
     <h1>{total} things {e(PRODUCT)} does, and how we know.</h1>
     <p>Each feature lists what it does for your clinic and where it lives in the code or the evaluation, so nothing here is a promise we can't point to. Items marked "Being tested" or "Coming" are built or planned but not yet proven on real devices.</p>
   </div>
 </section>
-<section class="band" style="border-top:0;padding-top:8px">
-  <div class="wrap"><div class="stats">{stat_tiles(content.get("headline_stats", []))}</div></div>
+<section class="fx-stats">
+  <div class="wrap"><div class="stats stats-4">{stat_tiles(content.get("headline_stats", []))}</div></div>
 </section>
-<div class="wrap fx-layout">
+<div class="wrap fx-layout" id="fx">
   <nav class="fx-toc" aria-label="Feature categories">
     <div class="fx-filter"><label class="faint" for="fx-q">Find a feature</label><input id="fx-q" type="search" placeholder="Dental, encryption, phone..."></div>
     {toc}
@@ -214,17 +232,22 @@ def main():
     landing_title = f"{PRODUCT}"
     landing_desc = f"{PRODUCT} records the visit, transcribes it and drafts the medical record on your clinic's own computer, with open models. {CREDIT}"
     landing_head = head(landing_title, landing_desc, "home")
-    landing_body = header("home") + "<main>\n" + landing + "</main>\n" + FOOTER + '<script src="site.js"></script>\n'
+    landing_body = header("home") + '<main id="main">\n' + landing + "</main>\n" + FOOTER + '<script src="site.js"></script>\n'
 
     features_title = f"{PRODUCT} Features"
     features_desc = f"Every feature of {PRODUCT}, the open-source veterinary scribe, with where it lives in the code. {CREDIT}"
-    features_doc = document(head(features_title, features_desc, "features"), header("features") + "<main>\n" + features_body(content) + "</main>\n" + FOOTER)
+    features_doc = document(head(features_title, features_desc, "features"), header("features") + '<main id="main">\n' + features_body(content) + "</main>\n" + FOOTER)
+    lost_doc = document(
+        head(f"Page not found, {PRODUCT}", f"This page isn't part of the {PRODUCT} website.", "lost"),
+        header("lost") + '<main id="main">\n' + LOST + "</main>\n" + FOOTER,
+    )
 
     if os.path.isdir(DIST):
         shutil.rmtree(DIST)
     os.makedirs(DIST)
     io.open(os.path.join(DIST, "index.html"), "w", encoding="utf-8", newline="\n").write(document(landing_head, landing_body))
     io.open(os.path.join(DIST, "features.html"), "w", encoding="utf-8", newline="\n").write(features_doc)
+    io.open(os.path.join(DIST, "404.html"), "w", encoding="utf-8", newline="\n").write(lost_doc)
     for name in ("site.css", "site.js"):
         shutil.copy(os.path.join(SRC, name), os.path.join(DIST, name))
     pub = os.path.join(SITE, "public")

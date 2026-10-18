@@ -1,6 +1,6 @@
 import { Button, RecordButton, Waveform } from "@openbark/ui";
 import { VisitTypePicker } from "../components/VisitTypePicker";
-import { UploadSimple } from "@phosphor-icons/react";
+import { ChatText, UploadSimple } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import { fmtTime, useApp } from "../context";
 import * as engine from "../engine";
@@ -267,11 +267,16 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
           </div>
           <div className="recorder-transcript">
             {segments.length === 0 ? (
-              <p className="empty small muted">
-                {live
-                  ? t("Listening. Each sentence appears here once it's finished.")
-                  : t("The live transcript appears here.")}
-              </p>
+              <div className="empty-state">
+                <span className="empty-icon" aria-hidden>
+                  <ChatText size={26} />
+                </span>
+                <p className="small muted">
+                  {live
+                    ? t("Listening. Each sentence appears here once it's finished.")
+                    : t("Press record and each sentence appears here once it's finished, with its time.")}
+                </p>
+              </div>
             ) : (
               <TranscriptList segments={segments} follow />
             )}
