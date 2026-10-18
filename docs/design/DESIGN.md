@@ -1,7 +1,9 @@
 <!--
 Provided by the product owner on 2026-10-17 as the design source of truth.
 "OpenScribe" below is the earlier working name; the product is OpenBark.
-Everything else is kept verbatim. Implementation status: docs/design/STATUS.md.
+Amended on 2026-10-18 by ADR-0010 (the Apple-style refresh the product owner
+asked for): system font, springs, translucent floating chrome, grouped surfaces.
+Amended passages are marked "(ADR-0010)". Implementation status: docs/design/STATUS.md.
 -->
 
 # Design System: OpenScribe
@@ -16,7 +18,8 @@ OpenScribe is a clinical instrument, not a SaaS dashboard. The feel to aim for i
 
 - **Density:** 6 of 10 — a daily-use app. Denser than a marketing page, airier than a PIMS. Review and Hub-admin screens may rise to 7 (where all numbers go monospace); onboarding stays at 4.
 - **Variance:** 3 of 10 — predictable and symmetric. Clinicians learn one layout and never think about it again. The only deliberate asymmetry is the Review screen's 40/60 transcript↔note split.
-- **Motion:** 3 of 10 — restrained. Motion exists to answer an action (recording started, section accepted, note sent) and to show live state (audio level, streaming text). Nothing moves on its own for decoration.
+- **Motion:** 3 of 10 — restrained. Motion exists to answer an action (recording started, section accepted, note sent) and to show live state (audio level, streaming text). Nothing moves on its own for decoration. When it moves, it moves like a physical thing: springs, continuous from where it is, interruptible (ADR-0010).
+- **Reference (ADR-0010):** Apple's interface design. Floating chrome is a translucent material, content sits on grouped surfaces, type is the platform's own, feedback comes on press.
 
 **The one memorable thing:** the evidence link. Hover or tap any sentence in a generated note and the exact transcript span that supports it lights up and the audio scrubs to that moment. Everything else on the screen is disciplined and quiet so that this interaction is the thing people remember and trust.
 
@@ -29,6 +32,8 @@ What it must never feel like: a chat app, a developer tool, a "neon AI" product,
 One palette, cool-neutral, used identically in every app. No warm/cool gray mixing. Never pure black or pure white text-on-background pairs at full contrast in dark mode (use the tokens).
 
 ### Light (default)
+
+ADR-0010 retunes the neutrals towards Apple's grouped style and adds fills and materials; the exact values are in `packages/ui/src/tokens.css`. The roles below are unchanged; the hexes are the originals for reference.
 
 | Token | Name | Hex | Role |
 |---|---|---|---|
@@ -70,7 +75,8 @@ Rules:
 - Exactly one accent. Its saturation is ~40%; do not "brighten" it.
 - Color carries meaning, so it is scarce: a screen should be ≥ 90% neutral by area. Status colors appear as 8px dots, 1px left rules, text, or soft fills — never as large blocks.
 - Species/patient chips are neutral (Chart Paper fill, Ink text). No per-species color coding.
-- Shadows are tinted to the background (`rgba(27,31,36,0.06)` light / `rgba(0,0,0,0.4)` dark) and used only on floating layers (menus, sheets, toasts). Panels sit on hairlines, not shadows.
+- Shadows are tinted to the background and used only on floating layers (menus, sheets, toasts). Panels sit on hairlines, not shadows.
+- **Materials (ADR-0010):** floating chrome (sidebar, sticky headers, phone tab bar, sheets, dialogs, toasts) is translucent: `--material-chrome` / `--material-sheet` with `backdrop-filter: blur(24px) saturate(180%)` and a faint bright edge. Content panels are never translucent. Under `prefers-reduced-transparency` materials become solid; under `prefers-contrast: more` borders and secondary text darken.
 
 ---
 
@@ -78,21 +84,25 @@ Rules:
 
 Software UI: sans-serif only. No serif anywhere in the app.
 
-- **UI and body:** Geist Sans. Fallback stack: `"Geist Sans", "SF Pro Text", "Segoe UI Variable", system-ui, sans-serif`. Bundle the font; never load from a CDN at runtime (offline-first).
-- **Mono:** Geist Mono for timestamps, vitals, doses, weights, model sizes, tokens/s, keyboard shortcuts, IDs. Use tabular numerals (`font-variant-numeric: tabular-nums`) everywhere numbers align.
+- **UI and body (ADR-0010):** the platform's system font: `system-ui, -apple-system, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", "Geist Sans", sans-serif`. It carries optical sizing and tracking tables; Geist stays bundled as the fallback. Never load a font from a CDN at runtime (offline-first).
+- **Mono (ADR-0010):** the system mono (SF Mono), falling back to the bundled Geist Mono, for timestamps, vitals, doses, weights, model sizes, tokens/s, keyboard shortcuts, IDs. Use tabular numerals (`font-variant-numeric: tabular-nums`) everywhere numbers align.
 - **Note editor text:** Geist Sans at 16px/1.6, max line length 72ch. The note is the product; it gets the most comfortable reading measure on the screen.
 
 Scale (rem; base 16px):
 
 | Role | Size / line | Weight | Tracking |
 |---|---|---|---|
-| Display (onboarding titles only) | 2.0 / 1.15 | 600 | -0.02em |
-| H1 (screen title) | 1.375 / 1.25 | 600 | -0.015em |
-| H2 (panel title, note section header) | 1.0625 / 1.35 | 600 | -0.01em |
-| Body | 1.0 / 1.6 | 400 | 0 |
-| Body small (metadata, helper) | 0.875 / 1.5 | 400 | 0 |
-| Label (form labels, table headers) | 0.8125 / 1.4 | 500 | 0 |
+| Display (onboarding titles only) | 2.0 / 1.1 | 700 | -0.025em |
+| H1 (screen title, a large title; ADR-0010) | 1.75 / 1.15 | 700 | -0.022em |
+| H2 (panel title, note section header) | 1.125 / 1.3 | 600 | -0.012em |
+| H3 (subheading) | 0.9375 / 1.35 | 600 | -0.006em |
+| Note text | 1.0625 / 1.55 | 400 | -0.01em |
+| Body | 1.0 / 1.5 | 400 | -0.006em |
+| Body small (metadata, helper) | 0.875 / 1.45 | 400 | -0.003em |
+| Label (form labels, table headers) | 0.8125 / 1.35 | 500 | 0 |
 | Mono small | 0.8125 / 1.4 | 400 | 0 |
+
+Tracking is size-specific (ADR-0010): it tightens as type grows and sits near zero for body text.
 
 Rules:
 - Hierarchy comes from weight and color (Ink vs Graphite), not size jumps. Headings never exceed 2rem anywhere in the app.
@@ -106,10 +116,10 @@ Rules:
 ## 4. Spacing, grid, radius
 
 - **Spacing scale (px):** 4, 8, 12, 16, 24, 32, 48, 64. Nothing else. Panel padding is 24 on desktop, 16 on mobile.
-- **Radius:** 6px for controls (buttons, inputs, chips), 10px for panels and sheets, 2px for highlight marks inside text, 9999px only for status dots and the record button. One radius per hierarchy level; never mix 6 and 8 on sibling elements.
+- **Radius (ADR-0010):** 9px for controls (buttons, inputs), 14px for panels and grouped surfaces, 18px for sheets and dialogs, 3px for highlight marks inside text, 9999px for status dots, chips, icon buttons and the record button. One radius per hierarchy level.
 - **Grid:** CSS Grid for all screen layouts. Desktop app frame: `grid-template-columns: 240px 1fr` (sidebar + content); the sidebar collapses to a 56px icon rail below 1200px and to a bottom tab bar on mobile. Content max-width 1440px, centered.
 - **Review screen:** `grid-template-columns: 2fr 3fr` (transcript | note) above 1024px; stacked tabs below. The split is draggable; the ratio persists per device.
-- Containers are hairline-bordered regions or plain whitespace groupings. Cards appear only when something floats above the page (model card in the catalog, a toast). No "card kit" grids.
+- Containers are grouped surfaces (Paper on the grey canvas, 14px radius, hairline) or plain whitespace groupings (ADR-0010). Cards appear only when something floats above the page (model card in the catalog, a toast). No "card kit" grids.
 - Full-height views use `min-height: 100dvh`, never `100vh`.
 
 ---
@@ -118,10 +128,10 @@ Rules:
 
 Build on shadcn/ui primitives for accessibility, then restyle every one to these specs — the stock look is not acceptable. Icons: Phosphor, regular weight, 1.5px stroke, 20px in controls and 16px inline; no emoji anywhere, including empty states and toasts.
 
-**Buttons**
-- Primary: Scrub Teal fill, white text, 6px radius, 36px tall (44px on touch), weight 500. Hover darkens 6%; active `translateY(1px)`; focus ring 2px Scrub Teal offset 2px. No shadows, no glows.
-- Secondary: Paper fill, Hairline border, Ink text. Hover: Chart Paper fill.
-- Ghost: text only, Graphite → Ink on hover. Used for toolbar actions.
+**Buttons** (ADR-0010)
+- Primary: Scrub Teal fill, white text, 9px radius, 36px tall (44px on touch), weight 500. Hover darkens; on press it scales to 0.97 immediately (feedback on pointer-down, 100ms); focus ring 2px Scrub Teal offset 2px. No shadows, no glows.
+- Secondary: tinted grey fill (`--fill`), no border, Ink text. Hover: a stronger fill.
+- Ghost (plain): Scrub Teal text, no fill; a grey fill on hover. Used for toolbar and inline actions.
 - Destructive: Ghost by default; becomes Clay fill only inside a confirm dialog.
 - One primary button per view. Labels say what happens: "Start recording", "Sign note", "Send to ezyVet", "Download model (2.4 GB)".
 
@@ -168,8 +178,13 @@ Build on shadcn/ui primitives for accessibility, then restyle every one to these
 **Errors**
 - Inline, specific, actionable, in the interface's voice: "ezyVet rejected the note: consultation 48213 is locked. Unlock it in ezyVet, then send again." Never "Something went wrong." Never an apology.
 
-**Dialogs and sheets**
-- Confirmations only for irreversible or outbound actions (delete audio, send to PIMS, send to client). Sheets slide from the right on desktop and the bottom on mobile; 10px radius, hairline border, tinted shadow, backdrop `rgba(27,31,36,0.32)`.
+**Dialogs and sheets** (ADR-0010)
+- Confirmations only for irreversible or outbound actions (delete audio, send to PIMS, send to client).
+- Sheets (`<Sheet>`) float inset from the right edge on desktop (18px radius, translucent material, deep shadow) and rise from the bottom on phones with a grabber. They enter and leave along the same path on a critically damped spring. On phones the grabber drags 1:1, resists upwards, and dismisses on a downward flick by projected momentum; otherwise it springs back with the finger's velocity.
+- Dialogs (`<Dialog>`) materialise: scale and fade together, and leave the same way. A dimming scrim sits behind both, because both are modal.
+
+**Segmented controls** (ADR-0010)
+- A grey track with a raised thumb (Paper in light, a lighter grey in dark) and a soft shadow; the selected label is semibold.
 
 **Toasts**
 - Bottom-right (desktop) / top (mobile), Paper surface, hairline, one line, same verb as the action ("Sent to ezyVet"), auto-dismiss 4s, with an undo where possible.
@@ -208,11 +223,13 @@ Build on shadcn/ui primitives for accessibility, then restyle every one to these
 
 ## 7. Motion and interaction
 
-- Curves: `cubic-bezier(0.16, 1, 0.3, 1)` at 180–240ms for UI state changes; springs (stiffness 180, damping 24) only for sheets and the Record button's size change.
+- Springs (ADR-0010): critically damped by default (damping 1.0, response 0.35s, `--spring` / `--spring-dur`); bounce (damping about 0.8) only after a gesture that carried momentum. Gesture-driven motion uses `animateSpring`, which starts from the on-screen value and the finger's velocity and can be grabbed mid-flight. Small state changes (colour, hover) keep `cubic-bezier(0.16, 1, 0.3, 1)` at 180ms.
+- Spatial consistency: things leave the way they came (sheets out to the right or down, dialogs shrink and fade); menus and popovers originate from their trigger.
+- Feedback on press, not release: buttons, rows, chips and nav items scale slightly on pointer-down.
 - Motion answers actions: section accept collapses with a 200ms height/opacity transition; a sent note slides its status chip in; a rejected sentence fades to Mist before removal.
 - Live state: waveform and streaming text are driven by data, not easing. No typewriter effects, no cursors.
 - No scroll-triggered reveals, no parallax, no hover lifts on panels, no staggered cascades on lists. Lists mount instantly.
-- Animate only `transform` and `opacity`. `prefers-reduced-motion` disables the breathing ring (static ring remains) and all slides.
+- Animate only `transform` and `opacity`. `prefers-reduced-motion` disables the breathing ring (static ring remains), all slides and springs (replaced by short cross-fades) and press scaling. Light/dark changes ease over 300ms rather than flash.
 - Isolate the waveform and streaming components so re-renders never touch the app shell.
 
 ---
@@ -239,6 +256,8 @@ Build on shadcn/ui primitives for accessibility, then restyle every one to these
 ---
 
 ## 10. Tokens (implement exactly)
+
+ADR-0010 supersedes the values in this block; the source of truth is `packages/ui/src/tokens.css`. Kept here for the original roles.
 
 ```css
 :root {
@@ -272,9 +291,9 @@ Tailwind: map these to `theme.extend.colors` as `bg`, `surface`, `ink`, `accent`
 ## 11. Anti-patterns (never)
 
 - No emoji in UI, code, copy, or alt text.
-- No Inter, Roboto, Open Sans; no serif anywhere in the app.
+- No Inter, Roboto, Open Sans as a chosen face (the system font, ADR-0010, is fine); no serif anywhere in the app.
 - No pure `#000000` or `#FFFFFF` text/background pairs in dark mode.
-- No purple/blue neon, gradients on text, outer glows, glassmorphism panels, mesh-gradient backgrounds.
+- No purple/blue neon, gradients on text, outer glows, mesh-gradient backgrounds. No translucent *content* panels: translucency is for floating chrome only (ADR-0010).
 - No three-equal-cards rows; no card kit with a uniform radius and gray shadow under everything.
 - No all-caps tracked labels, no eyebrows, no middle-dot metadata strings, no "→" on buttons.
 - No centered marketing-style hero inside the app; no "Scroll to explore".
@@ -297,5 +316,6 @@ Tailwind: map these to `theme.extend.colors` as `bg`, `surface`, `ink`, `accent`
 - [ ] Loading = layout-matched skeleton or determinate progress; empty and error states written per §8.
 - [ ] Keyboard path complete; focus ring visible; status has text, not just color.
 - [ ] Works at 360px wide with no horizontal scroll; targets ≥ 44px on touch.
-- [ ] Dark mode checked; `prefers-reduced-motion` checked.
+- [ ] Dark mode checked; `prefers-reduced-motion`, `prefers-reduced-transparency` and `prefers-contrast` checked (ADR-0010).
+- [ ] Sheets and dialogs leave along the path they entered; press feedback present on new interactive elements.
 - [ ] Screenshot attached to the PR for desktop light, desktop dark, and mobile.

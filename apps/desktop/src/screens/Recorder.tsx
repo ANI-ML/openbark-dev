@@ -198,8 +198,8 @@ export function Recorder() {
               </span>
               <span className="small muted">{statusLine}</span>
             </div>
+            <Waveform levels={app.levels} bars={48} className={`stage-wave ${live ? "wave-live" : "wave-idle"}`} />
           </div>
-          <Waveform levels={app.levels} bars={64} className={live ? "wave-live" : "wave-idle"} />
           <div className="recorder-transcript">
             {segments.length === 0 ? (
               <p className="empty small muted">

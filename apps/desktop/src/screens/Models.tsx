@@ -1,4 +1,4 @@
-import { Button, StatusDot } from "@openbark/ui";
+import { Button, Sheet, StatusDot } from "@openbark/ui";
 import { DownloadSimple, MagnifyingGlass, X } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { fmtBytes, useApp } from "../context";
@@ -32,13 +32,21 @@ export function Models() {
 
   useEffect(() => {
     void load();
-    const off = engine.on("download", (d) => setProgress((p) => ({ ...p, [d.model]: { done: d.done, total: d.total } })));
+    const off = engine.on("download", (d) =>
+      setProgress((p) => ({
+        ...p,
+        [d.model]: { done: d.done, total: d.total },
+      })),
+    );
     return () => void off.then((f) => f());
   }, []);
 
   async function download(id: string) {
     setError(null);
-    setProgress((p) => ({ ...p, [id]: { done: 0, total: rows.find((r) => r.id === id)?.size_bytes ?? 1 } }));
+    setProgress((p) => ({
+      ...p,
+      [id]: { done: 0, total: rows.find((r) => r.id === id)?.size_bytes ?? 1 },
+    }));
     try {
       await engine.downloadModel(id);
       app.toast(t("Model downloaded"));
@@ -89,7 +97,9 @@ export function Models() {
                     {m.name}
                   </option>
                 ))}
-                {!llms.some((m) => m.id === app.settings.llm) && <option value={app.settings.llm}>{app.settings.llm}</option>}
+                {!llms.some((m) => m.id === app.settings.llm) && (
+                  <option value={app.settings.llm}>{app.settings.llm}</option>
+                )}
               </select>
             </dd>
           </div>
@@ -144,15 +154,29 @@ export function Models() {
                     <td className="cell-action">
                       {p ? (
                         <div className="dl">
-                          <div className="ob-progress" role="progressbar" aria-valuenow={Math.round((p.done / p.total) * 100)}>
-                            <span style={{ transform: `scaleX(${p.done / Math.max(1, p.total)})` }} />
+                          <div
+                            className="ob-progress"
+                            role="progressbar"
+                            aria-valuenow={Math.round((p.done / p.total) * 100)}
+                          >
+                            <span
+                              style={{
+                                transform: `scaleX(${p.done / Math.max(1, p.total)})`,
+                              }}
+                            />
                           </div>
-                          <span className="mono faint">{t("{size} left", { size: fmtBytes(Math.max(0, p.total - p.done)) })}</span>
+                          <span className="mono faint">
+                            {t("{size} left", {
+                              size: fmtBytes(Math.max(0, p.total - p.done)),
+                            })}
+                          </span>
                         </div>
                       ) : !r.installed ? (
                         <Button onClick={() => download(r.id)} disabled={r.fit === "wont_fit"}>
                           <DownloadSimple size={20} aria-hidden />
-                          {t("Download ({size})", { size: fmtBytes(r.size_bytes) })}
+                          {t("Download ({size})", {
+                            size: fmtBytes(r.size_bytes),
+                          })}
                         </Button>
                       ) : null}
                     </td>
@@ -205,9 +229,6 @@ function HubBrowser({ mac, onClose, onAdded }: { mac: boolean; onClose: () => vo
 
   useEffect(() => {
     void search();
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -241,128 +262,161 @@ function HubBrowser({ mac, onClose, onAdded }: { mac: boolean; onClose: () => vo
   const [acceptBefore, acceptAfter] = t("I've read the {link} and accept its terms.").split("{link}");
 
   return (
-    <>
-      <div className="ob-backdrop" onClick={onClose} />
-      <aside className="ob-sheet" role="dialog" aria-modal="true" aria-label={t("Browse Hugging Face")}>
-        <header className="sheet-head">
-          <h2>{repo ? repo.repo.model.id : t("Browse Hugging Face")}</h2>
-          <Button variant="ghost" onClick={repo ? () => setRepo(null) : onClose} aria-label={repo ? t("Back to results") : t("Close")}>
-            {repo ? t("Back") : <X size={20} aria-hidden />}
-          </Button>
-        </header>
-        <div className="sheet-body">
-          <p className="small muted">
-            {mac
-              ? t("Note-writing models in GGUF format, and builds optimized for Apple silicon with MLX. Searching contacts huggingface.co; nothing else leaves this computer.")
-              : t("Note-writing models in GGUF format. Searching contacts huggingface.co; nothing else leaves this computer.")}
-          </p>
-          {error && (
-            <p className="ob-notice" data-tone="danger" role="alert">
-              {error}
-            </p>
-          )}
-          {!repo && (
-            <>
-              <form className="search" onSubmit={search}>
-                <label className="ob-field">
-                  <span className="label">{t("Search models")}</span>
-                  <input className="ob-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="gemma, qwen, llama" />
-                </label>
-                <Button type="submit" disabled={busy}>
-                  {t("Search")}
-                </Button>
-              </form>
-              <label className="check small">
-                <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
-                <span>{t("Also show models with restrictive or custom licences")}</span>
-              </label>
-              {mac && (
-                <label className="check small">
-                  <input type="checkbox" checked={onlyMlx} onChange={(e) => setOnlyMlx(e.target.checked)} />
-                  <span>{t("Only show MLX-optimized models")}</span>
-                </label>
-              )}
-              {results === null ? (
-                <div className="ob-skeleton" style={{ height: 120 }} />
-              ) : visible.length === 0 ? (
-                <p className="small muted">{t("No permissively licensed GGUF models match. Try another search, or show all licences.")}</p>
-              ) : (
-                <ul className="hub-list">
-                  {visible.map((m) => (
-                    <li key={m.id}>
-                      <button type="button" className="hub-row" onClick={() => open(m.id)}>
-                        <span className="hub-name">{m.id}</span>
-                        <span className="hub-meta">
-                          {mac && m.mlx && <span className="ob-chip mlx-chip">{t("MLX optimized")}</span>}
-                          <StatusDot tone={m.license_class === "permissive" ? "ok" : "warn"}>{m.license ?? t("No licence stated")}</StatusDot>
-                          <span className="mono faint">{t("{n} downloads", { n: m.downloads.toLocaleString() })}</span>
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </>
-          )}
-          {repo && (
-            <>
-              <p>
-                <StatusDot tone={restricted ? "warn" : "ok"}>{t("Licence: {licence}", { licence: repo.repo.model.license ?? t("not stated") })}</StatusDot>
-              </p>
-              {restricted && (
-                <label className="check small accept">
-                  <input type="checkbox" checked={accepted} onChange={(e) => setAccepted(e.target.checked)} />
-                  <span>
-                    {acceptBefore}
-                    <a href={`https://huggingface.co/${repo.repo.model.id}`} target="_blank" rel="noreferrer">
-                      {t("licence on Hugging Face")}
-                    </a>
-                    {acceptAfter}
-                  </span>
-                </label>
-              )}
-              {mlxRepo && (
-                <p className="ob-notice">
-                  <span className="ob-chip mlx-chip">{t("MLX optimized")}</span>{" "}
-                  {t(
-                    "Converted for Apple silicon with Apple's MLX framework. OpenBark's built-in engine runs GGUF models on the Mac's GPU (Metal); MLX models need the MLX engine, which is planned. Search for the GGUF build of this model to use it now.",
+    <Sheet label={t("Browse Hugging Face")} onClose={onClose}>
+      {(close) => (
+        <>
+          <header className="sheet-head">
+            <h2>{repo ? repo.repo.model.id : t("Browse Hugging Face")}</h2>
+            <Button
+              variant="ghost"
+              onClick={repo ? () => setRepo(null) : close}
+              aria-label={repo ? t("Back to results") : t("Close")}
+            >
+              {repo ? t("Back") : <X size={20} aria-hidden />}
+            </Button>
+          </header>
+          <div className="sheet-body">
+            <p className="small muted">
+              {mac
+                ? t(
+                    "Note-writing models in GGUF format, and builds optimized for Apple silicon with MLX. Searching contacts huggingface.co; nothing else leaves this computer.",
+                  )
+                : t(
+                    "Note-writing models in GGUF format. Searching contacts huggingface.co; nothing else leaves this computer.",
                   )}
-                </p>
-              )}
-              {repo.files.length === 0 ? (
-                mlxRepo ? null : <p className="small muted">{t("This repository has no single-file GGUF weights OpenBark can run.")}</p>
-              ) : (
-                <table className="ob-table">
-                  <thead>
-                    <tr>
-                      <th>{t("File")}</th>
-                      <th className="num">{t("Size")}</th>
-                      <th>{t("Fit")}</th>
-                      <th aria-label={t("Actions")} />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {repo.files.map((f) => (
-                      <tr key={f.path}>
-                        <td className="mono">{f.path}</td>
-                        <td className="num">{fmtBytes(f.size_bytes)}</td>
-                        <td>
-                          <StatusDot tone={FIT[f.fit].tone}>{t(FIT[f.fit].label)}</StatusDot>
-                        </td>
-                        <td className="cell-action">
-                          <Button onClick={() => add(f.path)} disabled={(restricted && !accepted) || f.fit === "wont_fit"}>
-                            {t("Download")}
-                          </Button>
-                        </td>
-                      </tr>
+            </p>
+            {error && (
+              <p className="ob-notice" data-tone="danger" role="alert">
+                {error}
+              </p>
+            )}
+            {!repo && (
+              <>
+                <form className="search" onSubmit={search}>
+                  <label className="ob-field">
+                    <span className="label">{t("Search models")}</span>
+                    <input
+                      className="ob-input"
+                      value={q}
+                      onChange={(e) => setQ(e.target.value)}
+                      placeholder="gemma, qwen, llama"
+                    />
+                  </label>
+                  <Button type="submit" disabled={busy}>
+                    {t("Search")}
+                  </Button>
+                </form>
+                <label className="check small">
+                  <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
+                  <span>{t("Also show models with restrictive or custom licences")}</span>
+                </label>
+                {mac && (
+                  <label className="check small">
+                    <input type="checkbox" checked={onlyMlx} onChange={(e) => setOnlyMlx(e.target.checked)} />
+                    <span>{t("Only show MLX-optimized models")}</span>
+                  </label>
+                )}
+                {results === null ? (
+                  <div className="ob-skeleton" style={{ height: 120 }} />
+                ) : visible.length === 0 ? (
+                  <p className="small muted">
+                    {t("No permissively licensed GGUF models match. Try another search, or show all licences.")}
+                  </p>
+                ) : (
+                  <ul className="hub-list">
+                    {visible.map((m) => (
+                      <li key={m.id}>
+                        <button type="button" className="hub-row" onClick={() => open(m.id)}>
+                          <span className="hub-name">{m.id}</span>
+                          <span className="hub-meta">
+                            {mac && m.mlx && <span className="ob-chip mlx-chip">{t("MLX optimized")}</span>}
+                            <StatusDot tone={m.license_class === "permissive" ? "ok" : "warn"}>
+                              {m.license ?? t("No licence stated")}
+                            </StatusDot>
+                            <span className="mono faint">
+                              {t("{n} downloads", {
+                                n: m.downloads.toLocaleString(),
+                              })}
+                            </span>
+                          </span>
+                        </button>
+                      </li>
                     ))}
-                  </tbody>
-                </table>
-              )}
-            </>
-          )}
-        </div>
-      </aside>
-    </>
+                  </ul>
+                )}
+              </>
+            )}
+            {repo && (
+              <>
+                <p>
+                  <StatusDot tone={restricted ? "warn" : "ok"}>
+                    {t("Licence: {licence}", {
+                      licence: repo.repo.model.license ?? t("not stated"),
+                    })}
+                  </StatusDot>
+                </p>
+                {restricted && (
+                  <label className="check small accept">
+                    <input type="checkbox" checked={accepted} onChange={(e) => setAccepted(e.target.checked)} />
+                    <span>
+                      {acceptBefore}
+                      <a href={`https://huggingface.co/${repo.repo.model.id}`} target="_blank" rel="noreferrer">
+                        {t("licence on Hugging Face")}
+                      </a>
+                      {acceptAfter}
+                    </span>
+                  </label>
+                )}
+                {mlxRepo && (
+                  <p className="ob-notice">
+                    <span className="ob-chip mlx-chip">{t("MLX optimized")}</span>{" "}
+                    {t(
+                      "Converted for Apple silicon with Apple's MLX framework. OpenBark's built-in engine runs GGUF models on the Mac's GPU (Metal); MLX models need the MLX engine, which is planned. Search for the GGUF build of this model to use it now.",
+                    )}
+                  </p>
+                )}
+                {repo.files.length === 0 ? (
+                  mlxRepo ? null : (
+                    <p className="small muted">
+                      {t("This repository has no single-file GGUF weights OpenBark can run.")}
+                    </p>
+                  )
+                ) : (
+                  <table className="ob-table">
+                    <thead>
+                      <tr>
+                        <th>{t("File")}</th>
+                        <th className="num">{t("Size")}</th>
+                        <th>{t("Fit")}</th>
+                        <th aria-label={t("Actions")} />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {repo.files.map((f) => (
+                        <tr key={f.path}>
+                          <td className="mono">{f.path}</td>
+                          <td className="num">{fmtBytes(f.size_bytes)}</td>
+                          <td>
+                            <StatusDot tone={FIT[f.fit].tone}>{t(FIT[f.fit].label)}</StatusDot>
+                          </td>
+                          <td className="cell-action">
+                            <Button
+                              onClick={() => add(f.path)}
+                              disabled={(restricted && !accepted) || f.fit === "wont_fit"}
+                            >
+                              {t("Download")}
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </>
+            )}
+          </div>
+        </>
+      )}
+    </Sheet>
   );
 }

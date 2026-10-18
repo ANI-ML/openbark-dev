@@ -1,6 +1,5 @@
-import { Button } from "@openbark/ui";
+import { Button, Sheet } from "@openbark/ui";
 import { ArrowClockwise, Copy, FilePdf, X } from "@phosphor-icons/react";
-import { useEffect } from "react";
 import type { DocumentView } from "../engine";
 import { NOTE_LANGUAGES, templateName, useT } from "../i18n";
 import { NoteView } from "./NoteView";
@@ -36,65 +35,74 @@ export function DocumentSheet({
   onPlay,
 }: DocumentSheetProps) {
   const t = useT();
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
 
   const ready = Boolean(doc.run && doc.template);
   const name = templateName(t, doc.name);
   return (
-    <>
-      <div className="ob-backdrop" onClick={onClose} />
-      <aside className="ob-sheet" role="dialog" aria-modal="true" aria-label={name}>
-        <header className="sheet-head">
-          <div>
-            <h2>{name}</h2>
-            <span className="small faint mono">{doc.created_at}</span>
-          </div>
-          <label className="doc-language">
-            <span className="small muted">{t("Client's language")}</span>
-            <select className="ob-select" value={language} disabled={busy} onChange={(e) => onLanguage(e.target.value)}>
-              {NOTE_LANGUAGES.map((l) => (
-                <option key={l.code} value={l.code}>
-                  {l.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button type="button" className="icon-btn" aria-label={t("Close")} onClick={onClose}>
-            <X size={20} aria-hidden />
-          </button>
-        </header>
-        <div className="sheet-body">
-          <p className="ob-notice">{t("For the client. Read it through before handing it over: it's a draft written from the visit.")}</p>
-          {busy && (
-            <div className="ob-progress" role="progressbar" aria-label={t("Drafting {name}", { name })}>
-              <span style={{ transform: `scaleX(${progress})` }} />
+    <Sheet label={name} onClose={onClose}>
+      {(close) => (
+        <>
+          <header className="sheet-head">
+            <div>
+              <h2>{name}</h2>
+              <span className="small faint mono">{doc.created_at}</span>
             </div>
-          )}
-          {doc.run && doc.template ? (
-            <NoteView template={doc.template} run={doc.run} onEvidence={onEvidence} onPlay={onPlay} onCopySection={() => onCopy(doc)} />
-          ) : (
-            <p className="small muted">{t("Writing the draft.")}</p>
-          )}
-        </div>
-        <footer className="output-row">
-          <Button variant="primary" onClick={() => onCopy(doc)} disabled={!ready}>
-            <Copy size={20} aria-hidden />
-            {t("Copy")}
-          </Button>
-          <Button variant="ghost" onClick={onPdf} disabled={!ready || busy}>
-            <FilePdf size={20} aria-hidden />
-            {t("Save PDF")}
-          </Button>
-          <Button variant="ghost" onClick={onRedraft} disabled={busy}>
-            <ArrowClockwise size={20} aria-hidden />
-            {t("Draft again")}
-          </Button>
-        </footer>
-      </aside>
-    </>
+            <label className="doc-language">
+              <span className="small muted">{t("Client's language")}</span>
+              <select
+                className="ob-select"
+                value={language}
+                disabled={busy}
+                onChange={(e) => onLanguage(e.target.value)}
+              >
+                {NOTE_LANGUAGES.map((l) => (
+                  <option key={l.code} value={l.code}>
+                    {l.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button type="button" className="icon-btn" aria-label={t("Close")} onClick={close}>
+              <X size={20} aria-hidden />
+            </button>
+          </header>
+          <div className="sheet-body">
+            <p className="ob-notice">
+              {t("For the client. Read it through before handing it over: it's a draft written from the visit.")}
+            </p>
+            {busy && (
+              <div className="ob-progress" role="progressbar" aria-label={t("Drafting {name}", { name })}>
+                <span style={{ transform: `scaleX(${progress})` }} />
+              </div>
+            )}
+            {doc.run && doc.template ? (
+              <NoteView
+                template={doc.template}
+                run={doc.run}
+                onEvidence={onEvidence}
+                onPlay={onPlay}
+                onCopySection={() => onCopy(doc)}
+              />
+            ) : (
+              <p className="small muted">{t("Writing the draft.")}</p>
+            )}
+          </div>
+          <footer className="output-row">
+            <Button variant="primary" onClick={() => onCopy(doc)} disabled={!ready}>
+              <Copy size={20} aria-hidden />
+              {t("Copy")}
+            </Button>
+            <Button variant="ghost" onClick={onPdf} disabled={!ready || busy}>
+              <FilePdf size={20} aria-hidden />
+              {t("Save PDF")}
+            </Button>
+            <Button variant="ghost" onClick={onRedraft} disabled={busy}>
+              <ArrowClockwise size={20} aria-hidden />
+              {t("Draft again")}
+            </Button>
+          </footer>
+        </>
+      )}
+    </Sheet>
   );
 }

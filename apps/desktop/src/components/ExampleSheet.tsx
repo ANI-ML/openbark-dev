@@ -1,4 +1,4 @@
-import { Button } from "@openbark/ui";
+import { Button, Sheet } from "@openbark/ui";
 import { X } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "../context";
@@ -22,10 +22,7 @@ export function ExampleSheet({ onClose, onProposed }: { onClose: () => void; onP
 
   useEffect(() => {
     box.current?.focus();
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && !busy && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, busy]);
+  }, []);
 
   // No token stream for this task: an estimate that slows as it nears the end.
   useEffect(() => {
@@ -50,53 +47,54 @@ export function ExampleSheet({ onClose, onProposed }: { onClose: () => void; onP
   }
 
   return (
-    <>
-      <div className="ob-backdrop" onClick={() => !busy && onClose()} />
-      <aside className="ob-sheet" role="dialog" aria-modal="true" aria-label={t("Template from an example note")}>
-        <header className="sheet-head">
-          <h2>{t("Template from an example note")}</h2>
-          <button type="button" className="icon-btn" aria-label={t("Close")} disabled={busy} onClick={onClose}>
-            <X size={20} aria-hidden />
-          </button>
-        </header>
-        <div className="sheet-body example-sheet">
-          <p className="small muted">
-            {t(
-              "Paste a note your clinic already writes. OpenBark proposes its headings, what goes under each, and short instructions, then opens them in the builder for you to check and save. The example stays on this computer and isn't saved, and patient details aren't copied into the template.",
-            )}
-          </p>
-          <label className="ob-field">
-            <span className="label">{t("Example note")}</span>
-            <textarea
-              ref={box}
-              className="ob-input example-text"
-              rows={14}
-              value={text}
-              disabled={busy}
-              placeholder={t("SUBJECTIVE: ... OBJECTIVE: ... ASSESSMENT: ... PLAN: ...")}
-              onChange={(e) => setText(e.target.value)}
-            />
-          </label>
-          {error && (
-            <p className="ob-notice" data-tone="danger" role="alert">
-              {error}
+    <Sheet label={t("Template from an example note")} onClose={onClose} dismissible={!busy}>
+      {(close) => (
+        <>
+          <header className="sheet-head">
+            <h2>{t("Template from an example note")}</h2>
+            <button type="button" className="icon-btn" aria-label={t("Close")} disabled={busy} onClick={close}>
+              <X size={20} aria-hidden />
+            </button>
+          </header>
+          <div className="sheet-body example-sheet">
+            <p className="small muted">
+              {t(
+                "Paste a note your clinic already writes. OpenBark proposes its headings, what goes under each, and short instructions, then opens them in the builder for you to check and save. The example stays on this computer and isn't saved, and patient details aren't copied into the template.",
+              )}
             </p>
-          )}
-          {busy && (
-            <div className="ob-progress" role="progressbar" aria-label={t("Reading the example")}>
-              <span style={{ transform: `scaleX(${progress})` }} />
+            <label className="ob-field">
+              <span className="label">{t("Example note")}</span>
+              <textarea
+                ref={box}
+                className="ob-input example-text"
+                rows={14}
+                value={text}
+                disabled={busy}
+                placeholder={t("SUBJECTIVE: ... OBJECTIVE: ... ASSESSMENT: ... PLAN: ...")}
+                onChange={(e) => setText(e.target.value)}
+              />
+            </label>
+            {error && (
+              <p className="ob-notice" data-tone="danger" role="alert">
+                {error}
+              </p>
+            )}
+            {busy && (
+              <div className="ob-progress" role="progressbar" aria-label={t("Reading the example")}>
+                <span style={{ transform: `scaleX(${progress})` }} />
+              </div>
+            )}
+            <div className="ask-actions">
+              <Button variant="primary" onClick={() => void propose()} disabled={busy || text.trim().length < 20}>
+                {busy ? t("Reading the example") : t("Propose headings")}
+              </Button>
+              <Button variant="ghost" onClick={close} disabled={busy}>
+                {t("Cancel")}
+              </Button>
             </div>
-          )}
-          <div className="ask-actions">
-            <Button variant="primary" onClick={() => void propose()} disabled={busy || text.trim().length < 20}>
-              {busy ? t("Reading the example") : t("Propose headings")}
-            </Button>
-            <Button variant="ghost" onClick={onClose} disabled={busy}>
-              {t("Cancel")}
-            </Button>
           </div>
-        </div>
-      </aside>
-    </>
+        </>
+      )}
+    </Sheet>
   );
 }
