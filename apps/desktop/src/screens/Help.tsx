@@ -15,7 +15,7 @@ export const HELP_TOPICS = [
     steps: [
       "Read the consent notice and accept it. You're responsible for getting each client's consent before recording.",
       "If the models aren't on this computer yet, choose Download everything on the Record screen. It's a one-time download; after that OpenBark works offline.",
-      "Use the sidebar: Record, Encounters, Templates, Models, Settings and Help.",
+      "Use the sidebar: Record, Patients, Templates, Models, Settings and Help.",
       "In Settings, add your name for signing, and choose the app language and the language notes are written in.",
     ],
   },
@@ -52,7 +52,7 @@ export const HELP_TOPICS = [
       "Give each heading a title and choose what goes under it: bullet points, measurements, medications, or subheadings.",
       "Add plain-language instructions where it helps, or choose one of the Examples under the heading, such as Triadan numbers for teeth.",
       "Check the preview and What the model is told, then Save template.",
-      "Use Try on an encounter to draft a saved consult with the new template.",
+      "Use Try on a visit to draft a saved consult with the new template.",
     ],
   },
   {

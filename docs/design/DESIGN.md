@@ -204,8 +204,10 @@ Build on shadcn/ui primitives for accessibility, then restyle every one to these
 **Review**
 - 2fr/3fr split as above; a slim top bar with patient, template, model used (Geist Mono), and the Sign button at the right. Below the note: output row — Copy formatted, PDF, Client summary, Send to [PIMS].
 
-**Encounters list**
-- Table (not cards): patient, time, template, status chip, synced-to. Filters as chips above.
+**Patients and visits (ADR-0011)**
+- Patients: one row per animal (species icon, name with the family name muted, species and visit count, last visit's type icon and date), most recently seen first, with a name filter. A segmented control switches to **Recent visits**, the day's list as a table (not cards): patient, time, template, status chip.
+- A patient's page: species icon, name, **Edit details** and **New visit** at the right, then every visit newest first with its type icon, reason, date, length and status. New visit opens Record with the patient filled in.
+- Record starts with **Find a patient**; choosing one fills the name, family name and species and links the visit. Typing a new name makes a new patient.
 
 **Model manager / Settings**
 - Left settings nav (list), right content with hairline-separated groups. Advanced model knobs live under a disclosure, never on the primary path.
@@ -217,7 +219,7 @@ Build on shadcn/ui primitives for accessibility, then restyle every one to these
 - 360px wide, Paper surface; shows detected PIMS and patient, the pending note sections with checkboxes, and one primary button "Insert into [PIMS]".
 
 **Mobile**
-- Bottom tab bar: Record, Encounters, Templates, Settings. The Record screen is one-handed: Record button in the lower third, transcript above. Review is tabbed (Transcript | Note) with a thumb-reachable Sign action. All targets ≥ 44px. No horizontal scrolling anywhere.
+- Bottom tab bar: Record, Patients, Templates, Settings. The Record screen is one-handed: Record button in the lower third, transcript above. Review is tabbed (Transcript | Note) with a thumb-reachable Sign action. All targets ≥ 44px. No horizontal scrolling anywhere.
 
 ---
 

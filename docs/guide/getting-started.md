@@ -43,8 +43,8 @@ As a rule of thumb: older laptops, Gemma 4 E2B (about 3 GB); most laptops, E4B (
 
 | Screen | What it's for |
 |---|---|
-| Record | Start a consult, or import a recording |
-| Encounters | Every recording, with its patient, template and status (Transcribed, Draft, Signed) |
+| Record | Start a visit, or import a recording. **Find a patient** picks an animal you've seen before |
+| Patients | Every animal, and each one's visits with their type and status (Transcribed, Draft, Signed). **Recent visits** lists the day's recordings |
 | Templates | Your clinic's note templates |
 | Models | The speech and note models |
 | Settings | You, your team, languages, consent, PDFs, encryption |

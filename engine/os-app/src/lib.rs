@@ -456,6 +456,14 @@ impl App {
     }
 
     fn visit_summary(&self, s: &Session, pet: &str, animals: usize) -> VisitSummary {
+        // In a multi-pet visit each animal has its own drafts (filed under its name).
+        let per_pet;
+        let s = if animals > 1 {
+            per_pet = s.clone().for_pet(Some(pet));
+            &per_pet
+        } else {
+            s
+        };
         let template = s.latest_record().and_then(|r| self.templates.load(r.template_id()).ok());
         VisitSummary {
             id: id_of(s),
@@ -463,7 +471,7 @@ impl App {
             reason: s.meta.patient.as_ref().map(|p| p.reason.clone()).unwrap_or_default(),
             template: template.as_ref().map(|t| t.template.name.clone()).unwrap_or_default(),
             template_icon: template.as_ref().map(|t| t.template.icon.clone()).unwrap_or_default(),
-            drafted: !s.meta.runs.is_empty(),
+            drafted: s.my_runs().next().is_some(),
             signed: s.is_signed(),
             audio_secs: s.meta.audio_secs,
             pet: (animals > 1).then(|| pet.to_string()),
@@ -630,7 +638,8 @@ impl App {
                 return Err(e.into());
             }
         };
-        let s = Session::open(&result.session_dir)?;
+        let mut s = Session::open(&result.session_dir)?;
+        self.link_visit(&mut s)?;
         Ok(view(&s, Some(result.transcript)))
     }
 
@@ -716,7 +725,8 @@ impl App {
             .take()
             .ok_or_else(|| AppError("Nothing is recording.".into()))?;
         let result = recorder.stop()?;
-        let s = Session::open(&result.session_dir)?;
+        let mut s = Session::open(&result.session_dir)?;
+        self.link_visit(&mut s)?;
         Ok(view(&s, Some(result.transcript)))
     }
 
@@ -732,7 +742,19 @@ impl App {
             return Err(AppError("This encounter is still recording. Stop the recording first.".into()));
         }
         let mut s = Session::open(&dir)?;
+        let mut patient = patient;
+        // A different animal or family: link the visit afresh (ADR-0011).
+        if let Some(prev) = &s.meta.patient {
+            let key = |name: &str, last: &str| os_engine::patients::match_key(name, last);
+            if key(&prev.name, &prev.last_name) != key(&patient.name, &patient.last_name) {
+                patient.patient_id = None;
+            }
+            if prev.others != patient.others {
+                patient.other_ids.clear();
+            }
+        }
         s.set_patient(patient)?;
+        self.link_visit(&mut s)?;
         Ok(view(&s, None))
     }
 

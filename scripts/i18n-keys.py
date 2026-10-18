@@ -22,7 +22,7 @@ INDIRECT = [
     "Notes", "Transcription", "Speech detection", "Speakers", "Fits", "Tight", "Won't fit",
     "Bullet points", "Text box", "Sentences that read as a paragraph, each linked to where it was said", "Measurements", "Medications", "Subheadings",
     "Bullet points, each linked to where it was said", "Drug, dose, route, frequency, duration",
-    "Record", "Encounters", "Templates", "Models", "Settings", "This device", "Web, this computer only",
+    "Record", "Patients", "Templates", "Models", "Settings", "This device", "Web, this computer only",
     # @openbark/ui ThemeToggle (translated through its `translate` prop)
     "Theme", "System", "Light", "Dark",
     # UserPicker ROLE_LABEL

@@ -5,7 +5,7 @@ import * as engine from "../engine";
 import { useT } from "../i18n";
 
 /** DESIGN.md §6 Encounters list: a table, not cards. */
-export function Encounters() {
+export function Encounters({ embedded = false }: { embedded?: boolean } = {}) {
   const app = useApp();
   const t = useT();
   const [rows, setRows] = useState<engine.SessionSummary[] | null>(null);
@@ -14,15 +14,12 @@ export function Encounters() {
     engine.listSessions().then(setRows, () => setRows([]));
   }, []);
 
-  return (
-    <div className="screen">
-      <header className="screen-head">
-        <h1>{t("Encounters")}</h1>
-      </header>
+  const body = (
+    <>
       {rows === null ? (
         <div className="ob-skeleton" style={{ height: 160 }} />
       ) : rows.length === 0 ? (
-        <p className="empty muted">{t("No encounters yet. Record a consult and it appears here.")}</p>
+        <p className="empty muted">{t("No visits yet. Record a consult and it appears here.")}</p>
       ) : (
         <div className="table-wrap">
           <table className="ob-table">
@@ -67,6 +64,15 @@ export function Encounters() {
           </table>
         </div>
       )}
+    </>
+  );
+  if (embedded) return body;
+  return (
+    <div className="screen">
+      <header className="screen-head">
+        <h1>{t("Recent visits")}</h1>
+      </header>
+      {body}
     </div>
   );
 }

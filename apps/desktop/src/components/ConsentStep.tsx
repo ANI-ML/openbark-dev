@@ -80,7 +80,7 @@ export function ConsentStep({ rule, script, signer, purpose, onConfirm, onDeclin
         <label className="ob-field narrow">
           <span className="label">{t("Your name")}</span>
           <input className="ob-input" value={name} onChange={(e) => setName(e.target.value)} placeholder={t("Dr. A. Patel")} autoComplete="name" />
-          <span className="ob-help">{t("Saved in Settings and with the encounter.")}</span>
+          <span className="ob-help">{t("Saved in Settings and with the visit.")}</span>
         </label>
       )}
       <p className="small faint">

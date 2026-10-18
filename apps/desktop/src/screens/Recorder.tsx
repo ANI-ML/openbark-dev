@@ -7,13 +7,14 @@ import * as engine from "../engine";
 import { templateName, useT } from "../i18n";
 import { ConsentStep } from "../components/ConsentStep";
 import { PatientFields } from "../components/PatientFields";
+import { PatientPicker } from "../components/PatientPicker";
 import { SetupPanel } from "../components/SetupPanel";
 import { TranscriptList } from "../components/TranscriptList";
 
 type State = "idle" | "consent" | "starting" | "recording" | "stopping" | "importing";
 
 /** DESIGN.md §6 Recorder (home): Record button, waveform, elapsed, live transcript. */
-export function Recorder() {
+export function Recorder({ patientId }: { patientId?: string } = {}) {
   const app = useApp();
   const t = useT();
   const [state, setState] = useState<State>("idle");
@@ -21,6 +22,26 @@ export function Recorder() {
   const [segments, setSegments] = useState<engine.Segment[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [patient, setPatient] = useState<engine.Patient>(engine.emptyPatient);
+  // Opened from a patient's page: start with that patient (ADR-0011).
+  useEffect(() => {
+    if (!patientId) return;
+    engine.patientView(patientId).then(
+      (v) =>
+        setPatient((p) => ({
+          ...p,
+          name: v.patient.name,
+          last_name: v.patient.last_name,
+          species: v.patient.species,
+          patient_id: v.patient.id,
+        })),
+      () => {},
+    );
+  }, [patientId]);
+  /** Typing a different name or family name makes it a new patient. */
+  const editPatient = (next: engine.Patient) =>
+    setPatient((p) =>
+      p.patient_id && (next.name !== p.name || next.last_name !== p.last_name) ? { ...next, patient_id: null } : next,
+    );
   const [templates, setTemplates] = useState<engine.TemplateSummary[]>([]);
   /** What the consent step is for, while it's open. */
   const [consentFor, setConsentFor] = useState<"record" | "import">("record");
@@ -68,10 +89,16 @@ export function Recorder() {
     setSegments([]);
     setElapsed(0);
     try {
-      recording.current = await engine.startRecording(app.settings.labelSpeakers, app.settings.device, patient, consent, (level, seconds) => {
-        app.levels.push(level);
-        setElapsed(seconds);
-      });
+      recording.current = await engine.startRecording(
+        app.settings.labelSpeakers,
+        app.settings.device,
+        patient,
+        consent,
+        (level, seconds) => {
+          app.levels.push(level);
+          setElapsed(seconds);
+        },
+      );
       setState("recording");
       app.announce(t("Recording started"));
     } catch (e) {
@@ -159,8 +186,11 @@ export function Recorder() {
       <div className="recorder-grid">
         <aside className="recorder-patient" aria-label={t("Patient")}>
           <h2>{t("Patient")}</h2>
-          <PatientFields value={patient} onChange={setPatient} disabled={state !== "idle"} />
-          <p className="small faint">{t("Saved with the encounter and time-stamped. Optional: you can add or change these later.")}</p>
+          <PatientPicker value={patient} onChange={setPatient} disabled={state !== "idle"} />
+          <PatientFields value={patient} onChange={editPatient} disabled={state !== "idle"} />
+          <p className="small faint">
+            {t("Saved with the visit and time-stamped. Optional: you can add or change these later.")}
+          </p>
         </aside>
         <section className="recorder-center" aria-label={t("Recorder")}>
           {missing.length > 0 && state === "idle" && (
@@ -210,7 +240,9 @@ export function Recorder() {
           <div className="recorder-transcript">
             {segments.length === 0 ? (
               <p className="empty small muted">
-                {live ? t("Listening. Each sentence appears here once it's finished.") : t("The live transcript appears here.")}
+                {live
+                  ? t("Listening. Each sentence appears here once it's finished.")
+                  : t("The live transcript appears here.")}
               </p>
             ) : (
               <TranscriptList segments={segments} follow />
@@ -232,10 +264,16 @@ export function Recorder() {
             <span>{t("Label speakers")}</span>
           </label>
           <label className="check">
-            <input type="checkbox" checked={app.settings.draftOnStop} onChange={(e) => app.setSettings({ draftOnStop: e.target.checked })} />
+            <input
+              type="checkbox"
+              checked={app.settings.draftOnStop}
+              onChange={(e) => app.setSettings({ draftOnStop: e.target.checked })}
+            />
             <span>{t("Draft the note when I stop")}</span>
           </label>
-          <p className="small faint">{t("The machine stays awake while recording and drafting. Recordings are saved on this computer only.")}</p>
+          <p className="small faint">
+            {t("The machine stays awake while recording and drafting. Recordings are saved on this computer only.")}
+          </p>
           <p className="small faint">{t("Get the client's consent before recording.")}</p>
         </aside>
       </div>

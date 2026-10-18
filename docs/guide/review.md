@@ -29,7 +29,7 @@ When you enter the patient before recording, choose **Add another animal** for e
 
 ## Draft again with another template
 
-Pick a template in the top bar and choose **Draft as …** to draft the same consult another way. Every draft is kept in the encounter's folder.
+Pick a template in the top bar and choose **Draft as …** to draft the same consult another way. Every draft is kept with the visit.
 
 ## Sign
 

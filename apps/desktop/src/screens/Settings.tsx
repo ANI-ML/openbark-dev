@@ -21,7 +21,7 @@ export function SettingsScreen() {
     setEncrypting(true);
     try {
       const n = await engine.encryptExisting();
-      app.toast(t("{n} encounters encrypted", { n }));
+      app.toast(t("{n} visits encrypted", { n }));
       app.refreshStatus();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -168,7 +168,7 @@ export function SettingsScreen() {
                 {t("Use the default wording")}
               </button>
             )}
-            <p className="small faint measure">{t("The consent is saved with each encounter and shown in Review.")}</p>
+            <p className="small faint measure">{t("The consent is saved with each visit and shown in Review.")}</p>
           </>
         )}
       </section>
@@ -228,7 +228,7 @@ export function SettingsScreen() {
             </p>
             {(app.status?.plain_encounters ?? 0) > 0 && (
               <p className="ob-notice">
-                {t("{n} encounters were saved before encryption and are still unencrypted.", { n: app.status?.plain_encounters ?? 0 })}{" "}
+                {t("{n} visits were saved before encryption and are still unencrypted.", { n: app.status?.plain_encounters ?? 0 })}{" "}
                 <button type="button" className="link" onClick={() => void encryptNow()} disabled={encrypting}>
                   {encrypting ? t("Encrypting") : t("Encrypt them now")}
                 </button>
@@ -237,7 +237,7 @@ export function SettingsScreen() {
             <div className="ob-field">
               <span className="label">{t("Recovery key")}</span>
               <p className="small muted measure">
-                {t("Without this key, encrypted encounters can't be opened on another computer or after reinstalling. Print it or keep it in your clinic's password manager.")}
+                {t("Without this key, encrypted visits can't be opened on another computer or after reinstalling. Print it or keep it in your clinic's password manager.")}
               </p>
               {key ? (
                 <div className="recovery-key">
@@ -258,7 +258,7 @@ export function SettingsScreen() {
           </>
         ) : (
           <p className="ob-notice" data-tone="danger">
-            {t("Encryption isn't running, so new encounters are saved unencrypted. Restart OpenBark; if this stays, check the log.")}
+            {t("Encryption isn't running, so new visits are saved unencrypted. Restart OpenBark; if this stays, check the log.")}
           </p>
         )}
       </section>
@@ -267,7 +267,7 @@ export function SettingsScreen() {
         <h2>{t("Storage")}</h2>
         <dl className="slots">
           <div>
-            <dt className="label muted">{t("Encounters")}</dt>
+            <dt className="label muted">{t("Visits")}</dt>
             <dd className="mono">{app.status?.sessions_dir}</dd>
           </div>
           <div>

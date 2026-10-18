@@ -94,6 +94,10 @@ export interface Patient {
   others?: string[];
   /** The main animal's species key ("feline"); decides species-only headings. */
   species?: string;
+  /** The main animal's patient record (ADR-0011), when chosen or linked. */
+  patient_id?: string | null;
+  /** The other animals' patient records, in the order of `others`. */
+  other_ids?: string[];
   entered_at?: string | null;
   updated_at?: string | null;
 }
@@ -385,6 +389,58 @@ const enc = encodeURIComponent;
 
 export const status = () => (isDesktop ? invoke<Status>("status") : api<Status>("/api/status"));
 export const inputDevices = () => (isDesktop ? invoke<string[]>("input_devices") : api<string[]>("/api/devices"));
+// ---- patients (ADR-0011) ---------------------------------------------------
+
+export interface PatientRecord {
+  id: string;
+  name: string;
+  last_name: string;
+  species: string;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+export interface VisitSummary {
+  id: string;
+  created_at: string;
+  reason: string;
+  template: string;
+  template_icon: string;
+  drafted: boolean;
+  signed: boolean;
+  audio_secs: number;
+  /** This animal's name, when the visit covered several. */
+  pet?: string | null;
+  source: string;
+}
+
+export interface PatientSummary {
+  patient: PatientRecord;
+  visits: number;
+  last_visit?: string | null;
+  last_type: string;
+  last_icon: string;
+  last_reason: string;
+}
+
+export interface PatientView {
+  patient: PatientRecord;
+  visits: VisitSummary[];
+}
+
+export const listPatients = () =>
+  isDesktop ? invoke<PatientSummary[]>("list_patients") : api<PatientSummary[]>("/api/patients");
+export const patientView = (id: string) =>
+  isDesktop ? invoke<PatientView>("patient", { id }) : api<PatientView>(`/api/patients/${enc(id)}`);
+export const createPatient = (name: string, lastName: string, species: string) =>
+  isDesktop
+    ? invoke<PatientRecord>("create_patient", { name, lastName, species })
+    : api<PatientRecord>("/api/patients", post({ name, last_name: lastName, species }));
+export const updatePatientRecord = (id: string, name: string, lastName: string, species: string) =>
+  isDesktop
+    ? invoke<PatientRecord>("update_patient_record", { id, name, lastName, species })
+    : api<PatientRecord>(`/api/patients/${enc(id)}`, post({ name, last_name: lastName, species }));
+
 export const listSessions = () =>
   isDesktop ? invoke<SessionSummary[]>("list_sessions") : api<SessionSummary[]>("/api/sessions");
 /** An encounter; `pet` picks one animal's notes in a multi-pet visit. */
@@ -665,6 +721,7 @@ export async function importRecording(
         .filter(Boolean)
         .join("\n"),
       species: p?.species ?? "",
+      patient_id: p?.patient_id ?? "",
       last_name: p?.last_name ?? "",
       reason: p?.reason ?? "",
       ...consentQuery(consent),
@@ -757,6 +814,7 @@ async function startBrowserRecording(
       .filter(Boolean)
       .join("\n"),
     species: patient?.species ?? "",
+    patient_id: patient?.patient_id ?? "",
     last_name: patient?.last_name ?? "",
     reason: patient?.reason ?? "",
     ...consentQuery(consent),

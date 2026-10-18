@@ -672,6 +672,67 @@ p > .ob-dot { display: inline-block; vertical-align: middle; }
 .doc-language .ob-select { height: 32px; }
 @media (max-width: 640px) { .doc-language > span { display: none; } }
 
+/* Patients and visits (ADR-0011) */
+.patients-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.patient-filter { position: relative; display: flex; align-items: center; flex: 0 1 320px; min-width: 0; color: var(--ink-3); }
+.patient-filter svg { position: absolute; left: 12px; pointer-events: none; }
+.patient-filter .ob-input { width: 100%; padding-left: 36px; }
+.patient-list, .visit-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--surface); overflow: hidden; }
+.patient-list li + li .patient-row, .visit-list li + li .visit-row { border-top: 1px solid var(--border); }
+.patient-row, .visit-row, .patient-match {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+.patient-row:hover, .visit-row:hover, .patient-match:hover { background: var(--fill); }
+.patient-row:active, .visit-row:active, .patient-match:active { background: var(--fill-strong); }
+.patient-avatar {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 9999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.patient-avatar.large { width: 56px; height: 56px; }
+.patient-text, .visit-text, .picked-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.patient-name, .picked-name, .visit-type { font-weight: 600; letter-spacing: -0.008em; overflow-wrap: anywhere; }
+.patient-last { display: inline-flex; align-items: center; gap: 10px; flex: none; }
+.patient-last-text { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
+.type-icon.small-icon { width: 28px; height: 28px; border-radius: 8px; }
+.visit-reason { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.visit-meta { display: inline-flex; align-items: center; gap: 14px; flex: none; }
+@media (max-width: 640px) {
+  .patient-last, .visit-meta .mono:last-of-type { display: none; }
+  .visit-meta { flex-direction: column; align-items: flex-end; gap: 4px; }
+  .patient-filter { flex-basis: 100%; }
+}
+.patient-title { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.back-link { display: inline-flex; align-items: center; gap: 4px; }
+.patient-heading { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.patient-heading h1 { overflow-wrap: anywhere; }
+.patient-page .screen-head { align-items: flex-end; flex-wrap: wrap; }
+.patient-edit-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 16px; }
+@media (max-width: 640px) { .patient-edit-fields { grid-template-columns: minmax(0, 1fr); } }
+.picked-patient { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; background: var(--accent-soft); }
+.patient-search { display: flex; flex-direction: column; gap: 6px; }
+.patient-matches { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--surface); }
+.patient-matches li + li .patient-match { border-top: 1px solid var(--border); }
+.patient-match { padding: 8px 12px; gap: 10px; }
+.patient-match .patient-avatar { width: 32px; height: 32px; }
+
 /* Multi-pet visits (M2 item 2) */
 .pet-tabs { align-self: flex-start; }
 .other-pet-row { display: flex; gap: 4px; align-items: center; }

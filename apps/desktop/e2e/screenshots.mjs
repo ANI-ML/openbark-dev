@@ -13,12 +13,24 @@ const variants = [
   { name: "laptop-light", viewport: { width: 1100, height: 760 }, colorScheme: "light" },
   { name: "mobile-light", viewport: { width: 390, height: 844 }, colorScheme: "light", isMobile: true, hasTouch: true },
   { name: "desktop-fr", viewport: { width: 1440, height: 900 }, colorScheme: "light", lang: "fr" },
-  { name: "mobile-de", viewport: { width: 390, height: 844 }, colorScheme: "light", isMobile: true, hasTouch: true, lang: "de" },
+  {
+    name: "mobile-de",
+    viewport: { width: 390, height: 844 },
+    colorScheme: "light",
+    isMobile: true,
+    hasTouch: true,
+    lang: "de",
+  },
 ];
 
 const browser = await chromium.launch();
 for (const v of variants) {
-  const ctx = await browser.newContext({ viewport: v.viewport, colorScheme: v.colorScheme, isMobile: v.isMobile, hasTouch: v.hasTouch });
+  const ctx = await browser.newContext({
+    viewport: v.viewport,
+    colorScheme: v.colorScheme,
+    isMobile: v.isMobile,
+    hasTouch: v.hasTouch,
+  });
   // The one-time consent notice is accepted up front (one variant shows it first).
   // The first variant also turns on the optional per-recording consent step to capture it.
   const seed = {
@@ -41,8 +53,8 @@ for (const v of variants) {
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
     if (overflow) errors.push(`${screen}: horizontal scroll at ${window.innerWidth}px`);
   };
-  // Navigate by position so every interface language works: Record, Encounters, Templates, Models, Settings.
-  const NAV = { Record: 0, Encounters: 1, Templates: 2, Models: 3, Settings: 4, Help: 5 };
+  // Navigate by position so every interface language works: Record, Patients, Templates, Models, Settings.
+  const NAV = { Record: 0, Patients: 1, Templates: 2, Models: 3, Settings: 4, Help: 5 };
   const nav = async (screen) => {
     await page.locator(".nav-item").nth(NAV[screen]).click();
     await page.locator(".screen h1").first().waitFor();
@@ -61,14 +73,36 @@ for (const v of variants) {
   if (v.notice) {
     // With the consent step on, Record opens it (nothing records until it's confirmed).
     await page.locator(".ob-record").click();
-    await page.locator("form.consent").waitFor({ timeout: 3000 }).catch(() => {});
+    await page
+      .locator("form.consent")
+      .waitFor({ timeout: 3000 })
+      .catch(() => {});
     await shot("record-consent");
-    await page.locator("form.consent .ob-button[data-variant=ghost]").last().click().catch(() => {});
+    await page
+      .locator("form.consent .ob-button[data-variant=ghost]")
+      .last()
+      .click()
+      .catch(() => {});
   }
 
-  await nav("Encounters");
-  await page.locator("tr.row-link").first().waitFor().catch(() => {});
-  await shot("encounters");
+  // Patients opens on the patient list; the visits table is under Recent visits.
+  const recentVisits = async () => {
+    await page.locator(".patients-bar .ob-segment").nth(1).click();
+    await page
+      .locator("tr.row-link")
+      .first()
+      .waitFor()
+      .catch(() => {});
+  };
+  await nav("Patients");
+  await page
+    .locator(".patient-list, .empty")
+    .first()
+    .waitFor()
+    .catch(() => {});
+  await shot("patients");
+  await recentVisits();
+  await shot("recent-visits");
 
   // A signed encounter if there is one (addenda, client documents), else the newest.
   const signedRow = page.locator('tr.row-link:has(.ob-dot[data-tone="ok"])').first();
@@ -91,15 +125,18 @@ for (const v of variants) {
     const discharge = page.getByRole("button", { name: "Discharge instructions", exact: true });
     if (await discharge.count()) {
       await discharge.click();
-      await page.locator(".ob-sheet .note").waitFor({ timeout: 5000 }).catch(() => {});
+      await page
+        .locator(".ob-sheet .note")
+        .waitFor({ timeout: 5000 })
+        .catch(() => {});
       await shot("review-discharge");
       await page.keyboard.press("Escape");
     }
   }
 
   // A draft (second encounter): re-prompt and hand edit.
-  await nav("Encounters");
-  await page.locator("tr.row-link").first().waitFor().catch(() => {});
+  await nav("Patients");
+  await recentVisits();
   const draftRow = page.locator('tr.row-link:has(.ob-dot[data-tone="warn"])').first();
   if (english && (await draftRow.count())) {
     await draftRow.click();
@@ -120,7 +157,11 @@ for (const v of variants) {
   }
 
   await nav("Templates");
-  await page.locator("tr.row-link").first().waitFor().catch(() => {});
+  await page
+    .locator("tr.row-link")
+    .first()
+    .waitFor()
+    .catch(() => {});
   await shot("templates");
   const team = page.locator("tr.row-link").nth(1);
   if (await team.count()) {
@@ -135,7 +176,11 @@ for (const v of variants) {
   await nav("Models");
   await shot("models");
   await page.locator(".screen-head .ob-button[data-variant=primary]").click();
-  await page.locator(".hub-row").first().waitFor({ timeout: 20000 }).catch(() => {});
+  await page
+    .locator(".hub-row")
+    .first()
+    .waitFor({ timeout: 20000 })
+    .catch(() => {});
   await shot("hub");
   await page.keyboard.press("Escape");
 

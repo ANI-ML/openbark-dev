@@ -15,8 +15,19 @@ import * as engine from "../engine";
 import { templateName, useT } from "../i18n";
 
 /** DESIGN.md §6 Review: slim top bar, 2fr/3fr transcript | note, output row. */
-/** `draftTemplate`: draft now with this template (from "Try on an encounter"). */
-export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft: boolean; draftTemplate?: string }) {
+/** `draftTemplate`: draft now with this template (from "Try on a visit"). */
+export function Review({
+  id,
+  autoDraft,
+  draftTemplate,
+  initialPet,
+}: {
+  id: string;
+  autoDraft: boolean;
+  draftTemplate?: string;
+  /** In a multi-pet visit, the animal to show first (opened from its patient page). */
+  initialPet?: string;
+}) {
   const app = useApp();
   const t = useT();
   const [view, setView] = useState<engine.SessionView | null>(null);
@@ -46,7 +57,7 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
   const drafted = useRef(false);
 
   /** In a multi-pet visit, the animal whose note is shown (M2 item 2). */
-  const [pet, setPet] = useState<string | null>(null);
+  const [pet, setPet] = useState<string | null>(initialPet ?? null);
   const load = useCallback(
     () => engine.openSession(id, pet).then(setView, (e) => setError(String(e?.message ?? e))),
     [id, pet],
@@ -202,7 +213,11 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
       await load();
       setAsking(null);
       const title = engine.headingTitle(template, heading);
-      app.toast(saveAsStandard ? t("{heading} redrafted and saved as a standard", { heading: title }) : t("{heading} redrafted", { heading: title }));
+      app.toast(
+        saveAsStandard
+          ? t("{heading} redrafted and saved as a standard", { heading: title })
+          : t("{heading} redrafted", { heading: title }),
+      );
       app.announce(t("{heading} redrafted", { heading: title }));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -252,7 +267,8 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
   function headerLines(): string[] {
     const lines: string[] = [];
     const pt = view?.patient;
-    if (pt && `${pt.name} ${pt.last_name}`.trim()) lines.push(`${t("Patient")}: ${`${pt.name} ${pt.last_name}`.trim()}`);
+    if (pt && `${pt.name} ${pt.last_name}`.trim())
+      lines.push(`${t("Patient")}: ${`${pt.name} ${pt.last_name}`.trim()}`);
     if (pt?.reason) lines.push(`${t("Reason for visit")}: ${pt.reason}`);
     if (view) lines.push(`${t("Recorded")}: ${view.created_at}`);
     if (view?.signed_at) lines.push(t("Signed by {name}, {at}", { name: view.signed_by ?? "", at: view.signed_at }));
@@ -265,7 +281,9 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
       citations: app.settings.copyCitations,
       header: headerLines(),
       addenda: withAddenda
-        ? (view?.addenda ?? []).map((a) => [`${t("Addendum")}, ${engine.fmtStamp(a.at)}, ${a.by}`, a.text] as [string, string])
+        ? (view?.addenda ?? []).map(
+            (a) => [`${t("Addendum")}, ${engine.fmtStamp(a.at)}, ${a.by}`, a.text] as [string, string],
+          )
         : [],
       notDiscussed: t("Not discussed"),
     });
@@ -329,7 +347,7 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
     <div className="screen review">
       <header className="review-bar">
         <div className="review-title">
-          <h1>{patientName || (view ? view.created_at : t("Encounter"))}</h1>
+          <h1>{patientName || (view ? view.created_at : t("Visit"))}</h1>
           {view?.stats && <span className="mono faint">{fmtTime(view.stats.audio_secs)}</span>}
         </div>
         <div className="review-actions">
@@ -354,7 +372,9 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
           )}
           {run && <span className="ob-chip mono">{run.model}</span>}
           {signed ? (
-            <StatusDot tone="ok">{t("Signed by {name}, {at}", { name: view?.signed_by ?? "", at: view?.signed_at ?? "" })}</StatusDot>
+            <StatusDot tone="ok">
+              {t("Signed by {name}, {at}", { name: view?.signed_by ?? "", at: view?.signed_at ?? "" })}
+            </StatusDot>
           ) : run && app.can.sign ? (
             <Button variant="primary" onClick={sign} disabled={generating || refining || hardFails > 0}>
               <Signature size={20} aria-hidden />
@@ -409,7 +429,9 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
             </div>
             <div>
               <dt className="label muted">{t("Consent to record")}</dt>
-              <dd>{view?.consent ? engine.consentText(view.consent) : <span className="faint">{t("Not recorded")}</span>}</dd>
+              <dd>
+                {view?.consent ? engine.consentText(view.consent) : <span className="faint">{t("Not recorded")}</span>}
+              </dd>
             </div>
             {p?.entered_at && (
               <div>
@@ -451,7 +473,12 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
       )}
 
       <div className="review-tabs ob-segmented" role="tablist">
-        <button className="ob-segment" role="tab" aria-selected={tab === "transcript"} onClick={() => setTab("transcript")}>
+        <button
+          className="ob-segment"
+          role="tab"
+          aria-selected={tab === "transcript"}
+          onClick={() => setTab("transcript")}
+        >
           {t("Transcript")}
         </button>
         <button className="ob-segment" role="tab" aria-selected={tab === "note"} onClick={() => setTab("note")}>
@@ -571,7 +598,9 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
                     <ArrowClockwise size={20} aria-hidden />
                     {chosen === template?.id
                       ? t("Draft again")
-                      : t("Draft as {name}", { name: templateName(t, templates.find((x) => x.id === chosen)?.name ?? chosen) })}
+                      : t("Draft as {name}", {
+                          name: templateName(t, templates.find((x) => x.id === chosen)?.name ?? chosen),
+                        })}
                   </Button>
                 )}
                 {templates
@@ -602,7 +631,8 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
                   })}
                   {(run.faithfulness.vet_entered?.length ?? 0) > 0 &&
                     ` ${t("{n} entered by a veterinarian.", { n: run.faithfulness.vet_entered?.length ?? 0 })}`}
-                  {run.stats.total_ms > 0 && ` ${t("Drafted in {s} s.", { s: (run.stats.total_ms / 1000).toFixed(1) })}`}
+                  {run.stats.total_ms > 0 &&
+                    ` ${t("Drafted in {s} s.", { s: (run.stats.total_ms / 1000).toFixed(1) })}`}
                 </span>
               </footer>
               {signed && (
@@ -639,7 +669,9 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
                         onChange={(e) => setAddendum(e.target.value)}
                         placeholder={t("For example: owner called on day 2, eating again, vomiting stopped.")}
                       />
-                      <p className="small faint">{t("The signed note doesn't change. The addendum is dated and signed with your name.")}</p>
+                      <p className="small faint">
+                        {t("The signed note doesn't change. The addendum is dated and signed with your name.")}
+                      </p>
                       <div className="ask-actions">
                         <Button type="submit" variant="primary" disabled={!addendum.trim()}>
                           {t("Sign addendum")}
@@ -656,7 +688,9 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
           ) : (
             <div className="pane-pad">
               {generating ? (
-                <p className="small muted">{t("Writing the draft. Numbers are checked against the transcript when it finishes.")}</p>
+                <p className="small muted">
+                  {t("Writing the draft. Numbers are checked against the transcript when it finishes.")}
+                </p>
               ) : (
                 <p className="small muted">{t("No draft yet. Draft the note to see it here.")}</p>
               )}
@@ -679,9 +713,7 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
           busy={drafting === openDoc}
           progress={Math.min(0.95, tokens / 900)}
           onCopy={(doc) =>
-            doc.template && doc.run
-              ? void copyNote(doc.template, doc.run, doc.name, false)
-              : undefined
+            doc.template && doc.run ? void copyNote(doc.template, doc.run, doc.name, false) : undefined
           }
           onPdf={() => void savePdf(openDoc)}
           onRedraft={() => void draftDocument(openDoc)}
@@ -700,7 +732,10 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
 }
 
 /** What goes under a heading path, from the draft's template. */
-function headingDef(t: engine.Template, heading: string): { kind: engine.ContentKind; fields?: engine.TemplateField[] } | null {
+function headingDef(
+  t: engine.Template,
+  heading: string,
+): { kind: engine.ContentKind; fields?: engine.TemplateField[] } | null {
   const [sec, part] = heading.split("/");
   const s = t.sections.find((x) => x.id === sec);
   if (!s) return null;

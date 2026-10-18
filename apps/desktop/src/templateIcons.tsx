@@ -90,7 +90,9 @@ export const TEMPLATE_ICONS: Record<string, Icon> = {
 };
 
 /** The icon for a template; record notes default to a clipboard, client documents to a speech bubble. */
-export function iconFor(t: Pick<Template | TemplateSummary, "icon" | "document"> | null | undefined): Icon {
+export function iconFor(
+  t: { icon?: string; document?: Template["document"] | TemplateSummary["document"] } | null | undefined,
+): Icon {
   const named = t?.icon ? TEMPLATE_ICONS[t.icon] : undefined;
   if (named) return named;
   return t?.document === "client" ? ChatText : ClipboardText;
@@ -101,12 +103,32 @@ export function TemplateIcon({
   size = 20,
   className,
 }: {
-  template: Pick<Template | TemplateSummary, "icon" | "document"> | null | undefined;
+  template: { icon?: string; document?: Template["document"] | TemplateSummary["document"] } | null | undefined;
   size?: number;
   className?: string;
 }) {
   const I = iconFor(template);
   return <I size={size} className={className} aria-hidden />;
+}
+
+/** An animal's icon by species key (patients list and pages); a paw when unknown. */
+const SPECIES_ICONS: Record<string, Icon> = {
+  canine: Dog,
+  feline: Cat,
+  equine: Horse,
+  bovine: Cow,
+  small_ruminant: Cow,
+  porcine: PawPrint,
+  avian: Bird,
+  reptile: PawPrint,
+  rabbit: Rabbit,
+  rodent: Rabbit,
+  ferret: PawPrint,
+};
+
+export function SpeciesIcon({ species, size = 20 }: { species?: string | null; size?: number }) {
+  const I = (species && SPECIES_ICONS[species]) || PawPrint;
+  return <I size={size} aria-hidden />;
 }
 
 /** The common visit types, shown first as tiles (in this order). */

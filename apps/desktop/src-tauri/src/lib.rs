@@ -66,6 +66,39 @@ fn input_devices(app: State<'_, AppState>) -> Vec<String> {
 }
 
 #[tauri::command]
+async fn list_patients(app: State<'_, AppState>) -> Result<Vec<os_app::PatientSummary>, String> {
+    let app = app.inner().clone();
+    work(move || app.list_patients()).await
+}
+
+#[tauri::command]
+async fn patient(app: State<'_, AppState>, id: String) -> Result<os_app::PatientView, String> {
+    let app = app.inner().clone();
+    work(move || app.patient(&id)).await
+}
+
+#[tauri::command]
+fn create_patient(
+    app: State<'_, AppState>,
+    name: String,
+    last_name: String,
+    species: String,
+) -> Result<os_engine::patients::PatientRecord, String> {
+    app.create_patient(&name, &last_name, &species).map_err(|e| e.0)
+}
+
+#[tauri::command]
+fn update_patient_record(
+    app: State<'_, AppState>,
+    id: String,
+    name: String,
+    last_name: String,
+    species: String,
+) -> Result<os_engine::patients::PatientRecord, String> {
+    app.update_patient_record(&id, &name, &last_name, &species).map_err(|e| e.0)
+}
+
+#[tauri::command]
 fn list_sessions(app: State<'_, AppState>) -> Vec<os_app::SessionSummary> {
     app.list_sessions()
 }
@@ -390,6 +423,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             status,
             input_devices,
+            list_patients,
+            patient,
+            create_patient,
+            update_patient_record,
             list_sessions,
             open_session,
             import_file,

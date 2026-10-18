@@ -28,9 +28,9 @@ This keeps an honest record on a shared computer. It isn't a security boundary a
 
 Recordings, transcripts and notes are encrypted on the computer. If an encounter folder is copied, backed up or synced elsewhere, it can't be read without the key. **Settings → Encryption** shows where the key is kept:
 - **This computer's keychain** (Windows Credential Manager or macOS Keychain). This is the usual case.
-- **A file in your user folder**, when the keychain isn't available, such as on a server reached over a remote connection. Encounters copied off the computer are still protected, but anyone using your account on that computer can read them. The setting says so.
+- **A file in your user folder**, when the keychain isn't available, such as on a server reached over a remote connection. Visits copied off the computer are still protected, but anyone using your account on that computer can read them. The setting says so.
 
-Encounters saved before encryption was available are listed there. Choose **Encrypt them now** to encrypt them.
+Visits saved before encryption was available are listed there. Choose **Encrypt them now** to encrypt them.
 
 ## The recovery key: keep it safe
 

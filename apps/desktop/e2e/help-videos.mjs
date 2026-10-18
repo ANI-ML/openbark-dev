@@ -95,7 +95,7 @@ const TOPICS = {
     await point(nav(0));
     await caption("Record is where every consult starts.");
     await point(nav(1));
-    await caption("Encounters keeps every recording, transcript and note.");
+    await caption("Patients keeps every animal, and each visit's recording, transcript and note.");
     await point(nav(2));
     await caption("Templates holds your clinic's note templates.");
     await point(nav(3));

@@ -2,7 +2,7 @@
 
 Video: **Help → Recording a consult** in the app.
 
-1. On **Record**, enter the patient's name and species, the client's last name and the reason for the visit. The species decides headings that only apply to some animals, such as FeLV/FIV status for cats. They're optional and can be added or changed later in Review. They're saved with the encounter and time-stamped.
+1. On **Record**, choose **Find a patient** and type a few letters of a name to pick an animal you've seen before; its name, family name and species fill in, and the visit is added to its page under **Patients**. For a new animal, enter the patient's name and species, the client's last name and the reason for the visit. The species decides headings that only apply to some animals, such as FeLV/FIV status for cats. They're optional and can be added or changed later in Review. They're saved with the visit and time-stamped. A new name makes a new patient.
 2. Choose the **template** on the right, for example SOAP note or your clinic's own.
 3. Press the red button, or the Space bar, to start.
 4. Talk as you normally would. Each sentence appears in the live transcript once it's finished, with the speaker labelled (Speaker 1, Speaker 2). The waveform shows that the microphone is hearing you.
@@ -16,7 +16,7 @@ When you use OpenBark in a browser on this computer, the browser asks for permis
 
 ## Importing a recording
 
-**Import a recording** creates an encounter from an audio file. The file goes through the same transcription as a live recording. These work:
+**Import a recording** creates a visit from an audio file. The file goes through the same transcription as a live recording. These work:
 
 - WAV (including ADPCM from dictaphones), AIFF, MP3 and MP2, FLAC;
 - phone recordings: M4A, MOV, CAF;

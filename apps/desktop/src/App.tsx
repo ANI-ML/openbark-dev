@@ -1,12 +1,13 @@
 import { createLevelSource } from "@openbark/ui";
-import { Cube, Gear, ListBullets, Microphone, Notebook, Question } from "@phosphor-icons/react";
+import { Cube, Gear, Microphone, Notebook, PawPrint, Question } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import * as engine from "./engine";
 import { ConsentNotice } from "./components/ConsentNotice";
 import { ROLE_LABEL, UserPicker } from "./components/UserPicker";
 import { AppContext, loadSettings, permissions, saveSettings, type Settings } from "./context";
 import { translate } from "./i18n";
-import { Encounters } from "./screens/Encounters";
+import { PatientDetail } from "./screens/PatientDetail";
+import { Patients } from "./screens/Patients";
 import { Models } from "./screens/Models";
 import { Recorder } from "./screens/Recorder";
 import { Review } from "./screens/Review";
@@ -15,9 +16,10 @@ import { Templates } from "./screens/Templates";
 import { Help } from "./screens/Help";
 
 export type Route =
-  | { screen: "record" }
-  | { screen: "encounters" }
-  | { screen: "review"; id: string; draft?: boolean; template?: string }
+  | { screen: "record"; patient?: string }
+  | { screen: "patients" }
+  | { screen: "patient"; id: string }
+  | { screen: "review"; id: string; draft?: boolean; template?: string; pet?: string }
   | { screen: "templates" }
   | { screen: "help" }
   | { screen: "models" }
@@ -25,7 +27,7 @@ export type Route =
 
 const NAV = [
   { screen: "record", label: "Record", icon: Microphone },
-  { screen: "encounters", label: "Encounters", icon: ListBullets },
+  { screen: "patients", label: "Patients", icon: PawPrint },
   { screen: "templates", label: "Templates", icon: Notebook },
   { screen: "models", label: "Models", icon: Cube },
   { screen: "settings", label: "Settings", icon: Gear },
@@ -116,7 +118,7 @@ export function App() {
     announce: setAnnounce,
     levels,
   };
-  const active = route.screen === "review" ? "encounters" : route.screen;
+  const active = route.screen === "review" || route.screen === "patient" ? "patients" : route.screen;
   const t = (text: string) => translate(settings.uiLanguage, text);
 
   useEffect(() => {
@@ -135,25 +137,30 @@ export function App() {
             {NAV.map(({ screen, label: english, icon: Icon }) => {
               const label = t(english);
               return (
-              <li key={screen}>
-                <button
-                  type="button"
-                  className="nav-item"
-                  aria-label={label}
-                  title={label}
-                  aria-current={active === screen ? "page" : undefined}
-                  onClick={() => setRoute({ screen } as Route)}
-                >
-                  <Icon size={20} aria-hidden />
-                  <span className="nav-label">{label}</span>
-                </button>
-              </li>
+                <li key={screen}>
+                  <button
+                    type="button"
+                    className="nav-item"
+                    aria-label={label}
+                    title={label}
+                    aria-current={active === screen ? "page" : undefined}
+                    onClick={() => setRoute({ screen } as Route)}
+                  >
+                    <Icon size={20} aria-hidden />
+                    <span className="nav-label">{label}</span>
+                  </button>
+                </li>
               );
             })}
           </ul>
           <div className="sidebar-foot small faint">
             {acting && (
-              <button type="button" className="link small who-now" onClick={() => setUser(null)} title={t("Switch user")}>
+              <button
+                type="button"
+                className="link small who-now"
+                onClick={() => setUser(null)}
+                title={t("Switch user")}
+              >
                 <span className="nav-label">
                   {acting.name}, {t(ROLE_LABEL[acting.role])}. {t("Switch")}
                 </span>
@@ -163,10 +170,17 @@ export function App() {
           </div>
         </nav>
         <main className="content">
-          {route.screen === "record" && <Recorder />}
-          {route.screen === "encounters" && <Encounters />}
+          {route.screen === "record" && <Recorder key={route.patient ?? ""} patientId={route.patient} />}
+          {route.screen === "patients" && <Patients />}
+          {route.screen === "patient" && <PatientDetail key={route.id} id={route.id} />}
           {route.screen === "review" && (
-            <Review key={`${route.id}:${route.template ?? ""}`} id={route.id} autoDraft={route.draft ?? false} draftTemplate={route.template} />
+            <Review
+              key={`${route.id}:${route.template ?? ""}:${route.pet ?? ""}`}
+              id={route.id}
+              autoDraft={route.draft ?? false}
+              draftTemplate={route.template}
+              initialPet={route.pet}
+            />
           )}
           {route.screen === "templates" && <Templates />}
           {route.screen === "help" && <Help />}

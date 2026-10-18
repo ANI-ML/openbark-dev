@@ -664,16 +664,16 @@ function Builder({ id, from, onClose, onOpen, onSaved }: BuilderProps) {
             <pre className="prompt">{preview?.prompt ?? ""}</pre>
           )}
           <div className="try-on">
-            <span className="label">{t("Try on an encounter")}</span>
+            <span className="label">{t("Try on a visit")}</span>
             <div className="try-row">
               <select
                 className="ob-select"
-                aria-label={t("Encounter to draft")}
+                aria-label={t("Visit to draft")}
                 value={tryOn}
                 onChange={(e) => setTryOn(e.target.value)}
                 disabled={encounters.length === 0}
               >
-                {encounters.length === 0 && <option value="">{t("No encounters yet")}</option>}
+                {encounters.length === 0 && <option value="">{t("No visits yet")}</option>}
                 {encounters.map((r) => (
                   <option key={r.id} value={r.id}>
                     {r.created_at} {r.patient || r.source}

@@ -17,15 +17,23 @@ const variants = [
   { name: "mobile-light", viewport: { width: 390, height: 844 }, colorScheme: "light", isMobile: true, hasTouch: true },
 ];
 
-const NAV = { Record: 0, Encounters: 1, Templates: 2, Models: 3, Settings: 4, Help: 5 };
+const NAV = { Record: 0, Patients: 1, Templates: 2, Models: 3, Settings: 4, Help: 5 };
 const problems = [];
 const browser = await chromium.launch();
 for (const v of variants) {
-  const ctx = await browser.newContext({ viewport: v.viewport, colorScheme: v.colorScheme, isMobile: v.isMobile, hasTouch: v.hasTouch });
+  const ctx = await browser.newContext({
+    viewport: v.viewport,
+    colorScheme: v.colorScheme,
+    isMobile: v.isMobile,
+    hasTouch: v.hasTouch,
+  });
   await ctx.addInitScript(() => {
     const key = "openbark.settings";
     const current = JSON.parse(localStorage.getItem(key) ?? "{}");
-    localStorage.setItem(key, JSON.stringify({ ...current, consentAcknowledgedAt: "2026-10-17T20:00:00Z", uiLanguage: "en" }));
+    localStorage.setItem(
+      key,
+      JSON.stringify({ ...current, consentAcknowledgedAt: "2026-10-17T20:00:00Z", uiLanguage: "en" }),
+    );
   });
   const page = await ctx.newPage();
   page.on("pageerror", (e) => problems.push(`${v.name}: ${e}`));
@@ -67,7 +75,8 @@ for (const v of variants) {
   await shot("builder-practice-examples");
 
   // 3. Ask on a dental heading shows that heading's examples.
-  await nav("Encounters");
+  await nav("Patients");
+  await page.locator(".patients-bar .ob-segment").nth(1).click();
   await page.locator("tr.row-link", { hasText: "Biscuit" }).first().click();
   await page.locator(".note").first().waitFor({ timeout: 20000 });
   const ask = page.getByRole("button", { name: "Ask for changes to Findings by tooth" });
@@ -78,7 +87,8 @@ for (const v of variants) {
   await shot("ask-examples");
 
   // 4. A multi-pet visit: one tab per animal.
-  await nav("Encounters");
+  await nav("Patients");
+  await page.locator(".patients-bar .ob-segment").nth(1).click();
   await page.locator("tr.row-link", { hasText: "Olive" }).first().click();
   await page.locator(".pet-tabs").waitFor({ timeout: 20000 });
   await shot("multi-pet");

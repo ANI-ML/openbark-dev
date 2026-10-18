@@ -7,9 +7,11 @@
 //!
 //! API (JSON unless noted):
 //! - `GET  /api/status`, `GET /api/devices`
+//! - `GET  /api/patients`, `POST /api/patients` `{name, last_name, species}`,
+//!   `GET /api/patients/{id}` (with visits), `POST /api/patients/{id}` (change details)
 //! - `GET  /api/sessions`, `GET /api/sessions/{id}`, `GET /api/sessions/{id}/audio` (Range)
 //! - `POST /api/sessions?diarize=&name=`    body: WAV bytes → new encounter, transcribed
-//!   (patient: `patient_name`, `others` (one per line), `last_name`, `reason`, `species`; consent: `consent_rule`,
+//!   (patient: `patient_name`, `patient_id`, `others` (one per line), `last_name`, `reason`, `species`; consent: `consent_rule`,
 //!   `consent_method`, `consent_by`, `consent_script`; the same on `/api/live`,
 //!   where consent is required)
 //! - `POST /api/sessions/{id}/notes`        `{llm, template, language?}`
@@ -132,6 +134,8 @@ pub async fn serve(options: ServerOptions) -> std::io::Result<()> {
     let api = Router::new()
         .route("/api/status", get(|State(s): State<St>| async move { Json(s.app.status()) }))
         .route("/api/devices", get(|State(s): State<St>| async move { Json(s.app.input_devices()) }))
+        .route("/api/patients", get(list_patients).post(create_patient))
+        .route("/api/patients/{id}", get(patient).post(update_patient_record))
         .route("/api/sessions", get(list_sessions).post(create_session))
         .route("/api/sessions/{id}", get(open_session))
         .route("/api/sessions/{id}/audio", get(session_audio))
@@ -172,6 +176,35 @@ pub async fn serve(options: ServerOptions) -> std::io::Result<()> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!(%addr, "OpenBark web mode");
     axum::serve(listener, app).await
+}
+
+async fn list_patients(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app.list_patients()).await
+}
+
+async fn patient(State(s): State<St>, UrlPath(id): UrlPath<String>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app.patient(&id)).await
+}
+
+#[derive(Deserialize)]
+struct PatientDetails {
+    name: String,
+    #[serde(default)]
+    last_name: String,
+    #[serde(default)]
+    species: String,
+}
+
+async fn create_patient(State(s): State<St>, Json(p): Json<PatientDetails>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app.create_patient(&p.name, &p.last_name, &p.species)).await
+}
+
+async fn update_patient_record(
+    State(s): State<St>,
+    UrlPath(id): UrlPath<String>,
+    Json(p): Json<PatientDetails>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app.update_patient_record(&id, &p.name, &p.last_name, &p.species)).await
 }
 
 async fn list_sessions(State(s): State<St>) -> impl IntoResponse {
@@ -311,6 +344,9 @@ struct PatientQuery {
     /// The main animal's species ("Cat").
     #[serde(default)]
     species: String,
+    /// The main animal's patient record, when chosen (ADR-0011).
+    #[serde(default)]
+    patient_id: String,
 }
 
 /// Consent passed as query parameters alongside the patient details.
@@ -346,6 +382,7 @@ impl PatientQuery {
             last_name: self.last_name,
             reason: self.reason,
             species: self.species,
+            patient_id: Some(self.patient_id).filter(|id| !id.trim().is_empty()),
             ..Default::default()
         };
         (!p.is_empty()).then_some(p)
