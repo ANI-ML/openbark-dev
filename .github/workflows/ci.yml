@@ -70,6 +70,10 @@ jobs:
           done
       - name: Offline end-to-end (M0-2, M0-4, M0-6)
         run: |
+          # Ubuntu 24.04 blocks unprivileged user namespaces (AppArmor), which
+          # e2e-offline.sh needs for `unshare -rn` (a run with no network at all).
+          # Lift that restriction on the runner only; the test itself stays offline.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           export OPENBARK_MODELS_DIR=~/models
           target/release/openbark models verify
           bash scripts/ci/e2e-offline.sh target/release/openbark smoke gemma-4-e2b-it-q4_0
