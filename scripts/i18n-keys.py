@@ -42,6 +42,22 @@ INDIRECT = [
 STRING = re.compile(r'"((?:[^"\\]|\\.)*)"')
 
 
+def model_guide() -> set[str]:
+    """Plain-language model help (meanings, legend, starting points), rendered with t()."""
+    path = os.path.join(ROOT, "modelGuide.ts")
+    with io.open(path, encoding="utf-8") as f:
+        src = f.read()
+    # Every sentence-like string literal: meanings, legend text, starting points.
+    out = set()
+    for m in STRING.finditer(src):
+        text = json.loads(f'"{m.group(1)}"')
+        sentence = text[:1].isupper() or text.startswith("{")
+        acronym = len(text) > 1 and text[0].isupper() and text[1].isupper()
+        if " " in text and sentence and not acronym:
+            out.add(text)
+    return out
+
+
 def help_topics() -> set[str]:
     """Titles, summaries and steps of the Help screen (rendered with t())."""
     path = os.path.join(ROOT, "screens", "Help.tsx")
@@ -58,7 +74,7 @@ def help_topics() -> set[str]:
 
 
 def main() -> None:
-    keys = set(INDIRECT) | help_topics()
+    keys = set(INDIRECT) | help_topics() | model_guide()
     for folder, _, files in os.walk(ROOT):
         for name in files:
             if not name.endswith((".ts", ".tsx")) or ".test." in name:

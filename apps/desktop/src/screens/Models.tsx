@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { fmtBytes, useApp } from "../context";
 import * as engine from "../engine";
 import { useT } from "../i18n";
+import { ModelGuide, ModelMeaning, ModelTags } from "../components/ModelGuide";
+import { STARTERS } from "../modelGuide";
 
 const SLOT_LABEL: Record<engine.Slot, string> = {
   llm: "Notes",
@@ -27,6 +29,8 @@ export function Models() {
   const [progress, setProgress] = useState<Record<string, { done: number; total: number }>>({});
   const [error, setError] = useState<string | null>(null);
   const [browsing, setBrowsing] = useState(false);
+  /** Open the browser straight on one repo (a starting point from the guide). */
+  const [openRepo, setOpenRepo] = useState<string | null>(null);
 
   const load = () => engine.models().then(setRows, (e) => setError(String(e?.message ?? e)));
 
@@ -79,6 +83,13 @@ export function Models() {
           {error}
         </p>
       )}
+
+      <ModelGuide
+        onOpenRepo={(repo) => {
+          setOpenRepo(repo);
+          setBrowsing(true);
+        }}
+      />
 
       <section className="group">
         <h2>{t("In use")}</h2>
@@ -136,6 +147,7 @@ export function Models() {
                     <td>
                       <div>{r.name}</div>
                       <div className="small faint">{r.publisher}</div>
+                      {r.slot === "llm" && <ModelTags name={r.id} />}
                     </td>
                     <td>{t(SLOT_LABEL[r.slot])}</td>
                     <td className="num">{fmtBytes(r.size_bytes)}</td>
@@ -191,7 +203,11 @@ export function Models() {
       {browsing && (
         <HubBrowser
           mac={app.status?.platform === "macos"}
-          onClose={() => setBrowsing(false)}
+          initialRepo={openRepo}
+          onClose={() => {
+            setBrowsing(false);
+            setOpenRepo(null);
+          }}
           onAdded={(id) => {
             setBrowsing(false);
             void load().then(() => download(id));
@@ -202,7 +218,17 @@ export function Models() {
   );
 }
 
-function HubBrowser({ mac, onClose, onAdded }: { mac: boolean; onClose: () => void; onAdded: (id: string) => void }) {
+function HubBrowser({
+  mac,
+  initialRepo,
+  onClose,
+  onAdded,
+}: {
+  mac: boolean;
+  initialRepo?: string | null;
+  onClose: () => void;
+  onAdded: (id: string) => void;
+}) {
   const t = useT();
   const [onlyMlx, setOnlyMlx] = useState(false);
   const [q, setQ] = useState("gemma 4");
@@ -228,7 +254,9 @@ function HubBrowser({ mac, onClose, onAdded }: { mac: boolean; onClose: () => vo
   }
 
   useEffect(() => {
-    void search();
+    void search().then(() => {
+      if (initialRepo) void open(initialRepo);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -316,6 +344,16 @@ function HubBrowser({ mac, onClose, onAdded }: { mac: boolean; onClose: () => vo
                     <span>{t("Only show MLX-optimized models")}</span>
                   </label>
                 )}
+                <div className="hub-starters">
+                  <span className="small muted">{t("Good starting points")}</span>
+                  <div className="ask-chips">
+                    {STARTERS.map((st) => (
+                      <button key={st.repo} type="button" className="ob-chip ask-chip" title={t(st.why)} onClick={() => open(st.repo)}>
+                        {`Gemma 4 ${st.size}`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 {results === null ? (
                   <div className="ob-skeleton" style={{ height: 120 }} />
                 ) : visible.length === 0 ? (
@@ -328,6 +366,7 @@ function HubBrowser({ mac, onClose, onAdded }: { mac: boolean; onClose: () => vo
                       <li key={m.id}>
                         <button type="button" className="hub-row" onClick={() => open(m.id)}>
                           <span className="hub-name">{m.id}</span>
+                          <ModelTags name={m.id} />
                           <span className="hub-meta">
                             {mac && m.mlx && <span className="ob-chip mlx-chip">{t("MLX optimized")}</span>}
                             <StatusDot tone={m.license_class === "permissive" ? "ok" : "warn"}>
@@ -348,6 +387,7 @@ function HubBrowser({ mac, onClose, onAdded }: { mac: boolean; onClose: () => vo
             )}
             {repo && (
               <>
+                <ModelMeaning name={repo.repo.model.id} />
                 <p>
                   <StatusDot tone={restricted ? "warn" : "ok"}>
                     {t("Licence: {licence}", {
@@ -394,7 +434,10 @@ function HubBrowser({ mac, onClose, onAdded }: { mac: boolean; onClose: () => vo
                     <tbody>
                       {repo.files.map((f) => (
                         <tr key={f.path}>
-                          <td className="mono">{f.path}</td>
+                          <td>
+                            <span className="mono">{f.path}</span>
+                            <ModelTags name={f.path} only="compression" />
+                          </td>
                           <td className="num">{fmtBytes(f.size_bytes)}</td>
                           <td>
                             <StatusDot tone={FIT[f.fit].tone}>{t(FIT[f.fit].label)}</StatusDot>

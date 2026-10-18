@@ -20,7 +20,18 @@ If you want OpenBark to record how each client consented (out loud, a signed for
 
 OpenBark transcribes and writes notes with models that run on your computer. If they aren't there yet, the **Record** screen shows **Download the models to start** with the total size (about 6 GB). Choose **Download everything**. The smallest models download first, the computer stays awake, and an interrupted download resumes when you choose **Try again**. After this, OpenBark works offline.
 
-The **Models** screen lists every model, its size and licence, and whether it fits your computer's memory. You can browse Hugging Face for other note-writing models there. On a Mac, models converted for Apple's MLX framework are marked **MLX optimized** (see [ADR-0009](../adr/0009-mlx-on-mac.md)); OpenBark runs the GGUF builds, on the Mac's graphics chip.
+The **Models** screen lists every model, its size and licence, and whether it fits your computer's memory. **What the model names mean** at the top explains the labels in plain words, and says which model suits your computer:
+
+| In a name | Means |
+|---|---|
+| 2B, 4B, 12B, 27B | The model's size, in billions of parameters. Bigger is more careful with long or complicated visits, but slower and needs more memory. |
+| E2B, E4B | Gemma's efficient sizes: they run like a 2B or 4B model but know a little more. E4B is the everyday choice. |
+| it, instruct | Trained to follow instructions. Note writing needs these; skip models marked base or pt. |
+| Q4_0, Q4_K_M, Q8_0, 4-bit | How much the file is compressed. 4-bit is about a quarter of the size with a small loss, and is the usual choice. |
+| QAT | Trained to be compressed: a 4-bit file with nearly full quality. Prefer it when offered. |
+| GGUF, MLX | File formats. OpenBark runs GGUF; MLX is Apple's format (labelled on a Mac). |
+
+As a rule of thumb: older laptops, Gemma 4 E2B (about 3 GB); most laptops, E4B (about 5 GB); a graphics card with 10 GB or more, or a Mac with 24 GB or more, 12B (about 7 GB). Every model name in the app and in the Hugging Face browser shows these labels; rest on one to read its meaning. You can browse Hugging Face for other note-writing models there. On a Mac, models converted for Apple's MLX framework are marked **MLX optimized** (see [ADR-0009](../adr/0009-mlx-on-mac.md)); OpenBark runs the GGUF builds, on the Mac's graphics chip.
 
 ## Settings to set up first
 

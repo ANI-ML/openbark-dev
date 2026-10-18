@@ -465,6 +465,26 @@ button.turn-text:hover { color: var(--ink); }
 .hub-row:active { transform: scale(0.99); }
 .hub-name { font-weight: 500; overflow-wrap: anywhere; }
 .hub-meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.model-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.model-tag { min-height: 22px; padding: 1px 8px; font-family: var(--font-mono); font-size: 0.75rem; cursor: help; }
+.model-meaning, .legend { display: grid; gap: 8px 16px; margin: 0; }
+.model-meaning > div, .legend > div { display: grid; grid-template-columns: minmax(96px, 200px) 1fr; gap: 12px; align-items: baseline; }
+.model-meaning dd, .legend dd { margin: 0; color: var(--ink-2); }
+.legend dt, .model-meaning dt { font-size: 0.8125rem; color: var(--ink); }
+@media (max-width: 640px) { .model-meaning > div, .legend > div { grid-template-columns: 1fr; gap: 2px; } }
+.model-guide > summary { display: flex; flex-direction: column; gap: 2px; cursor: pointer; list-style: none; }
+.model-guide > summary::-webkit-details-marker { display: none; }
+.model-guide > summary h2::after { content: ""; display: inline-block; width: 7px; height: 7px; margin-left: 10px; border-right: 2px solid var(--ink-3); border-bottom: 2px solid var(--ink-3); transform: translateY(-3px) rotate(45deg); transition: transform var(--dur-fast) var(--ease); }
+.model-guide[open] > summary h2::after { transform: translateY(0) rotate(225deg); }
+.model-guide[open] > summary { margin-bottom: 4px; }
+.model-guide > .legend, .model-guide > .ob-notice { margin: 8px 0; }
+.model-guide > h3 { margin-top: 12px; }
+.starters { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.starters li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); }
+.starters li[data-recommended] .starter-repo { color: var(--accent); font-weight: 600; }
+.starter-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.starter-repo { overflow-wrap: anywhere; }
+.hub-starters { display: flex; flex-direction: column; gap: 6px; }
 .mlx-chip { background: var(--accent-soft); color: var(--ink); font-size: 0.75rem; font-weight: 500; }
 .accept { align-items: flex-start; }
 a { color: var(--accent); }
@@ -657,3 +677,6 @@ p > .ob-dot { display: inline-block; vertical-align: middle; }
 .other-pet-row { display: flex; gap: 4px; align-items: center; }
 .other-pet-row .ob-input { flex: 1; min-width: 0; }
 .add-pet { align-self: flex-start; }
+
+/* Tables: numbers and chips never break across lines. */
+.ob-table td.num, .ob-table .ob-chip { white-space: nowrap; }
