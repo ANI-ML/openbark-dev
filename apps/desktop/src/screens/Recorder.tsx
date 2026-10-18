@@ -3,7 +3,7 @@ import { UploadSimple } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import { fmtTime, useApp } from "../context";
 import * as engine from "../engine";
-import { useT } from "../i18n";
+import { templateName, useT } from "../i18n";
 import { ConsentStep } from "../components/ConsentStep";
 import { PatientFields } from "../components/PatientFields";
 import { SetupPanel } from "../components/SetupPanel";
@@ -225,7 +225,7 @@ export function Recorder() {
                 .filter((x) => x.document !== "client")
                 .map((x) => (
                   <option key={x.id} value={x.id}>
-                    {x.name}
+                    {templateName(t, x.name)}
                   </option>
                 ))}
             </select>

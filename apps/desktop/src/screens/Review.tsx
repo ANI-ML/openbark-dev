@@ -10,7 +10,7 @@ import { TranscriptList } from "../components/TranscriptList";
 import { fmtTime, useApp } from "../context";
 import { copyToClipboard, formatNote } from "../copyFormats";
 import * as engine from "../engine";
-import { useT } from "../i18n";
+import { templateName, useT } from "../i18n";
 
 /** DESIGN.md §6 Review: slim top bar, 2fr/3fr transcript | note, output row. */
 /** `draftTemplate`: draft now with this template (from "Try on an encounter"). */
@@ -294,7 +294,7 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
         </div>
         <div className="review-actions">
           {signed || templates.length === 0 ? (
-            <span className="ob-chip">{template?.name ?? t("No draft")}</span>
+            <span className="ob-chip">{template ? templateName(t, template.name) : t("No draft")}</span>
           ) : (
             <select
               className="ob-select template-pick"
@@ -307,7 +307,7 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
                 .filter((x) => x.document !== "client")
                 .map((x) => (
                   <option key={x.id} value={x.id}>
-                    {x.name}
+                    {templateName(t, x.name)}
                   </option>
                 ))}
             </select>
@@ -503,7 +503,7 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
                     <ArrowClockwise size={20} aria-hidden />
                     {chosen === template?.id
                       ? t("Draft again")
-                      : t("Draft as {name}", { name: templates.find((x) => x.id === chosen)?.name ?? chosen })}
+                      : t("Draft as {name}", { name: templateName(t, templates.find((x) => x.id === chosen)?.name ?? chosen) })}
                   </Button>
                 )}
                 {templates
@@ -517,7 +517,7 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
                         disabled={drafting != null || generating}
                         onClick={() => (has ? setOpenDoc(x.id) : void draftDocument(x.id))}
                       >
-                        {x.name}
+                        {templateName(t, x.name)}
                       </Button>
                     );
                   })}

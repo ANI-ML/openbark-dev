@@ -27,11 +27,31 @@ INDIRECT = [
     "Theme", "System", "Light", "Dark",
     # UserPicker ROLE_LABEL
     "Veterinarian", "Technician", "Reception",
+    # Built-in template names (templateName() in src/i18n.ts)
+    "SOAP note", "Callback note", "Discharge instructions", "Client summary",
 ]
 
 
+STRING = re.compile(r'"((?:[^"\\]|\\.)*)"')
+
+
+def help_topics() -> set[str]:
+    """Titles, summaries and steps of the Help screen (rendered with t())."""
+    path = os.path.join(ROOT, "screens", "Help.tsx")
+    with io.open(path, encoding="utf-8") as f:
+        src = f.read()
+    block = src[src.index("export const HELP_TOPICS"):src.index("] as const;")]
+    out = set()
+    for line in block.splitlines():
+        if line.strip().startswith("id:"):
+            continue
+        for m in STRING.finditer(line):
+            out.add(json.loads(f'"{m.group(1)}"'))
+    return out
+
+
 def main() -> None:
-    keys = set(INDIRECT)
+    keys = set(INDIRECT) | help_topics()
     for folder, _, files in os.walk(ROOT):
         for name in files:
             if not name.endswith((".ts", ".tsx")) or ".test." in name:

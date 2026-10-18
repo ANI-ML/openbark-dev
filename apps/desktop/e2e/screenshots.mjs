@@ -42,7 +42,7 @@ for (const v of variants) {
     if (overflow) errors.push(`${screen}: horizontal scroll at ${window.innerWidth}px`);
   };
   // Navigate by position so every interface language works: Record, Encounters, Templates, Models, Settings.
-  const NAV = { Record: 0, Encounters: 1, Templates: 2, Models: 3, Settings: 4 };
+  const NAV = { Record: 0, Encounters: 1, Templates: 2, Models: 3, Settings: 4, Help: 5 };
   const nav = async (screen) => {
     await page.locator(".nav-item").nth(NAV[screen]).click();
     await page.locator(".screen h1").first().waitFor();
@@ -141,6 +141,10 @@ for (const v of variants) {
 
   await nav("Settings");
   await shot("settings");
+
+  await nav("Help");
+  await page.locator(".help-video").waitFor();
+  await shot("help");
 
   console.log(`${v.name}: ${errors.length ? errors.join(" | ") : "no console errors, no horizontal scroll"}`);
   await ctx.close();

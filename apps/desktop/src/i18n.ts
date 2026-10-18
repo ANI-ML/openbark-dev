@@ -31,6 +31,12 @@ export function translate(lang: string, text: string, vars?: Vars): string {
   return vars ? out.replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? String(vars[k]) : m)) : out;
 }
 
+/** Built-in templates' names are translated; a team's own names are shown as written. */
+const BUILTIN_TEMPLATE_NAMES = new Set(["SOAP note", "Callback note", "Discharge instructions", "Client summary"]);
+export function templateName(t: (text: string) => string, name: string): string {
+  return BUILTIN_TEMPLATE_NAMES.has(name) ? t(name) : name;
+}
+
 /** `t("Record")`, `t("Signed by {name}", { name })` in the current app language. */
 export function useT() {
   // Outside the app (component tests) everything is English.

@@ -2,7 +2,7 @@ import { Button } from "@openbark/ui";
 import { ArrowClockwise, Copy, FilePdf, X } from "@phosphor-icons/react";
 import { useEffect } from "react";
 import type { DocumentView } from "../engine";
-import { useT } from "../i18n";
+import { templateName, useT } from "../i18n";
 import { NoteView } from "./NoteView";
 
 export interface DocumentSheetProps {
@@ -28,13 +28,14 @@ export function DocumentSheet({ doc, busy, progress, onCopy, onPdf, onRedraft, o
   }, [onClose]);
 
   const ready = Boolean(doc.run && doc.template);
+  const name = templateName(t, doc.name);
   return (
     <>
       <div className="ob-backdrop" onClick={onClose} />
-      <aside className="ob-sheet" role="dialog" aria-modal="true" aria-label={doc.name}>
+      <aside className="ob-sheet" role="dialog" aria-modal="true" aria-label={name}>
         <header className="sheet-head">
           <div>
-            <h2>{doc.name}</h2>
+            <h2>{name}</h2>
             <span className="small faint mono">{doc.created_at}</span>
           </div>
           <button type="button" className="icon-btn" aria-label={t("Close")} onClick={onClose}>
@@ -44,7 +45,7 @@ export function DocumentSheet({ doc, busy, progress, onCopy, onPdf, onRedraft, o
         <div className="sheet-body">
           <p className="ob-notice">{t("For the client. Read it through before handing it over: it's a draft written from the visit.")}</p>
           {busy && (
-            <div className="ob-progress" role="progressbar" aria-label={t("Drafting {name}", { name: doc.name })}>
+            <div className="ob-progress" role="progressbar" aria-label={t("Drafting {name}", { name })}>
               <span style={{ transform: `scaleX(${progress})` }} />
             </div>
           )}
