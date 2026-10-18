@@ -46,7 +46,7 @@ sysinfo = "0.39.6"
 # GPU speech pack archives (ADR-0014); the versions already in Cargo.lock.
 bzip2 = "=0.5.2"
 tar = "=0.4.46"
-zip = { version = "=2.6.1", default-features = false, features = ["deflate"] }
+zip = { version = "=9.0.1", default-features = false, features = ["deflate"] }
 minijinja = { version = "3.0.1", features = ["serde", "json", "loop_controls", "preserve_order"] }
 minijinja-contrib = { version = "3.0.1", features = ["pycompat"] }
 indicatif = "0.18.6"
