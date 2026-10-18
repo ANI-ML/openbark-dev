@@ -5,6 +5,7 @@ import { fmtTime, useApp } from "../context";
 import * as engine from "../engine";
 import { ConsentStep } from "../components/ConsentStep";
 import { PatientFields } from "../components/PatientFields";
+import { SetupPanel } from "../components/SetupPanel";
 import { TranscriptList } from "../components/TranscriptList";
 
 type State = "idle" | "consent" | "starting" | "recording" | "stopping" | "importing";
@@ -124,7 +125,7 @@ export function Recorder() {
           : state === "importing"
             ? "Transcribing the recording"
             : missing.length
-              ? "Download the models in Models before recording."
+              ? "Download the models above to start recording."
               : "Press the button or Space to start recording.";
 
   return (
@@ -150,6 +151,16 @@ export function Recorder() {
           <p className="small faint">Saved with the encounter and time-stamped. Optional: you can add or change these later.</p>
         </aside>
         <section className="recorder-center" aria-label="Recorder">
+          {missing.length > 0 && state === "idle" && (
+            <SetupPanel
+              missing={missing}
+              onReady={() => {
+                app.refreshStatus();
+                app.toast("Models ready");
+                app.announce("Models downloaded. Ready to record.");
+              }}
+            />
+          )}
           {state === "consent" && (
             <ConsentStep
               rule={app.settings.consentRule}
