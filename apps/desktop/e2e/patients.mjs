@@ -70,9 +70,9 @@ for (const v of variants) {
   await shot("patients-filtered");
   await page.locator(".patient-filter input").fill("");
 
-  // Recent visits: the day's table.
+  // Recent visits: the day's table (stacked rows on phones).
   await page.locator(".patients-bar .ob-segment").nth(1).click();
-  await page.locator("tr.row-link").first().waitFor();
+  await page.locator(".row-link").first().waitFor();
   await shot("recent-visits");
   await page.locator(".patients-bar .ob-segment").nth(0).click();
 

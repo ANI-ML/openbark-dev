@@ -29,7 +29,9 @@ const SUGGESTIONS = [
 
 /**
  * Re-prompt one heading: say what should change, optionally keep the
- * request as a standard for this heading in the template.
+ * request as a standard for this heading in the template. The redrafting
+ * board inside carries the screen's one accent, so saved standards are
+ * marked with a neutral dot (docs/brand/DESIGN.md §3.5).
  */
 export function RefinePanel({
   title,
@@ -124,7 +126,7 @@ export function RefinePanel({
               box.current?.focus();
             }}
           >
-            {saved.has(c.toLowerCase()) && <span className="ob-dot" data-tone="accent" aria-label={t("Standard")} />}
+            {saved.has(c.toLowerCase()) && <span className="ob-dot" aria-label={t("Standard")} />}
             {c}
           </button>
         ))}

@@ -1,0 +1,109 @@
+name: Bug report
+description: Something in OpenBark doesn't work as it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for taking the time to report this.
+
+        **Never attach real patient or client data.** Issues are public. Don't include real recordings, transcripts, notes, screenshots, logs, names or clinic details. If you need to show the problem, use the synthetic consults in `packages/eval/fixtures` or make up an example, and remove names and clinical details from any error message.
+
+        **Security problems** go to the private channel in [SECURITY.md](https://github.com/ANI-ML/openbark/blob/main/SECURITY.md), not here.
+  - type: checkboxes
+    id: no-real-data
+    attributes:
+      label: Before you submit
+      options:
+        - label: This report contains no real patient or client data, and no real recordings, transcripts or notes.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What went wrong, in a sentence or two.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: What you did, step by step, so we can make it happen too.
+      placeholder: |
+        1. Open Record and choose the New consult template
+        2. Import a recording (a synthetic one, such as packages/eval/fixtures/audio/smoke.wav)
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where it happens
+      options:
+        - Recording or importing
+        - Transcription
+        - Drafting the note
+        - Review, editing or signing
+        - Patients and visits
+        - Templates
+        - Client documents, copying or PDF
+        - Models screen and downloads
+        - Settings, team or encryption
+        - Installing or uninstalling
+        - Building from source
+        - Website
+        - Something else
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Windows 10 or 11
+        - macOS (Apple silicon)
+        - Linux (.deb)
+        - Linux (.rpm)
+        - Linux (AppImage)
+        - Browser version (openbark serve)
+        - Built from source
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The installer file name (such as OpenBark_0.0.1_x64-setup.exe), or the commit you built from.
+    validations:
+      required: true
+  - type: input
+    id: hardware
+    attributes:
+      label: Computer
+      description: Memory and graphics card, if you know them. Speed and model problems often depend on these.
+      placeholder: 16 GB memory, NVIDIA RTX 3060 12 GB
+  - type: input
+    id: models
+    attributes:
+      label: Models
+      description: The note model and speech model in use, as shown on the Models screen.
+      placeholder: Gemma 4 E4B, Parakeet TDT 0.6B v3
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error messages
+      description: Any error message or log lines, with names and clinical details removed.
+      render: text
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else
+      description: Anything that might help, such as whether it happens every time or only sometimes.

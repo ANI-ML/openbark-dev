@@ -8,7 +8,7 @@
     },
     {
       "value": "91%",
-      "label": "of facts captured in SOAP notes (40 of 44) at the end of M1, with the optional second recogniser installed, up from 75%",
+      "label": "of facts captured in SOAP notes (40 of 44) in the first round of testing, with the optional second recogniser installed, up from 75%",
       "source": "docs/eval/M1.md table, Gemma 4 E4B on synthetic consults"
     },
     {
@@ -178,20 +178,20 @@
           "name": "Dictation and spoken corrections",
           "benefit": "Vets will be able to dictate a correction over an ambient draft.",
           "detail": "Dictation and a hybrid mode are in the product brief. 'Dictate correction' in the note editor is listed as not built yet.",
-          "evidence": "OPENSCRIBE_CLAUDE_CODE_PROMPT.md section 2.2; docs/design/STATUS.md 'Not yet'",
+          "evidence": "the product brief section 2.2; docs/design/STATUS.md 'Not yet'",
           "status": "coming"
         },
         {
           "name": "Pause and bookmarks",
           "benefit": "Pause a recording and mark important moments during a consult.",
           "detail": "The brief asks for pause and resume and 'mark moment' bookmarks. The Recorder design puts bookmarks in the side panel.",
-          "evidence": "OPENSCRIBE_CLAUDE_CODE_PROMPT.md section 5; docs/design/DESIGN.md section 6 Recorder",
+          "evidence": "the product brief section 5; docs/design/DESIGN.md section 6 Recorder",
           "status": "coming"
         },
         {
           "name": "Phone recording with the screen locked",
           "benefit": "A phone in the exam room could record a full consult in the background without going to sleep.",
-          "detail": "A test is designed for iPhone and Android background recording: it must lose no more than 0.5% of audio over a 15-minute locked-screen run and still produce a note. It hasn't been run yet.",
+          "detail": "A test is designed for iPhone and Android background recording: it must lose no more than 0.5% of audio over a 15-minute locked-screen run, with the transcript written on the phone as it records. It hasn't been run yet.",
           "evidence": "docs/spikes/S1-mobile-audio-and-inference.md; engine/os-engine/src/awake.rs",
           "status": "coming"
         }
@@ -576,8 +576,8 @@
         {
           "name": "Validation in clinics",
           "benefit": "OpenBark will be checked in real clinics before it is offered for clinical use.",
-          "detail": "OpenBark is pre-alpha today. Every figure on this page comes from scripted test consults voiced on a computer, or from developer machines.",
-          "evidence": "README.md ('Status: pre-alpha ... hasn't been validated for clinical use yet'); packages/eval/fixtures/",
+          "detail": "OpenBark is in beta today. Every figure on this page comes from scripted test consults voiced on a computer, or from developer machines.",
+          "evidence": "README.md ('Status: beta ... hasn't been validated for clinical use yet'); packages/eval/fixtures/",
           "status": "coming"
         }
       ]
@@ -598,7 +598,7 @@
           "name": "No telemetry, licence server or cloud fallback",
           "benefit": "Nothing about the clinic or its patients is collected, and nothing phones home.",
           "detail": "There is no analytics, crash reporting, update check, licence server or fallback to a cloud model.",
-          "evidence": "docs/network.md 'Nothing else at run time'; OPENSCRIBE_CLAUDE_CODE_PROMPT.md section 3",
+          "evidence": "docs/network.md 'Nothing else at run time'; the product brief section 3",
           "status": "shipped"
         },
         {
@@ -758,8 +758,8 @@
         {
           "name": "Optional end-to-end encrypted sync",
           "benefit": "A vet's notes, templates and settings could follow them across devices without the server being able to read them.",
-          "detail": "The proposed design is opt-in and off by default, encrypted on the device with a key the server never holds, and audio never syncs. It could be self-hosted.",
-          "evidence": "docs/adr/0005-optional-cloud-sync.md (status proposed); docs/network.md 'Planned'",
+          "detail": "The accepted design is opt-in and off by default, encrypted on the device with keys the server never holds, and carries transcripts and notes only: recordings never leave the device that recorded them. It could be self-hosted. It hasn't been built yet.",
+          "evidence": "docs/adr/0017-accounts-and-encrypted-sync.md; docs/adr/0005-optional-cloud-sync.md; docs/network.md 'Planned'",
           "status": "coming"
         },
         {
@@ -983,14 +983,14 @@
           "name": "Notes straight from audio (experiment)",
           "benefit": "A future option could write notes from audio without a separate transcription step.",
           "detail": "An audio-capable model would run as an experiment. It stays only if it comes within 10% of Parakeet's word error rate.",
-          "evidence": "docs/spikes/S2-native-linking.md configuration C; OPENSCRIBE_CLAUDE_CODE_PROMPT.md section 4.4",
+          "evidence": "docs/spikes/S2-native-linking.md configuration C; the product brief section 4.4",
           "status": "coming"
         },
         {
           "name": "Structured research output",
           "benefit": "Problem lists, diagnoses and medications could be exported as data for registries and quality review.",
           "detail": "Optional structured data alongside the written note is one of the product brief's goals.",
-          "evidence": "OPENSCRIBE_CLAUDE_CODE_PROMPT.md section 2.3 item 8",
+          "evidence": "the product brief section 2.3 item 8",
           "status": "coming"
         }
       ]
@@ -1046,7 +1046,7 @@
           "name": "Practice system integration",
           "benefit": "Notes could go straight into ezyVet, Instinct, Shepherd, Digitail and others.",
           "detail": "Planned: a browser extension for web-based practice systems, an ezyVet connector, clipboard presets for desktop systems, and HL7v2 and FHIR R4 exports.",
-          "evidence": "OPENSCRIBE_CLAUDE_CODE_PROMPT.md sections 4.6 and 6 (M3)",
+          "evidence": "the product brief sections 4.6 and 6 (M3)",
           "status": "coming"
         }
       ]
@@ -1102,7 +1102,7 @@
           "name": "Clinic Hub",
           "benefit": "One clinic computer could serve phones and thin laptops across the clinic network.",
           "detail": "Planned: discovery on the clinic network, pairing by QR code, encrypted connections, a shared clinic store, an audit log and an admin dashboard. It would stay off unless Hub mode is switched on.",
-          "evidence": "OPENSCRIBE_CLAUDE_CODE_PROMPT.md sections 4.7 and 6 (M4); docs/network.md 'Planned' M4",
+          "evidence": "the product brief sections 4.7 and 6 (M4); docs/network.md 'Planned' M4",
           "status": "coming"
         }
       ]
@@ -1305,7 +1305,7 @@
           "name": "Model slots, profiles and your own model server",
           "benefit": "Clinics could swap each model separately or use a model server they already run.",
           "detail": "Planned: separate slots for transcription, notes, fast edits and speakers, profiles such as 'Laptop, balanced', and an optional OpenAI-compatible server. It would be off by default, clearly labelled and never a silent fallback.",
-          "evidence": "OPENSCRIBE_CLAUDE_CODE_PROMPT.md section 4.3; docs/network.md 'Planned'",
+          "evidence": "the product brief section 4.3; docs/network.md 'Planned'",
           "status": "coming"
         }
       ]
@@ -1478,16 +1478,16 @@
         },
         {
           "name": "Phone apps",
-          "benefit": "iPhone and Android apps could record and draft on the device or through the Clinic Hub.",
-          "detail": "A test of background recording and on-phone models is designed with pass and fail criteria. No phone app has been built or tested yet.",
-          "evidence": "docs/spikes/S1-mobile-audio-and-inference.md; OPENSCRIBE_CLAUDE_CODE_PROMPT.md section 6 (M4)",
+          "benefit": "An iPhone app could record and transcribe the consult on the phone, with the note drafted on a computer. Android could follow.",
+          "detail": "The iPhone app is designed: recording and transcription run on the phone, and drafting stays on computers. A test of background recording on the phone is designed with pass and fail criteria. No phone app has been built or tested yet.",
+          "evidence": "docs/adr/0018-iphone-app.md; docs/plans/M3.md; docs/spikes/S1-mobile-audio-and-inference.md",
           "status": "coming"
         },
         {
           "name": "Web app with models in the browser",
           "benefit": "A browser-only version could run Gemma 4 with WebGPU.",
           "detail": "A browser test and an installable web app are scheduled for a later milestone (M5).",
-          "evidence": "docs/plans/M0.md item 6 (S3); OPENSCRIBE_CLAUDE_CODE_PROMPT.md section 6 (M5)",
+          "evidence": "docs/plans/M0.md item 6 (S3); the product brief section 6 (M5)",
           "status": "coming"
         }
       ]
@@ -1855,10 +1855,10 @@
           "status": "shipped"
         },
         {
-          "name": "Source published with the public beta",
+          "name": "Source code on GitHub",
           "benefit": "Anyone will be able to read, check and build the code.",
-          "detail": "The repository is private while OpenBark is pre-alpha. The source will be published under Apache-2.0 with the public beta.",
-          "evidence": "README.md ('Status: pre-alpha'); LICENSE",
+          "detail": "The source will be public on GitHub under the Apache-2.0 licence, so any clinic or developer can inspect it, build it and improve it.",
+          "evidence": "LICENSE; website/README.md",
           "status": "coming"
         },
         {
@@ -1886,154 +1886,14 @@
     }
   ],
   "built_together": {
-    "intro": "OpenBark is being built by a veterinarian, the product owner, working together with Claude, Anthropic's AI. The veterinarian sets the direction and makes the clinical and product calls; Claude writes the code, tests and documents, measures changes to speed and note quality, and reports back. Every number below was counted from the repository on 2026-10-18.",
-    "stats": [
-      {
-        "value": "30+",
-        "label": "commits in the first two days, 17 and 18 October 2026",
-        "source": "git rev-list --count HEAD; git log --reverse (bb8ae01 to 3888f20, times -0400)"
-      },
-      {
-        "value": "61,991",
-        "label": "lines added across 891 file changes (5,462 removed)",
-        "source": "git log --shortstat summed over all commits (5,383 lines removed)"
-      },
-      {
-        "value": "12",
-        "label": "architecture decision records",
-        "source": "ls docs/adr (0001 and 0004 to 0014; 0000 is the template)"
-      },
-      {
-        "value": "162",
-        "label": "automated tests: 119 for the engine and 43 for the interface, plus 8 browser-driven scripts",
-        "source": "grep -c '#[test]' and '#[tokio::test]' in engine/ and tools/ (118 + 1); it/test cases in 14 *.test.ts(x) files (43); ls apps/desktop/e2e/*.mjs (8)"
-      },
-      {
-        "value": "17,994",
-        "label": "lines of Rust in 53 files, and 12,881 of TypeScript",
-        "source": "git ls-files '*.rs' | xargs cat | wc -l; the same for '*.ts' '*.tsx' plus 2 new components"
-      },
-      {
-        "value": "2,892",
-        "label": "translated interface strings: 723 in each of 4 languages, with English as the fifth",
-        "source": "packages/i18n/i18n-{de,es,fr,pt}.json (745 keys each)"
-      },
-      {
-        "value": "20",
-        "label": "built-in templates",
-        "source": "ls packages/templates (20 folders)"
-      },
-      {
-        "value": "296",
-        "label": "veterinary vocabulary terms, 168 of them drugs",
-        "source": "packages/vocab/veterinary.tsv, counted by kind"
-      },
-      {
-        "value": "7",
-        "label": "help videos recorded by driving the real app",
-        "source": "apps/desktop/public/help/*.webm (26,477,487 bytes in all)"
-      },
-      {
-        "value": "14",
-        "label": "synthetic test consults, 36 minutes of audio from 13 scripts, plus 3 example clinic notes",
-        "source": "packages/eval/fixtures/audio/*.wav (35.98 minutes by frame count); fixtures/scripts/*.yaml; fixtures/example-notes/"
-      },
-      {
-        "value": "107",
-        "label": "review agents, whose findings gave 30 confirmed fixes",
-        "source": "commit 3888f20 message; each fix confirmed by a majority of 3 sceptical agents and re-verified"
-      },
-      {
-        "value": "10",
-        "label": "pinned models, and 706 locked Rust packages",
-        "source": "engine/os-models/catalog.json; grep -c '[[package]]' Cargo.lock"
-      },
-      {
-        "value": "41,297",
-        "label": "words of documentation",
-        "source": "git ls-files '*.md' | xargs cat | wc -w"
-      }
-    ],
-    "milestones": [
-      {
-        "when": "2026-10-17 14:49",
-        "what": "The plan for the first milestone was approved and the repository started: the OpenBark name, two technical test designs, versions checked live and pinned, and the Apache-2.0 licence.",
-        "evidence": "commit bb8ae01; docs/plans/M0.md"
-      },
-      {
-        "when": "2026-10-17 17:35",
-        "what": "A working offline pipeline: llama.cpp and sherpa-onnx with the faithfulness check, the command line and browser version, the desktop app, the first decision records, the performance report and CI.",
-        "evidence": "commits 4b23fd8, c46c040, 116ac57, b496a2b"
-      },
-      {
-        "when": "2026-10-17 18:26",
-        "what": "Live recording with a live transcript and speaker labels, browser microphone recording, the design system, the Hugging Face browser and signing.",
-        "evidence": "commit 81d49c6"
-      },
-      {
-        "when": "2026-10-17 19:10",
-        "what": "The evaluation harness and vocabulary hints arrived, then the second listen on numbers, templates built from headings and team standards; SOAP notes reached 40 of 44 facts with 0 invented numbers.",
-        "evidence": "commits 591ad1b, 837f400, f38ea78, f7fbc20; docs/eval/M1.md"
-      },
-      {
-        "when": "2026-10-17 21:20",
-        "what": "Hand edits and signed addenda, the consent step, callback and client document templates, phone recording imports and first-run downloads.",
-        "evidence": "commits b8e12ec, 84f000c, d62fec9, 86d8e1b, 8f9be0f"
-      },
-      {
-        "when": "2026-10-17 23:13",
-        "what": "Interface languages, the consent notice, PDF export and copy formats, encryption at rest for every visit file, and team roles with PINs.",
-        "evidence": "commits d51a23c, 5e357a6, 9ce6219; docs/adr/0008-encryption-at-rest.md"
-      },
-      {
-        "when": "2026-10-18 00:21",
-        "what": "The user guide and in-app help with walkthrough videos.",
-        "evidence": "commit 6e1ed70"
-      },
-      {
-        "when": "2026-10-18 02:11",
-        "what": "The specialty template library, claim-level checks, multi-pet visits, client documents in the client's language and MLX labels.",
-        "evidence": "commit 299313c; docs/plans/M2.md; docs/eval/M2.md"
-      },
-      {
-        "when": "2026-10-18 09:00",
-        "what": "Species-only headings and templates from an example note, then the Apple-style design refresh, visit types with icons and the plain-language model guide.",
-        "evidence": "commits a06874e, f951cbf, 6408787, 82953de; docs/adr/0010-apple-style-refresh.md"
-      },
-      {
-        "when": "2026-10-18 09:51",
-        "what": "Importing almost any recording, including WebM, Opus, AIFF, MKV and video files, with clearer errors.",
-        "evidence": "commit 75dc765"
-      },
-      {
-        "when": "2026-10-18 10:14",
-        "what": "Point-and-click installers and uninstallers, then patients with their visits.",
-        "evidence": "commits 9e11fdd, bf60de8; docs/adr/0012-point-and-click-installers.md; docs/adr/0011-patients-and-visits.md"
-      },
-      {
-        "when": "2026-10-18 11:43",
-        "what": "Progress bars, choosing where data is kept, faster transcription and re-recorded help videos.",
-        "evidence": "commit 4dd018e; docs/adr/0013-choose-where-data-is-kept.md"
-      },
-      {
-        "when": "2026-10-18 13:10",
-        "what": "The NVIDIA speech pack (import 152 s to 43 s), Reprocess a visit, and 30 fixes confirmed by a 107-agent review.",
-        "evidence": "commit 3888f20; docs/adr/0014-gpu-speech-recognition.md"
-      },
-      {
-        "when": "2026-10-18",
-        "what": "Loading boards with named steps for importing and drafting, and notes written in the template's heading order.",
-        "evidence": "apps/desktop/src/components/ProgressBoard.tsx; apps/desktop/src/components/DraftProgress.tsx; engine/os-engine/src/template.rs test schema_keeps_the_templates_heading_order (after commit 3888f20)"
-      }
-    ],
+    "intro": "OpenBark is built by the ANI.ML Health team, with veterinary input on every clinical decision. The aim is a scribe any clinic can trust: free, local and checkable.",
     "practices": [
       "Every significant decision is written up as an architecture decision record, with the alternatives and their consequences.",
-      "Every network call the app can make is listed with what it sends and how to stop it, and CI fails if any Rust part of the app other than the model downloader depends on a web-client library.",
-      "Dependency and model versions were checked against their registries and pinned to exact versions or commits.",
+      "Every network call the app can make is listed with what it sends and how to stop it.",
+      "Dependency and model versions are checked against their registries and pinned to exact versions.",
       "Changes to speed or note quality are measured before and after, with zero invented numbers required every time.",
-      "A large change was reviewed by 107 independent agents, and each finding was checked by three sceptical agents before it counted as confirmed.",
-      "Browser tests and help videos run against demo servers with their own isolated data.",
-      "Deleting data is never tested on real clinic data; that path waits for a separate test machine.",
+      "Larger changes go through a multi-stage review, and every finding is checked before it is fixed.",
+      "Tests and help videos run on demo setups with their own made-up data, never real clinic data.",
       "Known weaknesses and pending device tests are published alongside the results."
     ]
   }

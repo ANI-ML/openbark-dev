@@ -1,6 +1,109 @@
-import { useState } from "react";
+import { Button } from "@openbark/ui";
+import { ArrowLeft, Maximize, Pause, Play } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { useApp } from "../context";
 import { useT } from "../i18n";
+
+/** 1:24 */
+function clock(seconds: number): string {
+  const s = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/**
+ * A walkthrough video with a flat play and scrub bar. Chromium's built-in
+ * controls draw a gradient over the frame (§3.5), so they're not used. Until
+ * it's first played, a solid surface covers the frame: the recordings are of
+ * the light theme, and a white first frame would be the brightest thing on a
+ * dark screen (§3.4).
+ */
+function HelpVideo({ src, title }: { src: string; title: string }) {
+  const t = useT();
+  const video = useRef<HTMLVideoElement>(null);
+  const [started, setStarted] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [time, setTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+
+  const toggle = () => {
+    const v = video.current;
+    if (!v) return;
+    if (v.paused || v.ended) void v.play().catch(() => {});
+    else v.pause();
+  };
+
+  return (
+    <figure className="help-player" data-started={started || undefined}>
+      <div className="help-frame">
+        <video
+          ref={video}
+          className="help-video"
+          src={src}
+          preload="metadata"
+          playsInline
+          aria-label={title}
+          onClick={toggle}
+          onPlay={() => {
+            setStarted(true);
+            setPlaying(true);
+          }}
+          onPause={() => setPlaying(false)}
+          onEnded={() => setPlaying(false)}
+          onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
+          onDurationChange={(e) => setDuration(e.currentTarget.duration)}
+          onTimeUpdate={(e) => setTime(e.currentTarget.currentTime)}
+        />
+        {!started && (
+          <div className="help-cover">
+            <Button variant="primary" onClick={toggle}>
+              <Play size={20} aria-hidden />
+              {t("Play video")}
+            </Button>
+            {duration > 0 && <span className="mono faint">{clock(duration)}</span>}
+          </div>
+        )}
+      </div>
+      <div className="help-controls">
+        <Button
+          variant="ghost"
+          size="compact"
+          className="help-control"
+          onClick={toggle}
+          aria-label={playing ? t("Pause video") : t("Play video")}
+        >
+          {playing ? <Pause size={20} aria-hidden /> : <Play size={20} aria-hidden />}
+        </Button>
+        <input
+          type="range"
+          className="help-scrub"
+          min={0}
+          max={duration || 0}
+          step={0.1}
+          value={Math.min(time, duration || 0)}
+          disabled={!duration}
+          aria-label={t("Video position")}
+          aria-valuetext={`${clock(time)} / ${clock(duration)}`}
+          onChange={(e) => {
+            const v = video.current;
+            if (!v) return;
+            v.currentTime = Number(e.target.value);
+            setTime(v.currentTime);
+          }}
+        />
+        <span className="mono faint help-time">{`${clock(time)} / ${clock(duration)}`}</span>
+        <Button
+          variant="ghost"
+          size="compact"
+          className="help-control"
+          onClick={() => void video.current?.requestFullscreen?.().catch(() => {})}
+          aria-label={t("Full screen")}
+        >
+          <Maximize size={20} aria-hidden />
+        </Button>
+      </div>
+    </figure>
+  );
+}
 
 /**
  * Help: short walkthrough videos of the real app (recorded by
@@ -38,7 +141,7 @@ export const HELP_TOPICS = [
     summary: "Enter the patient, press Record, and watch the transcript appear.",
     steps: [
       "On Record, choose Find a patient to pick an animal you've seen before, or enter a new patient's name, the client's last name and the reason for the visit. They're optional and can be added later.",
-      "Choose the kind of visit, then press the red button or Space to start.",
+      "Choose the kind of visit, then press Record or Space to start.",
       "Each sentence appears in the live transcript once it's finished. The audio is saved, encrypted, as you go.",
       "Press the button again to stop. A progress bar shows the transcript being finished, then the note is drafted and opens in Review.",
       "You can also import a recording made elsewhere, such as a phone's call recording. A progress bar shows how far it has got and the time left.",
@@ -97,15 +200,27 @@ export function Help() {
   const t = useT();
   const [open, setOpen] = useState<string>(HELP_TOPICS[0].id);
   const topic = HELP_TOPICS.find((x) => x.id === open) ?? HELP_TOPICS[0];
+  const topics = useRef<HTMLOListElement>(null);
+  // Below 1024 px the topics are one scrolling strip: keep the open one in view.
+  useEffect(() => {
+    topics.current?.querySelector('[aria-current="true"]')?.scrollIntoView?.({ inline: "nearest", block: "nearest" });
+  }, [open]);
 
   return (
     <div className="screen help">
       <header className="screen-head">
-        <h1>{t("Help")}</h1>
+        <div className="head-title">
+          {/* Phones reach Help from Settings: the way back (§9). */}
+          <Button variant="ghost" size="compact" className="back-to-settings" onClick={() => app.navigate({ screen: "settings" })}>
+            <ArrowLeft size={16} aria-hidden />
+            {t("Settings")}
+          </Button>
+          <h1>{t("Help")}</h1>
+        </div>
       </header>
       <div className="help-grid">
         <nav className="help-topics" aria-label={t("Help topics")}>
-          <ol>
+          <ol ref={topics}>
             {HELP_TOPICS.map((x, i) => (
               <li key={x.id}>
                 <button
@@ -124,14 +239,7 @@ export function Help() {
         <article className="help-body">
           <h2>{t(topic.title)}</h2>
           <p className="muted">{t(topic.summary)}</p>
-          <video
-            key={topic.id}
-            className="help-video"
-            src={`help/${topic.id}.webm`}
-            controls
-            preload="metadata"
-            playsInline
-          />
+          <HelpVideo key={topic.id} src={`help/${topic.id}.webm`} title={t(topic.title)} />
           {app.settings.uiLanguage !== "en" && (
             <p className="small faint">{t("The videos are in English; the steps below are in your language.")}</p>
           )}

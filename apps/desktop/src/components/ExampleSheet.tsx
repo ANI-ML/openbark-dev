@@ -1,5 +1,5 @@
 import { Button, Sheet } from "@openbark/ui";
-import { X } from "@phosphor-icons/react";
+import { X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "../context";
 import * as engine from "../engine";

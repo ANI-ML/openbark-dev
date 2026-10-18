@@ -1,14 +1,19 @@
-import { ChatCircleText, Copy, PencilSimple } from "@phosphor-icons/react";
+import { Copy, MessageSquareText, Pencil } from "lucide-react";
 import type { ContentKind, Faithfulness, NoteRun, Template, TemplateField, TemplatePart } from "../engine";
 import { useT } from "../i18n";
 
 /**
- * The structured note with the evidence link (DESIGN.md §1, §5 Note editor):
+ * The structured note with the evidence link:
  * resting on a statement lights its supporting transcript lines; clicking it
  * plays the audio from there. Flags:
- * - number absent from the transcript: Clay left-ruled callout (blocks signing)
- * - value cited to the wrong line, or no valid citation: Amber dotted underline
- * - nothing said: "Not discussed" in Graphite italic, never omitted
+ * - number absent from the transcript: danger left-ruled callout (blocks signing)
+ * - value cited to the wrong line, or no valid citation: warning dotted underline
+ * - nothing said: "Not discussed" in secondary italic, never omitted
+ *
+ * Look (docs/brand/DESIGN.md §4.1, §7.5): the note body is set in the mono
+ * transcript style so it reads as the record; headings (Subjective,
+ * Objective...) are h3 with a 1 px rule beneath; a heading being edited by
+ * hand carries a 2 px accent bar in the left gutter until it's saved.
  *
  * With `onAsk`, every heading and subheading has an Ask action that opens
  * `renderAsk(heading)` beneath it (the re-prompt panel).
@@ -215,7 +220,7 @@ export function NoteView({ template, run, onEvidence, onPlay, onCopySection, onA
         aria-label={t("Ask for changes to {heading}", { heading: title })}
         title={t("Ask the model to redraft this heading")}
       >
-        <ChatCircleText size={16} aria-hidden />
+        <MessageSquareText size={16} aria-hidden />
         {t("Ask")}
       </button>
     );
@@ -229,7 +234,7 @@ export function NoteView({ template, run, onEvidence, onPlay, onCopySection, onA
         aria-label={t("Edit {heading}", { heading: title })}
         title={t("Edit this heading yourself")}
       >
-        <PencilSimple size={16} aria-hidden />
+        <Pencil size={16} aria-hidden />
         {t("Edit")}
       </button>
     );
@@ -255,19 +260,29 @@ export function NoteView({ template, run, onEvidence, onPlay, onCopySection, onA
       </p>
     ));
 
+  /** The heading's content in transcript type, or its editor (accent gutter bar until saved). */
+  const body = (heading: string, kind: ContentKind, defs: TemplateField[] | undefined, value: unknown) => {
+    const editor = renderEdit?.(heading);
+    return editor ? (
+      <div className="note-editing">{editor}</div>
+    ) : (
+      <div className="note-body transcript-type">{content(kind, defs, value, `/${heading}`)}</div>
+    );
+  };
+
   const part = (p: TemplatePart, sectionValue: unknown, sectionId: string) => {
     const value = get(sectionValue, p.key);
     const heading = `${sectionId}/${p.key}`;
     return (
       <div className="note-part" key={p.key}>
         <div className="note-part-head">
-          <h3 className="label">{p.label}</h3>
+          <h4 className="label">{p.label}</h4>
           {editButton(heading, p.label)}
           {askButton(heading, p.label)}
         </div>
         {refinedNote(heading)}
         {renderAsk?.(heading)}
-        {renderEdit?.(heading) || content(p.kind, p.fields, value, `/${heading}`)}
+        {body(heading, p.kind, p.fields, value)}
       </div>
     );
   };
@@ -284,7 +299,7 @@ export function NoteView({ template, run, onEvidence, onPlay, onCopySection, onA
         return (
           <section key={sec.id} id={`note-${sec.id}`} className="note-section">
             <header className="note-section-head">
-              <h2>{sec.title}</h2>
+              <h3>{sec.title}</h3>
               <button
                 type="button"
                 className="ob-button section-tool"
@@ -301,7 +316,7 @@ export function NoteView({ template, run, onEvidence, onPlay, onCopySection, onA
             {refinedNote(sec.id)}
             {renderAsk?.(sec.id)}
             {sec.kind
-              ? renderEdit?.(sec.id) || content(sec.kind, sec.fields, value, `/${sec.id}`)
+              ? body(sec.id, sec.kind, sec.fields, value)
               : (sec.parts ?? []).map((p) => part(p, value, sec.id))}
           </section>
         );

@@ -1,8 +1,8 @@
-import { Button, RecordButton, Waveform } from "@openbark/ui";
+import { Button, MarkMono, RecordButton, Waveform } from "@openbark/ui";
 import { VisitTypePicker } from "../components/VisitTypePicker";
-import { ChatText, UploadSimple } from "@phosphor-icons/react";
+import { ChevronDown, Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { fmtTime, useApp } from "../context";
+import { useApp } from "../context";
 import * as engine from "../engine";
 import { templateName, useT } from "../i18n";
 import { ConsentStep } from "../components/ConsentStep";
@@ -11,10 +11,18 @@ import { PatientPicker } from "../components/PatientPicker";
 import { ProcessingBar } from "../components/ProcessingBar";
 import { SetupPanel } from "../components/SetupPanel";
 import { TranscriptList } from "../components/TranscriptList";
+import { PHONE, useMediaQuery } from "../useMediaQuery";
 
 type State = "idle" | "consent" | "starting" | "recording" | "stopping" | "importing";
 
-/** DESIGN.md §6 Recorder (home): Record button, waveform, elapsed, live transcript. */
+/**
+ * Recorder (home): Record button, waveform, live transcript.
+ * docs/brand/DESIGN.md §7.1: the button reads "Record" when idle,
+ * "Recording · 02:14" while recording and "Writing note…" while a stopped
+ * or imported recording is processed. The live transcript is in the
+ * transcript type (§7.5); the empty transcript follows §7.7 with the mono
+ * mark (the Record button is its one action).
+ */
 export function Recorder({ patientId }: { patientId?: string } = {}) {
   const app = useApp();
   const t = useT();
@@ -25,6 +33,9 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
   const [progress, setProgress] = useState<engine.ProcessingProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [patient, setPatient] = useState<engine.Patient>(engine.emptyPatient);
+  const phone = useMediaQuery(PHONE);
+  /** Phones: the patient fold starts open only when the visit was started from a patient's page. */
+  const [patientOpen, setPatientOpen] = useState(Boolean(patientId));
   // Opened from a patient's page: start with that patient (ADR-0011).
   useEffect(() => {
     if (!patientId) return;
@@ -50,6 +61,8 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
   const [consentFor, setConsentFor] = useState<"record" | "import">("record");
   const recording = useRef<engine.Recording | null>(null);
   const live = state === "recording" || state === "stopping" || state === "importing";
+  /** Stopped or imported: the recording is being turned into a transcript and note. */
+  const processing = state === "stopping" || state === "importing";
 
   useEffect(() => {
     const offs = [
@@ -189,12 +202,23 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
                 ? t("Download the models above to start recording.")
                 : t("Press the button or Space to start recording.");
 
+  const patientForm = (
+    <>
+      <PatientPicker value={patient} onChange={setPatient} disabled={state !== "idle"} />
+      <PatientFields value={patient} onChange={editPatient} disabled={state !== "idle"} />
+      <p className="small faint">
+        {t("Saved with the visit and time-stamped. Optional: you can add or change these later.")}
+      </p>
+    </>
+  );
+  const patientLabel = [patient.name, patient.last_name].filter((x) => x?.trim()).join(" ");
+
   return (
     <div className="screen recorder" tabIndex={-1} onKeyDown={onKeyDown}>
       <header className="screen-head">
         <h1>{t("Record")}</h1>
         <Button variant="ghost" onClick={importFile} disabled={state !== "idle" || missing.length > 0}>
-          <UploadSimple size={20} aria-hidden />
+          <Upload size={20} aria-hidden />
           {t("Import a recording")}
         </Button>
       </header>
@@ -206,16 +230,29 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
       )}
 
       <div className="recorder-grid">
-        <aside className="recorder-patient" aria-label={t("Patient")}>
-          <h2>{t("Patient")}</h2>
-          <PatientPicker value={patient} onChange={setPatient} disabled={state !== "idle"} />
-          <PatientFields value={patient} onChange={editPatient} disabled={state !== "idle"} />
-          <p className="small faint">
-            {t("Saved with the visit and time-stamped. Optional: you can add or change these later.")}
-          </p>
-        </aside>
+        {phone ? (
+          // Phones (§9): the patient folds away so the visit type, transcript and Record come first.
+          <details
+            className="recorder-patient recorder-patient-fold"
+            aria-label={t("Patient")}
+            open={patientOpen}
+            onToggle={(e) => setPatientOpen(e.currentTarget.open)}
+          >
+            <summary>
+              <span className="label">{t("Patient")}</span>
+              {patientLabel && <span className="muted recorder-patient-name">{patientLabel}</span>}
+              <ChevronDown size={20} className="fold-chevron" aria-hidden />
+            </summary>
+            <div className="recorder-patient-body">{patientForm}</div>
+          </details>
+        ) : (
+          <aside className="recorder-patient" aria-label={t("Patient")}>
+            <h2>{t("Patient")}</h2>
+            {patientForm}
+          </aside>
+        )}
         <section
-          className={`recorder-center${state === "importing" || state === "stopping" ? " is-processing" : ""}`}
+          className={`recorder-center${processing ? " is-processing" : ""}`}
           aria-label={t("Recorder")}
         >
           {missing.length > 0 && state === "idle" && (
@@ -247,33 +284,37 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
           />
           <div className="recorder-stage">
             <RecordButton
+              className="recorder-record"
               recording={state === "recording"}
-              busy={state === "starting" || state === "stopping"}
-              disabled={missing.length > 0 || state === "importing"}
+              busy={state === "starting"}
+              processing={processing}
+              disabled={missing.length > 0}
               onToggle={toggle}
-              levels={app.levels}
-              labels={{ start: t("Start recording"), stop: t("Stop recording") }}
+              elapsed={elapsed}
+              labels={{
+                start: t("Start recording"),
+                stop: t("Stop recording"),
+                idle: t("Record"),
+                recording: t("Recording"),
+                processing: t("Writing note…"),
+              }}
             />
             <div className="recorder-meta">
-              <span className="mono elapsed" aria-label={t("Elapsed time")}>
-                {fmtTime(elapsed)}
-              </span>
               <span className="small muted">{statusLine}</span>
             </div>
-            <Waveform levels={app.levels} bars={48} className={`stage-wave ${live ? "wave-live" : "wave-idle"}`} />
-            {(state === "importing" || state === "stopping") && (
+            <Waveform levels={app.levels} bars={48} active={live} className={`stage-wave ${live ? "wave-live" : "wave-idle"}`} />
+            {processing && (
               <ProcessingBar progress={progress} mode={state === "importing" ? "import" : "finish"} />
             )}
           </div>
           <div className="recorder-transcript">
             {segments.length === 0 ? (
               <div className="empty-state">
-                <span className="empty-icon" aria-hidden>
-                  <ChatText size={26} />
-                </span>
-                <p className="small muted">
+                <MarkMono size={48} className="faint" />
+                <h3>{live ? t("Listening") : t("No transcript yet")}</h3>
+                <p className="muted">
                   {live
-                    ? t("Listening. Each sentence appears here once it's finished.")
+                    ? t("Each sentence appears here once it's finished.")
                     : t("Press record and each sentence appears here once it's finished, with its time.")}
                 </p>
               </div>

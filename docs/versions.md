@@ -66,13 +66,16 @@ All versions are from registry.npmjs.org.
 | `@tauri-apps/api` / `@tauri-apps/cli` | **~2.12** (2.12.4 / 2.12.3) | The `next` tag is 3.x alpha. |
 | `vitest` | **5.0.5** | Needs Node ^22.12, ^24 or ≥26. Browser mode is a separate package, `@vitest/browser-playwright`. |
 | `@testing-library/react` | **16.3.3** | — |
+| `lucide-react` | **1.59.0** (exact; released 2026-10-17, ISC) | Icons, per the brand guide §6 (ADR-0016). Replaces `@phosphor-icons/react` 2.1.10. Checked live on 2026-10-18. |
+| Manrope, JetBrains Mono (fonts) | **@fontsource-variable/manrope 5.3.0**, **@fontsource-variable/jetbrains-mono 5.3.0** (OFL-1.1) | Brand type (ADR-0016). Only the latin and latin-ext woff2 files are vendored in `packages/ui/src/fonts`, with the licences in `OFL.txt`. Nothing loads from a CDN. They replace Geist. Checked live on 2026-10-18. |
+| `@supabase/supabase-js` | **2.118.0** (MIT, 2026-10-15) | Website account portal only (ADR-0017). Never shipped in the app. Checked live on 2026-10-18. |
 | `@playwright/test` | **1.64.1** | — |
 | `tailwindcss` | **4.3.3** | Built on top of the design tokens in `packages/ui`. |
 | `yaml` / `ajv` / `handlebars` | **^2.9.1** / **8.20.0** / **4.7.10** | Template loading, JSON Schema validation and rendering. yaml 3.0 is still `next`. |
 | `@huggingface/transformers` | **4.3.1** | Web spike only. Gemma 4 support (4.0.1+) and the Gemma 4 WebGPU KV-cache fix (4.3.0) are in. |
 | `@litert-lm/core` | **0.18.1** | Web spike only. The docs list Gemma 4 E2B/E4B for web, but the v0.15 release notes say only 12B and up is officially supported on web. Treat it as unproven. |
-| `wxt` | **0.21.4** (M3) | Browser extension. Plasmo's last release was 2025-05, so it's out. |
-| `yjs` / `@automerge/automerge` | 13.6.33 / 3.5.0 (M4) | The choice is made at M4. |
+| `wxt` | **0.21.4** (M5; the brief's M3, renumbered by `docs/plans/M3.md`) | Browser extension. Plasmo's last release was 2025-05, so it's out. |
+| `yjs` / `@automerge/automerge` | **not used** | ADR-0017 drops the CRDT: runs are immutable and edits create new runs, so neither is needed for sync or the Clinic Hub (M4). Listed versions were 13.6.33 / 3.5.0. |
 | `@docusaurus/core` | 3.10.2 (M5) | — |
 
 **Mobile fallback stack (only if spike S1 fails).** Recorded here so the fallback is concrete:

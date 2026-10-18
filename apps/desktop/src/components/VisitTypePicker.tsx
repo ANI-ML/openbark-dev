@@ -41,7 +41,7 @@ export function VisitTypePicker({
             onClick={() => onChange(x.id)}
           >
             <span className="type-icon">
-              <TemplateIcon template={x} size={22} />
+              <TemplateIcon template={x} size={20} />
             </span>
             <span className="type-name">{templateName(t, x.name)}</span>
           </button>

@@ -1,0 +1,70 @@
+name: Feature request
+description: Suggest something OpenBark should do, or do better.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for the idea. The more we know about the problem behind it, the better.
+
+        **Never attach real patient or client data.** Issues are public. If an example helps, make one up rather than copying a real note, transcript or recording.
+
+        OpenBark is local-first: recording, transcription and drafting run on the clinic's own computer, with no telemetry and no cloud fallback. Ideas that need a network connection are welcome, but say so below so we can weigh them against that promise.
+  - type: checkboxes
+    id: no-real-data
+    attributes:
+      label: Before you submit
+      options:
+        - label: This request contains no real patient or client data.
+          required: true
+        - label: I searched the existing issues and didn't find this idea.
+          required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and what gets in the way today?
+      placeholder: After a dental, I retype the extraction list into our practice management system by hand.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you would like
+      description: How you picture OpenBark solving it.
+    validations:
+      required: true
+  - type: dropdown
+    id: role
+    attributes:
+      label: Who it helps
+      multiple: true
+      options:
+        - Veterinarians
+        - Veterinary technicians and nurses
+        - Reception
+        - Practice managers
+        - Clients
+        - Developers and contributors
+        - Someone else
+    validations:
+      required: true
+  - type: dropdown
+    id: network
+    attributes:
+      label: Does it need a network connection?
+      options:
+        - "No"
+        - "Yes"
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: Other ways to solve it, or how you work around it today.
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else

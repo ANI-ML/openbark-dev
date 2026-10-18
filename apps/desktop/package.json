@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@openbark/ui": "workspace:*",
-    "@phosphor-icons/react": "catalog:",
+    "lucide-react": "catalog:",
     "@tauri-apps/api": "catalog:",
     "@tauri-apps/plugin-dialog": "catalog:",
     "@tauri-apps/plugin-opener": "catalog:",

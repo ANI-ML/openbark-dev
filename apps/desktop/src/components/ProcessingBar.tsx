@@ -24,9 +24,11 @@ const SPANS: Record<"upload" | "local", Partial<Record<ProcessingStage, [number,
 };
 
 /**
- * How far an import, or a stopped recording, has got: one determinate bar
- * (DESIGN.md §5, never a spinner), what's happening in words, and an
- * estimate of the time left for the whole job once there's enough to go on.
+ * How far an import, or a stopped recording, has got: one determinate ink
+ * bar (never a spinner), what's happening in words, and an estimate of the
+ * time left for the whole job once there's enough to go on. It sits beside
+ * the Record button, which carries the screen's one accent, so the active
+ * step stays ink (docs/brand/DESIGN.md §3.5).
  */
 export function ProcessingBar({
   progress,
@@ -149,6 +151,7 @@ export function ProcessingBar({
         fraction={fraction}
         status={left ? `${pct}%, ${left}` : `${pct}%`}
         aside={<span className="processing-text">{label}</span>}
+        accent={false}
       />
     </div>
   );

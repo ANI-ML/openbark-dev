@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/ANI-ML/openbark/security/advisories/new
+    about: Report it privately, never in a public issue. See SECURITY.md.
+  - name: Questions, feedback or trying OpenBark in your clinic
+    url: https://www.openbark.io/#contact
+    about: Email the team at ANI.ML Health, we.care@animl.health.
+  - name: User guide
+    url: https://github.com/ANI-ML/openbark/blob/main/docs/guide/README.md
+    about: How to record, review and sign notes, and what to do when something goes wrong.

@@ -33,5 +33,5 @@ OpenBark is a local-first, open-source (Apache-2.0) veterinary AI scribe. The pr
 ## Environment
 
 - Main dev box: Windows 11, RTX 4080 16 GB, CUDA 12.9, VS 2022 Build Tools. It is the CUDA performance reference.
-- The product owner tests macOS and iOS on their own Mac and iPhone by pulling from GitHub. Anything Mac-side needs a written, scripted runbook.
+- macOS and iOS builds run on GitHub Actions macOS runners (ADR-0018 section 8); the product owner installs iOS builds from TestFlight on their iPhone. There is no Mac in the day-to-day loop. Anything Mac-side is a scripted CI job with a written runbook.
 - Repo: `ANI-ML/openbark` (private).

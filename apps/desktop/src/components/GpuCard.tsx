@@ -1,5 +1,4 @@
 import { Button, StatusDot } from "@openbark/ui";
-import { Lightning } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { fmtBytes, useApp } from "../context";
 import * as engine from "../engine";
@@ -68,15 +67,14 @@ export function GpuCard() {
 
   const ready = status.pack_installed && status.models_installed;
   const removeButton = (status.pack_installed || status.models_installed) && !installing && (
-    <Button variant="ghost" onClick={() => void remove()} disabled={busy !== null}>
+    <Button variant="danger" onClick={() => void remove()} disabled={busy !== null}>
       {t("Remove")}
     </Button>
   );
   return (
     <section className="group gpu-card">
-      <h2>
-        <Lightning size={20} aria-hidden /> {t("Faster transcription on the graphics card")}
-      </h2>
+      {/* §7.4: no icon beside the title. */}
+      <h2>{t("Faster transcription on the graphics card")}</h2>
       <p className="small muted measure">
         {t(
           "Your {gpu} can do the speech recognition. Measured on an RTX 4080, an 8.5-minute consult was ready in 43 seconds instead of 2.5 minutes, because the number check keeps up instead of finishing afterwards.",

@@ -214,7 +214,7 @@ const TOPICS = {
     await page.goto(base);
     await click(nav(2));
     await caption("Templates are the headings of your notes. Each kind of visit has its own.", 3000);
-    await click(page.getByRole("button", { name: "Start from SOAP" }));
+    await click(page.getByRole("button", { name: "Start from SOAP" }).first());
     await page.locator(".tb-heading").first().waitFor();
     await type(page.locator(".builder-meta input.ob-input").first(), "Dental procedure");
     await caption("Start from SOAP, or from blank headings.");

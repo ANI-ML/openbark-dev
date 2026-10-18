@@ -3,6 +3,7 @@
 - Status: **proposed**. Direction accepted by the product owner on 2026-10-17; the design is finalised before the sync milestone.
 - Date: 2026-10-17
 - Deciders: product owner
+- Amended by ADR-0017 (2026-10-18), which answers the open questions below, replaces the CRDT plan, and replaces the key "derived from the user's secret" with random keys passed between the user's devices plus a printed Recovery Kit (no passphrase-derived key). "Audio never syncs" still holds: sync carries transcripts and notes only.
 
 ## Context
 

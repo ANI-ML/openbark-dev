@@ -55,8 +55,16 @@ for (const v of variants) {
   };
   // Navigate by position so every interface language works: Record, Patients, Templates, Models, Settings.
   const NAV = { Record: 0, Patients: 1, Templates: 2, Models: 3, Settings: 4, Help: 5 };
+  // Phones show four tabs (DESIGN.md §9); Models and Help are rows under Settings.
+  const PHONE_MORE = { Models: 0, Help: 1 };
+  const phone = v.viewport.width <= 640;
   const nav = async (screen) => {
-    await page.locator(".nav-item").nth(NAV[screen]).click();
+    if (phone && screen in PHONE_MORE) {
+      await page.locator(".nav-item").nth(NAV.Settings).click();
+      await page.locator(".phone-more-row").nth(PHONE_MORE[screen]).click();
+    } else {
+      await page.locator(".nav-item").nth(NAV[screen]).click();
+    }
     await page.locator(".screen h1").first().waitFor();
   };
   const english = !v.lang;
@@ -89,14 +97,14 @@ for (const v of variants) {
   const recentVisits = async () => {
     await page.locator(".patients-bar .ob-segment").nth(1).click();
     await page
-      .locator("tr.row-link")
+      .locator(".row-link")
       .first()
       .waitFor()
       .catch(() => {});
   };
   await nav("Patients");
   await page
-    .locator(".patient-list, .empty")
+    .locator(".patient-list, .empty-state, .empty")
     .first()
     .waitFor()
     .catch(() => {});
@@ -105,8 +113,9 @@ for (const v of variants) {
   await shot("recent-visits");
 
   // A signed encounter if there is one (addenda, client documents), else the newest.
-  const signedRow = page.locator('tr.row-link:has(.ob-dot[data-tone="ok"])').first();
-  const firstRow = (await signedRow.count()) ? signedRow : page.locator("tr.row-link").first();
+  // Visits are table rows on wider screens and stacked rows on phones; both are .row-link.
+  const signedRow = page.locator('.row-link:has(.ob-dot[data-tone="ok"])').first();
+  const firstRow = (await signedRow.count()) ? signedRow : page.locator(".row-link").first();
   if (await firstRow.count()) {
     await firstRow.click();
     await page.locator(".note, .pane-pad").first().waitFor();
@@ -137,7 +146,7 @@ for (const v of variants) {
   // A draft (second encounter): re-prompt and hand edit.
   await nav("Patients");
   await recentVisits();
-  const draftRow = page.locator('tr.row-link:has(.ob-dot[data-tone="warn"])').first();
+  const draftRow = page.locator('.row-link:has(.ob-dot[data-tone="warn"])').first();
   if (english && (await draftRow.count())) {
     await draftRow.click();
     await page.locator(".note, .pane-pad").first().waitFor();
@@ -158,12 +167,13 @@ for (const v of variants) {
 
   await nav("Templates");
   await page
-    .locator("tr.row-link")
+    .locator(".tpl-row")
     .first()
     .waitFor()
     .catch(() => {});
   await shot("templates");
-  const team = page.locator("tr.row-link").nth(1);
+  // Templates are grouped button rows; the first group is the team's own when there are any.
+  const team = page.locator(".tpl-group").first().locator(".tpl-row").first();
   if (await team.count()) {
     await team.click();
     await page.locator(".tb-heading").first().waitFor();

@@ -49,7 +49,14 @@ for (const v of variants) {
       const menu = page.locator(".nav-toggle, [aria-label='Menu']");
       if (await menu.count()) await menu.first().click();
     }
-    await page.locator(".nav-item").nth(NAV[screen]).click();
+    // Phones show four tabs (DESIGN.md §9); Models and Help are rows under Settings.
+    const more = { Models: 0, Help: 1 };
+    if (v.viewport.width <= 640 && screen in more) {
+      await page.locator(".nav-item").nth(NAV.Settings).click();
+      await page.locator(".phone-more-row").nth(more[screen]).click();
+    } else {
+      await page.locator(".nav-item").nth(NAV[screen]).click();
+    }
     await page.locator(".screen h1").first().waitFor();
   };
 
@@ -58,11 +65,11 @@ for (const v of variants) {
 
   // 1. The template library.
   await nav("Templates");
-  await page.locator("tr.row-link").first().waitFor();
+  await page.locator(".tpl-row").first().waitFor();
   await shot("templates", { fullPage: !v.isMobile });
 
   // 2. The builder's examples: duplicate the dental template.
-  await page.locator("tr.row-link", { hasText: "Dental procedure" }).click();
+  await page.locator(".tpl-row", { hasText: "Dental procedure" }).first().click();
   await page.locator(".tb-examples").first().waitFor();
   await page.locator(".tb-examples").nth(2).scrollIntoViewIfNeeded();
   await shot("builtin-examples");

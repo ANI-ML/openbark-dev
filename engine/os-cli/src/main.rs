@@ -27,7 +27,7 @@ use os_engine::{LoadedTemplate, NoteOptions, Transcript, generate_note};
 use serde_json::json;
 
 #[derive(Parser)]
-#[command(name = "openbark", version, about = "OpenBark: local-first veterinary scribe (pre-alpha)")]
+#[command(name = "openbark", version, about = "OpenBark: local-first veterinary scribe (beta)")]
 struct Cli {
     /// Model store directory (default: OPENBARK_MODELS_DIR or the platform data dir).
     #[arg(long, global = true)]

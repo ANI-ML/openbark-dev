@@ -1,3 +1,4 @@
+import { X } from "lucide-react";
 import type { Patient } from "../engine";
 import { useT } from "../i18n";
 import { SPECIES } from "../species";
@@ -70,7 +71,7 @@ export function PatientFields({
               aria-label={t("Remove {name}", { name: other || t("Another animal in this visit") })}
               onClick={() => onChange({ ...value, others: (value.others ?? []).filter((_, j) => j !== i) })}
             >
-              ×
+              <X size={16} aria-hidden />
             </button>
           </div>
         </div>

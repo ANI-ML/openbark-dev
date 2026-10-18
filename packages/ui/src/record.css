@@ -1,34 +1,111 @@
-/* DESIGN.md §5 Record button and waveform. Tokens only. */
+/* DESIGN.md §7.1 Record button and §3.5 waveform. Tokens only. */
+.ob-record-wrap {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+.ob-record-target {
+  position: relative;
+  display: grid;
+  place-items: center;
+  isolation: isolate;
+}
 .ob-record {
   position: relative;
-  width: 64px;
-  height: 64px;
-  border-radius: 9999px;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--r-full);
   border: 0;
+  padding: 0;
   display: grid;
   place-items: center;
   background: var(--record);
   color: var(--on-record);
   cursor: pointer;
-  transition: transform var(--dur-fast) var(--ease);
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
 }
 .ob-record:active:not(:disabled) { transform: scale(0.96); }
 .ob-record:disabled { opacity: 0.45; cursor: not-allowed; }
-.ob-record[data-recording] { background: var(--surface); color: var(--record); }
-.ob-record-ring {
+/* Recording and processing: ink fill (it inverts with the theme, like primary buttons). */
+.ob-record[data-state="recording"],
+.ob-record[data-state="processing"] { background: var(--primary); color: var(--on-primary); }
+/* Processing disables the button, but it is busy rather than unavailable. */
+.ob-record[data-state="processing"]:disabled { opacity: 1; cursor: progress; }
+.ob-record[data-state="paused"] { background: var(--fill-strong); color: var(--ink); }
+.ob-record-glyph { width: 24px; height: 24px; }
+
+/* The recording pulse, the one expressive animation (§5.4): an accent disc
+   behind the button, scale 1 to 1.35, opacity 1 to 0, 1.6 s, ease-out. */
+.ob-record-pulse {
   position: absolute;
   inset: 0;
-  border-radius: 9999px;
-  border: 3px solid var(--record);
-  animation: ob-breathe 2s ease-in-out infinite alternate;
+  z-index: -1;
+  border-radius: var(--r-full);
+  background: var(--record);
+  animation: ob-record-pulse 1.6s ease-out infinite;
 }
-@keyframes ob-breathe { from { opacity: 0.75; } to { opacity: 1; } }
-.ob-record-wave { position: absolute; inset: 18px 16px; height: auto; gap: 2px; }
-.ob-record-wave > span { background: var(--record); }
-.ob-record-stop { position: absolute; bottom: 8px; opacity: 0.85; }
-@media (pointer: coarse) { .ob-record { width: 72px; height: 72px; } }
-@media (prefers-reduced-motion: reduce) { .ob-record-ring { animation: none; opacity: 1; } }
+@keyframes ob-record-pulse {
+  from { transform: scale(1); opacity: 1; }
+  to { transform: scale(1.35); opacity: 0; }
+}
 
+/* Processing: a thin indeterminate accent ring around the button. */
+.ob-record-spinner {
+  position: absolute;
+  inset: -5px;
+  border-radius: var(--r-full);
+  border: 2px solid transparent;
+  border-top-color: var(--accent);
+  border-right-color: var(--accent);
+  animation: ob-record-spin 1s linear infinite;
+}
+@keyframes ob-record-spin { to { transform: rotate(360deg); } }
+
+.ob-record-label {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.ob-record-label[data-state="recording"] {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  color: var(--ink);
+}
+
+@media (pointer: coarse) {
+  .ob-record { width: 56px; height: 56px; }
+  .ob-record-glyph { width: 28px; height: 28px; }
+}
+
+/* Reduced motion (§5.4): a static accent ring instead of the pulse, and a
+   static ring for processing. */
+@media (prefers-reduced-motion: reduce) {
+  .ob-record-pulse { animation: none; transform: scale(1.2); opacity: 0.35; }
+  .ob-record-spinner { animation: none; border-color: var(--accent); opacity: 0.6; }
+  .ob-record { transition-duration: 0s; }
+}
+
+.ob-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Waveform (§3.5): ink bars, the current bar in the accent. */
 .ob-wave {
   display: flex;
   align-items: center;
@@ -39,8 +116,21 @@
   flex: 1;
   height: 100%;
   border-radius: var(--radius-mark);
-  background: var(--accent);
+  background: var(--ink);
   transform: scaleY(0.08);
   transform-origin: center;
   will-change: transform;
 }
+.ob-wave[data-active] > span:last-child { background: var(--accent); }
+
+/* Live recording indicator (§3.3): the record dot with the same pulse. */
+.ob-dot[data-live] { position: relative; }
+.ob-dot[data-live]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: inherit;
+  animation: ob-record-pulse 1.6s ease-out infinite;
+}
+@media (prefers-reduced-motion: reduce) { .ob-dot[data-live]::after { animation: none; opacity: 0; } }

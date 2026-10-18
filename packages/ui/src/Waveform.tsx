@@ -2,8 +2,7 @@ import { useEffect, useRef } from "react";
 
 /**
  * A source of microphone levels (0..1). Kept outside React state so the
- * waveform redraws on every level without re-rendering the app shell
- * (DESIGN.md §7: isolate live components).
+ * waveform redraws on every level without re-rendering the app shell.
  */
 export interface LevelSource {
   subscribe(listener: (level: number) => void): () => void;
@@ -26,11 +25,17 @@ export interface WaveformProps {
   levels: LevelSource;
   /** Number of bars (history length). */
   bars?: number;
+  /** Live input: the current (newest) bar is drawn in the accent. Default true. */
+  active?: boolean;
   className?: string;
 }
 
-/** Rolling level bars, drawn straight to the DOM from data (no easing). */
-export function Waveform({ levels, bars = 48, className }: WaveformProps) {
+/**
+ * Rolling level bars, drawn straight to the DOM from data (no easing).
+ * DESIGN.md §3.5: ink bars, with the current bar in the accent, the same
+ * logic as the mark's accent capsule.
+ */
+export function Waveform({ levels, bars = 48, active = true, className }: WaveformProps) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = ref.current;
@@ -46,7 +51,12 @@ export function Waveform({ levels, bars = 48, className }: WaveformProps) {
     });
   }, [levels, bars]);
   return (
-    <div ref={ref} className={className ? `ob-wave ${className}` : "ob-wave"} aria-hidden>
+    <div
+      ref={ref}
+      className={className ? `ob-wave ${className}` : "ob-wave"}
+      data-active={active || undefined}
+      aria-hidden
+    >
       {Array.from({ length: bars }, (_, i) => (
         <span key={i} />
       ))}

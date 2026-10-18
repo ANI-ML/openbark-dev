@@ -1,0 +1,56 @@
+/*
+ * OpenBark mark, wordmark and lockup (DESIGN.md §2). Tokens only, apart
+ * from the brand's literal white for the mark on dark surfaces (§2.2).
+ *
+ * --ob-mark-fg     toes, cradle, stem, base and the wordmark: ink on light, white on dark
+ * --ob-mark-grille the grille slots: the surface showing through. A mark on
+ *                  a card or tile sets --ob-mark-surface to that surface.
+ */
+.ob-mark, .ob-wordmark {
+  --ob-mark-white: #FFFFFF;
+  --ob-mark-fg: var(--ob-ink);
+  --ob-mark-grille: var(--ob-mark-surface, var(--surface));
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) :is(.ob-mark, .ob-wordmark):not([data-tone]) { --ob-mark-fg: var(--ob-mark-white); }
+}
+:root[data-theme="dark"] :is(.ob-mark, .ob-wordmark):not([data-tone]) { --ob-mark-fg: var(--ob-mark-white); }
+/* Forced variants for tiles whose colour doesn't follow the theme. */
+:is(.ob-mark, .ob-wordmark)[data-tone="light"] {
+  --ob-mark-fg: var(--ob-ink);
+  --ob-mark-grille: var(--ob-mark-surface, var(--ob-mark-white));
+}
+:is(.ob-mark, .ob-wordmark)[data-tone="dark"] {
+  --ob-mark-fg: var(--ob-mark-white);
+  --ob-mark-grille: var(--ob-mark-surface, var(--ob-ink));
+}
+
+.ob-mark { display: inline-block; flex: none; vertical-align: middle; }
+.ob-mark .ob-mark-fg { fill: var(--ob-mark-fg); }
+.ob-mark .ob-mark-capsule { fill: var(--accent); }
+.ob-mark .ob-mark-grille { fill: var(--ob-mark-grille); }
+.ob-mark .ob-mark-cradle { fill: none; stroke: var(--ob-mark-fg); }
+
+.ob-mark-mono { display: inline-block; flex: none; vertical-align: middle; }
+
+/* Wordmark: lowercase, Manrope, open 500 + bark 800, -0.03em, never accent. */
+.ob-wordmark {
+  display: inline-block;
+  font-family: var(--font-sans);
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: var(--ob-mark-fg);
+  white-space: nowrap;
+  text-transform: none;
+}
+.ob-wordmark-open { font-weight: 500; }
+.ob-wordmark-bark { font-weight: 800; }
+
+/* Lockup: the wordmark as live SVG text, 60 px with -1.8 px tracking (-0.03em). */
+.ob-lockup { display: inline-block; flex: none; }
+.ob-lockup-word {
+  font-family: var(--font-sans);
+  font-size: 60px;
+  letter-spacing: -1.8px;
+  fill: var(--ob-mark-fg);
+}

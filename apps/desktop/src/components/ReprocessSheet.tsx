@@ -1,8 +1,8 @@
 import { Sheet } from "@openbark/ui";
-import { ArrowsClockwise, X } from "@phosphor-icons/react";
+import { RefreshCw, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import * as engine from "../engine";
-import { templateName, useT } from "../i18n";
+import { templateDescription, templateName, useT } from "../i18n";
 import { COMMON_TYPES, TemplateIcon } from "../templateIcons";
 
 /**
@@ -55,7 +55,7 @@ export function ReprocessSheet({
                 {current && (
                   <button type="button" className="reprocess-row again" onClick={() => onChoose(current.id)}>
                     <span className="type-icon">
-                      <ArrowsClockwise size={20} aria-hidden />
+                      <RefreshCw size={20} aria-hidden />
                     </span>
                     <span className="reprocess-text">
                       <span className="reprocess-name">{t("Draft again")}</span>
@@ -75,7 +75,7 @@ export function ReprocessSheet({
                         </span>
                         <span className="reprocess-text">
                           <span className="reprocess-name">{templateName(t, x.name)}</span>
-                          {x.description && <span className="small muted">{x.description}</span>}
+                          {x.description && <span className="small muted">{templateDescription(t, x)}</span>}
                         </span>
                       </button>
                     </li>

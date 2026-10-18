@@ -3,6 +3,8 @@
 // i18n/messages.ts; `{name}` placeholders are filled from `vars`.
 import { useContext } from "react";
 import { AppContext } from "./context";
+import { BUILTIN_TEXT } from "./builtinText";
+import type { Hardware } from "./engine";
 import { MESSAGES } from "./i18n/messages";
 
 export const UI_LANGUAGES = [
@@ -56,6 +58,49 @@ const BUILTIN_TEMPLATE_NAMES = new Set([
 ]);
 export function templateName(t: (text: string) => string, name: string): string {
   return BUILTIN_TEMPLATE_NAMES.has(name) ? t(name) : name;
+}
+
+/** A built-in template's description is translated too; a team's own is shown as written. */
+export function templateDescription(
+  t: (text: string) => string,
+  tpl: { description?: string | null; builtin?: boolean },
+): string {
+  const text = tpl.description ?? "";
+  return tpl.builtin && text ? t(text) : text;
+}
+
+type T = (text: string, vars?: Vars) => string;
+
+/**
+ * A built-in template's heading titles, measurement labels and example
+ * requests are translated (their keys are listed in builtinText.ts); a team's
+ * own are shown as written. The model's instructions stay in English.
+ */
+export function builtinText(t: (text: string) => string, text: string, builtin: boolean): string {
+  return builtin && text && BUILTIN_TEXT.has(text) ? t(text) : text;
+}
+
+/**
+ * Keys such as "Standard (level of detail)" carry their meaning in brackets so
+ * translators can tell two senses of one word apart; untranslated (English),
+ * the bracket is dropped: `withoutContext(t("Standard (level of detail)"))`.
+ */
+export function withoutContext(text: string): string {
+  return text.replace(/ \([^)]*\)$/, "");
+}
+
+/** The computer's hardware in the app language (the engine's `summary` is English, for logs). */
+export function hardwareLine(t: T, hw: Hardware | null | undefined): string {
+  if (!hw) return "";
+  const gb = (bytes: number) => Math.round(bytes / 1e9);
+  return hw.gpu
+    ? t("{gpu}, {gb} GB graphics memory", { gpu: hw.gpu, gb: gb(hw.gpu_memory_bytes ?? 0) })
+    : t("{gb} GB memory, no supported graphics card", { gb: gb(hw.ram_bytes) });
+}
+
+/** Where a visit came from: an imported file's name, or a live recording (the engine says "Recorded"). */
+export function sourceLabel(t: T, source: string | null | undefined): string {
+  return !source || source === "Recorded" ? t("Live recording") : source;
 }
 
 /** `t("Record")`, `t("Signed by {name}", { name })` in the current app language. */

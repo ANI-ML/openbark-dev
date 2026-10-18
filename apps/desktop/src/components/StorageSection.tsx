@@ -1,5 +1,5 @@
 import { Button } from "@openbark/ui";
-import { FolderOpen } from "@phosphor-icons/react";
+import { FolderOpen } from "lucide-react";
 import { useEffect, useState } from "react";
 import { fmtBytes } from "../context";
 import * as engine from "../engine";

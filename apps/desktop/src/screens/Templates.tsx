@@ -1,5 +1,5 @@
-import { Button, StatusDot } from "@openbark/ui";
-import { ArrowLeft, CaretDown, CaretUp, ClipboardText, CopySimple, DotsSixVertical, Plus, Trash, X } from "@phosphor-icons/react";
+import { Button, MarkMono, StatusDot } from "@openbark/ui";
+import { ArrowLeft, ChevronDown, ChevronUp, ClipboardPaste, Copy, GripVertical, Plus, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../context";
 import * as engine from "../engine";
@@ -7,10 +7,11 @@ import { useT } from "../i18n";
 import type { ContentKind, Standard, Template, TemplateField, TemplatePart, TemplateSection } from "../engine";
 import { examplesForTitle, NOTE_EXAMPLES } from "../promptExamples";
 import { COMMON_TYPES, TEMPLATE_ICONS, TemplateIcon } from "../templateIcons";
-import { templateName } from "../i18n";
+import { builtinText, sourceLabel, templateDescription, templateName, withoutContext } from "../i18n";
 import { ExampleSheet } from "../components/ExampleSheet";
 import { SHOW_FOR, speciesPlural, speciesValue } from "../species";
 import type { TemplateCondition } from "../engine";
+import { PHONE, useMediaQuery } from "../useMediaQuery";
 
 /** "Show only for cats": which species a heading is drafted for (DESIGN.md §5 conditionals as sentences). */
 function ShowFor({
@@ -83,12 +84,12 @@ function TemplateGroups({ list, onOpen }: { list: engine.TemplateSummary[]; onOp
                     </span>
                     <span className="tpl-text">
                       <span className="tpl-name">{templateName(t, tpl.name)}</span>
-                      <span className="small muted tpl-desc">{tpl.description}</span>
+                      <span className="small muted tpl-desc">{templateDescription(t, tpl)}</span>
                     </span>
                     <span className="tpl-meta small muted">
                       {t("{n} headings", { n: tpl.headings })}
                       {tpl.standards > 0 && <span>{t("{n} standards", { n: tpl.standards })}</span>}
-                      {!tpl.builtin && <StatusDot tone="accent">{t("Team")}</StatusDot>}
+                      {!tpl.builtin && <StatusDot>{t("Team")}</StatusDot>}
                     </span>
                   </button>
                 </li>
@@ -159,12 +160,14 @@ function InstructionExamples({
   const t = useT();
   const examples = own?.length ? own : examplesForTitle(label);
   if (examples.length === 0) return null;
+  // A built-in template's examples are a guide, shown in the app language.
+  const shown = (e: string) => builtinText(t, e, !!readOnly);
   return (
-    <div className="tb-examples" aria-label={t("Example instructions for {label}", { label })}>
+    <div className="tb-examples" aria-label={t("Example instructions for {label}", { label: shown(label) })}>
       <span className="small faint">{t("Examples")}</span>
       {examples.map((e) => (
         <button key={e} type="button" className="ob-chip ask-chip" disabled={readOnly} onClick={() => onPick(e)}>
-          {e}
+          {shown(e)}
         </button>
       ))}
     </div>
@@ -183,6 +186,7 @@ export function Templates() {
   const [list, setList] = useState<engine.TemplateSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [fromExample, setFromExample] = useState(false);
+  const phone = useMediaQuery(PHONE);
 
   const refresh = useCallback(() => engine.listTemplates().then(setList, (e) => setError(String(e?.message ?? e))), []);
   useEffect(() => void refresh(), [refresh]);
@@ -214,19 +218,26 @@ export function Templates() {
     }
   };
 
+  const secondary = (size?: "compact") => (
+    <>
+      <Button size={size} onClick={() => setFromExample(true)}>
+        <ClipboardPaste size={size ? 16 : 20} aria-hidden />
+        {t("From an example note")}
+      </Button>
+      <Button size={size} onClick={startFromSoap}>
+        <Copy size={size ? 16 : 20} aria-hidden />
+        {t("Start from SOAP")}
+      </Button>
+    </>
+  );
+
   return (
     <div className="screen templates">
+      {/* Phones (§9): the header is the title and the one primary action; the other two sit under the intro. */}
       <header className="screen-head">
         <h1>{t("Templates")}</h1>
         <div className="head-actions">
-          <Button onClick={() => setFromExample(true)}>
-            <ClipboardText size={20} aria-hidden />
-            {t("From an example note")}
-          </Button>
-          <Button onClick={startFromSoap}>
-            <CopySimple size={20} aria-hidden />
-            {t("Start from SOAP")}
-          </Button>
+          {!phone && secondary()}
           <Button variant="primary" onClick={() => setOpen({ id: null, from: blank() })}>
             <Plus size={20} aria-hidden />
             {t("New template")}
@@ -238,6 +249,7 @@ export function Templates() {
           "A template is the headings of a note and what goes under each. The model fills every heading from the recording and links each line to where it was said; anything not discussed is shown as not discussed. Requests saved as standards while reviewing a note appear under their heading.",
         )}
       </p>
+      {phone && <div className="head-actions">{secondary("compact")}</div>}
       {error && (
         <p className="ob-notice" data-tone="danger" role="alert">
           {error}
@@ -249,7 +261,15 @@ export function Templates() {
         <TemplateGroups list={list} onOpen={(id) => setOpen({ id })} />
       )}
       {list !== null && team.length === 0 && (
-        <p className="empty small muted">{t("No team templates yet. Start from SOAP, or start a new one from blank headings.")}</p>
+        // §7.7 empty state: mono mark, one-line h3, one-line body, one primary action.
+        <div className="empty-state">
+          <MarkMono size={48} className="faint" />
+          <h3>{t("No team templates yet")}</h3>
+          <p className="muted">{t("Start from SOAP or from blank headings.")}</p>
+          <Button variant="primary" onClick={startFromSoap}>
+            {t("Start from SOAP")}
+          </Button>
+        </div>
       )}
       {fromExample && (
         <ExampleSheet
@@ -470,27 +490,27 @@ function Builder({ id, from, onClose, onOpen, onSaved }: BuilderProps) {
               {t("Templates")}
             </Button>
           )}
-          <h1>{draft.name || t("New template")}</h1>
+          <h1>{readOnly ? templateName(t, draft.name) : draft.name || t("New template")}</h1>
           {saved && <span className="mono faint">{t("version {v}", { v: saved.version })}</span>}
         </div>
         <div className="head-actions">
           {saved && (
             <Button onClick={() => onOpen(null, copyOf(draft, t("{name} copy", { name: draft.name })))}>
-              <CopySimple size={20} aria-hidden />
+              <Copy size={20} aria-hidden />
               {t("Duplicate")}
             </Button>
           )}
           {saved && !readOnly &&
             (confirm === "delete" ? (
               <span className="inline-confirm">
-                <Button onClick={remove}>{t("Delete for good")}</Button>
+                <Button variant="danger" onClick={remove}>{t("Delete for good")}</Button>
                 <Button variant="ghost" onClick={() => setConfirm(null)}>
                   {t("Keep")}
                 </Button>
               </span>
             ) : (
               <Button variant="ghost" onClick={() => setConfirm("delete")}>
-                <Trash size={20} aria-hidden />
+                <Trash2 size={20} aria-hidden />
                 {t("Delete")}
               </Button>
             ))}
@@ -506,7 +526,7 @@ function Builder({ id, from, onClose, onOpen, onSaved }: BuilderProps) {
         <p className="ob-notice">
           {t(
             "{name} is built in and can't be changed. Duplicate it to make your team's version. Standards saved while reviewing notes still apply to it, and you can remove them here.",
-            { name: draft.name },
+            { name: templateName(t, draft.name) },
           )}
         </p>
       )}
@@ -522,7 +542,7 @@ function Builder({ id, from, onClose, onOpen, onSaved }: BuilderProps) {
           <input
             ref={nameRef}
             className="ob-input"
-            value={draft.name}
+            value={readOnly ? templateName(t, draft.name) : draft.name}
             disabled={readOnly}
             placeholder={t("Dental procedure")}
             onChange={(e) => set({ name: e.target.value })}
@@ -532,7 +552,7 @@ function Builder({ id, from, onClose, onOpen, onSaved }: BuilderProps) {
           <span className="label">{t("Description")}</span>
           <input
             className="ob-input"
-            value={draft.description ?? ""}
+            value={readOnly ? templateDescription(t, { description: draft.description, builtin: true }) : (draft.description ?? "")}
             disabled={readOnly}
             placeholder={t("Who uses it, and when")}
             onChange={(e) => set({ description: e.target.value })}
@@ -548,7 +568,7 @@ function Builder({ id, from, onClose, onOpen, onSaved }: BuilderProps) {
             onChange={(e) => set({ detail: e.target.value === "standard" ? undefined : (e.target.value as Template["detail"]) })}
           >
             <option value="concise">{t("Concise: the fewest words that keep every fact")}</option>
-            <option value="standard">{t("Standard")}</option>
+            <option value="standard">{withoutContext(t("Standard (level of detail)"))}</option>
             <option value="thorough">{t("Thorough: every relevant detail that was said")}</option>
           </select>
         </label>
@@ -567,7 +587,7 @@ function Builder({ id, from, onClose, onOpen, onSaved }: BuilderProps) {
         <details className="builder-advanced">
           <summary className="label">{t("Instructions and rules for the whole note")}</summary>
           <label className="ob-field">
-            <span className="label muted">{t("Instructions")}</span>
+            <span className="label">{t("Instructions")}</span>
             <textarea
               className="ob-input tb-text"
               rows={4}
@@ -578,7 +598,7 @@ function Builder({ id, from, onClose, onOpen, onSaved }: BuilderProps) {
             />
           </label>
           <label className="ob-field">
-            <span className="label muted">{t("Extra rules, one per line")}</span>
+            <span className="label">{t("Extra rules, one per line")}</span>
             <textarea
               className="ob-input tb-text"
               rows={3}
@@ -659,9 +679,14 @@ function Builder({ id, from, onClose, onOpen, onSaved }: BuilderProps) {
             </p>
           )}
           {tab === "note" ? (
-            <TemplatePreview template={preview?.template ?? draft} />
+            <TemplatePreview template={preview?.template ?? draft} builtin={readOnly} />
           ) : (
-            <pre className="prompt">{preview?.prompt ?? ""}</pre>
+            <>
+              {app.settings.uiLanguage !== "en" && (
+                <p className="small muted">{t("The model is instructed in English; notes are written in your chosen language.")}</p>
+              )}
+              <pre className="prompt">{preview?.prompt ?? ""}</pre>
+            </>
           )}
           <div className="try-on">
             <span className="label">{t("Try on a visit")}</span>
@@ -676,7 +701,7 @@ function Builder({ id, from, onClose, onOpen, onSaved }: BuilderProps) {
                 {encounters.length === 0 && <option value="">{t("No visits yet")}</option>}
                 {encounters.map((r) => (
                   <option key={r.id} value={r.id}>
-                    {r.created_at} {r.patient || r.source}
+                    {r.created_at} {r.patient || sourceLabel(t, r.source)}
                   </option>
                 ))}
               </select>
@@ -737,7 +762,7 @@ function HeadingRow({
       onChange({ kind: k, parts: [], fields: k === "fields" && !(s.fields ?? []).length ? [{ key: "", label: "" }] : s.fields });
     }
   };
-  const label = s.title || t("Heading {n}", { n: index + 1 });
+  const label = builtinText(t, s.title, readOnly) || t("Heading {n}", { n: index + 1 });
 
   return (
     <li
@@ -766,12 +791,12 @@ function HeadingRow({
           onPointerUp={() => setArmed(false)}
           title={t("Drag to reorder")}
         >
-          <DotsSixVertical size={20} />
+          <GripVertical size={20} />
         </span>
         <input
           className="ob-input tb-title"
           aria-label={t("Heading {n} title", { n: index + 1 })}
-          value={s.title}
+          value={builtinText(t, s.title, readOnly)}
           disabled={readOnly}
           placeholder={t("Heading, for example Anaesthesia")}
           onChange={(e) => onChange({ title: e.target.value })}
@@ -863,7 +888,7 @@ function RowTools({
   return (
     <span className="tb-tools">
       <button type="button" className="icon-btn" aria-label={t("Move {label} up", { label })} disabled={index === 0} onClick={() => onMove(index - 1)}>
-        <CaretUp size={16} aria-hidden />
+        <ChevronUp size={16} aria-hidden />
       </button>
       <button
         type="button"
@@ -872,10 +897,10 @@ function RowTools({
         disabled={index === count - 1}
         onClick={() => onMove(index + 1)}
       >
-        <CaretDown size={16} aria-hidden />
+        <ChevronDown size={16} aria-hidden />
       </button>
       <button type="button" className="icon-btn" aria-label={t("Remove {label}", { label })} onClick={onRemove}>
-        <Trash size={16} aria-hidden />
+        <Trash2 size={16} aria-hidden />
       </button>
     </span>
   );
@@ -895,14 +920,14 @@ interface PartRowProps {
 
 function PartRow({ part: p, index, count, readOnly, standards, onChange, onMove, onRemove, onRemoveStandard }: PartRowProps) {
   const t = useT();
-  const label = p.label || t("Subheading {n}", { n: index + 1 });
+  const label = builtinText(t, p.label, readOnly) || t("Subheading {n}", { n: index + 1 });
   return (
     <li className="tb-part">
       <div className="tb-row">
         <input
           className="ob-input tb-title"
           aria-label={t("Subheading {n} title", { n: index + 1 })}
-          value={p.label}
+          value={builtinText(t, p.label, readOnly)}
           disabled={readOnly}
           placeholder={t("Subheading")}
           onChange={(e) => onChange({ label: e.target.value })}
@@ -970,7 +995,7 @@ function FieldsEditor({
             <input
               className="ob-input"
               aria-label={t("{owner} measurement {n}", { owner, n: i + 1 })}
-              value={f.label}
+              value={builtinText(t, f.label, readOnly)}
               disabled={readOnly}
               placeholder={t("Weight")}
               onChange={(e) => onChange(fields.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))}
@@ -1007,7 +1032,7 @@ function StandardList({ title, items, onRemove }: { title: string; items: Standa
       <ul>
         {items.map((s) => (
           <li key={s.id}>
-            <span className="ob-dot" data-tone="accent" aria-hidden />
+            <span className="ob-dot" aria-hidden />
             <span className="small">{s.text}</span>
             <span className="small faint">
               {s.added_by ? `${s.added_by}, ` : ""}
@@ -1031,15 +1056,17 @@ const KIND_HINT: Record<ContentKind, string> = {
 };
 
 /** The note's shape: every heading, with what the model will put there. */
-function TemplatePreview({ template }: { template: Template }) {
+function TemplatePreview({ template, builtin }: { template: Template; builtin: boolean }) {
   const t = useT();
+  // A built-in template's headings and measurements read in the app language; a team's as written.
+  const text = (x: string) => builtinText(t, x, builtin);
   const body = (kind: ContentKind, fields: TemplateField[] | undefined, instruction?: string | null) => (
     <>
       {kind === "fields" ? (
         <dl className="fields">
           {(fields ?? []).map((f, i) => (
             <div key={i}>
-              <dt className="label muted">{f.label || t("Unnamed")}</dt>
+              <dt className="label muted">{text(f.label) || t("Unnamed")}</dt>
               <dd className="not-discussed">{t("Not discussed")}</dd>
             </div>
           ))}
@@ -1052,11 +1079,11 @@ function TemplatePreview({ template }: { template: Template }) {
   );
   return (
     <article className="note preview-note" aria-label={t("Template preview")}>
-      <h2 className="preview-name">{template.name || t("New template")}</h2>
+      <h2 className="preview-name">{(builtin ? templateName(t, template.name) : template.name) || t("New template")}</h2>
       {template.sections.map((s, i) => (
         <section key={i} className="note-section">
           <header className="note-section-head">
-            <h2>{s.title || t("Untitled heading")}</h2>
+            <h2>{text(s.title) || t("Untitled heading")}</h2>
           </header>
           {s.when?.species?.length ? (
             <p className="small muted preview-when">
@@ -1070,7 +1097,7 @@ function TemplatePreview({ template }: { template: Template }) {
                   {s.instruction && <p className="small faint preview-instruction">{s.instruction}</p>}
                   {(s.parts ?? []).map((p, j) => (
                     <div className="note-part" key={j}>
-                      <h3 className="label">{p.label || t("Untitled subheading")}</h3>
+                      <h3 className="label">{text(p.label) || t("Untitled subheading")}</h3>
                       {p.when?.species?.length ? (
                         <p className="small muted preview-when">
                           {t("Only for {species}", { species: p.when.species.map((x) => t(speciesPlural(x))).join(", ") })}

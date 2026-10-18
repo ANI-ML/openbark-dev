@@ -1,5 +1,5 @@
-import { Button, StatusDot } from "@openbark/ui";
-import { ArrowLeft, ArrowsClockwise, Microphone, PencilSimple } from "@phosphor-icons/react";
+import { Button, MarkMono, StatusDot } from "@openbark/ui";
+import { ArrowLeft, Mic, Pencil, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { fmtTime, useApp } from "../context";
 import * as engine from "../engine";
@@ -77,12 +77,12 @@ export function PatientDetail({ id }: { id: string }) {
                 setEditing(true);
               }}
             >
-              <PencilSimple size={18} aria-hidden />
+              <Pencil size={18} aria-hidden />
               {t("Edit details")}
             </Button>
           )}
           <Button variant="primary" onClick={() => app.navigate({ screen: "record", patient: id })} disabled={!p}>
-            <Microphone size={20} aria-hidden />
+            <Mic size={20} aria-hidden />
             {t("New visit")}
           </Button>
         </div>
@@ -147,7 +147,14 @@ export function PatientDetail({ id }: { id: string }) {
       {view === null ? (
         <div className="ob-skeleton" style={{ height: 160 }} />
       ) : view.visits.length === 0 ? (
-        <p className="empty muted">{t("No visits yet. Choose New visit to record the first one.")}</p>
+        <div className="empty-state">
+          <MarkMono size={48} className="faint" />
+          <h3>{t("No visits yet")}</h3>
+          <p className="muted">{t("Record the first visit for this patient.")}</p>
+          <Button variant="primary" onClick={() => app.navigate({ screen: "record", patient: id })} disabled={!p}>
+            {t("New visit")}
+          </Button>
+        </div>
       ) : (
         <section aria-label={t("Visits")}>
           <h2 className="tpl-group-title">{t("Visits")}</h2>
@@ -195,7 +202,7 @@ export function PatientDetail({ id }: { id: string }) {
                   disabled={v.signed || !app.can.notes}
                   onClick={() => setReprocess(v)}
                 >
-                  <ArrowsClockwise size={18} aria-hidden />
+                  <RefreshCw size={18} aria-hidden />
                 </button>
               </li>
             ))}

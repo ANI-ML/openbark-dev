@@ -1,5 +1,5 @@
-import { createLevelSource } from "@openbark/ui";
-import { Cube, Gear, Microphone, Notebook, PawPrint, Question } from "@phosphor-icons/react";
+import { Lockup, Mark, createLevelSource } from "@openbark/ui";
+import { Box, ChevronRight, CircleHelp, Mic, NotebookText, PawPrint, Settings as SettingsIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import * as engine from "./engine";
 import { ConsentNotice } from "./components/ConsentNotice";
@@ -25,14 +25,24 @@ export type Route =
   | { screen: "models" }
   | { screen: "settings" };
 
+/**
+ * The left rail (DESIGN.md §9: 240 px) and, on phones, the 64 px tab bar.
+ * The tab bar shows the four primary destinations (Record, Patients,
+ * Templates, Settings); Models and Help stay in the rail and are reached
+ * from Settings on a phone (`phone` false hides them from the tab bar).
+ * The order is fixed: the e2e scripts address items by position.
+ */
 const NAV = [
-  { screen: "record", label: "Record", icon: Microphone },
-  { screen: "patients", label: "Patients", icon: PawPrint },
-  { screen: "templates", label: "Templates", icon: Notebook },
-  { screen: "models", label: "Models", icon: Cube },
-  { screen: "settings", label: "Settings", icon: Gear },
-  { screen: "help", label: "Help", icon: Question },
+  { screen: "record", label: "Record", icon: Mic, phone: true },
+  { screen: "patients", label: "Patients", icon: PawPrint, phone: true },
+  { screen: "templates", label: "Templates", icon: NotebookText, phone: true },
+  { screen: "models", label: "Models", icon: Box, phone: false },
+  { screen: "settings", label: "Settings", icon: SettingsIcon, phone: true },
+  { screen: "help", label: "Help", icon: CircleHelp, phone: false },
 ] as const;
+
+/** Destinations left out of the phone tab bar, listed under Settings there. */
+const PHONE_MORE = NAV.filter((n) => !n.phone);
 
 export function App() {
   const [route, setRoute] = useState<Route>({ screen: "record" });
@@ -41,6 +51,11 @@ export function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [announce, setAnnounce] = useState("");
   const levels = useMemo(() => createLevelSource(), []);
+
+  // Each destination opens at its top, not at the previous screen's scroll position.
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [route]);
 
   const refreshStatus = useCallback(() => {
     engine.status().then(setStatus, () => setStatus(null));
@@ -129,30 +144,29 @@ export function App() {
     <AppContext.Provider value={ctx}>
       <div className="frame">
         <nav className="sidebar" aria-label="Main">
+          {/* The horizontal lockup in the full rail; the mark alone in the narrow rail (§2.3).
+              Wrapped so app.css's .brand-full / .brand-compact switch hides the whole element. */}
           <div className="brand">
-            <svg className="brand-mark" viewBox="0 0 1024 1024" aria-hidden="true">
-              <rect className="brand-mark-tile" width="1024" height="1024" rx="224" />
-              <g className="brand-mark-paw">
-                <ellipse cx="512" cy="640" rx="190" ry="160" />
-                <ellipse cx="300" cy="430" rx="78" ry="100" transform="rotate(-18 300 430)" />
-                <ellipse cx="430" cy="300" rx="80" ry="108" transform="rotate(-6 430 300)" />
-                <ellipse cx="594" cy="300" rx="80" ry="108" transform="rotate(6 594 300)" />
-                <ellipse cx="724" cy="430" rx="78" ry="100" transform="rotate(18 724 430)" />
-              </g>
-            </svg>
-            <span className="brand-name">OpenBark</span>
+            <span className="brand-full">
+              <Lockup size={28} />
+            </span>
+            <span className="brand-compact">
+              <Mark size={28} title="OpenBark" />
+            </span>
           </div>
           <ul>
-            {NAV.map(({ screen, label: english, icon: Icon }) => {
+            {NAV.map(({ screen, label: english, icon: Icon, phone }) => {
               const label = t(english);
               return (
-                <li key={screen}>
+                <li key={screen} className={phone ? undefined : "nav-secondary"}>
                   <button
                     type="button"
                     className="nav-item"
                     aria-label={label}
                     title={label}
                     aria-current={active === screen ? "page" : undefined}
+                    // Phones: Models and Help open from Settings, so its tab stays marked (§9).
+                    data-parent-current={screen === "settings" && (active === "models" || active === "help") ? "" : undefined}
                     onClick={() => setRoute({ screen } as Route)}
                   >
                     <Icon size={20} aria-hidden />
@@ -195,6 +209,21 @@ export function App() {
           {route.screen === "help" && <Help />}
           {route.screen === "models" && <Models />}
           {route.screen === "settings" && <SettingsScreen />}
+          {route.screen === "settings" && (
+            <nav className="phone-more" aria-label={t("More")}>
+              <ul>
+                {PHONE_MORE.map(({ screen, label: english, icon: Icon }) => (
+                  <li key={screen}>
+                    <button type="button" className="phone-more-row" onClick={() => setRoute({ screen } as Route)}>
+                      <Icon size={20} aria-hidden />
+                      <span>{t(english)}</span>
+                      <ChevronRight size={18} aria-hidden className="phone-more-chevron" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          )}
         </main>
       </div>
       {!settings.consentAcknowledgedAt && (

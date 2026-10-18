@@ -1,6 +1,6 @@
 import { Button } from "@openbark/ui";
 import { useApp } from "../context";
-import { useT } from "../i18n";
+import { hardwareLine, useT } from "../i18n";
 import { describeModel, LEGEND, recommendedSize, STARTERS } from "../modelGuide";
 
 /** A model name as plain-language chips; each chip's meaning shows on hover and to screen readers. */
@@ -57,7 +57,7 @@ export function ModelGuide({ onOpenRepo }: { onOpenRepo: (repo: string) => void 
       </summary>
       {size && hw && (
         <p className="ob-notice" data-tone="ok">
-          {t("For this computer ({hardware}), start with Gemma 4 {size}.", { hardware: hw.summary, size })}{" "}
+          {t("For this computer ({hardware}), start with Gemma 4 {size}.", { hardware: hardwareLine(t, hw), size })}{" "}
           {size === "12B"
             ? t("It has room for the larger, more careful model; E4B is faster if you prefer speed.")
             : size === "E4B"

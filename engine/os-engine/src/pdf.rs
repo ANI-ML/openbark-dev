@@ -589,8 +589,8 @@ mod tests {
         PdfHeader {
             clinic: Clinic { name: "Maple Street Animal Hospital".into(), lines: vec!["12 Maple St".into()] },
             details: vec!["Patient: Miso Tanaka".into(), "Recorded: 2026-10-17 20:07".into()],
-            signed: Some("Signed by Dr Pinard, 2026-10-17 21:15".into()),
-            addenda: vec![("Addendum, 2026-10-18 09:12, Dr Pinard".into(), "Eating again.".into())],
+            signed: Some("Signed by Dr Okafor, 2026-10-17 21:15".into()),
+            addenda: vec![("Addendum, 2026-10-18 09:12, Dr Okafor".into(), "Eating again.".into())],
             page: PageSize::Letter,
             labels: Labels::for_language("en"),
         }
@@ -653,7 +653,7 @@ mod tests {
         assert!(pdf.windows(5).any(|w| w == b"39.1 "), "the value is written");
         assert!(pdf.contains(&0xb0), "degree sign in WinAnsi");
         assert!(t.contains("Not discussed"));
-        assert!(t.contains("Signed by Dr Pinard"));
+        assert!(t.contains("Signed by Dr Okafor"));
         assert!(t.contains("Eating again."));
         assert!(!t.contains("[20]"), "no citations in the PDF");
 

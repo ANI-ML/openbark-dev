@@ -1,5 +1,5 @@
 import { Button } from "@openbark/ui";
-import { CaretDown, CaretUp, Plus, X } from "@phosphor-icons/react";
+import { ChevronDown, ChevronUp, Plus, X } from "lucide-react";
 import { useState } from "react";
 import type { ContentKind, TemplateField } from "../engine";
 import { useT } from "../i18n";
@@ -68,7 +68,7 @@ export function HeadingEditor({ title, kind: shown, fields, value, busy, onSave,
   const tools = (i: number, label: string) => (
     <span className="tb-tools">
       <button type="button" className="icon-btn" aria-label={t("Move {item} up", { item: label })} disabled={i === 0} onClick={() => moveItem(i, i - 1)}>
-        <CaretUp size={16} aria-hidden />
+        <ChevronUp size={16} aria-hidden />
       </button>
       <button
         type="button"
@@ -77,7 +77,7 @@ export function HeadingEditor({ title, kind: shown, fields, value, busy, onSave,
         disabled={i === items.length - 1}
         onClick={() => moveItem(i, i + 1)}
       >
-        <CaretDown size={16} aria-hidden />
+        <ChevronDown size={16} aria-hidden />
       </button>
       <button type="button" className="icon-btn" aria-label={t("Remove {item}", { item: label })} onClick={() => setItems((xs) => xs.filter((_, j) => j !== i))}>
         <X size={16} aria-hidden />
@@ -121,7 +121,7 @@ export function HeadingEditor({ title, kind: shown, fields, value, busy, onSave,
               <div className="edit-med-grid">
                 {MED_KEYS.map((k) => (
                   <label key={k} className="ob-field">
-                    <span className="label muted">{t(MED_LABELS[k])}</span>
+                    <span className="label">{t(MED_LABELS[k])}</span>
                     <input
                       className="ob-input"
                       value={typeof m[k] === "string" ? (m[k] as string) : ""}
@@ -150,7 +150,7 @@ export function HeadingEditor({ title, kind: shown, fields, value, busy, onSave,
               }));
             return (
               <div key={f.key} className="edit-field">
-                <span className="label muted">{f.label}</span>
+                <span className="label">{f.label}</span>
                 <input className="ob-input" aria-label={f.label} value={val} disabled={busy} placeholder={t("Not discussed")} onChange={(e) => set(e.target.value, unit)} />
                 <input
                   className="ob-input edit-unit"

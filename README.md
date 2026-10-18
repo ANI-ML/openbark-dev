@@ -1,21 +1,22 @@
 <p align="center">
-  <img src="apps/desktop/src-tauri/icons/icon.svg" width="96" alt="OpenBark logo">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/logos/openbark-lockup-horizontal-outlined-on-dark.svg">
+    <img src="docs/brand/logos/openbark-lockup-horizontal-outlined.svg" width="320" alt="OpenBark">
+  </picture>
 </p>
 
-<h1 align="center">OpenBark</h1>
-
-<p align="center"><strong>An open-source veterinary scribe that runs on your clinic's own computer.</strong></p>
+<p align="center"><strong>The free, open-source AI scribe for veterinary medicine. It runs on your clinic's own computer.</strong></p>
 
 <p align="center">
-  Created by <strong>Dr. Christopher Pinard</strong> and <strong>ANI.ML Health Inc.</strong><br>
-  Apache-2.0 licensed. Pre-alpha.
+  Built by the <a href="https://www.animl.health">ANI.ML Health</a> team.<br>
+  Apache-2.0 licensed. Beta. <a href="https://www.openbark.io">openbark.io</a>
 </p>
 
 ---
 
-OpenBark records the consult (or imports a recording), transcribes it, and drafts the medical record with open models that run locally: on a Windows, Mac or Linux computer in your clinic. Each statement in the draft cites the transcript lines it came from, so you can jump to where it was said. OpenBark flags citations whose wording doesn't match, but a citation can still point to the wrong line, so check before signing., numbers are checked against the transcript, and nothing is final until a veterinarian signs it. Recordings, transcripts and notes stay on your computer, encrypted.
+OpenBark records the consult (or imports a recording), transcribes it, and drafts the medical record with open models that run locally: on a Windows, Mac or Linux computer in your clinic. Each statement in the draft cites the transcript lines it came from, so you can jump to where it was said. OpenBark flags citations whose wording doesn't match, but a citation can still point to the wrong line, so check before signing. Numbers are checked against the transcript, and nothing is final until a veterinarian signs it. Recordings, transcripts and notes stay on your computer, encrypted.
 
-> **Status: pre-alpha.** The desktop app works end to end on Windows (recording, transcription, drafts with evidence, templates, patients, signing, encryption, team roles, installer). It has been measured on synthetic consults on one Windows PC with an NVIDIA RTX 4080. The macOS and Linux versions are built automatically but have not yet been run and checked on real machines. It has not yet been validated in real clinics. Use it alongside your usual records, and review every draft.
+> **Status: beta.** The desktop app works end to end on Windows (recording, transcription, drafts with evidence, templates, patients, signing, encryption, team roles, installer). It has been measured on synthetic consults on one Windows PC with an NVIDIA RTX 4080. The macOS and Linux versions are built automatically but have not yet been run and checked on real machines. It has not yet been validated in real clinics. Use it alongside your usual records, and review every draft.
 
 ## Contents
 
@@ -148,7 +149,7 @@ Step-by-step runbooks: [Windows](docs/runbooks/windows.md), [macOS](docs/runbook
 
 ## How it was built
 
-OpenBark was designed and directed by Dr. Christopher Pinard, a veterinarian, at ANI.ML Health Inc., and built together with Claude, Anthropic's AI. Every architectural decision is written down as a decision record, every dependency is checked and pinned, changes to drafting are measured before and after, and larger changes go through an automated review by many AI agents before they're merged.
+OpenBark is built by the [ANI.ML Health](https://www.animl.health) team. Every architectural decision is written down as a decision record, every dependency is checked and pinned, changes to drafting are measured before and after, and larger changes go through a multi-stage review before they're merged.
 
 ## Version history
 
@@ -162,7 +163,7 @@ OpenBark is free. If it gives you back some evenings, you can [buy us a coffee](
 
 ## License and credits
 
-Created by **Dr. Christopher Pinard** and **ANI.ML Health Inc.**
+Built by the **[ANI.ML Health](https://www.animl.health)** team.
 
 Apache-2.0: see [LICENSE](LICENSE) and [NOTICE](NOTICE). Models are downloaded separately and each is under its own license, which the app shows before download. "Gemma" is a trademark of Google LLC; OpenBark is not affiliated with or endorsed by Google, NVIDIA or OpenAI.
 

@@ -1,9 +1,9 @@
 import { Button, Sheet, StatusDot } from "@openbark/ui";
-import { DownloadSimple, MagnifyingGlass, X } from "@phosphor-icons/react";
+import { ArrowLeft, Download, Search, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { fmtBytes, useApp } from "../context";
 import * as engine from "../engine";
-import { useT } from "../i18n";
+import { hardwareLine, useT } from "../i18n";
 import { GpuCard } from "../components/GpuCard";
 import { ModelGuide, ModelMeaning, ModelTags } from "../components/ModelGuide";
 import { STARTERS } from "../modelGuide";
@@ -17,10 +17,18 @@ const SLOT_LABEL: Record<engine.Slot, string> = {
 };
 
 const FIT: Record<engine.Fit, { label: string; tone: "ok" | "warn" | "neutral" }> = {
-  fits: { label: "Fits", tone: "ok" },
+  // Not downloaded yet, so no success dot: green means Ready only (§3.3, §7.6).
+  fits: { label: "Fits", tone: "neutral" },
   tight: { label: "Tight", tone: "warn" },
   wont_fit: { label: "Won't fit", tone: "neutral" },
 };
+
+/** "1.2 / 3.4 GB": progress in one unit, as the brand's downloading chip shows it (§7.6). */
+function fmtPair(done: number, total: number) {
+  const [div, unit] = total >= 1e9 ? [1e9, "GB"] : [1e6, "MB"];
+  const n = (b: number) => (b / div).toFixed(div === 1e9 ? 1 : 0);
+  return `${n(Math.min(done, total))} / ${n(total)} ${unit}`;
+}
 
 /** DESIGN.md §5 Model manager: catalog rows, fit words, determinate progress. */
 export function Models() {
@@ -68,17 +76,40 @@ export function Models() {
   }
 
   const llms = rows.filter((r) => r.slot === "llm" && r.installed);
+  const current = rows.find((r) => r.id === app.settings.llm);
+  const currentProgress = progress[app.settings.llm];
 
   return (
     <div className="screen">
       <header className="screen-head">
-        <h1>{t("Models")}</h1>
+        <div className="head-title">
+          {/* Phones reach Models from Settings: the way back (§9). */}
+          <Button variant="ghost" size="compact" className="back-to-settings" onClick={() => app.navigate({ screen: "settings" })}>
+            <ArrowLeft size={16} aria-hidden />
+            {t("Settings")}
+          </Button>
+          <h1>{t("Models")}</h1>
+        </div>
         <Button variant="primary" onClick={() => setBrowsing(true)}>
-          <MagnifyingGlass size={20} aria-hidden />
+          <Search size={20} aria-hidden />
           {t("Browse Hugging Face")}
         </Button>
       </header>
-      <p className="small muted">{app.status?.hardware.summary}</p>
+      {rows.length > 0 && (
+        <p>
+          {currentProgress ? (
+            <StatusDot tone="warn">
+              {t("Downloading {progress}", { progress: fmtPair(currentProgress.done, currentProgress.total) })}
+            </StatusDot>
+          ) : current?.installed ? (
+            // §7.6: always say where inference runs. Local-first is the promise.
+            <StatusDot tone="ok">{`${current.name} · ${t("local")}`}</StatusDot>
+          ) : (
+            <StatusDot tone="danger">{t("No model loaded")}</StatusDot>
+          )}
+        </p>
+      )}
+      <p className="small muted">{hardwareLine(t, app.status?.hardware)}</p>
       {error && (
         <p className="ob-notice" data-tone="danger" role="alert">
           {error}
@@ -158,7 +189,9 @@ export function Models() {
                       <span className="ob-chip">{r.license}</span>
                     </td>
                     <td>
-                      {r.installed ? (
+                      {p ? (
+                        <StatusDot tone="warn">{t("Downloading")}</StatusDot>
+                      ) : r.installed ? (
                         <StatusDot tone="ok">{t("Ready")}</StatusDot>
                       ) : r.slot === "llm" ? (
                         <StatusDot tone={FIT[r.fit].tone}>{t(FIT[r.fit].label)}</StatusDot>
@@ -188,7 +221,7 @@ export function Models() {
                         </div>
                       ) : !r.installed ? (
                         <Button onClick={() => download(r.id)} disabled={r.fit === "wont_fit"}>
-                          <DownloadSimple size={20} aria-hidden />
+                          <Download size={20} aria-hidden />
                           {t("Download ({size})", {
                             size: fmtBytes(r.size_bytes),
                           })}
@@ -431,38 +464,40 @@ function HubBrowser({
                     </p>
                   )
                 ) : (
-                  <table className="ob-table">
-                    <thead>
-                      <tr>
-                        <th>{t("File")}</th>
-                        <th className="num">{t("Size")}</th>
-                        <th>{t("Fit")}</th>
-                        <th aria-label={t("Actions")} />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {repo.files.map((f) => (
-                        <tr key={f.path}>
-                          <td>
-                            <span className="mono">{f.path}</span>
-                            <ModelTags name={f.path} only="compression" />
-                          </td>
-                          <td className="num">{fmtBytes(f.size_bytes)}</td>
-                          <td>
-                            <StatusDot tone={FIT[f.fit].tone}>{t(FIT[f.fit].label)}</StatusDot>
-                          </td>
-                          <td className="cell-action">
-                            <Button
-                              onClick={() => add(f.path)}
-                              disabled={(restricted && !accepted) || f.fit === "wont_fit"}
-                            >
-                              {t("Download")}
-                            </Button>
-                          </td>
+                  <div className="table-wrap">
+                    <table className="ob-table">
+                      <thead>
+                        <tr>
+                          <th>{t("File")}</th>
+                          <th className="num">{t("Size")}</th>
+                          <th>{t("Fit")}</th>
+                          <th aria-label={t("Actions")} />
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {repo.files.map((f) => (
+                          <tr key={f.path}>
+                            <td>
+                              <span className="mono">{f.path}</span>
+                              <ModelTags name={f.path} only="compression" />
+                            </td>
+                            <td className="num">{fmtBytes(f.size_bytes)}</td>
+                            <td>
+                              <StatusDot tone={FIT[f.fit].tone}>{t(FIT[f.fit].label)}</StatusDot>
+                            </td>
+                            <td className="cell-action">
+                              <Button
+                                onClick={() => add(f.path)}
+                                disabled={(restricted && !accepted) || f.fit === "wont_fit"}
+                              >
+                                {t("Download")}
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </>
             )}

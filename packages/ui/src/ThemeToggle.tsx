@@ -7,7 +7,11 @@ const OPTIONS: { value: ThemeChoice; label: string }[] = [
   { value: "dark", label: "Dark" },
 ];
 
-/** Explicit light/dark/system choice (DESIGN.md §9: user-overridable). */
+/**
+ * Explicit system/light/dark choice. Dark mode is a first-class target
+ * (DESIGN.md §3.4) and honours prefers-color-scheme until the user picks one
+ * (§10). A segmented control with text labels: sentence case, no icons.
+ */
 export function ThemeToggle({ translate = (s: string) => s }: { translate?: (english: string) => string } = {}) {
   const [choice, setChoice] = useState<ThemeChoice>(() => readTheme());
 

@@ -13,7 +13,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@phosphor-icons/react": "catalog:"
+    "lucide-react": "catalog:"
   },
   "peerDependencies": {
     "react": "catalog:"

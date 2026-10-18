@@ -5,16 +5,18 @@
 Pages come from website/src (index.html is the landing page's body, site.css,
 site.js) and website/content/features.json (the features page, generated
 here). website/public is copied as is (release.json, written by the release
-workflow, and the icon). The product name lives in PRODUCT below, so a rename
+workflow, the favicon and the app icon). How it looks follows the brand guide,
+docs/brand/DESIGN.md. The product name lives in PRODUCT below, so a rename
 is one line.
 
---preview DIR also writes a copy for a claude.ai Artifact preview, where the
+--preview DIR also writes a copy for an online preview, where the
 landing page is body-only (the viewer adds the document wrapper).
 """
 import html
 import io
 import json
 import os
+import re
 import shutil
 import sys
 
@@ -24,24 +26,55 @@ SRC = os.path.join(SITE, "src")
 DIST = os.path.join(SITE, "dist")
 
 PRODUCT = "OpenBark"
-TAGLINE = "Open-source veterinary scribe"
-CREDIT = "Created by Dr. Christopher Pinard and ANI.ML Health Inc."
+# The source repository. Until ANI-ML/openbark is public, leave this as None:
+# the site then calls OpenBark free (not open source), says the code isn't
+# public yet, and shows no Source code links. Once the repository is public,
+# set it to "https://github.com/ANI-ML/openbark", rebuild, and re-render
+# website/public/og-image.png (SOURCE_PUBLIC=1 node e2e/brand-images.mjs --og).
+SOURCE_URL = None
+OPEN = "free, open-source" if SOURCE_URL else "free"
+TAGLINE = "Open-source veterinary scribe" if SOURCE_URL else "Free veterinary scribe"
+CREDIT = "Built by the ANI.ML Health team."
 CONTACT = "we.care@animl.health"
 COFFEE = "https://buymeacoffee.com/animlhealth"
+# The public address: openbark.io redirects to www. Pages are served with
+# clean URLs (vercel.json), so features.html is canonically /features.
+SITE_URL = "https://www.openbark.io"
+OG_IMAGE = SITE_URL + "/og-image.png"  # website/public/og-image.png, from docs/brand/images
+PAGES = {"home": "/", "features": "/features", "history": "/history"}
 
 FONTS = (
     '<link rel="preconnect" href="https://fonts.googleapis.com">'
     '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
-    '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400..700&family=Geist+Mono:wght@400;500&display=swap">'
+    '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;800&family=JetBrains+Mono:wght@400;500&display=swap">'
 )
 
-LOGO = (
-    '<svg viewBox="0 0 1024 1024" aria-hidden="true"><rect width="1024" height="1024" rx="224" fill="#F47C20"/>'
-    '<g fill="#ffffff"><ellipse cx="512" cy="640" rx="190" ry="160"/>'
-    '<ellipse cx="300" cy="430" rx="78" ry="100" transform="rotate(-18 300 430)"/>'
-    '<ellipse cx="430" cy="300" rx="80" ry="108" transform="rotate(-6 430 300)"/>'
-    '<ellipse cx="594" cy="300" rx="80" ry="108" transform="rotate(6 594 300)"/>'
-    '<ellipse cx="724" cy="430" rx="78" ry="100" transform="rotate(18 724 430)"/></g></svg>'
+# The horizontal lockup from docs/brand/logos/openbark-lockup-horizontal.svg,
+# inline so it takes the page's colours (white ink in dark mode) and its
+# wordmark renders as live Manrope text. The capsule is the only accent.
+LOCKUP = (
+    '<svg class="lockup" viewBox="0 0 372 80" role="img" aria-label="{label}">'
+    '<g transform="translate(4 4) scale(0.72)" fill="currentColor">'
+    '<circle cx="30" cy="20" r="7.5"/><circle cx="50" cy="12" r="7.5"/><circle cx="70" cy="20" r="7.5"/>'
+    '<rect class="capsule" x="35" y="28" width="30" height="42" rx="15"/>'
+    '<rect class="grille" x="42" y="44" width="16" height="4" rx="2"/>'
+    '<rect class="grille" x="42" y="52" width="16" height="4" rx="2"/>'
+    '<path d="M24 54 A26 26 0 0 0 76 54" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round"/>'
+    '<rect x="46.5" y="78" width="7" height="10" rx="3.5"/><rect x="35" y="87" width="30" height="7" rx="3.5"/></g>'
+    '<text x="92" y="60" font-family="Manrope, system-ui, -apple-system, \'Segoe UI\', sans-serif" font-size="60" letter-spacing="-1.8">'
+    '<tspan font-weight="500">open</tspan><tspan font-weight="800">bark</tspan></text></svg>'
+)
+
+# The mono mark (docs/brand/logos/openbark-mark-mono.svg): currentColor,
+# grille cut out. Used at 48 px for the empty state.
+MARK_MONO = (
+    '<svg class="lost-mark" viewBox="0 0 100 100" aria-hidden="true">'
+    '<defs><mask id="ob-grille"><rect width="100" height="100" fill="#fff"/>'
+    '<rect x="42" y="44" width="16" height="4" rx="2" fill="#000"/><rect x="42" y="52" width="16" height="4" rx="2" fill="#000"/></mask></defs>'
+    '<g fill="currentColor"><circle cx="30" cy="20" r="7.5"/><circle cx="50" cy="12" r="7.5"/><circle cx="70" cy="20" r="7.5"/>'
+    '<rect x="35" y="28" width="30" height="42" rx="15" mask="url(#ob-grille)"/>'
+    '<rect x="46.5" y="78" width="7" height="10" rx="3.5"/><rect x="35" y="87" width="30" height="7" rx="3.5"/></g>'
+    '<path d="M24 54 A26 26 0 0 0 76 54" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round"/></svg>'
 )
 
 e = html.escape
@@ -55,18 +88,44 @@ def read(*parts):
 def head(title, description, page):
     return (
         f"<title>{e(title)}</title>\n"
-        '<meta name="claude:viewport-fit-sides" content="cover">\n'
         f'<meta name="description" content="{e(description)}">\n'
         f'<meta property="og:title" content="{e(title)}">\n'
         f'<meta property="og:description" content="{e(description)}">\n'
-        '<meta name="theme-color" content="#F47C20">\n'
-        # Marks the page as scripted before first paint, so reveal-on-scroll
-        # never hides content when script is off.
-        '<script>document.documentElement.classList.add("js")</script>\n'
-        '<link rel="icon" href="icon.svg" type="image/svg+xml">\n'
+        '<meta property="og:type" content="website">\n'
+        f'<meta property="og:site_name" content="{e(PRODUCT)}">\n'
+        + (
+            f'<link rel="canonical" href="{SITE_URL}{PAGES[page]}">\n'
+            f'<meta property="og:url" content="{SITE_URL}{PAGES[page]}">\n'
+            if page in PAGES else ""
+        )
+        + f'<meta property="og:image" content="{OG_IMAGE}">\n'
+        '<meta property="og:image:width" content="1200">\n'
+        '<meta property="og:image:height" content="630">\n'
+        f'<meta property="og:image:alt" content="{e(PRODUCT)}, the {OPEN} AI scribe for veterinary medicine">\n'
+        '<meta name="twitter:card" content="summary_large_image">\n'
+        f'<meta name="twitter:title" content="{e(title)}">\n'
+        f'<meta name="twitter:description" content="{e(description)}">\n'
+        f'<meta name="twitter:image" content="{OG_IMAGE}">\n'
+        # The browser bar matches the solid header: white, or the dark surface.
+        '<meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">\n'
+        '<meta name="theme-color" content="#0F151D" media="(prefers-color-scheme: dark)">\n'
+        # Favicon: docs/brand/logos/openbark-favicon.svg (no grille, for 16 to 32 px).
+        '<link rel="icon" href="favicon.svg" type="image/svg+xml">\n'
+        '<link rel="apple-touch-icon" href="icon.svg">\n'
         f"{FONTS}\n"
         '<link rel="stylesheet" href="site.css">\n'
     )
+
+
+SOURCE_NAV = f'      <a href="{SOURCE_URL}">Source code</a>\n' if SOURCE_URL else ""
+SOURCE_FOOT = f'\n        <a href="{SOURCE_URL}">Source code</a>' if SOURCE_URL else ""
+
+
+def switch(text):
+    """Keep the <!--if source-public--> or <!--if source-private--> blocks that apply, drop the others."""
+    keep, drop = ("public", "private") if SOURCE_URL else ("private", "public")
+    text = re.sub(rf"<!--if source-{drop}-->.*?<!--end-->", "", text, flags=re.S)
+    return re.sub(rf"<!--if source-{keep}-->(.*?)<!--end-->", r"\1", text, flags=re.S)
 
 
 def header(page):
@@ -74,12 +133,12 @@ def header(page):
     return f"""<a class="skip" href="#main">Skip to content</a>
 <header class="site-head">
   <div class="wrap">
-    <a class="brand" href="index.html">{LOGO}<span>{e(PRODUCT)}</span><span class="stage">Pre-alpha</span></a>
+    <a class="brand" href="index.html">{LOCKUP.format(label=e(PRODUCT) + ", home")}<span class="stage">Beta</span></a>
     <nav class="site-nav" aria-label="Site">
       <a href="features.html"{cur("features")}>Features</a>
       <a href="history.html"{cur("history")}>Version history</a>
       <a href="index.html#contact">Contact</a>
-      <a class="btn btn-primary" href="index.html#download">Get {e(PRODUCT)}</a>
+{SOURCE_NAV}      <a class="btn btn-primary" href="index.html#download">Get {e(PRODUCT)}</a>
     </nav>
   </div>
 </header>
@@ -88,9 +147,9 @@ def header(page):
 
 FOOTER = f"""<footer class="site-foot">
   <div class="wrap">
-    <p class="foot-name">{LOGO}<span>{e(PRODUCT)}</span></p>
+    <p class="foot-name">{LOCKUP.format(label=e(PRODUCT))}</p>
     <div class="foot-row">
-      <p>{e(PRODUCT)}, {e(TAGLINE.lower())}. {e(CREDIT)}<br>
+      <p>{e(PRODUCT)}, {e(TAGLINE.lower())}. Built by the <a href="https://www.animl.health">ANI.ML Health</a> team.<br>
       Drafts are not medical records until a veterinarian reviews and signs them.</p>
       <nav aria-label="Footer">
         <a href="features.html">Features</a>
@@ -98,8 +157,8 @@ FOOTER = f"""<footer class="site-foot">
         <a href="index.html#download">Download</a>
         <a href="mailto:{CONTACT}">{CONTACT}</a>
         <a href="{COFFEE}" rel="noopener">Buy us a coffee</a>
-        <a href="features.html#privacy-and-security">Privacy</a>
-        <a href="https://www.apache.org/licenses/LICENSE-2.0">Licence: Apache-2.0</a>
+        <a href="features.html#privacy">Privacy</a>
+        <a href="https://www.apache.org/licenses/LICENSE-2.0">Licence: Apache-2.0</a>{SOURCE_FOOT}
       </nav>
     </div>
   </div>
@@ -109,6 +168,7 @@ FOOTER = f"""<footer class="site-foot">
 
 LOST = f"""<section class="lost">
   <div class="wrap">
+    {MARK_MONO}
     <h1>This page wandered off.</h1>
     <p>The address may be mistyped, or the page moved when the site changed. Everything {e(PRODUCT)} does is on the features page, and the installers are on the home page.</p>
     <div class="hero-actions">
@@ -120,15 +180,28 @@ LOST = f"""<section class="lost">
 """
 
 
-def stat_tiles(stats, limit=8):
-    out = []
-    for s in stats[:limit]:
-        out.append(
-            f'<div class="stat"><span class="stat-value">{e(s["value"])}</span>'
-            f'<span class="stat-label">{e(s["label"])}</span>'
-            f'<span class="stat-source">{e(s.get("source", ""))}</span></div>'
-        )
-    return "".join(out)
+def stat_block(stats, limit=8):
+    """Value and plain label per tile; where each number comes from sits in one closed list below."""
+    shown = stats[:limit]
+    tiles = "".join(
+        f'<div class="stat"><span class="stat-value">{e(s["value"])}</span>'
+        f'<span class="stat-label">{e(s["label"])}</span></div>'
+        for s in shown
+    )
+    sources = "".join(
+        f'<li><span class="how-what">{e(s["value"])}, {e(s["label"])}</span><span class="evidence">{e(s["source"])}</span></li>'
+        for s in shown if s.get("source")
+    )
+    how = f'<details class="how how-stats"><summary>Where these numbers come from</summary><ul>{sources}</ul></details>' if sources else ""
+    return f'<div class="stats stats-4">{tiles}</div>{how}'
+
+
+def how_we_know(detail, evidence):
+    """The technical detail and the evidence, closed by default (brand guide 8: lead with what the clinician gets)."""
+    if not detail and not evidence:
+        return ""
+    body = (f'<p class="detail">{e(detail)}</p>' if detail else "") + (f'<p class="evidence">{e(evidence)}</p>' if evidence else "")
+    return f'<details class="how"><summary>How we know</summary>{body}</details>'
 
 
 def slug(text):
@@ -153,39 +226,33 @@ def features_body(content):
                 f'<li class="fx-item" data-text="{e((it["name"] + " " + it["benefit"] + " " + it.get("detail", "")).lower())}">'
                 f'<h3>{e(it["name"])}{badge}</h3>'
                 f'<p class="benefit">{e(it["benefit"])}</p>'
-                f'<p class="detail">{e(it.get("detail", ""))}</p>'
-                f'<p class="evidence">{e(it.get("evidence", ""))}</p></li>'
+                f'{how_we_know(it.get("detail", ""), it.get("evidence", ""))}</li>'
             )
         sections.append(
             f'<section class="fx-cat" id="{e(cid)}"><h2>{e(c["name"])}</h2><p>{e(c.get("intro", ""))}</p>'
             f'<ul class="fx-items">{"".join(items)}</ul></section>'
         )
     bt = content.get("built_together", {})
-    timeline = "".join(
-        f'<li><span class="when">{e(m["when"])}</span><span>{e(m["what"])}</span></li>' for m in bt.get("milestones", [])
-    )
     practices = "".join(f"<li>{e(p)}</li>" for p in bt.get("practices", []))
     together = f"""<section class="band band-gray" id="built-together">
   <div class="wrap">
     <div class="band-head">
-      <h2>Created by Dr. Christopher Pinard and ANI.ML Health Inc.</h2>
+      <h2>Built by the ANI.ML Health team.</h2>
       <p>{e(bt.get("intro", ""))}</p>
     </div>
-    <div class="stats stats-4">{stat_tiles(bt.get("stats", []), 12)}</div>
     <div class="together">
-      <div><h3>Milestones</h3><ol class="timeline">{timeline}</ol></div>
-      <div><h3>How the work was done</h3><ul class="practices">{practices}</ul></div>
+      <div><h3>How we build it</h3><ul class="practices">{practices}</ul></div>
     </div>
   </div>
 </section>"""
     return f"""<section class="fx-hero">
   <div class="wrap">
-    <h1>{total} things {e(PRODUCT)} does, and how we know.</h1>
-    <p>Each feature lists what it does for your clinic and where it lives in the code or the evaluation, so nothing here is a promise we can't point to. Items marked "Being tested" or "Coming" are built or planned but not yet proven on real devices.</p>
+    <h1>{total} things {e(PRODUCT)} does for your clinic.</h1>
+    <p>Each feature says what it does for you. Open "How we know" under any of them to see the test or measurement behind it, so nothing here is a promise we can't point to. Items marked "Being tested" or "Coming" are built or planned but not yet proven on real devices.</p>
   </div>
 </section>
 <section class="fx-stats">
-  <div class="wrap"><div class="stats stats-4">{stat_tiles(content.get("headline_stats", []))}</div></div>
+  <div class="wrap">{stat_block(content.get("headline_stats", []))}</div>
 </section>
 <div class="wrap fx-layout" id="fx">
   <nav class="fx-toc" aria-label="Feature categories">
@@ -223,7 +290,7 @@ def history_body(history):
     total = sum(len(en["items"]) for _, en in history_entries(history))
     days = sorted({en["date"] for _, en in history_entries(history)})
     span = days[0] if len(days) == 1 else f"{days[0]} to {days[-1]}"
-    nxt = "".join(f'<li><p>{e(i["text"])}</p><p class="evidence">{e(i["evidence"])}</p></li>' for i in history["next"])
+    nxt = "".join(f'<li><p>{e(i["text"])}</p>{how_we_know("", i.get("evidence", ""))}</li>' for i in history["next"])
     toc = "".join(f'<a href="#{e(m["id"])}"><span>{e(m["name"])}</span><span class="count">{len(m["entries"])}</span></a>' for m in history["milestones"])
     groups = []
     for m in history["milestones"]:
@@ -232,7 +299,7 @@ def history_body(history):
             items = "".join(
                 f'<li><p>{e(i["text"])}'
                 + (' <span class="status" data-s="testing">Being tested</span>' if i.get("status") == "testing" else "")
-                + f'</p><p class="evidence">{e(i["evidence"])}</p></li>'
+                + f'</p>{how_we_know("", i.get("evidence", ""))}</li>'
                 for i in en["items"]
             )
             entries.append(
@@ -244,8 +311,8 @@ def history_body(history):
         )
     return f"""<section class="fx-hero">
   <div class="wrap">
-    <h1>Version history: everything built so far.</h1>
-    <p>Version {e(history["version"])}, {e(history["stage"].lower())}. {total} changes from {span}, newest first, each with the commit and files it lives in. Changes marked "Being tested" are built but not yet proven on real devices.</p>
+    <h1>Version history</h1>
+    <p>Version {e(history["version"])}, {e(history["stage"].lower())}. The major changes in each milestone, newest first. Changes marked "Being tested" are built but not yet proven on real devices.</p>
   </div>
 </section>
 <section class="fx-stats">
@@ -279,10 +346,10 @@ def changelog_md(history):
             out += [f"#### {en['date']}: {en['title']}", "", en["summary"], ""]
             for i in en["items"]:
                 tag = " (being tested)" if i.get("status") == "testing" else ""
-                out.append(f"- {i['text']}{tag} ({i['evidence']})")
+                out.append(f"- {i['text']}{tag}")
             out.append("")
     out += ["## Coming next", "", "Planned or being tested, not finished. No dates are promised.", ""]
-    out += [f"- {i['text']} ({i['evidence']})" for i in history["next"]]
+    out += [f"- {i['text']}" for i in history["next"]]
     return "\n".join(out) + "\n"
 
 
@@ -303,24 +370,26 @@ def main():
     templates = len([d for d in os.listdir(os.path.join(ROOT, "packages", "templates")) if os.path.isdir(os.path.join(ROOT, "packages", "templates", d))])
 
     landing = (
-        read(SRC, "index.html")
+        switch(read(SRC, "index.html"))
         .replace("{{PRODUCT}}", e(PRODUCT))
         .replace("{{TAGLINE}}", e(TAGLINE.lower()))
         .replace("{{TEMPLATES}}", str(templates))
         .replace("{{CONTACT}}", e(CONTACT))
         .replace("{{COFFEE}}", e(COFFEE))
-        .replace("{{STATS}}", stat_tiles(content.get("headline_stats", [])))
+        .replace("{{SOURCE}}", e(SOURCE_URL or ""))
+        .replace("{{FEATURES}}", str(sum(len(c["items"]) for c in content["categories"])))
     )
-    landing_title = f"{PRODUCT}"
-    landing_desc = f"{PRODUCT} records the visit, transcribes it and drafts the medical record on your clinic's own computer, with open models. {CREDIT}"
+    landing_title = f"{PRODUCT}, the {OPEN} AI scribe for veterinary medicine"
+    licence = "Free and open source (Apache-2.0)." if SOURCE_URL else "Free to use."
+    landing_desc = f"{PRODUCT} listens to the visit and drafts the record on your clinic's own computer. Your recordings and notes stay on your computer. No cloud. No subscription. {licence} {CREDIT}"
     landing_head = head(landing_title, landing_desc, "home")
     landing_body = header("home") + '<main id="main">\n' + landing + "</main>\n" + FOOTER + '<script src="site.js"></script>\n'
 
     features_title = f"{PRODUCT} Features"
-    features_desc = f"Every feature of {PRODUCT}, the open-source veterinary scribe, with where it lives in the code. {CREDIT}"
+    features_desc = f"Every feature of {PRODUCT}, the {OPEN} veterinary scribe, and how we know it works. {CREDIT}"
     features_doc = document(head(features_title, features_desc, "features"), header("features") + '<main id="main">\n' + features_body(content) + "</main>\n" + FOOTER)
     history_doc = document(
-        head(f"{PRODUCT} Version history", f"Everything built into {PRODUCT} so far, newest first, with where each change lives in the code. {CREDIT}", "history"),
+        head(f"{PRODUCT} Version history", f"Everything built into {PRODUCT} so far, newest first. {CREDIT}", "history"),
         header("history") + '<main id="main">\n' + history_body(history) + "</main>\n" + FOOTER,
     )
     lost_doc = document(

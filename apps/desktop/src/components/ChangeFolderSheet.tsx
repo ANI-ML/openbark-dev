@@ -1,5 +1,5 @@
 import { Button, Sheet } from "@openbark/ui";
-import { ArrowUp, Folder, HardDrives, X } from "@phosphor-icons/react";
+import { ArrowUp, Folder, HardDrive, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { fmtBytes, useApp } from "../context";
 import * as engine from "../engine";
@@ -364,7 +364,7 @@ function FolderBrowser({ start, onChoose }: { start: string; onChoose: (path: st
         {listing?.folders.map((f) => (
           <li key={f.path}>
             <button type="button" className="folder-row" onClick={() => void go(f.path)}>
-              {listing.path ? <Folder size={18} aria-hidden /> : <HardDrives size={18} aria-hidden />}
+              {listing.path ? <Folder size={18} aria-hidden /> : <HardDrive size={18} aria-hidden />}
               <span className="folder-name">{f.name}</span>
             </button>
           </li>

@@ -1,6 +1,6 @@
 OpenBark, an open-source veterinary scribe
 Copyright 2026 ANI.ML Health Inc. and OpenBark contributors
-Created by Dr. Christopher Pinard and ANI.ML Health Inc.
+Built by the ANI.ML Health team (https://www.animl.health).
 
 This product is licensed under the Apache License, Version 2.0 (see LICENSE).
 
@@ -33,3 +33,16 @@ request and is not distributed here: ONNX Runtime (MIT, by Microsoft, in the
 CUDA build published by k2-fsa/sherpa-onnx) and NVIDIA's CUDA runtime, cuBLAS
 and cuDNN libraries, which are NVIDIA's software under NVIDIA's license and
 are fetched from NVIDIA's own packages after the user accepts that license.
+
+Third-party software compiled into or shipped with the app and installers,
+each under its own license (full license texts are in the respective projects):
+
+- llama.cpp and ggml (MIT), by the ggml authors. https://github.com/ggml-org/llama.cpp
+- sherpa-onnx (Apache-2.0), by the k2-fsa project. https://github.com/k2-fsa/sherpa-onnx
+- ONNX Runtime (MIT), by Microsoft Corporation. https://github.com/microsoft/onnxruntime
+- Tauri (Apache-2.0 or MIT), by the Tauri Programme within The Commons Conservancy.
+- React (MIT), by Meta Platforms, Inc. and affiliates.
+- Other Rust crates and npm packages, under MIT, Apache-2.0, BSD or similar
+  permissive licenses, as listed in Cargo.lock and pnpm-lock.yaml.
+
+Fonts bundled with the app: Manrope (Copyright 2019 The Manrope Project Authors) and JetBrains Mono (Copyright 2020 The JetBrains Mono Project Authors), both under the SIL Open Font License 1.1; see packages/ui/src/fonts/OFL.txt. Icons: Lucide (ISC License).

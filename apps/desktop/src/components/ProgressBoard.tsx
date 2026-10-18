@@ -1,4 +1,4 @@
-import { CheckCircle, Circle, MinusCircle, RadioButton } from "@phosphor-icons/react";
+import { Circle, CircleCheck, CircleDot, CircleMinus } from "lucide-react";
 import type { ReactNode } from "react";
 
 export type StepState = "done" | "active" | "pending" | "skipped";
@@ -13,14 +13,17 @@ export interface BoardStep {
   children?: BoardStep[];
 }
 
-const ICON = { done: CheckCircle, active: RadioButton, pending: Circle, skipped: MinusCircle } as const;
+const ICON = { done: CircleCheck, active: CircleDot, pending: Circle, skipped: CircleMinus } as const;
 
 /**
  * A loading board for long work (transcribing a recording, drafting a
  * note): what OpenBark is doing, as named steps that tick off, with one
- * determinate bar (DESIGN.md §5, never a spinner), how far it has got, and
- * how long it has taken or should take. Step changes are announced to
- * screen readers.
+ * determinate bar (never a spinner), how far it has got, and how long it
+ * has taken or should take. Step changes are announced to screen readers.
+ *
+ * Progress is ink (docs/brand/DESIGN.md §3.5). The active step takes the
+ * accent only with `accent`, which the caller sets when nothing else on the
+ * screen is amber (one accent per screen; the Record button is amber).
  */
 export function ProgressBoard({
   label,
@@ -31,6 +34,7 @@ export function ProgressBoard({
   status,
   aside,
   compact = false,
+  accent = false,
 }: {
   /** Accessible name of the progress bar. */
   label: string;
@@ -45,11 +49,18 @@ export function ProgressBoard({
   aside?: ReactNode;
   /** Inside a panel (one heading being redrafted): fewer lines. */
   compact?: boolean;
+  /** Mark the active step with the accent (only when nothing else on screen is amber). */
+  accent?: boolean;
 }) {
   const pct = Math.round(Math.min(1, Math.max(0, fraction)) * 100);
   const active = steps.find((s) => s.state === "active");
   return (
-    <div className={`board${compact ? " board-compact" : ""}`} role="group" aria-label={label}>
+    <div
+      className={`board${compact ? " board-compact" : ""}`}
+      data-accent={accent || undefined}
+      role="group"
+      aria-label={label}
+    >
       <div className="board-head">
         <div className="board-titles">
           <p className="board-title">{title}</p>
@@ -73,12 +84,7 @@ export function ProgressBoard({
           const Icon = ICON[s.state];
           return (
             <li key={s.key} className="board-step" data-state={s.state}>
-              <Icon
-                className="board-icon"
-                size={compact ? 18 : 20}
-                weight={s.state === "done" ? "fill" : "regular"}
-                aria-hidden
-              />
+              <Icon className="board-icon" size={compact ? 18 : 20} aria-hidden />
               <div className="board-step-text">
                 <span className="board-step-label">{s.label}</span>
                 {s.detail && <span className="small muted">{s.detail}</span>}
@@ -88,7 +94,7 @@ export function ProgressBoard({
                       const SubIcon = ICON[c.state];
                       return (
                         <li key={c.key} data-state={c.state}>
-                          <SubIcon size={14} weight={c.state === "done" ? "fill" : "regular"} aria-hidden />
+                          <SubIcon size={14} aria-hidden />
                           <span>{c.label}</span>
                         </li>
                       );

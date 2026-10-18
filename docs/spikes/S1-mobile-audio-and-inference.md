@@ -1,6 +1,7 @@
 # Spike S1: background audio and on-device inference inside Tauri 2 mobile
 
 Status: **designed, not started**. Time-box: **5 working days** (2 for Android, 2 for iOS, 1 for write-up).
+Amended for iOS by ADR-0018 (2026-10-18): the iOS half is built, signed and uploaded to TestFlight by a GitHub Actions macOS job, with no owner Mac, and the owner runs the device checks from a TestFlight build on their iPhone (M3 phase 1). Drafting stays on computers, so on iOS only A1 to A4 run (step 3's note generation, A5's note part and L1 to L3 are skipped).
 Output: `docs/adr/0002-mobile-framework.md`, plus a throwaway app in `spikes/s1-tauri-mobile/` (deleted or archived after the ADR).
 
 ## The question
@@ -75,7 +76,7 @@ The app logs these metrics to a JSON file.
 
 | Platform | Minimum test device | Notes |
 |---|---|---|
-| iOS | iPhone with A16 or newer on the current iOS | **Needs a Mac with Xcode. This dev box is Windows, so this is a blocker to resolve.** |
+| iOS | iPhone with A16 or newer on the current iOS | Built and signed on GitHub Actions macOS runners (Xcode), installed from TestFlight on the owner's iPhone (ADR-0018 section 8). No Mac needed on this Windows box. |
 | Android | Pixel 8-class or Galaxy S23-class (Snapdragon 8 Gen 2 / Tensor G3), Android 14+ | Possible from this Windows box once the Android SDK and NDK are installed. |
 | Android, low end | one mid-range device with ~6 GB RAM | Shows how far the "Phone — battery saver" profile has to drop. |
 
@@ -116,6 +117,6 @@ The app logs these metrics to a JSON file.
 
 ## Risks in the spike itself
 
-- **There is no Mac on hand.** The iOS half can't start without one. Options: borrow or rent a Mac (or a cloud Mac), or run Android first and do iOS second.
+- **There is no Mac on hand.** Resolved on 2026-10-18: the iOS half runs on GitHub Actions macOS runners and TestFlight (ADR-0018 section 8). The remaining risk is macOS CI minutes and waiting for the owner's on-device runs.
 - **Expo SDK 58 / iOS 27 churn** affects fallback 3 only.
 - **App Store review of background-audio apps.** The `audio` background mode is meant for apps that play or record audio in the background, which a recording scribe is. The S1 write-up records the review-guideline wording we're relying on (master prompt §7.7 asks us to flag store-submission trade-offs).

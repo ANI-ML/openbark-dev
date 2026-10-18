@@ -18,10 +18,31 @@ OUT = os.path.join(HERE, "..", "apps", "desktop", "src", "i18n", "messages.ts")
 PLACEHOLDER = re.compile(r"\{(\w+)\}")
 
 
+TEMPLATES = os.path.join(HERE, "..", "packages", "templates")
+DESCRIPTION = re.compile(r"^description:\s*(.+?)\s*$", re.M)
+
+
+def template_descriptions() -> set[str]:
+    """Built-in template descriptions, shown through templateDescription() in src/i18n.ts."""
+    out = set()
+    for name in sorted(os.listdir(TEMPLATES)):
+        path = os.path.join(TEMPLATES, name, "template.yaml")
+        if not os.path.isfile(path):
+            continue
+        with io.open(path, encoding="utf-8") as f:
+            m = DESCRIPTION.search(f.read())
+        if m:
+            text = m.group(1)
+            out.add(json.loads(text) if text.startswith('"') else text)
+    return out
+
+
 def keys() -> list[str]:
+    # The child writes UTF-8 whatever the console code page is (Windows defaults to cp1252).
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
     out = subprocess.run([sys.executable, os.path.join(HERE, "i18n-keys.py")], capture_output=True, text=True,
-                         encoding="utf-8", check=True).stdout
-    return json.loads(out)
+                         encoding="utf-8", check=True, env=env).stdout
+    return sorted(set(json.loads(out)) | template_descriptions())
 
 
 def main(paths: list[str]) -> int:

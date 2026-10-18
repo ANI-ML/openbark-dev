@@ -1,6 +1,6 @@
 # Installing and uninstalling OpenBark
 
-OpenBark installs like any other app, for your own user account. No administrator rights are needed (one exception is noted for macOS), and installing or uninstalling never touches your encounters, models or settings unless you ask it to.
+OpenBark installs like any other app, for your own user account. On Windows no administrator rights are needed. On macOS one exception is noted below. On Linux the .deb and .rpm packages ask for your password; the AppImage doesn't. Installing or uninstalling never touches your encounters, models or settings unless you ask it to.
 
 | | Install | Uninstall |
 |---|---|---|

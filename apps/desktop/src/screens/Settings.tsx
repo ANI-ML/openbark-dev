@@ -353,6 +353,10 @@ export function SettingsScreen() {
           OpenBark <span className="mono">{app.status?.version}</span>.{" "}
           {t("Notes are drafts until a veterinarian signs them.")}
         </p>
+        {/* §8 offline notice: where OpenBark states its privacy. */}
+        <p className="ob-notice" data-tone="ok">
+          {t("Running locally. Nothing leaves this device.")}
+        </p>
       </section>
     </div>
   );

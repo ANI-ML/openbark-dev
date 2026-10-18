@@ -5,8 +5,8 @@ import { animateSpring, prefersReducedMotion, project, rubberband, type SpringHa
 const CloseContext = createContext<() => void>(() => {});
 export const useSheetClose = () => useContext(CloseContext);
 
-/** How long the exit motion may take before the sheet unmounts anyway. */
-const EXIT_MS = 420;
+/** How long the exit motion may take before the sheet unmounts anyway (§5.4: large, 320 ms). */
+const EXIT_MS = 320;
 
 function useExit(onClose: () => void) {
   const [closing, setClosing] = useState(false);
@@ -14,13 +14,9 @@ function useExit(onClose: () => void) {
   const close = useCallback(() => {
     if (done.current) return;
     done.current = true;
-    if (prefersReducedMotion()) {
-      setClosing(true);
-      setTimeout(onClose, 200);
-      return;
-    }
     setClosing(true);
-    setTimeout(onClose, EXIT_MS);
+    // Reduced motion cuts every duration to zero (§5.4).
+    setTimeout(onClose, prefersReducedMotion() ? 0 : EXIT_MS);
   }, [onClose]);
   return { closing, close };
 }
@@ -37,8 +33,9 @@ export interface SheetProps {
 }
 
 /**
- * DESIGN.md §5 sheet, ADR-0010 motion: slides in from the right (bottom on
- * phones) with a critically damped spring, and leaves the same way. On a
+ * DESIGN.md §5.3 level-2 sheet: a solid surface with a border, radius
+ * --r-xl, that slides in from the right (bottom on phones) over 320 ms and
+ * leaves the same way. No glass (§3.5). On a
  * phone the grabber can be dragged: the sheet follows the finger 1:1,
  * resists upwards, and a flick down (by projected momentum, not just
  * distance) dismisses it; otherwise it springs back with the finger's
@@ -128,8 +125,8 @@ export function Sheet({ label, onClose, dismissible = true, className, children 
 }
 
 /**
- * A centred dialog for one-time notices (consent, who is using OpenBark): it
- * materialises (scale and fade together) and dims the screen behind it.
+ * A centred dialog for one-time notices (consent, who is using OpenBark): a
+ * solid level-2 surface over a dimmed screen.
  */
 export function Dialog({
   labelledBy,

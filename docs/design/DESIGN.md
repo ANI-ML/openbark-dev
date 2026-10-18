@@ -6,6 +6,9 @@ asked for): system font, springs, translucent floating chrome, grouped surfaces.
 Amended passages are marked "(ADR-0010)". Implementation status: docs/design/STATUS.md.
 -->
 
+> **Superseded for visual identity (ADR-0016, 2026-10-18).** The brand guide in `docs/brand/DESIGN.md` is the source of truth for logo, colour, type, icons, components and motion. This document still governs interaction behaviour the brand guide doesn't cover (the evidence link, "Not discussed", signing, accessibility).
+
+
 # Design System: OpenScribe
 
 > Single source of truth for every screen in OpenScribe (desktop, web, mobile, browser extension, Clinic Hub admin). Claude Code: read this before touching `packages/ui`, and run the pre-flight checklist in §12 before closing any UI task. Where this file and a component library default disagree, this file wins.

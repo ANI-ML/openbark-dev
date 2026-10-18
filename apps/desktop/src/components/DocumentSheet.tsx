@@ -1,5 +1,5 @@
 import { Button, Sheet } from "@openbark/ui";
-import { ArrowClockwise, Copy, FilePdf, X } from "@phosphor-icons/react";
+import { Copy, FileDown, RotateCw, X } from "lucide-react";
 import type { ReactNode } from "react";
 import type { DocumentView } from "../engine";
 import { NOTE_LANGUAGES, templateName, useT } from "../i18n";
@@ -91,11 +91,11 @@ export function DocumentSheet({
               {t("Copy")}
             </Button>
             <Button variant="ghost" onClick={onPdf} disabled={!ready || busy}>
-              <FilePdf size={20} aria-hidden />
+              <FileDown size={20} aria-hidden />
               {t("Save PDF")}
             </Button>
             <Button variant="ghost" onClick={onRedraft} disabled={busy}>
-              <ArrowClockwise size={20} aria-hidden />
+              <RotateCw size={20} aria-hidden />
               {t("Draft again")}
             </Button>
           </footer>

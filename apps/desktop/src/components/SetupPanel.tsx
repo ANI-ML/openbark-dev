@@ -1,7 +1,7 @@
 import { Button, StatusDot } from "@openbark/ui";
-import { DownloadSimple } from "@phosphor-icons/react";
-import { useEffect, useMemo, useState } from "react";
-import { fmtBytes } from "../context";
+import { Download } from "lucide-react";
+import { useContext, useEffect, useMemo, useState } from "react";
+import { AppContext, fmtBytes } from "../context";
 import * as engine from "../engine";
 import { useT } from "../i18n";
 
@@ -17,6 +17,8 @@ export interface SetupPanelProps {
  */
 export function SetupPanel({ missing, onReady }: SetupPanelProps) {
   const t = useT();
+  // Optional: the panel also renders outside the app shell (tests).
+  const app = useContext(AppContext);
   const [rows, setRows] = useState<engine.ModelRow[]>([]);
   const [current, setCurrent] = useState<string | null>(null);
   const [done, setDone] = useState<Record<string, number>>({});
@@ -35,7 +37,8 @@ export function SetupPanel({ missing, onReady }: SetupPanelProps) {
   }, [missing, rows]);
   const total = queue.reduce((n, m) => n + m.size, 0);
   const got = queue.reduce((n, m) => n + (finished.has(m.id) ? m.size : Math.min(m.size, done[m.id] ?? 0)), 0);
-  const fits = rows.find((r) => r.slot === "llm" && missing.some((m) => m.id === r.id))?.fit;
+  const llm = rows.find((r) => r.slot === "llm" && missing.some((m) => m.id === r.id));
+  const fits = llm?.fit;
 
   async function downloadAll() {
     setError(null);
@@ -63,6 +66,14 @@ export function SetupPanel({ missing, onReady }: SetupPanelProps) {
   return (
     <section className="setup" aria-label={t("Set up OpenBark")}>
       <h2>{t("Download the models to start")}</h2>
+      {llm && (
+        <p className="measure">
+          {t("No model loaded. Download {model} ({size}) to start, or load one from Hugging Face.", {
+            model: llm.name,
+            size: fmtBytes(llm.size_bytes),
+          })}
+        </p>
+      )}
       <p className="small muted measure">
         {t("OpenBark transcribes and writes notes on this computer, so it needs its models once:")}{" "}
         <span className="mono">{fmtBytes(total)}</span>{" "}
@@ -76,7 +87,7 @@ export function SetupPanel({ missing, onReady }: SetupPanelProps) {
             {finished.has(m.id) ? (
               <StatusDot tone="ok">{t("Ready")}</StatusDot>
             ) : current === m.id ? (
-              <StatusDot tone="accent">{t("Downloading")}</StatusDot>
+              <StatusDot tone="warn">{t("Downloading")}</StatusDot>
             ) : (
               <StatusDot>{t("Waiting")}</StatusDot>
             )}
@@ -103,9 +114,14 @@ export function SetupPanel({ missing, onReady }: SetupPanelProps) {
       )}
       <div className="ask-actions">
         <Button variant="primary" onClick={downloadAll} disabled={current != null || queue.length === 0}>
-          <DownloadSimple size={20} aria-hidden />
+          <Download size={20} aria-hidden />
           {error ? t("Try again") : t("Download everything ({size})", { size: fmtBytes(total) })}
         </Button>
+        {app && llm && (
+          <Button variant="ghost" onClick={() => app.navigate({ screen: "models" })} disabled={current != null}>
+            {t("Browse Hugging Face")}
+          </Button>
+        )}
       </div>
     </section>
   );

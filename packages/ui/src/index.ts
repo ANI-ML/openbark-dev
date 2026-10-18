@@ -1,11 +1,19 @@
 import "./tokens.css";
+import "./brand.css";
 import "./record.css";
 
+export { Lockup, Mark, MarkMono, Wordmark, type BrandTone } from "./Brand";
 export { Button, type ButtonProps } from "./Button";
-export { RecordButton, type RecordButtonProps } from "./RecordButton";
+export {
+  RecordButton,
+  formatElapsed,
+  type RecordButtonLabels,
+  type RecordButtonProps,
+  type RecordState,
+} from "./RecordButton";
 export { Dialog, Sheet, useSheetClose, type SheetProps } from "./Sheet";
 export { animateSpring, prefersReducedMotion, project, rubberband, type SpringOptions } from "./spring";
-export { StatusDot } from "./StatusDot";
+export { StatusDot, type Tone } from "./StatusDot";
 export { ThemeToggle } from "./ThemeToggle";
-export { Waveform, createLevelSource, type LevelSource } from "./Waveform";
+export { Waveform, createLevelSource, type LevelSource, type WaveformProps } from "./Waveform";
 export { applyTheme, readTheme, type ThemeChoice } from "./theme";

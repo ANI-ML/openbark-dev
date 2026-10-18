@@ -22,54 +22,6 @@
     });
     // Start with one line lit, so the page shows the idea before anyone touches it.
     if (buttons[1]) light(buttons[1].getAttribute("data-ev"), buttons[1]);
-
-    // Then step through the note on its own, until the visitor takes over or
-    // the demo scrolls out of view. Never with reduced motion.
-    var demo = tx.closest(".demo");
-    var still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (demo && !still && buttons.length) {
-      var step = 1, timer = null, taken = false;
-      var tick = function () {
-        step = (step + 1) % buttons.length;
-        light(buttons[step].getAttribute("data-ev"), buttons[step]);
-      };
-      var play = function () { if (!taken && !timer) timer = setInterval(tick, 2600); };
-      var pause = function () { clearInterval(timer); timer = null; };
-      ["pointerenter", "focusin", "touchstart"].forEach(function (type) {
-        demo.addEventListener(type, function () { taken = true; pause(); }, { passive: true });
-      });
-      if ("IntersectionObserver" in window) {
-        new IntersectionObserver(function (entries) {
-          entries[0].isIntersecting ? play() : pause();
-        }, { threshold: 0.4 }).observe(demo);
-      } else {
-        play();
-      }
-      document.addEventListener("visibilitychange", function () { document.hidden ? pause() : play(); });
-    }
-  }
-
-  // ---- Parts of each section rise in, staggered, once.
-  var parts = document.querySelectorAll(".reveal");
-  if ("IntersectionObserver" in window) {
-    var groups = new Map();
-    parts.forEach(function (el) {
-      var key = el.closest("section") || document.body;
-      var n = groups.get(key) || 0;
-      el.style.setProperty("--i", String(n));
-      groups.set(key, n + 1);
-    });
-    var seen = new IntersectionObserver(function (entries) {
-      entries.forEach(function (e) {
-        if (e.isIntersecting) {
-          e.target.classList.add("is-in");
-          seen.unobserve(e.target);
-        }
-      });
-    }, { rootMargin: "0px 0px -8% 0px", threshold: 0.08 });
-    parts.forEach(function (el) { seen.observe(el); });
-  } else {
-    parts.forEach(function (el) { el.classList.add("is-in"); });
   }
 
   // ---- Platform and release.
@@ -103,7 +55,7 @@
         var soon = document.createElement("a");
         soon.className = "btn btn-ghost";
         soon.setAttribute("aria-disabled", "true");
-        soon.textContent = "Coming with the public beta";
+        soon.textContent = "Download coming soon";
         box.appendChild(soon);
         return;
       }
@@ -139,18 +91,30 @@
         if (rel.notes) add("What's new", rel.notes);
         if (rel.all) add("All downloads and checksums", rel.all);
       } else {
-        add("Current version: " + ((rel && rel.version) || "pre-alpha") + " (pre-alpha, not yet published)");
+        add("The beta installers aren't published yet.");
+        add("Ask to join the beta", "#contact");
       }
     }
     var hero = document.getElementById("hero-download");
     if (hero) {
       var mine = platform && files[platform] && files[platform][0];
+      var label = hero.querySelector("span") || hero;
+      var icon = hero.querySelector("svg");
+      // Lucide download once there are installers; Lucide mail (the page's default) until then.
+      if (icon) icon.innerHTML = published
+        ? '<path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/>'
+        : '<path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7"/><rect x="2" y="4" width="20" height="16" rx="2"/>';
       if (published && mine) {
         hero.href = base + "/" + encodeURIComponent(mine.name);
-        hero.textContent = "Download for " + names[platform];
-      } else {
+        label.textContent = "Download the beta for " + names[platform];
+      } else if (published) {
         hero.href = "#download";
-        hero.textContent = "See downloads";
+        label.textContent = "Download the beta";
+      } else {
+        // No installers yet: the main action asks to join the beta instead of
+        // scrolling to download buttons that can't do anything.
+        hero.href = "#contact";
+        label.textContent = "Ask to join the beta";
       }
     }
   };

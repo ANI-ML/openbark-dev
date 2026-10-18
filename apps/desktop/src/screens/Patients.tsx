@@ -1,5 +1,5 @@
-import { Button } from "@openbark/ui";
-import { MagnifyingGlass, Microphone } from "@phosphor-icons/react";
+import { Button, MarkMono } from "@openbark/ui";
+import { Mic, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useApp } from "../context";
 import * as engine from "../engine";
@@ -37,7 +37,7 @@ export function Patients() {
       <header className="screen-head">
         <h1>{t("Patients")}</h1>
         <Button variant="primary" onClick={() => app.navigate({ screen: "record" })}>
-          <Microphone size={20} aria-hidden />
+          <Mic size={20} aria-hidden />
           {t("New visit")}
         </Button>
       </header>
@@ -64,7 +64,7 @@ export function Patients() {
         </div>
         {view === "patients" && (
           <label className="patient-filter">
-            <MagnifyingGlass size={18} aria-hidden />
+            <Search size={18} aria-hidden />
             <input
               className="ob-input"
               type="search"
@@ -86,7 +86,14 @@ export function Patients() {
       ) : rows === null ? (
         <div className="ob-skeleton" style={{ height: 200 }} />
       ) : rows.length === 0 ? (
-        <p className="empty muted">{t("No patients yet. Record or import a visit and its patient appears here.")}</p>
+        <div className="empty-state">
+          <MarkMono size={48} className="faint" />
+          <h3>{t("No patients yet")}</h3>
+          <p className="muted">{t("Record or import a visit and its patient appears here.")}</p>
+          <Button variant="primary" onClick={() => app.navigate({ screen: "record" })}>
+            {t("New visit")}
+          </Button>
+        </div>
       ) : shown.length === 0 ? (
         <p className="empty muted">{t("No patient matches that name.")}</p>
       ) : (

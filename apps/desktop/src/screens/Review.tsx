@@ -1,5 +1,5 @@
-import { Button, StatusDot } from "@openbark/ui";
-import { ArrowClockwise, Copy, FilePdf, FolderOpen, Notepad, Signature } from "@phosphor-icons/react";
+import { Button, MarkMono, StatusDot } from "@openbark/ui";
+import { Copy, FileDown, FolderOpen, RotateCw, Signature } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NoteView } from "../components/NoteView";
 import { PatientFields } from "../components/PatientFields";
@@ -15,8 +15,12 @@ import { copyToClipboard, formatNote } from "../copyFormats";
 import * as engine from "../engine";
 import { templateName, useT } from "../i18n";
 
-/** DESIGN.md §6 Review: slim top bar, 2fr/3fr transcript | note, output row. */
-/** `draftTemplate`: draft now with this template (from "Try on a visit"). */
+/**
+ * Review: slim top bar, transcript | note split 5:7 on desktop
+ * (docs/brand/DESIGN.md §7.5, §9), output row. The model chip says where
+ * the note was written (§7.6), and the empty note follows §7.7.
+ * `draftTemplate`: draft now with this template (from "Try on a visit").
+ */
 export function Review({
   id,
   autoDraft,
@@ -376,14 +380,14 @@ export function Review({
           ? t("Drafting {pet}'s note", { pet: petRound.pet })
           : run
             ? t("Drafting again with {template}", { template: draftingName })
-            : t("Drafting the note with {template}", { template: draftingName })
+            : t("Writing note…")
       }
       subtitle={
         petRound
           ? t("Animal {i} of {n}", { i: petRound.i, n: petRound.n })
           : run
             ? t("The current draft stays until the new one is ready. Earlier drafts are kept.")
-            : undefined
+            : draftingName || undefined
       }
       lines={lines}
       lastSecs={lastSecs}
@@ -417,7 +421,12 @@ export function Review({
                 ))}
             </select>
           )}
-          {run && <span className="ob-chip mono">{run.model}</span>}
+          {run && (
+            <span className="ob-chip model-chip" title={run.model}>
+              <span className="ob-dot" data-tone="ok" aria-hidden />
+              {`${shortModel(run.model)} · ${inferenceHost(t)}`}
+            </span>
+          )}
           {signed ? (
             <StatusDot tone="ok">
               {t("Signed by {name}, {at}", { name: view?.signed_by ?? "", at: view?.signed_at ?? "" })}
@@ -427,8 +436,11 @@ export function Review({
               <Signature size={20} aria-hidden />
               {t("Sign note")}
             </Button>
-          ) : run ? null : (
-            <Button variant="primary" onClick={draft} disabled={!app.can.notes || generating || segments.length === 0}>
+          ) : run || tab === "note" ? null : (
+            // Secondary: the empty note carries the one primary "Draft note" (§7.7). This one
+            // shows only on the phone and tablet Transcript tab, where the note pane is hidden
+            // (CSS hides it from 1024 px, where both panes show).
+            <Button className="draft-head" onClick={draft} disabled={!app.can.notes || generating || segments.length === 0}>
               {t("Draft note")}
             </Button>
           )}
@@ -641,12 +653,12 @@ export function Review({
                   {t("Copy note")}
                 </Button>
                 <Button variant="ghost" onClick={() => void savePdf()}>
-                  <FilePdf size={20} aria-hidden />
+                  <FileDown size={20} aria-hidden />
                   {t("Save PDF")}
                 </Button>
                 {!signed && app.can.notes && (
                   <Button variant="ghost" onClick={draft} disabled={generating || refining}>
-                    <ArrowClockwise size={20} aria-hidden />
+                    <RotateCw size={20} aria-hidden />
                     {chosen === template?.id
                       ? t("Draft again")
                       : t("Draft as {name}", {
@@ -739,11 +751,9 @@ export function Review({
           ) : (
             !generating && (
               <div className="pane-pad empty-state">
-                <span className="empty-icon" aria-hidden>
-                  <Notepad size={26} />
-                </span>
-                <h2>{t("No draft yet")}</h2>
-                <p className="small muted">{t("Draft the note and every line will link back to the moment in the recording it came from.")}</p>
+                <MarkMono size={48} className="faint" />
+                <h3>{t("No draft yet")}</h3>
+                <p className="muted">{t("Each line links back to the moment it was said.")}</p>
                 <Button variant="primary" onClick={draft} disabled={!app.can.notes || segments.length === 0}>
                   {t("Draft note")}
                 </Button>
@@ -806,4 +816,25 @@ function headingDef(
   if (!part) return s.kind ? { kind: s.kind, fields: s.fields } : null;
   const p = s.parts?.find((x) => x.key === part);
   return p ? { kind: p.kind, fields: p.fields } : null;
+}
+
+/** "gemma-4-E4B_q4_0-it" reads "gemma-4-e4b" on the chip; the full id is its tooltip. */
+function shortModel(id: string): string {
+  return id
+    .toLowerCase()
+    .replace(/\.gguf$/, "")
+    .replace(/[-_]it(?=[-_.]|$)/, "")
+    .replace(/[-_]q\d\w*$/, "");
+}
+
+/**
+ * Where the note was written (docs/brand/DESIGN.md §7.6: always show where
+ * inference runs). On this computer it's "local"; a browser reaching the
+ * clinic's OpenBark server names that machine.
+ */
+function inferenceHost(t: ReturnType<typeof useT>): string {
+  const host = typeof window === "undefined" ? "" : window.location.hostname;
+  return engine.isDesktop || !host || host === "localhost" || host === "127.0.0.1" || host === "[::1]"
+    ? t("local")
+    : host;
 }

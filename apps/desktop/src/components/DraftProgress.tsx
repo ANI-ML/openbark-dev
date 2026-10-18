@@ -102,6 +102,9 @@ const fmtSecs = (s: number) => (s < 60 ? `${s} s` : `${Math.floor(s / 60)} min $
  * The drafting board: load the model (when needed), read the transcript,
  * write each heading, check every number. For a redraft it says so, and the
  * current draft stays visible underneath until the new one is ready.
+ * While the note is being written the step reads "Writing note…"
+ * (docs/brand/DESIGN.md §8). The active step takes the accent unless the
+ * caller says something else on screen is already amber.
  */
 export function DraftBoard({
   tracker,
@@ -111,6 +114,7 @@ export function DraftBoard({
   lines,
   lastSecs,
   compact = false,
+  accent = true,
 }: {
   tracker: DraftTracker;
   /** The template being drafted with: its headings are listed and ticked. */
@@ -122,6 +126,8 @@ export function DraftBoard({
   /** How long the last draft of this visit took, for an estimate. */
   lastSecs?: number | null;
   compact?: boolean;
+  /** Mark the active step with the accent; false when something else on screen is amber. */
+  accent?: boolean;
 }) {
   const t = useT();
   const { stage, loadedModel, text, elapsed } = tracker;
@@ -169,7 +175,7 @@ export function DraftBoard({
     },
     {
       key: "write",
-      label: t("Writing the note"),
+      label: writing === "active" ? t("Writing note…") : t("Writing the note"),
       detail:
         writing === "active" && sections[current]
           ? t("Now: {heading}", { heading: sections[current].title })
@@ -207,6 +213,7 @@ export function DraftBoard({
       fraction={fraction}
       aside={aside}
       compact={compact}
+      accent={accent}
     />
   );
 }

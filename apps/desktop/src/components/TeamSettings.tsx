@@ -1,5 +1,4 @@
 import { Button } from "@openbark/ui";
-import { X as Close } from "@phosphor-icons/react";
 import { useCallback, useEffect, useState } from "react";
 import { useApp } from "../context";
 import * as engine from "../engine";
@@ -81,9 +80,14 @@ export function TeamSettings() {
               <span>{u.name}</span>
               <span className="small muted">{t(ROLE_LABEL[u.role])}</span>
               {app.can.team && u.id !== app.user?.id && (
-                <button type="button" className="icon-btn" aria-label={t("Remove {name}", { name: u.name })} onClick={() => void remove(u)}>
-                  <Close size={16} aria-hidden />
-                </button>
+                <Button
+                  variant="danger"
+                  data-size="compact"
+                  aria-label={t("Remove {name}", { name: u.name })}
+                  onClick={() => void remove(u)}
+                >
+                  {t("Remove")}
+                </Button>
               )}
             </li>
           ))}

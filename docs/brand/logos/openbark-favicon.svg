@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!-- Favicon: simplified mark (no grille) on an ink tile. Scales to 16px. -->
+  <rect width="32" height="32" rx="7" fill="#182230"/>
+  <g transform="translate(4 3.5) scale(0.25)">
+    <circle cx="30" cy="20" r="8.5" fill="#FFFFFF"/>
+    <circle cx="50" cy="12" r="8.5" fill="#FFFFFF"/>
+    <circle cx="70" cy="20" r="8.5" fill="#FFFFFF"/>
+    <rect x="34" y="28" width="32" height="44" rx="16" fill="#E27A2B"/>
+    <path d="M22 54 A28 28 0 0 0 78 54" fill="none" stroke="#FFFFFF" stroke-width="9" stroke-linecap="round"/>
+    <rect x="45" y="80" width="10" height="10" rx="5" fill="#FFFFFF"/>
+    <rect x="33" y="88" width="34" height="9" rx="4.5" fill="#FFFFFF"/>
+  </g>
+</svg>

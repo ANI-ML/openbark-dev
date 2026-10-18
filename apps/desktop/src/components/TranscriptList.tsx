@@ -3,7 +3,7 @@ import { fmtTime } from "../context";
 import type { Hint, Segment } from "../engine";
 import { useT } from "../i18n";
 
-/** Text with each hinted phrase underlined (DESIGN.md §5: low-confidence words, Mist dotted). */
+/** Text with each hinted phrase underlined (low-confidence words, dotted). */
 export function HintedText({ text, hints }: { text: string; hints?: Hint[] }) {
   const t = useT();
   if (!hints?.length) return <>{text}</>;
@@ -27,7 +27,7 @@ export function HintedText({ text, hints }: { text: string; hints?: Hint[] }) {
 
 export interface TranscriptListProps {
   segments: Segment[];
-  /** Follow new segments until the user scrolls up (DESIGN.md §5 Transcript pane). */
+  /** Follow new segments until the user scrolls up; the newest is the current utterance (in ink). */
   follow?: boolean;
   /** Segment ids lit by the evidence link. */
   highlighted?: Set<number>;
@@ -36,6 +36,12 @@ export interface TranscriptListProps {
   speakerNames?: string[];
 }
 
+/**
+ * The transcript in the record's own type (docs/brand/DESIGN.md §4.1, §7.5):
+ * mono 15/26 in secondary ink, with the utterance being heard now in ink
+ * while following a live recording. Speaker labels are captions at weight
+ * 600 and are never colour-coded.
+ */
 export function TranscriptList({
   segments,
   follow,
@@ -77,20 +83,26 @@ export function TranscriptList({
   return (
     <div className="transcript-wrap">
       <ol className="transcript" ref={box} onScroll={onScroll}>
-        {segments.map((s) => (
+        {segments.map((s, i) => (
           <li
             key={s.id}
             data-id={s.id}
             data-lit={highlighted?.has(s.id) || undefined}
             data-playing={playingId === s.id || undefined}
+            data-current={(follow && i === segments.length - 1) || undefined}
           >
-            <span className="turn-speaker label">{name(s)}</span>
+            <span className="turn-speaker caption">{name(s)}</span>
             {onSeek ? (
-              <button type="button" className="turn-text" onClick={() => onSeek(s)} title={t("Play from here")}>
+              <button
+                type="button"
+                className="turn-text transcript-type"
+                onClick={() => onSeek(s)}
+                title={t("Play from here")}
+              >
                 <HintedText text={s.text} hints={s.hints} />
               </button>
             ) : (
-              <span className="turn-text">
+              <span className="turn-text transcript-type">
                 <HintedText text={s.text} hints={s.hints} />
               </span>
             )}
