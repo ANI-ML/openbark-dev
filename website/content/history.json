@@ -1,0 +1,764 @@
+{
+  "_about": "Version history shown on history.html and written to CHANGELOG.md by scripts/website-build.py. Newest first. Add an entry for every change that matters to a clinic; cite the commit and files. Items marked 'testing' are built but not yet proven.",
+  "version": "0.0.1",
+  "stage": "Pre-alpha, not yet published",
+  "next": [
+    {
+      "text": "The Mac and Linux installers were built automatically but have not yet been installed and checked on real computers, so they are still being tested.",
+      "evidence": "9e11fdd; README.md (Status: macOS and Linux 'have not yet been run and checked on real machines'); docs/runbooks/macos.md; docs/perf/M0.md 'Pending' (Apple silicon run unchecked); .github/workflows/release.yml"
+    },
+    {
+      "text": "Public downloads and the source code have not been published yet; both are planned for the public beta.",
+      "evidence": "7728e07; README.md ('Public downloads will be published with the beta', 'Status: pre-alpha'); .github/workflows/release.yml (no version tag exists, so no release has been built)"
+    },
+    {
+      "text": "The installers are not signed yet, so Windows and macOS show a security warning the first time OpenBark is opened.",
+      "evidence": "9e11fdd; docs/adr/0012-point-and-click-installers.md Decisions 3 and 6 (macOS ad-hoc signed, code signing not decided); apps/desktop/src-tauri/tauri.conf.json (signingIdentity \"-\")"
+    },
+    {
+      "text": "No iPhone or Android app has been built, and the test of phone recording with the screen locked has been designed but not run.",
+      "evidence": "b496a2b; docs/spikes/S1-mobile-audio-and-inference.md ('Status: designed, not started'); apps/ contains only desktop and fixtures-v1"
+    },
+    {
+      "text": "A single visit could not yet be deleted from inside the app, and an option to remove old recordings automatically after a set time was still planned.",
+      "evidence": "b496a2b; docs/plans/M0.md decision 8 (optional auto-delete policy); engine/os-app/src/lib.rs (only a failed import's folder is removed, no delete-visit command); apps/desktop/src/engine.ts"
+    },
+    {
+      "text": "A clickable tooth chart for dogs and cats, filled in from the consult and shown in the note and PDF, was planned but not started.",
+      "evidence": "a06874e; docs/plans/M2.md item 7 ('Not started'); no chart component in apps/desktop/src (Triadan appears only as a heading example)"
+    },
+    {
+      "text": "Summaries of a patient's past records, including scanned PDFs read on the clinic's own computer, were planned but not started.",
+      "evidence": "a06874e; docs/plans/M2.md item 8 ('Not started') and 'Decisions for the product owner' (OCR engine still to choose); no OCR library in the engine"
+    },
+    {
+      "text": "OpenBark has only been measured on synthetic test consults on one Windows computer; checking it in real clinics comes before any clinical use.",
+      "evidence": "7728e07; README.md (Status: 'has not yet been validated in real clinics'); docs/perf/M0.md; packages/eval/fixtures/"
+    }
+  ],
+  "milestones": [
+    {
+      "id": "late",
+      "name": "Since milestone 2",
+      "tagline": "Installers, patients, speed and the website",
+      "entries": [
+        {
+          "date": "2026-10-18",
+          "title": "Version history, contact and a coffee link",
+          "summary": "The website gained this Version history page, a way to reach the team, and a link for anyone who wants to support the project.",
+          "items": [
+            {
+              "text": "A Version history page lists every change that matters to a clinic, newest first, with the commit and files behind each one; GitHub gets the same list as CHANGELOG.md.",
+              "evidence": "website/content/history.json; scripts/website-build.py; CHANGELOG.md",
+              "status": "shipped"
+            },
+            {
+              "text": "A Contact section and footer link reach the ANI.ML Health team at we.care@animl.health.",
+              "evidence": "website/src/index.html (#contact); scripts/website-build.py (CONTACT)",
+              "status": "shipped"
+            },
+            {
+              "text": "A Buy us a coffee link on the website, and the Sponsor button on GitHub, go to buymeacoffee.com/animlhealth.",
+              "evidence": ".github/FUNDING.yml; scripts/website-build.py (COFFEE)",
+              "status": "shipped"
+            },
+            {
+              "text": "The website deploys to Vercel from the main branch whether the project's root folder is set to website or left blank.",
+              "evidence": "04f7753; vercel.json; website/vercel.json",
+              "status": "shipped"
+            }
+          ]
+        },
+        {
+          "date": "2026-10-18",
+          "title": "Public website, credits and a new orange look",
+          "summary": "OpenBark got a fact-checked public website, a rewritten README with credits, a release pipeline still being set up, and a new orange look across app and website.",
+          "items": [
+            {
+              "text": "A public website was built with a working evidence-link demo, sections on privacy, accuracy, measured results and open models, a downloads area, and no analytics.",
+              "evidence": "7728e07, 87bfaaa; website/src/index.html; website/vercel.json; website/dist/index.html",
+              "status": "shipped"
+            },
+            {
+              "text": "A features page lists 246 features in 17 categories, each linked to where it lives in the code or evaluation, with a filter.",
+              "evidence": "7728e07; website/content/features.json; scripts/website-build.py",
+              "status": "shipped"
+            },
+            {
+              "text": "Every public claim on the site was checked against the project's own files, leading to 54 corrections, such as stating that only Windows has been tested so far.",
+              "evidence": "7728e07; website/content/features.json; website/src/index.html",
+              "status": "shipped"
+            },
+            {
+              "text": "The README was rewritten for clinics, and credits now name Dr. Christopher Pinard and ANI.ML Health Inc., with every default model's attribution listed.",
+              "evidence": "7728e07; README.md; NOTICE",
+              "status": "shipped"
+            },
+            {
+              "text": "A pipeline to publish installers with checksums to a public downloads repository and point the website at them is set up, but no release has been published yet.",
+              "evidence": "7728e07; .github/workflows/release.yml; .github/workflows/website-release.yml; website/public/release.json",
+              "status": "testing"
+            },
+            {
+              "text": "The app and website now use Geist type and ANI.ML Health orange, with accessible contrast, the paw logo in the sidebar and a new orange app icon.",
+              "evidence": "19fdf86; docs/adr/0015-geist-and-animl-orange.md; packages/ui/src/tokens.css",
+              "status": "shipped"
+            },
+            {
+              "text": "Empty Record and Review screens now explain what will appear there and offer the next step, such as Draft note.",
+              "evidence": "19fdf86; apps/desktop/src/screens/Recorder.tsx; apps/desktop/src/screens/Review.tsx",
+              "status": "shipped"
+            },
+            {
+              "text": "The website gained a skip link for keyboard users, a page for missing links, and an evidence demo that stops moving when reduced motion is requested.",
+              "evidence": "19fdf86; scripts/website-build.py; website/dist/404.html; website/dist/site.js",
+              "status": "shipped"
+            }
+          ]
+        },
+        {
+          "date": "2026-10-18",
+          "title": "Clearer drafting progress and better-grounded notes",
+          "summary": "Transcription and drafting now show each step as it happens, and notes are written in the template's own heading order, which cut unsupported wording in testing.",
+          "items": [
+            {
+              "text": "Transcription shows a step-by-step board, from reading the recording to transcribing, checking numbers and saving, with elapsed time, an estimate and screen reader announcements.",
+              "evidence": "b468dc4; apps/desktop/src/components/ProgressBoard.tsx; apps/desktop/src/components/ProcessingBar.tsx",
+              "status": "shipped"
+            },
+            {
+              "text": "Drafting shows each heading of the template ticking off as the model writes it, followed by a check of every number against the transcript.",
+              "evidence": "b468dc4; apps/desktop/src/components/DraftProgress.tsx; engine/os-app/src/lib.rs",
+              "status": "shipped"
+            },
+            {
+              "text": "Redrafts and Reprocess keep the current note visible, dimmed, while the new draft is written, and multi-pet visits show which animal is being drafted.",
+              "evidence": "b468dc4; apps/desktop/src/screens/Review.tsx; apps/desktop/src/components/DraftProgress.tsx",
+              "status": "shipped"
+            },
+            {
+              "text": "Notes are now written in the template's heading order, history and exam before assessment, instead of alphabetically with Assessment first and Subjective last.",
+              "evidence": "b468dc4; engine/os-engine/src/template.rs; docs/eval/heading-order.md",
+              "status": "shipped"
+            },
+            {
+              "text": "On 13 synthetic test consults, wording not supported by the cited transcript lines halved, from 45 to 23, and wrong citations fell from 12 to 3.",
+              "evidence": "b468dc4; docs/eval/heading-order.md",
+              "status": "shipped"
+            },
+            {
+              "text": "In the same test, facts captured stayed level at 141 of 155 against 143 before, and invented numbers stayed at zero in both versions.",
+              "evidence": "b468dc4; docs/eval/heading-order.md",
+              "status": "shipped"
+            }
+          ]
+        },
+        {
+          "date": "2026-10-18",
+          "title": "Progress bars, storage choice and faster transcription",
+          "summary": "Clinics can now see how long processing will take, choose which drives hold visits and models, and transcribe faster, with an optional graphics card pack being tested.",
+          "items": [
+            {
+              "text": "Imports and finished recordings show a single progress bar that says what is happening in words and estimates the time left for the whole job.",
+              "evidence": "4dd018e; apps/desktop/src/components/ProcessingBar.tsx; engine/os-engine/src/live.rs",
+              "status": "shipped"
+            },
+            {
+              "text": "Settings now lets the clinic choose where visits and models are kept, showing the exact folder, free space, and warnings for cloud-synced, removable or network drives.",
+              "evidence": "4dd018e; docs/adr/0013-choose-where-data-is-kept.md; apps/desktop/src/components/ChangeFolderSheet.tsx",
+              "status": "shipped"
+            },
+            {
+              "text": "Moving data to another drive copies and checks each file before removing the original, undoes itself if anything fails, and never overwrites other files.",
+              "evidence": "4dd018e; engine/os-models/src/locations.rs; docs/adr/0013-choose-where-data-is-kept.md",
+              "status": "shipped"
+            },
+            {
+              "text": "Transcription on the processor got faster after tuning: on one 20-thread test machine, an 8.5-minute test consult went from 39 to 28 seconds.",
+              "evidence": "4dd018e; engine/os-asr/src/lib.rs; docs/adr/0014-gpu-speech-recognition.md",
+              "status": "shipped"
+            },
+            {
+              "text": "Help gained a Patients and visits topic, and all seven help videos were re-recorded on the current version of the app.",
+              "evidence": "4dd018e; apps/desktop/src/screens/Help.tsx; apps/desktop/public/help/patients.webm",
+              "status": "shipped"
+            },
+            {
+              "text": "An optional speech pack for Windows with NVIDIA graphics cards installs after the clinic accepts NVIDIA's licence; on one RTX 4080, an 8.5-minute import took 43 seconds, not 152.",
+              "evidence": "3888f20; docs/adr/0014-gpu-speech-recognition.md; engine/os-models/src/gpu_pack.rs; apps/desktop/src/components/GpuCard.tsx",
+              "status": "testing"
+            },
+            {
+              "text": "The graphics card is only used after a separate self-test passes, so a faulty setup falls back to the processor instead of crashing the program.",
+              "evidence": "3888f20; docs/adr/0014-gpu-speech-recognition.md; apps/desktop/src-tauri/src/main.rs; engine/os-app/src/lib.rs",
+              "status": "testing"
+            },
+            {
+              "text": "The graphics card pack can be removed from Models at any time, and uninstalling OpenBark deletes exactly the pack's own files after the program has closed.",
+              "evidence": "3888f20; apps/desktop/src/components/GpuCard.tsx; apps/desktop/src-tauri/windows/hooks.nsh",
+              "status": "testing"
+            },
+            {
+              "text": "A Reprocess button on each visit drafts the note again from the recording, with the same or another visit type; earlier drafts are kept and signed notes stay final.",
+              "evidence": "3888f20; apps/desktop/src/components/ReprocessSheet.tsx; apps/desktop/src/screens/PatientDetail.tsx",
+              "status": "shipped"
+            },
+            {
+              "text": "An automated code review led to 30 fixes, including blocking folder changes while anything is being saved and stricter checks on the browser version's local server.",
+              "evidence": "3888f20; engine/os-app/src/lib.rs; engine/os-server/src/lib.rs",
+              "status": "shipped"
+            }
+          ]
+        },
+        {
+          "date": "2026-10-18",
+          "title": "Point-and-click installers and patient records",
+          "summary": "OpenBark gained a standard Windows setup wizard that protects clinic data, and visits are now grouped under each patient instead of in one flat list.",
+          "items": [
+            {
+              "text": "Windows now installs with a standard setup wizard in five languages, needs no administrator rights, and keeps the program in a separate folder from the clinic's data.",
+              "evidence": "9e11fdd; docs/adr/0012-point-and-click-installers.md; apps/desktop/src-tauri/tauri.windows.conf.json; apps/desktop/src-tauri/windows/installer.nsi",
+              "status": "shipped"
+            },
+            {
+              "text": "Uninstalling keeps recordings and notes unless the clinic ticks a box and confirms a second time, and updates or silent uninstalls never delete data.",
+              "evidence": "9e11fdd; apps/desktop/src-tauri/windows/hooks.nsh; docs/adr/0012-point-and-click-installers.md",
+              "status": "shipped"
+            },
+            {
+              "text": "Packaging for a macOS disk image with its own uninstaller, and for Linux .deb, .rpm and AppImage packages, was set up but has not been built or tested yet.",
+              "evidence": "9e11fdd; scripts/macos-dmg.sh; apps/desktop/src-tauri/tauri.linux.conf.json; .github/workflows/release.yml; docs/runbooks/macos.md",
+              "status": "testing"
+            },
+            {
+              "text": "Patients replaced the flat encounter list, with one row per animal showing species, family name, visit count and last visit, plus a name filter.",
+              "evidence": "bf60de8; docs/adr/0011-patients-and-visits.md; apps/desktop/src/screens/Patients.tsx",
+              "status": "shipped"
+            },
+            {
+              "text": "Each patient has a page listing every visit newest first, with Edit details and a New visit button that opens Record with the patient filled in.",
+              "evidence": "bf60de8; apps/desktop/src/screens/PatientDetail.tsx",
+              "status": "shipped"
+            },
+            {
+              "text": "Record now starts with Find a patient, so a returning animal joins its existing record, and differences in capitals or spacing no longer create a duplicate.",
+              "evidence": "bf60de8; apps/desktop/src/components/PatientPicker.tsx; engine/os-engine/src/patients.rs; docs/adr/0011-patients-and-visits.md",
+              "status": "shipped"
+            },
+            {
+              "text": "Multi-pet visits appear under every animal and open on that animal's note, and visits recorded before this change were linked to patients automatically.",
+              "evidence": "bf60de8; engine/os-app/src/lib.rs; docs/adr/0011-patients-and-visits.md",
+              "status": "shipped"
+            },
+            {
+              "text": "The patient list is encrypted on the computer like the visits, and the interface now says visit instead of encounter in all five languages.",
+              "evidence": "bf60de8; engine/os-engine/src/patients.rs; docs/adr/0011-patients-and-visits.md; packages/i18n/i18n-fr.json",
+              "status": "shipped"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "m2",
+      "name": "Milestone 2",
+      "tagline": "Specialties, help and a new look",
+      "entries": [
+        {
+          "date": "2026-10-18",
+          "title": "Model guide and wider recording import",
+          "summary": "Clinic staff got a plain-language guide to AI model names, and importing now accepts WebM, WhatsApp voice notes and video files, with clearer messages when a file cannot be read.",
+          "items": [
+            {
+              "text": "The Models screen explains model names such as 4B, 12B, Q4 and QAT in plain language, and recommends a size that suits the computer.",
+              "evidence": "82953de; apps/desktop/src/components/ModelGuide.tsx; apps/desktop/src/modelGuide.ts",
+              "status": "shipped"
+            },
+            {
+              "text": "Each model name is broken into labelled parts, with the meaning shown on hover and read out by screen readers.",
+              "evidence": "82953de; apps/desktop/src/screens/Models.tsx",
+              "status": "shipped"
+            },
+            {
+              "text": "Imported recordings can now be WebM and MKV, Opus and Ogg voice notes from WhatsApp or Telegram, AIFF, and dictaphone WAV files.",
+              "evidence": "75dc765; engine/os-asr/src/audio.rs; docs/guide/recording.md",
+              "status": "shipped"
+            },
+            {
+              "text": "Video recordings in MOV and WebM can now be imported alongside MP4, and OpenBark transcribes their sound.",
+              "evidence": "75dc765; engine/os-asr/src/audio.rs; apps/desktop/src/engine.ts; docs/guide/recording.md",
+              "status": "shipped"
+            },
+            {
+              "text": "A file OpenBark cannot read, such as WMA or DSS dictation, now gets a plain message listing the formats that work, and no empty encounter is left behind.",
+              "evidence": "75dc765; engine/os-asr/src/audio.rs; engine/os-app/src/lib.rs; docs/guide/recording.md",
+              "status": "shipped"
+            },
+            {
+              "text": "Groundwork was laid for patient records, an encrypted list linking each animal's visits; the screens for it came in a later update.",
+              "evidence": "75dc765; engine/os-engine/src/patients.rs; engine/os-app/src/lib.rs",
+              "status": "testing"
+            }
+          ]
+        },
+        {
+          "date": "2026-10-18",
+          "title": "Species headings, example notes and a new look",
+          "summary": "Templates learned to show headings for certain species, could be built from a clinic's existing note, and the whole app moved to a cleaner design with visit-type tiles.",
+          "items": [
+            {
+              "text": "A template heading can be shown for certain species only, such as FeLV and FIV status for cats or heartworm testing for dogs.",
+              "evidence": "a06874e; apps/desktop/src/species.ts; engine/os-engine/src/template.rs",
+              "status": "shipped"
+            },
+            {
+              "text": "Species is now chosen in the patient details and never guessed from the recording.",
+              "evidence": "a06874e; apps/desktop/src/components/PatientFields.tsx",
+              "status": "shipped"
+            },
+            {
+              "text": "A clinic can paste a note it already writes and get a proposed template to edit; patient details are never copied and the example is not saved.",
+              "evidence": "a06874e; engine/os-engine/src/from_example.rs; apps/desktop/src/components/ExampleSheet.tsx",
+              "status": "shipped"
+            },
+            {
+              "text": "The app was redesigned after Apple's interface style, with the system font, larger text for the note, grouped panels and smoother sheets and dialogs.",
+              "evidence": "f951cbf; docs/adr/0010-apple-style-refresh.md; packages/ui/src/tokens.css",
+              "status": "shipped"
+            },
+            {
+              "text": "Recording now starts by picking a visit type from icon tiles, such as New consult, Recheck, Annual exam, Phone call, Results or Clinician rounds.",
+              "evidence": "6408787; apps/desktop/src/components/VisitTypePicker.tsx; docs/templates.md",
+              "status": "shipped"
+            },
+            {
+              "text": "Two built-in templates were added, Results and Clinician rounds, and four were renamed New consult, Recheck, Annual exam and Phone call.",
+              "evidence": "6408787; packages/templates/results/template.yaml; packages/templates/rounds/template.yaml",
+              "status": "shipped"
+            },
+            {
+              "text": "A new text box heading writes sections such as surgical reports as paragraphs, and every sentence still links back to the recording.",
+              "evidence": "6408787; engine/os-engine/src/note.rs; engine/os-engine/src/render.rs",
+              "status": "shipped"
+            },
+            {
+              "text": "Each template can be set to concise, standard or thorough detail, without ever allowing anything that was not said.",
+              "evidence": "6408787; engine/os-engine/src/template.rs; docs/templates.md",
+              "status": "shipped"
+            }
+          ]
+        },
+        {
+          "date": "2026-10-18",
+          "title": "Specialty templates and stronger checks",
+          "summary": "Fourteen new templates arrived, with a check that flags statements not backed by what was said, safer number reading, multi-pet visits and client documents in other languages.",
+          "items": [
+            {
+              "text": "Fourteen new built-in templates were added, including dental, surgery and anaesthesia, emergency, dermatology, oncology, exotics, equine, production animal, euthanasia, and two client documents.",
+              "evidence": "299313c; packages/templates/; docs/plans/M2.md",
+              "status": "shipped"
+            },
+            {
+              "text": "Each template heading now offers example requests suited to different kinds of practice, shown in Ask and in the template builder.",
+              "evidence": "299313c; apps/desktop/src/promptExamples.ts; apps/desktop/src/screens/Templates.tsx",
+              "status": "shipped"
+            },
+            {
+              "text": "Each statement in a draft is now checked against the transcript lines it cites, and statements not supported by what was said are flagged for review.",
+              "evidence": "299313c; engine/os-engine/src/align.rs; docs/eval/M2.md",
+              "status": "shipped"
+            },
+            {
+              "text": "Synthetic testing found a tenfold dose error the number check missed, \"point one\" milligrams per kilo charted as 1; the check now reads it as 0.1 and adds a hint.",
+              "evidence": "299313c; engine/os-engine/src/numbers.rs; docs/eval/M2.md",
+              "status": "shipped"
+            },
+            {
+              "text": "The number check now reads spoken tooth numbers such as \"four oh four\", times, \"point seven\" and ordinals such as \"fourth premolar\" correctly.",
+              "evidence": "299313c; engine/os-engine/src/numbers.rs; docs/eval/M2.md",
+              "status": "shipped"
+            },
+            {
+              "text": "Misheard drug names and routes, such as \"a sepromazine\" or \"Roman 4\" for IV, now get hints, and 63 farm, equine, exotics and anaesthesia terms were added.",
+              "evidence": "299313c; engine/os-engine/src/vocab.rs; packages/vocab/veterinary.tsv",
+              "status": "shipped"
+            },
+            {
+              "text": "One recording can now cover several pets, with a separate note for each; in a synthetic two-cat test, no values crossed between notes.",
+              "evidence": "299313c; engine/os-engine/src/note.rs; apps/desktop/src/components/PatientFields.tsx; docs/eval/M2.md",
+              "status": "shipped"
+            },
+            {
+              "text": "On nine synthetic specialty consults, drafts captured 91 of 98 expected facts with no invented numbers; results come from scripted consults, not real clinics.",
+              "evidence": "299313c; docs/eval/M2.md",
+              "status": "shipped"
+            },
+            {
+              "text": "Discharge instructions and client summaries can now be drafted in the client's language; in one synthetic French test, the medication and every number stayed unchanged.",
+              "evidence": "299313c; apps/desktop/src/components/DocumentSheet.tsx; docs/eval/M2.md",
+              "status": "shipped"
+            },
+            {
+              "text": "Install and uninstall scripts were added that keep clinic data unless removal is confirmed; only Windows was fully tested, Linux was tried under WSL, and the Mac is untested.",
+              "evidence": "299313c; install/install.ps1; install/install.sh; install/uninstall.ps1",
+              "status": "testing"
+            }
+          ]
+        },
+        {
+          "date": "2026-10-18",
+          "title": "A user guide and in-app help",
+          "summary": "OpenBark gained a written user guide and a Help screen with short walkthrough videos of the real app, available without an internet connection.",
+          "items": [
+            {
+              "text": "A written user guide now covers getting started, recording, reviewing and signing, templates, client documents, team and security, and troubleshooting.",
+              "evidence": "6e1ed70; docs/guide/README.md",
+              "status": "shipped"
+            },
+            {
+              "text": "A new Help screen in the sidebar has six topics, each with a short captioned video of the real app and the steps written out.",
+              "evidence": "6e1ed70; apps/desktop/src/screens/Help.tsx",
+              "status": "shipped"
+            },
+            {
+              "text": "The help videos are installed with the app, so help works on a computer with no internet connection.",
+              "evidence": "6e1ed70; apps/desktop/public/help/",
+              "status": "shipped"
+            },
+            {
+              "text": "The written help steps are translated into all five app languages: English, French, Spanish, German and Portuguese.",
+              "evidence": "6e1ed70; apps/desktop/src/i18n/messages.ts; packages/i18n/i18n-fr.json",
+              "status": "shipped"
+            },
+            {
+              "text": "Built-in template names are now shown in the app's language, so buttons match the help steps, while a team's own templates keep their names.",
+              "evidence": "6e1ed70; apps/desktop/src/i18n.ts",
+              "status": "shipped"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "m1",
+      "name": "Milestone 1",
+      "tagline": "Ready for a clinic to try",
+      "entries": [
+        {
+          "date": "2026-10-18",
+          "title": "Consent, encryption and team members",
+          "summary": "Finished on 18 October: recording consent, encryption of every encounter file on disk, and team members with roles recorded against every change to a note.",
+          "items": [
+            {
+              "text": "A consent step before recording captured how the client agreed and who confirmed it, and saved this with the encounter.",
+              "evidence": "84f000c; apps/desktop/src/components/ConsentStep.tsx; engine/os-engine/src/session.rs",
+              "status": "shipped"
+            },
+            {
+              "text": "At the product owner's request, consent became a one-time notice on each device, and the step before each recording became an optional Settings choice, off by default.",
+              "evidence": "d51a23c; apps/desktop/src/components/ConsentNotice.tsx; apps/desktop/src/context.ts; docs/plans/M1.md",
+              "status": "shipped"
+            },
+            {
+              "text": "Every encounter file, including audio, transcripts and notes, is now encrypted on disk, with the key kept in the computer's secure keychain where one is available.",
+              "evidence": "5e357a6; docs/adr/0008-encryption-at-rest.md; engine/os-engine/src/vault.rs",
+              "status": "shipped"
+            },
+            {
+              "text": "Settings shows a recovery key for the clinic to store safely, because encounters cannot be opened if the key is lost.",
+              "evidence": "5e357a6; docs/adr/0008-encryption-at-rest.md; apps/desktop/src/screens/Settings.tsx",
+              "status": "shipped"
+            },
+            {
+              "text": "Older encounters can be encrypted in place from Settings; on the Windows test machine, six were converted and no patient names were left readable on disk.",
+              "evidence": "5e357a6; docs/plans/M1.md; engine/os-cli/src/sessions.rs",
+              "status": "shipped"
+            },
+            {
+              "text": "Clinics can add team members as veterinarian, technician or reception, each with their own PIN, and switch user from the sidebar.",
+              "evidence": "9ce6219; engine/os-engine/src/users.rs; apps/desktop/src/components/UserPicker.tsx; apps/desktop/src/components/TeamSettings.tsx",
+              "status": "shipped"
+            },
+            {
+              "text": "Only veterinarians can sign notes and add addenda, and each recording, edit, signature and addendum records who made it and their role.",
+              "evidence": "9ce6219; engine/os-engine/src/users.rs; docs/plans/M1.md",
+              "status": "shipped"
+            },
+            {
+              "text": "PINs show who is working but are not a secure login, and clinics that set up no team keep using the app as before.",
+              "evidence": "9ce6219; docs/plans/M1.md",
+              "status": "shipped"
+            }
+          ]
+        },
+        {
+          "date": "2026-10-17",
+          "title": "Templates, editing and client documents",
+          "summary": "Clinics gained their own templates, ways to correct a draft before signing, addenda after signing, client handouts, PDF export and several languages.",
+          "items": [
+            {
+              "text": "Clinics can build their own note templates from headings, with optional instructions and a live preview, and every saved change keeps a version.",
+              "evidence": "f38ea78; docs/adr/0006-templates-from-headings.md; apps/desktop/src/screens/Templates.tsx",
+              "status": "shipped"
+            },
+            {
+              "text": "Ask on any heading redrafts just that section from the transcript, and the request can be saved as a team standard that later notes follow.",
+              "evidence": "f38ea78; docs/templates.md; apps/desktop/src/components/RefinePanel.tsx",
+              "status": "shipped"
+            },
+            {
+              "text": "Vets can edit any heading by hand, with each edit saved as a new revision and marked as entered by the vet, so a corrected dose no longer blocks signing.",
+              "evidence": "b8e12ec; engine/os-engine/src/edit.rs; apps/desktop/src/components/HeadingEditor.tsx",
+              "status": "shipped"
+            },
+            {
+              "text": "Signed notes are locked against edits and redrafts, and later corrections are added as dated, signed addenda.",
+              "evidence": "b8e12ec; engine/os-engine/src/edit.rs; docs/templates.md",
+              "status": "shipped"
+            },
+            {
+              "text": "Built-in callback note, discharge instruction and client summary templates were added; the client documents follow the vet's note and are being tested.",
+              "evidence": "d62fec9; packages/templates/discharge/template.yaml; docs/eval/M1.md",
+              "status": "testing"
+            },
+            {
+              "text": "Notes and client documents can be exported as a PDF with the clinic letterhead, visit details, signature and addenda, on Letter or A4 paper.",
+              "evidence": "d51a23c; engine/os-engine/src/pdf.rs",
+              "status": "shipped"
+            },
+            {
+              "text": "Notes can be copied as plain text for most practice management systems, as formatted text, or as Markdown, with or without transcript line numbers.",
+              "evidence": "d51a23c; apps/desktop/src/copyFormats.ts",
+              "status": "shipped"
+            },
+            {
+              "text": "The app interface comes in five languages and notes can be written in seven, but the translations still need review by native-speaking veterinary staff.",
+              "evidence": "d51a23c; docs/languages.md",
+              "status": "testing"
+            }
+          ]
+        },
+        {
+          "date": "2026-10-17",
+          "title": "More accurate notes, with visible checks",
+          "summary": "A scoring tool for synthetic consults guided changes that raised accuracy, added a second listen for numbers and drug names, and gave every encounter patient details.",
+          "items": [
+            {
+              "text": "A new evaluation tool scores each draft against the known facts of synthetic consults, counting missed vitals and medications, invented numbers and citation errors.",
+              "evidence": "591ad1b; engine/os-cli/src/eval.rs; docs/eval/M1.md",
+              "status": "shipped"
+            },
+            {
+              "text": "Misheard drug and disease names, such as \"marapitin\" for maropitant, now get a visible suggestion on the transcript, and the transcript text itself is never changed.",
+              "evidence": "591ad1b; engine/os-engine/src/vocab.rs; packages/vocab/veterinary.tsv",
+              "status": "shipped"
+            },
+            {
+              "text": "Clinics can add their own words to the veterinary vocabulary these suggestions draw on, by editing a word list file on the computer.",
+              "evidence": "591ad1b; engine/os-engine/src/vocab.rs; docs/eval/M1.md",
+              "status": "shipped"
+            },
+            {
+              "text": "Measurements are now written as a number with a separate unit, and every vital in the synthetic tests came out correct with its unit.",
+              "evidence": "591ad1b; docs/eval/M1.md",
+              "status": "shipped"
+            },
+            {
+              "text": "A second speech recogniser, Whisper, listens again to lines with numbers or clinical terms and flags disagreements, such as 100 mL heard as 10 mL.",
+              "evidence": "837f400; engine/os-engine/src/crosscheck.rs; docs/eval/M1.md",
+              "status": "shipped"
+            },
+            {
+              "text": "Patient name, last name and reason for visit can be entered on the Recorder, edited on Review, and appear in Encounters and at the top of copied notes.",
+              "evidence": "837f400; apps/desktop/src/components/PatientFields.tsx; engine/os-engine/src/session.rs",
+              "status": "shipped"
+            },
+            {
+              "text": "Patient details in a draft must match the transcript line they cite, so a guessed species such as \"dog\" is flagged for review.",
+              "evidence": "837f400; engine/os-engine/src/faithfulness.rs; docs/eval/M1.md",
+              "status": "shipped"
+            },
+            {
+              "text": "On synthetic consults, the share of facts found rose from 33 of 44 to 40 of 44, with no invented numbers; there are no results from real clinics yet.",
+              "evidence": "f7fbc20; docs/eval/M1.md",
+              "status": "shipped"
+            }
+          ]
+        },
+        {
+          "date": "2026-10-17",
+          "title": "Live recording and a new review screen",
+          "summary": "OpenBark began recording consults live, gained a redesigned interface built around reviewing the draft against the transcript, and made first-run model setup a single button.",
+          "items": [
+            {
+              "text": "Consults can now be recorded live from the computer's microphone, with the transcript and speaker labels appearing while the consult is still going.",
+              "evidence": "81d49c6; engine/os-engine/src/live.rs; docs/plans/M1.md",
+              "status": "shipped"
+            },
+            {
+              "text": "On a 9.6-minute synthetic consult played in as a live recording, the Windows test machine saved the draft note about 13 seconds after stop was pressed.",
+              "evidence": "81d49c6; docs/perf/M0.md; docs/plans/M1.md",
+              "status": "shipped"
+            },
+            {
+              "text": "The browser version of OpenBark can also record live from the microphone instead of only taking uploaded files; this is being tested.",
+              "evidence": "81d49c6; apps/desktop/src/engine.ts; engine/os-server/src/lib.rs",
+              "status": "testing"
+            },
+            {
+              "text": "The app was redesigned around a Review screen that links each note line to the transcript it came from, alongside Encounters, Models and Settings screens.",
+              "evidence": "81d49c6; docs/design/DESIGN.md; apps/desktop/src/screens/Review.tsx",
+              "status": "shipped"
+            },
+            {
+              "text": "The Sign note button stays disabled while the draft contains a number that does not appear in the transcript.",
+              "evidence": "81d49c6; apps/desktop/src/screens/Review.tsx",
+              "status": "shipped"
+            },
+            {
+              "text": "Each heading of a draft can be copied on its own with one click, ready to paste into the practice management system.",
+              "evidence": "81d49c6; apps/desktop/src/components/NoteView.tsx",
+              "status": "shipped"
+            },
+            {
+              "text": "A Hugging Face browser lets clinics search for other note models and see whether each fits their computer, and restrictive licences must be accepted before downloading.",
+              "evidence": "81d49c6; engine/os-models/src/hub.rs; apps/desktop/src/screens/Models.tsx",
+              "status": "shipped"
+            },
+            {
+              "text": "On first run, the Recorder lists any missing models with their sizes and downloads them all with one button, picking up again after an interruption.",
+              "evidence": "8f9be0f; apps/desktop/src/components/SetupPanel.tsx; docs/plans/M1.md",
+              "status": "shipped"
+            },
+            {
+              "text": "Recordings from a phone or voice recorder (m4a, mp3, caf, flac, ogg) can be imported and transcribed like any other consult; so far only m4a has been tested.",
+              "evidence": "86d8e1b; engine/os-asr/src/audio.rs; docs/adr/0007-phone-calls.md",
+              "status": "shipped"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "m0",
+      "name": "Milestone 0",
+      "tagline": "The first working pipeline",
+      "entries": [
+        {
+          "date": "2026-10-17",
+          "title": "First app, test consults and a speed report",
+          "summary": "A first desktop app and browser view, synthetic test consults, and a speed and safety report from one shared Windows computer.",
+          "items": [
+            {
+              "text": "A first desktop app showed the transcript beside the draft note, with copy, saved sessions and a light or dark theme; it is an early preview being tested.",
+              "evidence": "116ac57; apps/desktop/src/App.tsx, apps/desktop/src-tauri/tauri.conf.json",
+              "status": "testing"
+            },
+            {
+              "text": "Clicking any line of the transcript played that moment of the recording, so a vet could check what was actually said.",
+              "evidence": "116ac57; apps/desktop/src/App.tsx",
+              "status": "testing"
+            },
+            {
+              "text": "The same screens could open in a web browser on the same computer only, never reachable from other machines on the network.",
+              "evidence": "c46c040; engine/os-server/src/lib.rs, engine/os-cli/src/main.rs; b496a2b; docs/network.md",
+              "status": "testing"
+            },
+            {
+              "text": "A command-line tool turned a recording into a saved SOAP draft in one step and could redraft a saved consult with another model, for developers and testing.",
+              "evidence": "c46c040; engine/os-cli/src/main.rs, engine/os-cli/src/sessions.rs",
+              "status": "testing"
+            },
+            {
+              "text": "We wrote four synthetic consults, including a feline vomiting visit and a multi-pet visit, read aloud by a computer voice, for testing without real patient data.",
+              "evidence": "c46c040; packages/eval/fixtures/scripts/feline-vomiting.yaml, packages/eval/fixtures/scripts/multipet.yaml, tools/fixture-tts/src/main.rs",
+              "status": "shipped"
+            },
+            {
+              "text": "On one shared Windows computer, a 9.6-minute synthetic consult took about 77 seconds from recording to draft with Gemma 4 E4B, short of the 60-second goal; macOS was not measured.",
+              "evidence": "b496a2b; docs/perf/M0.md, docs/perf/results/rtx4080-win11-20261017/",
+              "status": "testing"
+            },
+            {
+              "text": "Testing found the speech model sometimes dropped the word hundred and misheard drug names such as maropitant, so fixes were proposed for the next milestone.",
+              "evidence": "b496a2b; docs/perf/M0.md",
+              "status": "shipped"
+            },
+            {
+              "text": "We published a list of every network connection OpenBark can make: model downloads only, with no telemetry, analytics or cloud fallback.",
+              "evidence": "b496a2b; docs/network.md",
+              "status": "shipped"
+            },
+            {
+              "text": "We wrote setup guides for Windows and for Mac computers; only the Windows guide has been used so far, and the Mac guide is untested.",
+              "evidence": "b496a2b; docs/runbooks/windows.md, docs/runbooks/macos.md",
+              "status": "testing"
+            },
+            {
+              "text": "We proposed optional cloud sync that would be off by default and end-to-end encrypted, so a server could never read notes; it is not built.",
+              "evidence": "b496a2b; docs/adr/0005-optional-cloud-sync.md",
+              "status": "shipped"
+            }
+          ]
+        },
+        {
+          "date": "2026-10-17",
+          "title": "A plan and an engine that drafts SOAP notes",
+          "summary": "We set out the first milestone and built the local engine that turns a consult recording into a transcript and a cited SOAP draft.",
+          "items": [
+            {
+              "text": "We published the first milestone plan, chose the name OpenBark and released the code under the Apache-2.0 open-source licence.",
+              "evidence": "bb8ae01; docs/plans/M0.md, LICENSE, NOTICE",
+              "status": "shipped"
+            },
+            {
+              "text": "A consult recording became a transcript on the computer itself, using the Parakeet speech model, with no cloud service involved.",
+              "evidence": "4b23fd8; engine/os-asr/src/recognizer.rs, engine/os-models/catalog.json, engine/os-engine/src/models.rs",
+              "status": "shipped"
+            },
+            {
+              "text": "The transcript labelled who was speaking, and in synthetic test consults it kept the speakers apart over 99 percent of the time.",
+              "evidence": "4b23fd8; engine/os-diar/src/lib.rs; b496a2b; docs/perf/M0.md",
+              "status": "shipped"
+            },
+            {
+              "text": "Gemma 4 drafted a SOAP note from the transcript using a template that told it to use only what was said in the room.",
+              "evidence": "4b23fd8; packages/templates/soap/template.yaml, packages/templates/soap/schema.json, engine/os-engine/src/note.rs",
+              "status": "shipped"
+            },
+            {
+              "text": "Gemma 4 was offered in three sizes, E2B, E4B and 12B, with E4B as the default for drafting notes.",
+              "evidence": "4b23fd8; engine/os-models/catalog.json, engine/os-engine/src/models.rs",
+              "status": "shipped"
+            },
+            {
+              "text": "Sections that never came up in the consult showed as Not discussed, rather than being filled with assumed normal findings.",
+              "evidence": "4b23fd8; engine/os-engine/src/render.rs, packages/templates/soap/template.yaml",
+              "status": "shipped"
+            },
+            {
+              "text": "A faithfulness check compared every number in the draft, such as vitals and doses, against the transcript and marked any it could not match for review.",
+              "evidence": "4b23fd8; engine/os-engine/src/faithfulness.rs, engine/os-engine/src/numbers.rs",
+              "status": "shipped"
+            },
+            {
+              "text": "Every draft was labelled as not yet reviewed or signed by a veterinarian, with a count of items to check against the recording.",
+              "evidence": "4b23fd8; engine/os-engine/src/render.rs",
+              "status": "shipped"
+            },
+            {
+              "text": "Models downloaded once from fixed, checksum-verified versions, could resume after an interrupted download, and then ran fully offline.",
+              "evidence": "4b23fd8; engine/os-models/src/download.rs, engine/os-models/catalog.json",
+              "status": "shipped"
+            },
+            {
+              "text": "Each consult was saved in its own folder on the computer with audio, transcript and notes, not yet encrypted, and the computer was kept awake during long jobs.",
+              "evidence": "4b23fd8; engine/os-engine/src/session.rs, engine/os-engine/src/awake.rs",
+              "status": "shipped"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

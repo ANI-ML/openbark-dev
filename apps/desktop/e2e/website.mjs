@@ -17,7 +17,7 @@ for (const v of [
   const page = await ctx.newPage();
   page.on("pageerror", (e) => problems.push(`${v.name}: ${e}`));
   page.on("console", (m) => m.type() === "error" && problems.push(`${v.name}: ${m.text()}`));
-  for (const p of ["index.html", "features.html", "404.html"]) {
+  for (const p of ["index.html", "features.html", "history.html", "404.html"]) {
     await page.goto(`${base}/${p}`);
     await page.waitForLoadState("networkidle");
     await page.waitForTimeout(1200);
@@ -46,6 +46,17 @@ for (const v of [
   await page.locator('.note button[data-ev="4"]').hover();
   const lit = await page.locator('#tx li.lit').getAttribute("data-id");
   if (lit !== "4") problems.push(`${v.name}: demo lit ${lit}, expected 4`);
+  // Contact and coffee links, and the Version history tab.
+  const mail = await page.locator('#contact a[href^="mailto:"]').getAttribute("href");
+  if (!mail?.startsWith("mailto:we.care@animl.health")) problems.push(`${v.name}: contact link is ${mail}`);
+  const coffee = await page.locator('#contact a[href*="buymeacoffee.com"]').getAttribute("href");
+  if (coffee !== "https://buymeacoffee.com/animlhealth") problems.push(`${v.name}: coffee link is ${coffee}`);
+  if (!v.isMobile) {
+    await page.locator('.site-nav a[href="history.html"]').click();
+    await page.waitForURL(/history/);
+    const entries = await page.locator(".hx-entry").count();
+    if (entries < 10) problems.push(`${v.name}: history shows ${entries} entries`);
+  }
   // The features filter.
   await page.goto(`${base}/features.html`);
   await page.locator("#fx-q").fill("dental");

@@ -287,6 +287,20 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .maker-body strong { color: var(--ink); }
 @media (max-width: 860px) { .maker { grid-template-columns: minmax(0, 1fr); gap: 24px; } }
 
+/* Contact: the address large, the coffee beside it. */
+.contact { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 32px 56px; align-items: stretch; }
+.contact-main { display: flex; flex-direction: column; align-items: flex-start; gap: 18px; }
+.contact-main h2 { font-size: clamp(2.2rem, 4.4vw, 3.6rem); line-height: 1.02; letter-spacing: -0.04em; }
+.contact-main p { font-size: 1.12rem; color: var(--ink-2); max-width: 34em; }
+.contact-mail { margin-top: 8px; font-size: 1.05rem; }
+.contact-mail svg { width: 20px; height: 20px; flex: none; }
+.coffee { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 32px 30px 34px; border-radius: var(--radius-lg); background: var(--brand-soft); }
+.coffee-icon { width: 36px; height: 36px; color: var(--brand-text); }
+.coffee h3 { font-size: 1.45rem; letter-spacing: -0.025em; }
+.coffee p { color: var(--ink-2); }
+.coffee .link-more { margin-top: auto; padding-top: 8px; }
+@media (max-width: 860px) { .contact { grid-template-columns: minmax(0, 1fr); } }
+
 /* Footer: the name returns, then the small print. */
 .site-foot { background: var(--bg); padding-block: 72px 48px; font-size: 0.82rem; line-height: 1.6; color: var(--ink-3); }
 .foot-name { display: flex; align-items: center; gap: 14px; font-size: clamp(2.4rem, 7vw, 5.5rem); font-weight: 650; letter-spacing: -0.05em; line-height: 1; color: var(--ink); margin-bottom: 40px; }
@@ -343,6 +357,28 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .practices { margin: 14px 0 0; padding-left: 1.1em; display: flex; flex-direction: column; gap: 8px; color: var(--ink-2); font-size: 0.98rem; }
 .practices li::marker { color: var(--brand); }
 @media (max-width: 860px) { .together { grid-template-columns: minmax(0, 1fr); } }
+
+/* Version history */
+.hx-next { padding: 32px 34px 34px; border-radius: var(--radius-lg); background: var(--brand-soft); }
+.hx-next h2 { font-size: clamp(1.6rem, 2.4vw, 2rem); letter-spacing: -0.03em; }
+.hx-next > p { margin-top: 6px; color: var(--ink-2); }
+.hx-next ul { margin: 18px 0 0; padding-left: 1.1em; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 40px; }
+.hx-next li::marker { color: var(--brand); }
+.hx-next li p:first-child { color: var(--ink); }
+.evidence { color: var(--ink-3); font-size: 0.76rem; line-height: 1.45; overflow-wrap: anywhere; margin-top: 3px; }
+.hx-group { padding-bottom: 40px; scroll-margin-top: calc(env(safe-area-inset-top, 0px) + 80px); }
+.hx-group + .hx-group { padding-top: 40px; box-shadow: inset 0 1px 0 var(--line); }
+.hx-group > h2 { font-size: clamp(1.7rem, 2.6vw, 2.2rem); letter-spacing: -0.032em; line-height: 1.1; display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.hx-group > h2 span { font-size: 1.05rem; font-weight: 500; letter-spacing: -0.01em; color: var(--brand-text); }
+.hx-entry { display: grid; grid-template-columns: 7.5em minmax(0, 1fr); gap: 8px 28px; padding-top: 28px; }
+.hx-date { font-size: 0.86rem; color: var(--ink-3); font-variant-numeric: tabular-nums; padding-top: 4px; }
+.hx-entry h3 { font-size: 1.3rem; letter-spacing: -0.022em; line-height: 1.2; }
+.hx-summary { margin-top: 6px; color: var(--ink-2); max-width: var(--measure); }
+.hx-items { list-style: none; margin: 16px 0 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.hx-items li { padding-left: 16px; box-shadow: inset 2px 0 0 var(--line); max-width: 72ch; }
+.hx-items .status { margin-left: 6px; white-space: nowrap; }
+@media (max-width: 860px) { .hx-next ul { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 600px) { .hx-entry { grid-template-columns: minmax(0, 1fr); } .hx-next { padding: 26px 22px 28px; } }
 
 /* Motion: parts rise in, staggered, once. Without script, or with reduced
    motion, everything is simply there. */

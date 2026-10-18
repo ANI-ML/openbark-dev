@@ -29,6 +29,8 @@ OpenBark records the consult (or imports a recording), transcribes it, and draft
 - [Build from source](#build-from-source)
 - [Documentation](#documentation)
 - [How it was built](#how-it-was-built)
+- [Version history](#version-history)
+- [Contact and support](#contact-and-support)
 - [License and credits](#license-and-credits)
 
 ## What it does
@@ -147,6 +149,16 @@ Step-by-step runbooks: [Windows](docs/runbooks/windows.md), [macOS](docs/runbook
 ## How it was built
 
 OpenBark was designed and directed by Dr. Christopher Pinard, a veterinarian, at ANI.ML Health Inc., and built together with Claude, Anthropic's AI. Every architectural decision is written down as a decision record, every dependency is checked and pinned, changes to drafting are measured before and after, and larger changes go through an automated review by many AI agents before they're merged.
+
+## Version history
+
+Every change that matters to a clinic, newest first, with the commit and files behind it: see [CHANGELOG.md](CHANGELOG.md), also on the website's Version history page.
+
+## Contact and support
+
+Questions, feedback, a bug to report, or a clinic that would like to try OpenBark: email the team at ANI.ML Health, [we.care@animl.health](mailto:we.care@animl.health).
+
+OpenBark is free. If it gives you back some evenings, you can [buy us a coffee](https://buymeacoffee.com/animlhealth).
 
 ## License and credits
 

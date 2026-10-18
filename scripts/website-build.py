@@ -26,6 +26,8 @@ DIST = os.path.join(SITE, "dist")
 PRODUCT = "OpenBark"
 TAGLINE = "Open-source veterinary scribe"
 CREDIT = "Created by Dr. Christopher Pinard and ANI.ML Health Inc."
+CONTACT = "we.care@animl.health"
+COFFEE = "https://buymeacoffee.com/animlhealth"
 
 FONTS = (
     '<link rel="preconnect" href="https://fonts.googleapis.com">'
@@ -75,7 +77,8 @@ def header(page):
     <a class="brand" href="index.html">{LOGO}<span>{e(PRODUCT)}</span><span class="stage">Pre-alpha</span></a>
     <nav class="site-nav" aria-label="Site">
       <a href="features.html"{cur("features")}>Features</a>
-      <a href="index.html#download">Download</a>
+      <a href="history.html"{cur("history")}>Version history</a>
+      <a href="index.html#contact">Contact</a>
       <a class="btn btn-primary" href="index.html#download">Get {e(PRODUCT)}</a>
     </nav>
   </div>
@@ -91,7 +94,10 @@ FOOTER = f"""<footer class="site-foot">
       Drafts are not medical records until a veterinarian reviews and signs them.</p>
       <nav aria-label="Footer">
         <a href="features.html">Features</a>
+        <a href="history.html">Version history</a>
         <a href="index.html#download">Download</a>
+        <a href="mailto:{CONTACT}">{CONTACT}</a>
+        <a href="{COFFEE}" rel="noopener">Buy us a coffee</a>
         <a href="features.html#privacy-and-security">Privacy</a>
         <a href="https://www.apache.org/licenses/LICENSE-2.0">Licence: Apache-2.0</a>
       </nav>
@@ -207,6 +213,79 @@ def features_body(content):
 """
 
 
+def history_entries(history):
+    for m in history["milestones"]:
+        for en in m["entries"]:
+            yield m, en
+
+
+def history_body(history):
+    total = sum(len(en["items"]) for _, en in history_entries(history))
+    days = sorted({en["date"] for _, en in history_entries(history)})
+    span = days[0] if len(days) == 1 else f"{days[0]} to {days[-1]}"
+    nxt = "".join(f'<li><p>{e(i["text"])}</p><p class="evidence">{e(i["evidence"])}</p></li>' for i in history["next"])
+    toc = "".join(f'<a href="#{e(m["id"])}"><span>{e(m["name"])}</span><span class="count">{len(m["entries"])}</span></a>' for m in history["milestones"])
+    groups = []
+    for m in history["milestones"]:
+        entries = []
+        for en in m["entries"]:
+            items = "".join(
+                f'<li><p>{e(i["text"])}'
+                + (' <span class="status" data-s="testing">Being tested</span>' if i.get("status") == "testing" else "")
+                + f'</p><p class="evidence">{e(i["evidence"])}</p></li>'
+                for i in en["items"]
+            )
+            entries.append(
+                f'<article class="hx-entry"><p class="hx-date"><time datetime="{e(en["date"])}">{e(en["date"])}</time></p>'
+                f'<div><h3>{e(en["title"])}</h3><p class="hx-summary">{e(en["summary"])}</p><ul class="hx-items">{items}</ul></div></article>'
+            )
+        groups.append(
+            f'<section class="hx-group" id="{e(m["id"])}"><h2>{e(m["name"])}<span>{e(m["tagline"])}</span></h2>{"".join(entries)}</section>'
+        )
+    return f"""<section class="fx-hero">
+  <div class="wrap">
+    <h1>Version history: everything built so far.</h1>
+    <p>Version {e(history["version"])}, {e(history["stage"].lower())}. {total} changes from {span}, newest first, each with the commit and files it lives in. Changes marked "Being tested" are built but not yet proven on real devices.</p>
+  </div>
+</section>
+<section class="fx-stats">
+  <div class="wrap">
+    <div class="hx-next">
+      <h2>Coming next</h2>
+      <p>Planned or being tested, not finished. No dates are promised.</p>
+      <ul>{nxt}</ul>
+    </div>
+  </div>
+</section>
+<div class="wrap fx-layout" id="hx">
+  <nav class="fx-toc" aria-label="Milestones">{toc}</nav>
+  <div>{"".join(groups)}</div>
+</div>
+"""
+
+
+def changelog_md(history):
+    out = [
+        "# Changelog",
+        "",
+        f"All notable changes to {PRODUCT}, newest first. Generated from `website/content/history.json` by `scripts/website-build.py`; edit that file, not this one. The same history is on the website's Version history page.",
+        "",
+        f"## {history['version']} ({history['stage'].lower()})",
+        "",
+    ]
+    for m in history["milestones"]:
+        out += [f"### {m['name']}: {m['tagline']}", ""]
+        for en in m["entries"]:
+            out += [f"#### {en['date']}: {en['title']}", "", en["summary"], ""]
+            for i in en["items"]:
+                tag = " (being tested)" if i.get("status") == "testing" else ""
+                out.append(f"- {i['text']}{tag} ({i['evidence']})")
+            out.append("")
+    out += ["## Coming next", "", "Planned or being tested, not finished. No dates are promised.", ""]
+    out += [f"- {i['text']} ({i['evidence']})" for i in history["next"]]
+    return "\n".join(out) + "\n"
+
+
 def document(inner_head, body):
     return (
         '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
@@ -220,6 +299,7 @@ def main():
     if "--preview" in sys.argv:
         preview = sys.argv[sys.argv.index("--preview") + 1]
     content = json.loads(read(SITE, "content", "features.json"))
+    history = json.loads(read(SITE, "content", "history.json"))
     templates = len([d for d in os.listdir(os.path.join(ROOT, "packages", "templates")) if os.path.isdir(os.path.join(ROOT, "packages", "templates", d))])
 
     landing = (
@@ -227,6 +307,8 @@ def main():
         .replace("{{PRODUCT}}", e(PRODUCT))
         .replace("{{TAGLINE}}", e(TAGLINE.lower()))
         .replace("{{TEMPLATES}}", str(templates))
+        .replace("{{CONTACT}}", e(CONTACT))
+        .replace("{{COFFEE}}", e(COFFEE))
         .replace("{{STATS}}", stat_tiles(content.get("headline_stats", [])))
     )
     landing_title = f"{PRODUCT}"
@@ -237,6 +319,10 @@ def main():
     features_title = f"{PRODUCT} Features"
     features_desc = f"Every feature of {PRODUCT}, the open-source veterinary scribe, with where it lives in the code. {CREDIT}"
     features_doc = document(head(features_title, features_desc, "features"), header("features") + '<main id="main">\n' + features_body(content) + "</main>\n" + FOOTER)
+    history_doc = document(
+        head(f"{PRODUCT} Version history", f"Everything built into {PRODUCT} so far, newest first, with where each change lives in the code. {CREDIT}", "history"),
+        header("history") + '<main id="main">\n' + history_body(history) + "</main>\n" + FOOTER,
+    )
     lost_doc = document(
         head(f"Page not found, {PRODUCT}", f"This page isn't part of the {PRODUCT} website.", "lost"),
         header("lost") + '<main id="main">\n' + LOST + "</main>\n" + FOOTER,
@@ -248,6 +334,8 @@ def main():
     io.open(os.path.join(DIST, "index.html"), "w", encoding="utf-8", newline="\n").write(document(landing_head, landing_body))
     io.open(os.path.join(DIST, "features.html"), "w", encoding="utf-8", newline="\n").write(features_doc)
     io.open(os.path.join(DIST, "404.html"), "w", encoding="utf-8", newline="\n").write(lost_doc)
+    io.open(os.path.join(DIST, "history.html"), "w", encoding="utf-8", newline="\n").write(history_doc)
+    io.open(os.path.join(ROOT, "CHANGELOG.md"), "w", encoding="utf-8", newline="\n").write(changelog_md(history))
     for name in ("site.css", "site.js"):
         shutil.copy(os.path.join(SRC, name), os.path.join(DIST, name))
     pub = os.path.join(SITE, "public")
