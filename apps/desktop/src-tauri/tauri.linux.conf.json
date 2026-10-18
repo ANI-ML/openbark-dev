@@ -1,0 +1,22 @@
+{
+  "bundle": {
+    "targets": [
+      "deb",
+      "rpm",
+      "appimage"
+    ],
+    "linux": {
+      "deb": {
+        "depends": [
+          "libasound2t64 | libasound2"
+        ],
+        "section": "science"
+      },
+      "rpm": {
+        "depends": [
+          "alsa-lib"
+        ]
+      }
+    }
+  }
+}

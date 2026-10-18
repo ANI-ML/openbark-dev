@@ -50,8 +50,24 @@ Click **Open recording…** and choose `packages/eval/fixtures/audio/feline-vomi
 - **Copy** puts the note on the clipboard;
 - the light/dark/system toggle works.
 
+## 5. The disk image and the uninstaller
+
+```bash
+scripts/macos-dmg.sh        # builds the app, then target/release/bundle/dmg/OpenBark_<version>_aarch64.dmg
+open target/release/bundle/dmg/*.dmg
+```
+
+Check, in this order:
+1. The window shows **OpenBark**, an **Applications** shortcut and **Uninstall OpenBark**, with nothing overlapping.
+2. Drag OpenBark onto Applications and open it. If macOS blocks it, go to **System Settings > Privacy & Security > Open Anyway**. Then quit OpenBark.
+3. Double-click **Uninstall OpenBark** and choose **Continue**, then **Keep my data**. Expect the app to be gone from Applications, `~/Library/Application Support/OpenBark` to still be there, and a final message that says so.
+4. **Test "Delete my data" only in a separate macOS user account that has no real data** (System Settings > Users & Groups > Add User). Install OpenBark there, open it once, then uninstall with **Delete my data**, then **Delete**. Expect its `Application Support/OpenBark` folder and its keychain item **OpenBark** (Keychain Access) to be gone. Never try this in the account that holds the clinic's encounters.
+
+Note anything that looks wrong (dialog wording, icon positions, a second password prompt) in the chat.
+
 ## If something fails
 
 - **`cmake not found`**: run `brew install cmake` and open a new terminal.
 - **No Metal device in `probe`**: the binary was built without `--features metal`. Rebuild.
+- **The disk image has no icon layout**: the Finder step timed out, and the script built it without positions. Run `scripts/macos-dmg.sh --skip-build` again with Finder idle.
 - **Out of memory with 12B on a 16 GB Mac**: that's a data point, not a bug to work around. Note it, and run `scripts/bench.sh gemma-4-e4b-it-q4_0`.

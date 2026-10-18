@@ -1,0 +1,97 @@
+name: Release installers
+
+# Point-and-click installers for the desktop app, per platform:
+#   Windows: setup wizard (NSIS, per-user, no admin), uninstall from Settings
+#   macOS:   disk image (drag OpenBark to Applications; Uninstall OpenBark beside it)
+#   Linux:   .deb, .rpm and AppImage
+# Runs on a version tag (v0.1.0) or by hand; tags also get a draft release.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  NODE_VERSION: "24.22.0"
+
+jobs:
+  installers:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows
+            os: windows-latest
+            # Vulkan runs on NVIDIA, AMD and Intel graphics with no extra runtime to ship.
+            features: vulkan
+            out: target/release/bundle/nsis/*.exe
+          - name: macos
+            os: macos-15
+            features: metal
+            out: target/release/bundle/dmg/*.dmg
+          - name: linux
+            os: ubuntu-22.04
+            features: vulkan
+            out: |
+              target/release/bundle/deb/*.deb
+              target/release/bundle/rpm/*.rpm
+              target/release/bundle/appimage/*.AppImage
+    name: Installer (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-release-${{ matrix.name }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-release-${{ matrix.name }}-
+      - name: Build tools (Windows)
+        if: matrix.name == 'windows'
+        run: choco install llvm vulkan-sdk -y --no-progress
+      - name: Build tools (Linux)
+        if: matrix.name == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libclang-dev cmake libasound2-dev libvulkan-dev glslc
+      - name: Installers
+        shell: bash
+        run: |
+          if [ "${{ matrix.name }}" = "windows" ]; then
+            export LIBCLANG_PATH="C:\\Program Files\\LLVM\\bin"
+            export VULKAN_SDK="$(ls -d /c/VulkanSDK/* | tail -1)"
+          fi
+          if [ "${{ matrix.name }}" = "macos" ]; then
+            # The app plus "Uninstall OpenBark", laid out in one disk image.
+            scripts/macos-dmg.sh --features ${{ matrix.features }}
+          else
+            cd apps/desktop && pnpm tauri build --features ${{ matrix.features }}
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openbark-${{ matrix.name }}
+          path: ${{ matrix.out }}
+          if-no-files-found: error
+
+  draft-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: installers
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Draft release with the installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" --draft --repo "${{ github.repository }}" --title "OpenBark ${{ github.ref_name }}" --notes "Installers: Windows (setup wizard), macOS (disk image), Linux (.deb, .rpm, AppImage). See install/README.md." dist/*/*

@@ -4,11 +4,11 @@ Video: **Help → Getting started** in the app.
 
 ## Install
 
-- **Windows:** double-click **Install OpenBark.cmd**. OpenBark appears in the Start menu and on the desktop.
-- **macOS:** double-click **Install OpenBark.command**. OpenBark appears in your Applications folder.
-- **Linux:** run `./install/install.sh`. OpenBark appears in your app menu.
+- **Windows:** double-click **OpenBark_<version>_x64-setup.exe** and follow the wizard. OpenBark appears in the Start menu.
+- **macOS:** open the **.dmg** and drag **OpenBark** onto **Applications**. The first time, macOS may ask you to allow it in **System Settings > Privacy & Security > Open Anyway**.
+- **Linux:** double-click the **.deb** or **.rpm** and choose **Install** in your Software app, or run the **AppImage**.
 
-OpenBark opens in your web browser, and only this computer can reach it. To uninstall, use **Uninstall OpenBark** (Start menu on Windows, or the same folder on macOS and Linux). Your encounters and models are kept unless you type DELETE when asked. Details: [install/README.md](../../install/README.md).
+To uninstall, choose **Uninstall OpenBark**: in the Start menu on Windows, or on the disk image on a Mac. On Linux, remove OpenBark in your Software app. Your encounters and models are kept unless you choose to delete them, and deleting them asks twice. Details, and the install scripts for the browser version: [install/README.md](../../install/README.md).
 
 ## The consent notice
 

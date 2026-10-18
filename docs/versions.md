@@ -23,6 +23,8 @@ Pinning policy:
 | CMake | the copy bundled with VS 2022 Build Tools (already installed) | local check; llama.cpp `docs/build.md` | ggml needs ≥3.14 and the CUDA backend needs ≥3.18. Record the exact version at scaffold. |
 | MSVC | VS 2022 Build Tools 17.14 (installed) | local `vswhere` | llama.cpp's docs ask for the C++ workload plus the **Clang** component. Clang is not installed yet. |
 | LLVM / libclang | verify at scaffold | — | Needed if `llama-cpp-sys-2` runs bindgen at build time. Install it on the dev box and the CI images. |
+| NSIS (via tauri-cli) | **3.13**, plus `nsis_tauri_utils` **0.5.3** | tauri-cli 2.12.3 downloads both on the first `--bundles nsis` build and checks their hashes (build log) | Builds the Windows setup wizard. The template in `apps/desktop/src-tauri/windows/installer.nsi` is tauri-cli 2.12.3's, with one change (the install folder); refresh it when tauri-cli moves. |
+| create-dmg | **1.3.0** (2026-07-02) | GitHub API, create-dmg/create-dmg releases/latest | Lays out the macOS disk image with **Uninstall OpenBark** beside the app (`scripts/macos-dmg.sh`). Downloaded by tag, not via Homebrew, so the version is pinned. |
 | CUDA Toolkit | **12.9** (installed) | llama.cpp `ggml-cuda/CMakeLists.txt` has an explicit ≥12.9 branch | CUDA 13 drops the Maxwell, Pascal and Volta architectures in non-native builds, so stay on 12.x for wider GPU support. |
 
 ## 2. Rust crates (engine)

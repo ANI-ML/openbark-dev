@@ -1,0 +1,36 @@
+{
+  "bundle": {
+    "targets": [
+      "nsis"
+    ],
+    "resources": {
+      "../../../target/release/sherpa-onnx-c-api.dll": "sherpa-onnx-c-api.dll",
+      "../../../target/release/sherpa-onnx-cxx-api.dll": "sherpa-onnx-cxx-api.dll",
+      "../../../target/release/onnxruntime.dll": "onnxruntime.dll",
+      "../../../target/release/onnxruntime_providers_shared.dll": "onnxruntime_providers_shared.dll"
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
+      "nsis": {
+        "template": "windows/installer.nsi",
+        "installerHooks": "windows/hooks.nsh",
+        "installMode": "currentUser",
+        "displayLanguageSelector": true,
+        "languages": [
+          "English",
+          "French",
+          "Spanish",
+          "German",
+          "Portuguese"
+        ],
+        "installerIcon": "icons/icon.ico",
+        "headerImage": "windows/header.bmp",
+        "sidebarImage": "windows/sidebar.bmp",
+        "startMenuFolder": "OpenBark"
+      }
+    }
+  }
+}
