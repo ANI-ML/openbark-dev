@@ -19,6 +19,8 @@ pub enum SessionsCommand {
     List,
     /// Print the sessions folder.
     Path,
+    /// Encrypt encounters saved before encryption was on (ADR-0008).
+    Encrypt,
 }
 
 #[derive(clap::Args)]
@@ -103,7 +105,8 @@ pub fn rerun(store: &ModelStore, args: RerunArgs) -> Result<()> {
     let _awake = AwakeGuard::acquire(AwakeReason::Processing);
     let mut session = Session::open(&args.session).context("opening session")?;
     let transcript = if args.retranscribe || !session.transcript_path().is_file() {
-        let audio = Audio::load_wav(&session.audio_path())?;
+        let wav = os_engine::vault::read(&session.audio_path())?;
+        let audio = Audio::decode_bytes(wav, "audio.wav")?;
         let transcriber = os_engine::models::transcriber(store, &args.stt, args.diarize, None, None, None)?;
         let (transcript, stats) = transcriber.run(&audio, &mut |_| {})?;
         session.save_transcript(&transcript, &args.stt, args.diarize, &stats)?;
@@ -138,6 +141,17 @@ pub fn command(cmd: SessionsCommand) -> Result<()> {
     let root = session::default_root();
     match cmd {
         SessionsCommand::Path => println!("{}", root.display()),
+        SessionsCommand::Encrypt => {
+            let mut encounters = 0;
+            for s in session::list(&root) {
+                let files = os_engine::vault::encrypt_folder(&s.dir)?;
+                if files > 0 {
+                    encounters += 1;
+                    eprintln!("encrypted {} ({files} files)", s.dir.display());
+                }
+            }
+            println!("{encounters} encounter(s) encrypted");
+        }
         SessionsCommand::List => {
             let sessions = session::list(&root);
             if sessions.is_empty() {

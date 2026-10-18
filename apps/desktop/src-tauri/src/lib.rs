@@ -179,6 +179,25 @@ async fn add_addendum(
     work(move || app.add_addendum(&id, &text, &by)).await
 }
 
+/// An encounter's recording, decrypted, for the player (ADR-0008: audio is
+/// encrypted on disk, so the file can't be handed to the webview directly).
+#[tauri::command]
+async fn session_audio(app: State<'_, AppState>, id: String) -> Result<tauri::ipc::Response, String> {
+    let app = app.inner().clone();
+    work(move || app.session_audio(&id)).await.map(tauri::ipc::Response::new)
+}
+
+#[tauri::command]
+async fn encrypt_existing(app: State<'_, AppState>) -> Result<usize, String> {
+    let app = app.inner().clone();
+    work(move || app.encrypt_existing()).await
+}
+
+#[tauri::command]
+fn recovery_key(app: State<'_, AppState>) -> Result<String, String> {
+    app.recovery_key().map_err(|e| e.0)
+}
+
 /// Write the note as a PDF to `path` (chosen in a save dialog).
 #[tauri::command]
 async fn export_pdf(
@@ -304,6 +323,9 @@ pub fn run() {
             add_addendum,
             export_pdf,
             pdf_name,
+            session_audio,
+            encrypt_existing,
+            recovery_key,
             list_templates,
             template,
             preview_template,

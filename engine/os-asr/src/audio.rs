@@ -52,6 +52,24 @@ impl Audio {
     }
 
     fn decode(path: &Path) -> Result<Self, AudioError> {
+        let display = path.display().to_string();
+        let file =
+            std::fs::File::open(path).map_err(|e| AudioError::Decode(display.clone(), e.to_string()))?;
+        Self::decode_source(Box::new(file), path.extension().and_then(|e| e.to_str()), display)
+    }
+
+    /// Decode a recording held in memory (an upload, or a decrypted file).
+    /// `name` gives the format hint by its extension.
+    pub fn decode_bytes(bytes: Vec<u8>, name: &str) -> Result<Self, AudioError> {
+        let ext = Path::new(name).extension().and_then(|e| e.to_str()).map(str::to_string);
+        Self::decode_source(Box::new(std::io::Cursor::new(bytes)), ext.as_deref(), name.to_string())
+    }
+
+    fn decode_source(
+        source: Box<dyn symphonia::core::io::MediaSource>,
+        ext: Option<&str>,
+        display: String,
+    ) -> Result<Self, AudioError> {
         use symphonia::core::codecs::audio::AudioDecoderOptions;
         use symphonia::core::errors::Error;
         use symphonia::core::formats::probe::Hint;
@@ -59,12 +77,10 @@ impl Audio {
         use symphonia::core::io::MediaSourceStream;
         use symphonia::core::meta::MetadataOptions;
 
-        let display = path.display().to_string();
         let fail = |e: &dyn std::fmt::Display| AudioError::Decode(display.clone(), e.to_string());
-        let file = std::fs::File::open(path).map_err(|e| fail(&e))?;
-        let mss = MediaSourceStream::new(Box::new(file), Default::default());
+        let mss = MediaSourceStream::new(source, Default::default());
         let mut hint = Hint::new();
-        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+        if let Some(ext) = ext {
             hint.with_extension(ext);
         }
         let mut format = symphonia::default::get_probe()

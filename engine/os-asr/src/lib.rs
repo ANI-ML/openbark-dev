@@ -15,7 +15,7 @@ pub use sherpa_onnx;
 pub use audio::{Audio, AudioError, SAMPLE_RATE};
 pub use recognizer::{AsrModel, OfflineAsr};
 pub use vad::{SileroVad, SpeechSpan, StreamingVad, Utterance, VadOptions};
-pub use wav::WavWriter;
+pub use wav::{AudioSink, WavWriter};
 
 use serde::Serialize;
 

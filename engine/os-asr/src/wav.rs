@@ -6,15 +6,32 @@ use std::fs::File;
 use std::io::{BufWriter, Seek, SeekFrom, Write};
 use std::path::Path;
 
+/// Where a recording goes: a plain file, or an encrypting writer (the
+/// engine's vault). `finish` is called once, after the header is patched.
+pub trait AudioSink: Write + Seek + Send {
+    fn finish(self: Box<Self>) -> std::io::Result<()>;
+}
+
+impl AudioSink for BufWriter<File> {
+    fn finish(self: Box<Self>) -> std::io::Result<()> {
+        let file = (*self).into_inner().map_err(|e| e.into_error())?;
+        file.sync_all()
+    }
+}
+
 pub struct WavWriter {
-    out: BufWriter<File>,
+    out: Box<dyn AudioSink>,
     sample_rate: u32,
     samples: u64,
 }
 
 impl WavWriter {
     pub fn create(path: &Path, sample_rate: u32) -> std::io::Result<Self> {
-        let mut out = BufWriter::new(File::create(path)?);
+        Self::with_sink(Box::new(BufWriter::new(File::create(path)?)), sample_rate)
+    }
+
+    /// Write into any sink, e.g. an encrypting one.
+    pub fn with_sink(mut out: Box<dyn AudioSink>, sample_rate: u32) -> std::io::Result<Self> {
         write_header(&mut out, sample_rate, 0)?;
         Ok(Self { out, sample_rate, samples: 0 })
     }
@@ -39,10 +56,10 @@ impl WavWriter {
     pub fn finish(mut self) -> std::io::Result<f32> {
         let secs = self.duration_secs();
         self.out.flush()?;
-        let mut file = self.out.into_inner().map_err(|e| e.into_error())?;
-        file.seek(SeekFrom::Start(0))?;
-        write_header(&mut file, self.sample_rate, self.samples)?;
-        file.sync_all()?;
+        self.out.seek(SeekFrom::Start(0))?;
+        write_header(&mut self.out, self.sample_rate, self.samples)?;
+        self.out.flush()?;
+        self.out.finish()?;
         Ok(secs)
     }
 }

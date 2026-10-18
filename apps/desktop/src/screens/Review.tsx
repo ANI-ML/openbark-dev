@@ -38,6 +38,7 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
   const [tab, setTab] = useState<"transcript" | "note">("note");
   const [editing, setEditing] = useState<engine.Patient | null>(null);
   const audio = useRef<HTMLAudioElement>(null);
+  const [audioSrc, setAudioSrc] = useState<string | null>(null);
   const drafted = useRef(false);
 
   const load = useCallback(() => engine.openSession(id).then(setView, (e) => setError(String(e?.message ?? e))), [id]);
@@ -48,6 +49,28 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
     const off = engine.on("token", () => setTokens((n) => n + 1));
     return () => void off.then((f) => f());
   }, [load]);
+
+  // The recording is decrypted for playback (ADR-0008).
+  const viewId = view?.id;
+  useEffect(() => {
+    if (!view || !viewId) return;
+    let url: string | null = null;
+    let live = true;
+    engine.audioUrl(view).then(
+      (u) => {
+        url = u;
+        if (live) setAudioSrc(u);
+        else if (u.startsWith("blob:")) URL.revokeObjectURL(u);
+      },
+      () => setAudioSrc(null),
+    );
+    return () => {
+      live = false;
+      if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
+    };
+    // Only refetch when the encounter changes, not on every view refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewId]);
 
   const segments = view?.transcript?.segments ?? [];
   const run = view?.latest_run ?? null;
@@ -371,13 +394,13 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
 
       <div className="review-split" data-tab={tab}>
         <section className="pane pane-transcript" aria-label={t("Transcript")}>
-          {view && (
+          {view && audioSrc && (
             <audio
               ref={audio}
               className="player"
               controls
               preload="metadata"
-              src={engine.audioSrc(view)}
+              src={audioSrc}
               onTimeUpdate={onTime}
               onPause={() => setPlayingId(null)}
             />

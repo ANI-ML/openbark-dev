@@ -95,6 +95,10 @@ pub struct Status {
     pub models: Vec<ModelStatus>,
     pub hardware: Hardware,
     pub recording: bool,
+    /// Encryption at rest (ADR-0008): on, where the key is, any warning.
+    pub encryption: os_engine::vault::VaultStatus,
+    /// Encounters saved before encryption, still in plain files.
+    pub plain_encounters: usize,
 }
 
 #[derive(Serialize)]
@@ -192,6 +196,10 @@ pub struct ModelRow {
 
 impl App {
     pub fn new(store: ModelStore, sessions_root: PathBuf) -> Self {
+        // Encryption at rest: load or create the data key (ADR-0008).
+        if let Err(e) = os_engine::vault::init() {
+            tracing::error!(error = %e, "encryption couldn't start; encounters will be saved unencrypted");
+        }
         Self {
             store,
             sessions_root,
@@ -215,7 +223,48 @@ impl App {
             models,
             hardware: self.hardware.clone(),
             recording: self.recorder.lock().map(|r| r.is_some()).unwrap_or(false),
+            encryption: os_engine::vault::status(),
+            plain_encounters: self.plain_encounters(),
         }
+    }
+
+    /// Encounter folders still holding plain (unencrypted) files.
+    fn plain_encounters(&self) -> usize {
+        session::list(&self.sessions_root)
+            .iter()
+            .filter(|s| !os_engine::vault::is_encrypted(&s.dir.join(session::SESSION_FILE)))
+            .count()
+    }
+
+    /// Encrypt every encounter saved before encryption was on. Returns how
+    /// many encounters were rewritten.
+    pub fn encrypt_existing(&self) -> Result<usize> {
+        if !os_engine::vault::enabled() {
+            return Err(AppError("Encryption isn't set up on this computer.".into()));
+        }
+        let recording = self.recorder.lock().ok().and_then(|r| r.as_ref().map(|rec| rec.session_dir.clone()));
+        let mut count = 0;
+        for s in session::list(&self.sessions_root) {
+            if Some(&s.dir) == recording.as_ref() {
+                continue;
+            }
+            if os_engine::vault::encrypt_folder(&s.dir)? > 0 {
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
+
+    /// The recovery key (the data key in base64), to keep somewhere safe.
+    pub fn recovery_key(&self) -> Result<String> {
+        os_engine::vault::recovery_key()
+            .ok_or_else(|| AppError("Encryption isn't set up on this computer.".into()))
+    }
+
+    /// An encounter's recording as WAV bytes (decrypted for playback).
+    pub fn session_audio(&self, id: &str) -> Result<Vec<u8>> {
+        let dir = self.session_dir(id)?;
+        Ok(os_engine::vault::read(&dir.join(session::AUDIO_FILE))?)
     }
 
     // ---- sessions --------------------------------------------------------
@@ -281,6 +330,18 @@ impl App {
         consent: Option<Consent>,
         events: &dyn Events,
     ) -> Result<SessionView> {
+        let source = LiveSource::File { path: path.to_path_buf(), realtime: false };
+        self.import_source(source, label_speakers, patient, consent, events)
+    }
+
+    fn import_source(
+        &self,
+        source: LiveSource,
+        label_speakers: bool,
+        patient: Option<PatientInfo>,
+        consent: Option<Consent>,
+        events: &dyn Events,
+    ) -> Result<SessionView> {
         if let Some(c) = &consent {
             c.check()?;
         }
@@ -290,7 +351,6 @@ impl App {
         options.label_speakers = label_speakers;
         options.patient = patient.filter(|p| !p.is_empty());
         options.consent = consent;
-        let source = LiveSource::File { path: path.to_path_buf(), realtime: false };
         let recorder = LiveRecorder::start(
             &self.store,
             &self.sessions_root,
@@ -322,11 +382,11 @@ impl App {
         if wav.len() < 16 {
             return Err(AppError("That file is empty. Choose the recording again.".into()));
         }
-        let tmp = tempfile::tempdir()?;
+        // Decoded from memory: the upload never touches the disk unencrypted.
         let file = Path::new(name).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        let path = tmp.path().join(if file.is_empty() { "recording.wav".into() } else { file });
-        std::fs::write(&path, wav)?;
-        self.import_file(&path, label_speakers, patient, consent, events)
+        let name = if file.is_empty() { "recording.wav".to_string() } else { file };
+        let source = LiveSource::Memory { name, bytes: wav.to_vec() };
+        self.import_source(source, label_speakers, patient, consent, events)
     }
 
     // ---- live recording --------------------------------------------------
@@ -432,8 +492,9 @@ impl App {
             s.latest_record().and_then(|run| {
                 let dir = s.dir.join(&run.dir);
                 let saved: serde_json::Value =
-                    serde_json::from_str(&std::fs::read_to_string(dir.join("note.json")).ok()?).ok()?;
-                let markdown = std::fs::read_to_string(dir.join("note.md")).ok()?;
+                    serde_json::from_str(&os_engine::vault::read_to_string(&dir.join("note.json")).ok()?)
+                        .ok()?;
+                let markdown = os_engine::vault::read_to_string(&dir.join("note.md")).ok()?;
                 Some(os_engine::note::Reference::from_note(&saved["note"], &markdown))
             })
         };
@@ -579,7 +640,7 @@ impl App {
         .ok_or_else(|| AppError("There's no draft to export yet. Draft the note first.".into()))?;
         let template = s.run_template(run)?;
         let path = s.dir.join(&run.dir).join("note.json");
-        let saved: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path)?)?;
+        let saved: serde_json::Value = serde_json::from_str(&os_engine::vault::read_to_string(&path)?)?;
         let labels = os_engine::pdf::Labels::for_language(request.language.as_deref().unwrap_or("en"));
         let mut details = Vec::new();
         if let Some(p) = &s.meta.patient {
@@ -922,10 +983,10 @@ fn view(s: &Session, transcript: Option<Transcript>) -> SessionView {
             template_id: run.template_id().to_string(),
             name: template.as_ref().map(|t| t.name.clone()).unwrap_or_else(|| run.template_id().to_string()),
             created_at: run.created_at.format("%Y-%m-%d %H:%M").to_string(),
-            run: std::fs::read_to_string(dir.join("note.json"))
+            run: os_engine::vault::read_to_string(&dir.join("note.json"))
                 .ok()
                 .and_then(|t| serde_json::from_str(&t).ok()),
-            markdown: std::fs::read_to_string(dir.join("note.md")).ok(),
+            markdown: os_engine::vault::read_to_string(&dir.join("note.md")).ok(),
             template,
         };
         match documents.iter_mut().find(|d| d.template_id == doc.template_id) {
@@ -943,10 +1004,10 @@ fn view(s: &Session, transcript: Option<Transcript>) -> SessionView {
         stats: s.meta.transcription.as_ref().map(|t| t.stats.clone()),
         latest_run: latest
             .as_ref()
-            .and_then(|d| std::fs::read_to_string(d.join("note.json")).ok())
+            .and_then(|d| os_engine::vault::read_to_string(&d.join("note.json")).ok())
             .and_then(|t| serde_json::from_str(&t).ok()),
         latest_markdown: latest
-            .and_then(|d| std::fs::read_to_string(d.join("note.md")).ok())
+            .and_then(|d| os_engine::vault::read_to_string(&d.join("note.md")).ok())
             .map(|md| with_addenda(md, &addenda)),
         signed_at: record.and_then(|r| r.signed_at).map(|t| t.format("%Y-%m-%d %H:%M").to_string()),
         signed_by: record.and_then(|r| r.signed_by.clone()),

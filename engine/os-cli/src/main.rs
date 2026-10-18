@@ -62,11 +62,30 @@ enum Command {
     Record(record::RecordArgs),
     /// List microphones.
     Devices,
+    /// The encryption key: show the recovery key, or import one (ADR-0008).
+    #[command(subcommand)]
+    Key(KeyCommand),
     /// Note templates: list, show the prompt, check a team template.
     #[command(subcommand)]
     Templates(templates::TemplatesCommand),
     /// Open the OpenBark UI in your browser, served from this machine only (127.0.0.1).
     Serve(ServeArgs),
+}
+
+#[derive(clap::Subcommand)]
+enum KeyCommand {
+    /// Where the key is kept, and whether encryption is on.
+    Status,
+    /// Print the recovery key. Keep it somewhere safe: without it, encrypted
+    /// encounters can't be read on another computer.
+    Show,
+    /// Use a recovery key on this computer (moving to a new machine).
+    Import {
+        key: String,
+        /// Replace a different key already on this computer.
+        #[arg(long)]
+        replace: bool,
+    },
 }
 
 #[derive(clap::Args)]
@@ -148,6 +167,11 @@ fn main() -> Result<()> {
         )
         .init();
     let cli = Cli::parse();
+    // Encryption at rest (ADR-0008): every command that reads or writes
+    // encounters needs the data key.
+    if !matches!(cli.command, Command::Key(KeyCommand::Import { .. })) {
+        os_engine::vault::init()?;
+    }
     let store = cli
         .models_dir
         .map(os_models::ModelStore::new)
@@ -227,6 +251,21 @@ fn main() -> Result<()> {
         Command::Record(args) => record::record(&store, args),
         Command::Devices => record::devices(),
         Command::Templates(cmd) => templates::run(cmd),
+        Command::Key(cmd) => match cmd {
+            KeyCommand::Status => {
+                println!("{}", serde_json::to_string_pretty(&os_engine::vault::status())?);
+                Ok(())
+            }
+            KeyCommand::Show => {
+                println!("{}", os_engine::vault::recovery_key().unwrap_or_default());
+                Ok(())
+            }
+            KeyCommand::Import { key, replace } => {
+                let source = os_engine::vault::import_key(&key, replace)?;
+                eprintln!("key saved ({source:?})");
+                Ok(())
+            }
+        },
         Command::Eval(args) => eval::run(&store, args),
     }
 }

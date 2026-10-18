@@ -15,6 +15,7 @@ Tracks the build against `DESIGN.md`. Updated 2026-10-17. Screenshots: `apps/des
 - §5 Template builder: two panes, a structure list with `DotsSixVertical` drag handles (plus Move up/down buttons for the keyboard) and plain-textarea instructions, and a live preview with a "What the model is told" tab. Empty state: "No team templates yet. Start from SOAP, or start a new one from blank headings."
 - §5 Note: **Ask** on every heading and subheading opens an inline re-prompt panel (reuse chips, a "Save as a standard" box, a progress rule). A redrafted heading shows its request beneath the title.
 - Review output row: one button per client document (Discharge instructions, Client summary), opening a right-hand sheet (bottom on mobile) with the document, Copy and Draft again.
+- Settings, Encryption: whether encryption is on and where the key is kept, old unencrypted encounters with **Encrypt them now**, and the recovery key on request (Copy, Hide).
 - Consent step (M1 item 7): an inline panel in the Recorder before recording or importing, with the script to read, how the client agreed, and Client agreed / Client declined. The consent rule and script are in Settings.
 - §8 copy uses sentence case, outcome verbs and specific errors. §9: keyboard paths, visible focus rings, status shown as text plus a dot, a live region for recording and draft events, and `prefers-reduced-motion` respected.
 

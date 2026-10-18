@@ -259,7 +259,15 @@ impl Session {
         );
         let dir = unique_dir(root, &base)?;
         let audio = dir.join(AUDIO_FILE);
-        if source.extension().is_some_and(|e| e.eq_ignore_ascii_case("wav")) {
+        if crate::vault::enabled() {
+            // Encrypted at rest (ADR-0008): a 16 kHz WAV copy, encrypted.
+            let decoded = os_asr::Audio::load(source).map_err(|e| EngineError::Session(e.to_string()))?;
+            let sink = crate::vault::AudioWriter::create(&audio).map_err(io(&audio))?;
+            let mut writer =
+                os_asr::WavWriter::with_sink(Box::new(sink), os_asr::SAMPLE_RATE).map_err(io(&audio))?;
+            writer.write(&decoded.samples).map_err(io(&audio))?;
+            writer.finish().map_err(io(&audio))?;
+        } else if source.extension().is_some_and(|e| e.eq_ignore_ascii_case("wav")) {
             fs::copy(source, &audio).map_err(io(&audio))?;
         } else {
             // Phone recordings (m4a, mp3…): keep a 16 kHz WAV copy so the
@@ -333,7 +341,7 @@ impl Session {
 
     pub fn open(dir: &Path) -> Result<Self, EngineError> {
         let path = dir.join(SESSION_FILE);
-        let text = fs::read_to_string(&path).map_err(io(&path))?;
+        let text = crate::vault::read_to_string(&path).map_err(io(&path))?;
         let meta = serde_json::from_str(&text)
             .map_err(|e| EngineError::Session(format!("{}: {e}", path.display())))?;
         Ok(Self { dir: dir.to_path_buf(), meta })
@@ -355,7 +363,7 @@ impl Session {
         stats: &TranscribeStats,
     ) -> Result<(), EngineError> {
         let path = self.transcript_path();
-        fs::write(&path, transcript.to_jsonl()).map_err(io(&path))?;
+        crate::vault::write(&path, transcript.to_jsonl().as_bytes()).map_err(io(&path))?;
         self.meta.transcription = Some(TranscriptionInfo {
             stt_model: stt_model.into(),
             diarized,
@@ -367,7 +375,7 @@ impl Session {
 
     pub fn load_transcript(&self) -> Result<Transcript, EngineError> {
         let path = self.transcript_path();
-        let text = fs::read_to_string(&path).map_err(io(&path))?;
+        let text = crate::vault::read_to_string(&path).map_err(io(&path))?;
         Transcript::from_jsonl(&text).map_err(|e| EngineError::Session(format!("{}: {e}", path.display())))
     }
 
@@ -384,12 +392,15 @@ impl Session {
         let dir = self.dir.join("runs").join(&name);
         fs::create_dir_all(&dir).map_err(io(&dir))?;
         let json = dir.join("note.json");
-        fs::write(&json, serde_json::to_string_pretty(result).expect("note result serialises"))
-            .map_err(io(&json))?;
+        crate::vault::write(
+            &json,
+            serde_json::to_string_pretty(result).expect("note result serialises").as_bytes(),
+        )
+        .map_err(io(&json))?;
         let md = dir.join("note.md");
-        fs::write(&md, &result.markdown).map_err(io(&md))?;
+        crate::vault::write(&md, result.markdown.as_bytes()).map_err(io(&md))?;
         let snapshot = dir.join(RUN_TEMPLATE_FILE);
-        fs::write(&snapshot, template.to_yaml()).map_err(io(&snapshot))?;
+        crate::vault::write(&snapshot, template.to_yaml().as_bytes()).map_err(io(&snapshot))?;
         self.meta.runs.push(RunInfo {
             dir: format!("runs/{name}"),
             llm: llm_id.into(),
@@ -479,7 +490,7 @@ impl Session {
             .cloned()
             .ok_or_else(|| EngineError::Session("There is no draft yet. Draft a note first.".into()))?;
         let path = self.dir.join(&run.dir).join("note.json");
-        let text = fs::read_to_string(&path).map_err(io(&path))?;
+        let text = crate::vault::read_to_string(&path).map_err(io(&path))?;
         let saved: serde_json::Value = serde_json::from_str(&text)
             .map_err(|e| EngineError::Session(format!("{}: {e}", path.display())))?;
         Ok((run, saved["note"].clone()))
@@ -489,7 +500,7 @@ impl Session {
     /// before snapshots existed, the template by id as it is now.
     pub fn run_template(&self, run: &RunInfo) -> Result<LoadedTemplate, EngineError> {
         let snapshot = self.dir.join(&run.dir).join(RUN_TEMPLATE_FILE);
-        match fs::read_to_string(&snapshot) {
+        match crate::vault::read_to_string(&snapshot) {
             Ok(yaml) => LoadedTemplate::from_yaml(&yaml),
             Err(_) => LoadedTemplate::resolve(run.template_id()),
         }
@@ -534,10 +545,8 @@ impl Session {
 
     fn save_meta(&self) -> Result<(), EngineError> {
         let path = self.dir.join(SESSION_FILE);
-        let tmp = self.dir.join("session.json.tmp");
-        fs::write(&tmp, serde_json::to_string_pretty(&self.meta).expect("meta serialises"))
-            .map_err(io(&tmp))?;
-        fs::rename(&tmp, &path).map_err(io(&path))
+        let text = serde_json::to_string_pretty(&self.meta).expect("meta serialises");
+        crate::vault::write(&path, text.as_bytes()).map_err(io(&path))
     }
 }
 
@@ -579,7 +588,13 @@ fn slug(s: &str) -> String {
     out.trim_end_matches('-').chars().take(48).collect()
 }
 
+/// SHA-256 of a file's content (decrypted, so it identifies the recording
+/// itself whether or not it's encrypted at rest).
 fn sha256_file(path: &Path) -> Result<String, EngineError> {
+    if crate::vault::is_encrypted(path) {
+        let plain = crate::vault::read(path).map_err(io(path))?;
+        return Ok(hex::encode(Sha256::digest(&plain)));
+    }
     let mut file = fs::File::open(path).map_err(io(path))?;
     let mut hasher = Sha256::new();
     let mut buf = vec![0u8; 1 << 20];
@@ -626,6 +641,8 @@ mod tests {
 
     #[test]
     fn session_round_trip_with_runs() {
+        // Plain files: hold the vault lock so no other test turns encryption on meanwhile.
+        let _plain = crate::vault::tests::SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         let tmp = tempfile::tempdir().unwrap();
         let src = tmp.path().join("Mochi recheck.wav");
         fs::write(&src, b"RIFF....WAVE").unwrap();
@@ -715,5 +732,57 @@ mod tests {
         // A second session from the same file in the same second gets its own folder.
         let other = Session::create_from_file(&root, &src, 12.5).unwrap();
         assert_ne!(other.dir, s.dir);
+    }
+
+    #[test]
+    fn encrypted_sessions_round_trip_with_nothing_plain_on_disk() {
+        crate::vault::tests::with_key(|| {
+            let tmp = tempfile::tempdir().unwrap();
+            let root = tmp.path().join("sessions");
+            let mut s = Session::create_live(&root, "Mochi").unwrap();
+            s.set_patient(PatientInfo {
+                name: "Mochi".into(),
+                reason: "Limping".into(),
+                ..Default::default()
+            })
+            .unwrap();
+            let t = Transcript {
+                segments: vec![Segment {
+                    id: 0,
+                    start: 0.0,
+                    end: 1.0,
+                    speaker: Some(0),
+                    text: "Temperature 39.4".into(),
+                    hints: Vec::new(),
+                    check: None,
+                }],
+            };
+            s.save_transcript(&t, "parakeet", true, &Default::default()).unwrap();
+            let mut result = note_result();
+            result.markdown = "# SOAP note
+- Temperature 39.4
+"
+            .into();
+            s.save_run("gemma", &result, &LoadedTemplate::builtin("soap").unwrap()).unwrap();
+
+            let reopened = Session::open(&s.dir).unwrap();
+            assert_eq!(reopened.meta.patient.as_ref().unwrap().name, "Mochi");
+            assert_eq!(reopened.load_transcript().unwrap(), t);
+            assert_eq!(reopened.latest_note().unwrap().1, serde_json::json!({}));
+            // No file in the folder holds the patient name or the temperature in the clear.
+            fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
+                for e in fs::read_dir(dir).unwrap().flatten() {
+                    if e.path().is_dir() { walk(&e.path(), out) } else { out.push(e.path()) }
+                }
+            }
+            let mut files = Vec::new();
+            walk(&s.dir, &mut files);
+            assert!(files.len() >= 5, "{files:?}");
+            for f in files {
+                let raw = fs::read(&f).unwrap();
+                assert!(crate::vault::is_encrypted(&f), "{} is plain", f.display());
+                assert!(!raw.windows(5).any(|w| w == b"Mochi" || w == b"39.4 "), "{} leaks", f.display());
+            }
+        });
     }
 }

@@ -2,7 +2,7 @@
 // - desktop (Tauri): commands in src-tauri/src/lib.rs, events via Tauri
 // - web (`openbark serve`): HTTP API in engine/os-server, events via SSE,
 //   and the browser's microphone streamed over a WebSocket
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
@@ -170,6 +170,10 @@ export interface Status {
   models: { id: string; name: string; installed: boolean }[];
   hardware: Hardware;
   recording: boolean;
+  /** Encryption at rest (ADR-0008). */
+  encryption: { enabled: boolean; source: "environment" | "keychain" | "key_file" | null; warning: string | null };
+  /** Encounters saved before encryption, still in plain files. */
+  plain_encounters: number;
 }
 
 export type Fit = "fits" | "tight" | "wont_fit";
@@ -417,8 +421,21 @@ export const hubAdd = (repo: string, file: string, acceptLicense: boolean) =>
     ? invoke<ModelRow>("hub_add", { repo, file, acceptLicense })
     : api<ModelRow>("/api/hub/add", post({ repo, file, accept_license: acceptLicense }));
 
-export const audioSrc = (s: SessionView) =>
-  isDesktop ? convertFileSrc(s.audio_path) : `/api/sessions/${enc(s.id)}/audio`;
+/**
+ * A URL the player can use for the recording. Audio is encrypted on disk
+ * (ADR-0008): web mode decrypts it on the server; the desktop app fetches the
+ * decrypted bytes and plays them from memory. Revoke desktop URLs when done.
+ */
+export async function audioUrl(s: SessionView): Promise<string> {
+  if (!isDesktop) return `/api/sessions/${enc(s.id)}/audio`;
+  const bytes = await invoke<ArrayBuffer>("session_audio", { id: s.id });
+  return URL.createObjectURL(new Blob([bytes], { type: "audio/wav" }));
+}
+
+export const encryptExisting = () =>
+  isDesktop ? invoke<number>("encrypt_existing") : api<number>("/api/encryption/encrypt-existing", { method: "POST" });
+export const recoveryKey = () =>
+  isDesktop ? invoke<string>("recovery_key") : api<string>("/api/encryption/recovery-key");
 
 export const canReveal = isDesktop;
 export const reveal = (path: string) => revealItemInDir(path);

@@ -409,3 +409,8 @@ a { color: var(--accent); }
 .ob-field { min-width: 0; }
 .ob-select, .ob-input { min-width: 0; max-width: 100%; }
 .ob-select { text-overflow: ellipsis; }
+
+/* Recovery key (Settings, ADR-0008) */
+.recovery-key { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.recovery-key code { padding: 6px 10px; background: var(--surface-2); border-radius: var(--radius-control); overflow-wrap: anywhere; user-select: all; }
+p > .ob-dot { display: inline-block; vertical-align: middle; }

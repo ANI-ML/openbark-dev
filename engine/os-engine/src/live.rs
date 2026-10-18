@@ -37,6 +37,9 @@ pub enum LiveSource {
     Microphone(Option<String>),
     /// A WAV file fed through the live path. `realtime` paces it like a mic.
     File { path: PathBuf, realtime: bool },
+    /// A recording held in memory (an upload), so it never touches the disk
+    /// unencrypted. `name` gives the format by its extension.
+    Memory { name: String, bytes: Vec<u8> },
     /// Audio pushed by the caller, e.g. a browser streaming its microphone
     /// over a WebSocket. Recording ends when every sender is dropped.
     Stream { label: String, blocks: mpsc::Receiver<AudioBlock> },
@@ -124,6 +127,9 @@ impl LiveRecorder {
                 path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
             }
             LiveSource::Stream { label, .. } => label.clone(),
+            LiveSource::Memory { name, .. } => {
+                Path::new(name).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
+            }
         };
         let lexicon = crate::vocab::Lexicon::default_with_user();
         // Second recogniser for segments that matter (M1 item 4); optional.
@@ -219,26 +225,36 @@ fn spawn_source(
                 }
             }
         }
-        LiveSource::File { path, realtime } => match Audio::load(&path) {
-            Ok(audio) => {
-                let _ = ready_tx.send(Ok(format!("file: {}", path.display())));
-                let block = (SAMPLE_RATE / 50) as usize; // 20 ms
-                for chunk in audio.samples.chunks(block) {
-                    if stop.load(Ordering::SeqCst) {
-                        break;
-                    }
-                    if tx.send(AudioBlock { samples: chunk.to_vec(), sample_rate: SAMPLE_RATE }).is_err() {
-                        break;
-                    }
-                    if realtime {
-                        std::thread::sleep(Duration::from_millis(20));
+        source @ (LiveSource::File { .. } | LiveSource::Memory { .. }) => {
+            let (loaded, realtime, origin) = match source {
+                LiveSource::File { path, realtime } => {
+                    (Audio::load(&path), realtime, path.display().to_string())
+                }
+                LiveSource::Memory { name, bytes } => (Audio::decode_bytes(bytes, &name), false, name),
+                _ => unreachable!(),
+            };
+            match loaded {
+                Ok(audio) => {
+                    let _ = ready_tx.send(Ok(format!("file: {origin}")));
+                    let block = (SAMPLE_RATE / 50) as usize; // 20 ms
+                    for chunk in audio.samples.chunks(block) {
+                        if stop.load(Ordering::SeqCst) {
+                            break;
+                        }
+                        if tx.send(AudioBlock { samples: chunk.to_vec(), sample_rate: SAMPLE_RATE }).is_err()
+                        {
+                            break;
+                        }
+                        if realtime {
+                            std::thread::sleep(Duration::from_millis(20));
+                        }
                     }
                 }
+                Err(e) => {
+                    let _ = ready_tx.send(Err(e.to_string()));
+                }
             }
-            Err(e) => {
-                let _ = ready_tx.send(Err(e.to_string()));
-            }
-        },
+        }
         LiveSource::Stream { .. } => unreachable!("handled above"),
     });
     let device = ready_rx
@@ -292,8 +308,14 @@ fn run(
     let started = Instant::now();
     let (tx, rx) = mpsc::channel::<AudioBlock>();
     let (source, device) = spawn_source(source, tx, stop.clone())?;
-    let mut wav = WavWriter::create(&session.audio_path(), SAMPLE_RATE)
-        .map_err(|e| EngineError::Session(e.to_string()))?;
+    // Encrypted as it's written when the vault is on (ADR-0008).
+    let mut wav = if crate::vault::enabled() {
+        crate::vault::AudioWriter::create(&session.audio_path())
+            .and_then(|w| WavWriter::with_sink(Box::new(w), SAMPLE_RATE))
+    } else {
+        WavWriter::create(&session.audio_path(), SAMPLE_RATE)
+    }
+    .map_err(|e| EngineError::Session(e.to_string()))?;
     let mut streaming = vad.streaming()?;
     let mut transcript = Transcript::default();
     let mut resampler: Option<(u32, os_asr::sherpa_onnx::LinearResampler)> = None;

@@ -152,6 +152,8 @@ pub async fn serve(options: ServerOptions) -> std::io::Result<()> {
         .route("/api/hub/search", get(hub_search))
         .route("/api/hub/repo", get(hub_repo))
         .route("/api/hub/add", post(hub_add))
+        .route("/api/encryption/encrypt-existing", post(encrypt_existing))
+        .route("/api/encryption/recovery-key", get(recovery_key))
         .route("/api/events", get(events_stream))
         .layer(DefaultBodyLimit::max(1 << 30))
         .with_state(state);
@@ -175,18 +177,49 @@ async fn open_session(
     blocking(move || s.app.open_session(&id)).await
 }
 
+/// The recording, decrypted in memory (never as a plain file), with byte
+/// ranges so the browser's player can seek.
 async fn session_audio(
     State(s): State<St>,
     UrlPath(id): UrlPath<String>,
-    request: axum::extract::Request,
+    headers: axum::http::HeaderMap,
 ) -> Result<Response, ApiError> {
-    use tower::ServiceExt;
-    let dir = s.app.session_dir(&id)?;
-    let response = ServeFile::new(dir.join(os_engine::session::AUDIO_FILE))
-        .oneshot(request)
+    use axum::http::header;
+    let wav = tokio::task::spawn_blocking(move || s.app.session_audio(&id))
         .await
-        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    Ok(response.into_response())
+        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))??;
+    let total = wav.len();
+    let range = headers
+        .get(header::RANGE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("bytes="))
+        .and_then(|v| v.split_once('-'))
+        .and_then(|(a, b)| {
+            let start: usize = a.parse().ok()?;
+            let end: usize =
+                if b.is_empty() { total.checked_sub(1)? } else { b.parse::<usize>().ok()?.min(total - 1) };
+            (start <= end && end < total).then_some((start, end))
+        });
+    let common =
+        [(header::CONTENT_TYPE, "audio/wav".to_string()), (header::ACCEPT_RANGES, "bytes".to_string())];
+    Ok(match range {
+        Some((start, end)) => (
+            StatusCode::PARTIAL_CONTENT,
+            common,
+            [(header::CONTENT_RANGE, format!("bytes {start}-{end}/{total}"))],
+            wav[start..=end].to_vec(),
+        )
+            .into_response(),
+        None => (common, wav).into_response(),
+    })
+}
+
+async fn encrypt_existing(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app.encrypt_existing()).await
+}
+
+async fn recovery_key(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app.recovery_key()).await
 }
 
 /// Patient details passed as query parameters (bodies carry audio).

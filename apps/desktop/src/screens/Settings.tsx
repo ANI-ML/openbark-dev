@@ -10,6 +10,33 @@ export function SettingsScreen() {
   const t = useT();
   const s = app.settings;
   const [devices, setDevices] = useState<string[]>([]);
+  const [key, setKey] = useState<string | null>(null);
+  const [encrypting, setEncrypting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const enc = app.status?.encryption;
+
+  async function encryptNow() {
+    setError(null);
+    setEncrypting(true);
+    try {
+      const n = await engine.encryptExisting();
+      app.toast(t("{n} encounters encrypted", { n }));
+      app.refreshStatus();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setEncrypting(false);
+    }
+  }
+
+  async function showKey() {
+    setError(null);
+    try {
+      setKey(await engine.recoveryKey());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
 
   useEffect(() => {
     if (engine.isDesktop) engine.inputDevices().then(setDevices, () => {});
@@ -177,6 +204,61 @@ export function SettingsScreen() {
       </section>
 
       <section className="group">
+        <h2>{t("Encryption")}</h2>
+        {error && (
+          <p className="ob-notice" data-tone="danger" role="alert">
+            {error}
+          </p>
+        )}
+        {enc?.enabled ? (
+          <>
+            <p className="small measure">
+              <span className="ob-dot" data-tone="ok" aria-hidden />{" "}
+              {t("Recordings, transcripts and notes are encrypted on this computer.")}{" "}
+              {enc.source === "keychain"
+                ? t("The key is kept in this computer's keychain.")
+                : enc.source === "environment"
+                  ? t("The key comes from the OPENBARK_DATA_KEY setting.")
+                  : t("The key is kept in a file in your user folder, because this computer's keychain isn't available.")}
+            </p>
+            {(app.status?.plain_encounters ?? 0) > 0 && (
+              <p className="ob-notice">
+                {t("{n} encounters were saved before encryption and are still unencrypted.", { n: app.status?.plain_encounters ?? 0 })}{" "}
+                <button type="button" className="link" onClick={() => void encryptNow()} disabled={encrypting}>
+                  {encrypting ? t("Encrypting") : t("Encrypt them now")}
+                </button>
+              </p>
+            )}
+            <div className="ob-field">
+              <span className="label">{t("Recovery key")}</span>
+              <p className="small muted measure">
+                {t("Without this key, encrypted encounters can't be opened on another computer or after reinstalling. Print it or keep it in your clinic's password manager.")}
+              </p>
+              {key ? (
+                <div className="recovery-key">
+                  <code>{key}</code>
+                  <button type="button" className="link small" onClick={() => void navigator.clipboard.writeText(key).then(() => app.toast(t("Recovery key copied")))}>
+                    {t("Copy")}
+                  </button>
+                  <button type="button" className="link small" onClick={() => setKey(null)}>
+                    {t("Hide")}
+                  </button>
+                </div>
+              ) : (
+                <button type="button" className="link small" onClick={() => void showKey()}>
+                  {t("Show the recovery key")}
+                </button>
+              )}
+            </div>
+          </>
+        ) : (
+          <p className="ob-notice" data-tone="danger">
+            {t("Encryption isn't running, so new encounters are saved unencrypted. Restart OpenBark; if this stays, check the log.")}
+          </p>
+        )}
+      </section>
+
+      <section className="group">
         <h2>{t("Storage")}</h2>
         <dl className="slots">
           <div>
@@ -188,7 +270,7 @@ export function SettingsScreen() {
             <dd className="mono">{app.status?.models_dir}</dd>
           </div>
         </dl>
-        <p className="small faint">{t("Recordings and notes stay on this computer. They aren't encrypted yet; that arrives in the next release.")}</p>
+        <p className="small faint">{t("Recordings and notes stay on this computer.")}</p>
       </section>
 
       <section className="group">
