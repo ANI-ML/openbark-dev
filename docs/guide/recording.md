@@ -31,6 +31,12 @@ To chart a **phone call**, record it with your phone's own call recording, expor
 
 A progress bar shows each step: reading the file, transcribing (minutes of audio done out of the total), checking numbers with the second recogniser, and saving. Once it has enough to go on, it shows the time left. Stopping a live recording shows the same bar while the last words are transcribed.
 
+On Windows with an NVIDIA graphics card, **Models > Faster transcription on the graphics card** downloads what speech recognition needs to run on the card (about 1.9 GB from NVIDIA and others, plus two larger speech models). On an RTX 4080 an 8.5-minute recording was ready in 43 seconds instead of about 2.5 minutes. Restart OpenBark after the download; the Models screen then says the graphics card is in use.
+
+## Drafting a visit again
+
+On a patient's page, the circular-arrows button beside a visit is **Reprocess**: draft the note again from the same recording, either as the same type of visit (when a draft went wrong) or as another type, such as a recheck drafted as a new consult. Earlier drafts are kept. Signed notes are final: add an addendum in Review instead.
+
 ## Tips for good transcripts
 
 - Put the computer or microphone between the people talking, not behind a monitor.

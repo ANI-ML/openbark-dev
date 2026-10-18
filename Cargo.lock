@@ -3852,6 +3852,7 @@ dependencies = [
  "anyhow",
  "clap",
  "indicatif",
+ "os-app",
  "os-asr",
  "os-diar",
  "os-engine",
@@ -3921,6 +3922,7 @@ dependencies = [
 name = "os-models"
 version = "0.0.1"
 dependencies = [
+ "bzip2 0.5.2",
  "dirs",
  "hex",
  "reqwest",
@@ -3928,9 +3930,11 @@ dependencies = [
  "serde_json",
  "sha2 0.11.1",
  "sysinfo",
+ "tar",
  "tempfile",
  "thiserror 2.0.21",
  "tracing",
+ "zip",
 ]
 
 [[package]]

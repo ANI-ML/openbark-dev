@@ -372,8 +372,15 @@ export const setActor = (who: string | null) => {
 
 export const isDesktop = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
+/**
+ * Web mode: a request to this computer's OpenBark. Every request carries
+ * `X-OpenBark`, which the server requires on anything that changes data, so
+ * other web pages can't (os-server `local_only`).
+ */
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, init);
+  const headers = new Headers(init?.headers);
+  headers.set("x-openbark", "1");
+  const res = await fetch(path, { ...init, headers });
   // An older engine than these screens answers unknown API paths with the web page.
   if ((res.headers.get("content-type") ?? "").includes("text/html")) {
     throw new Error("OpenBark was updated but is still running the older version. Stop OpenBark and open it again.");
@@ -392,6 +399,7 @@ function uploadWithProgress<T>(path: string, body: Blob, onSent: (sent: number, 
     const xhr = new XMLHttpRequest();
     xhr.open("POST", path);
     xhr.setRequestHeader("content-type", body.type || "application/octet-stream");
+    xhr.setRequestHeader("x-openbark", "1");
     xhr.upload.onprogress = (e) => onSent(e.loaded, e.lengthComputable ? e.total : body.size);
     xhr.onerror = () =>
       reject(new Error("OpenBark stopped responding. Check that it's still running, then try again."));
@@ -445,13 +453,27 @@ export interface FolderCheck {
   /** The chosen folder, or an "OpenBark models/visits" folder inside it. */
   target: string;
   has_data: boolean;
-  problem: string | null;
-  notices: string[];
+  problem: FolderProblem | null;
+  notices: FolderNotice[];
   needed_bytes: number;
   free_bytes: number | null;
   same_disk: boolean;
   can_move: boolean;
 }
+
+/** Why a chosen folder can't be used (translated on screen). */
+export type FolderProblem =
+  | { code: "fixed"; by: string }
+  | { code: "not_absolute" }
+  | { code: "same_folder" }
+  | { code: "around_current" }
+  | { code: "overlaps_other" }
+  | { code: "inside_app_data" }
+  | { code: "network_path" }
+  | { code: "not_writable" };
+
+/** Worth knowing about a chosen folder (translated on screen). */
+export type FolderNotice = { code: "synced"; service: string } | { code: "network_drive" } | { code: "removable" };
 
 export type ChangeMode = "move" | "switch";
 
@@ -479,8 +501,26 @@ export const changeFolder = (kind: FolderKind, path: string, mode: ChangeMode) =
     ? invoke<FolderChanged>("change_folder", { kind, path, mode })
     : api<FolderChanged>("/api/storage/change", post({ kind, path, mode }));
 
-/** Desktop: start again so everything opens from the new folders. */
-export const restartApp = () => invoke<void>("restart_app");
+/**
+ * Start OpenBark again, so new folders or newly installed libraries take
+ * effect. Desktop restarts the app; web mode restarts the server and resolves
+ * once it answers again (the caller reloads the page).
+ */
+export async function restartApp(): Promise<void> {
+  if (isDesktop) return invoke<void>("restart_app");
+  await api("/api/restart", { method: "POST" });
+  await new Promise((r) => setTimeout(r, 800));
+  for (let i = 0; i < 60; i++) {
+    try {
+      const res = await fetch("/api/status");
+      if (res.ok) return;
+    } catch {
+      // Still starting.
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error("OpenBark didn't come back. Open it again from the Start menu.");
+}
 
 /** Desktop: the system's folder picker. Null if cancelled. */
 export async function pickFolder(start?: string): Promise<string | null> {
@@ -507,6 +547,8 @@ export interface VisitSummary {
   created_at: string;
   reason: string;
   template: string;
+  /** The template the latest draft used (empty before the first draft). */
+  template_id: string;
   template_icon: string;
   drafted: boolean;
   signed: boolean;
@@ -663,6 +705,33 @@ export const signNote = (id: string, by: string, pet?: string | null) =>
     ? invoke<SessionView>("sign_note", { id, by, pet: pet ?? null })
     : api<SessionView>(`/api/sessions/${enc(id)}/sign`, post({ by, pet: pet ?? null }));
 export const models = () => (isDesktop ? invoke<ModelRow[]>("models") : api<ModelRow[]>("/api/models"));
+/** Speech recognition on the graphics card (ADR-0014). */
+export interface GpuStatus {
+  /** Windows on x64 with an NVIDIA graphics card. */
+  supported: boolean;
+  gpu: string | null;
+  pack_installed: boolean;
+  models_installed: boolean;
+  /** Speech recognition runs on the GPU now. */
+  active: boolean;
+  /** Downloading or setting up right now. */
+  installing: boolean;
+  /** Installed since OpenBark started: restart to use it. */
+  restart_needed: boolean;
+  /** The self-test failed, so the processor is used. */
+  check_failed: boolean;
+  download_bytes: number;
+}
+
+export const gpuStatus = () => (isDesktop ? invoke<GpuStatus>("gpu_status") : api<GpuStatus>("/api/gpu"));
+/** `acceptLicense`: the clinic ticked that it accepts NVIDIA's licence (required). */
+export const installGpu = (acceptLicense: boolean) =>
+  isDesktop
+    ? invoke<GpuStatus>("install_gpu", { acceptLicense })
+    : api<GpuStatus>("/api/gpu/install", post({ accept_license: acceptLicense }));
+export const removeGpu = () =>
+  isDesktop ? invoke<GpuStatus>("remove_gpu") : api<GpuStatus>("/api/gpu/remove", { method: "POST" });
+
 export const downloadModel = (id: string) =>
   isDesktop ? invoke<void>("download_model", { id }) : api<void>(`/api/models/${enc(id)}/download`, { method: "POST" });
 export const hubSearch = (q: string) =>

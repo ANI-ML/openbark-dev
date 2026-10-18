@@ -89,6 +89,25 @@ for (const v of variants) {
   await shot("patient-edit");
   await page.locator(".patient-edit").getByRole("button", { name: "Cancel" }).click();
 
+  // Reprocess: the same type again first, then the other types.
+  await page.locator(".reprocess-btn:not([disabled])").first().click();
+  await page.locator(".reprocess-row.again").waitFor();
+  check((await page.locator(".reprocess-list .reprocess-row").count()) > 5, `${v.name}: other visit types listed`);
+  await shot("reprocess");
+  if (v.name === "desktop-light") {
+    await page.locator(".reprocess-row.again").click();
+    await page.locator(".review-bar").waitFor({ timeout: 20000 });
+    // Drafting starts by itself (the button turns to its busy state or tokens stream in).
+    await page.waitForTimeout(1500);
+    await shot("reprocess-drafting");
+    await page.locator(".nav-item").nth(1).click();
+    await page.locator(".patient-row", { hasText: "Juniper" }).first().click();
+    await page.locator(".visit-list").waitFor();
+  } else {
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(500);
+  }
+
   // A visit opens in Review.
   await page.locator(".visit-row").first().click();
   await page.locator(".review-bar, .pane-pad").first().waitFor({ timeout: 20000 });

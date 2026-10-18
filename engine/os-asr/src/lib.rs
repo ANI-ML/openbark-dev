@@ -88,7 +88,21 @@ pub fn asr_provider() -> String {
             return p;
         }
     }
-    if cuda_pack_installed() { "cuda".into() } else { "cpu".into() }
+    if cuda_pack_installed() && gpu_usable() { "cuda".into() } else { "cpu".into() }
+}
+
+/// 0: not checked yet, 1: the GPU passed its self-test, 2: it failed.
+static GPU_STATE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// Record the GPU self-test's result. Until it passes, recognisers run on the
+/// processor: a GPU that fails inside ONNX Runtime can throw an exception
+/// that aborts the program, so it's only tried in a separate process first.
+pub fn set_gpu_usable(ok: bool) {
+    GPU_STATE.store(if ok { 1 } else { 2 }, std::sync::atomic::Ordering::SeqCst);
+}
+
+pub fn gpu_usable() -> bool {
+    GPU_STATE.load(std::sync::atomic::Ordering::SeqCst) == 1
 }
 
 /// The provider for one model: int8 models stay on the processor (on the

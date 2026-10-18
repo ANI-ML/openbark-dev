@@ -6,6 +6,7 @@
 
 mod catalog;
 mod download;
+pub mod gpu_pack;
 pub mod hub;
 pub mod locations;
 mod store;

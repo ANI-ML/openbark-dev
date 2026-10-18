@@ -49,6 +49,62 @@ export function ChangeFolderSheet({
       visits ? t("The visits are now kept in {path}.", { path }) : t("The models are now kept in {path}.", { path }),
   };
 
+  /** The engine says what's wrong or worth knowing as a code; the words are here, translated. */
+  const problemText = (p: engine.FolderProblem) => {
+    switch (p.code) {
+      case "fixed":
+        return t("This folder is set by {by}, so it can't be changed here.", { by: p.by });
+      case "not_absolute":
+        return t("Choose a full folder path, such as D:\\OpenBark.");
+      case "same_folder":
+        return visits
+          ? t("That's the folder OpenBark already uses for visits.")
+          : t("That's the folder OpenBark already uses for models.");
+      case "around_current":
+        return t("Choose a folder that isn't inside the current one, or around it.");
+      case "overlaps_other":
+        return t("Models and visits need separate folders, not one inside the other.");
+      case "inside_app_data":
+        return t(
+          'Choose a folder outside OpenBark\'s own data folder: uninstalling with "delete my data" would remove it.',
+        );
+      case "network_path":
+        return t(
+          "Network folders can't be chosen in the browser version. Map the share to a drive letter first, or use the desktop app.",
+        );
+      case "not_writable":
+        return t(
+          "OpenBark can't write to that folder. Choose another, or ask whoever manages this computer for access.",
+        );
+    }
+  };
+  const noticeText = (n: engine.FolderNotice) => {
+    switch (n.code) {
+      case "synced":
+        return visits
+          ? t(
+              "This folder is synced by {service}. Visits are encrypted, so {service} keeps copies it can't read: they open only with this computer's key or the recovery key.",
+              { service: n.service },
+            )
+          : t(
+              "This folder is synced by {service}. Models are several gigabytes, so syncing them uses a lot of upload and cloud space.",
+              { service: n.service },
+            );
+      case "network_drive":
+        return visits
+          ? t(
+              "This is a network or external drive. OpenBark can only use the visits while it's connected, and is slower over a network.",
+            )
+          : t(
+              "This is a network or external drive. OpenBark can only use the models while it's connected, and is slower over a network.",
+            );
+      case "removable":
+        return visits
+          ? t("This drive can be unplugged. OpenBark can't use the visits while it's away.")
+          : t("This drive can be unplugged. OpenBark can't use the models while it's away.");
+    }
+  };
+
   async function review(path: string) {
     setError(null);
     setStep("review");
@@ -137,13 +193,13 @@ export function ChangeFolderSheet({
                 </div>
                 {check.problem ? (
                   <p className="ob-notice" data-tone="danger" role="alert">
-                    {check.problem}
+                    {problemText(check.problem)}
                   </p>
                 ) : (
                   <>
                     {check.notices.map((n) => (
-                      <p className="ob-notice" key={n}>
-                        {n}
+                      <p className="ob-notice" key={n.code}>
+                        {noticeText(n)}
                       </p>
                     ))}
                     <fieldset className="folder-modes">
@@ -273,7 +329,9 @@ function FolderBrowser({ start, onChoose }: { start: string; onChoose: (path: st
 
   useEffect(() => {
     // Start beside the current folder; a path typed meanwhile stays.
-    const parent = start.replace(/[\\/][^\\/]*$/, "");
+    let parent = start.replace(/[\\/][^\\/]*$/, "");
+    // A folder at a drive's root: its parent is the drive, "D:\", not "D:".
+    if (/^[A-Za-z]:$/.test(parent)) parent += "\\";
     const first = (l: engine.FolderListing) => {
       setListing(l);
       setPath((typed) => typed || l.path);

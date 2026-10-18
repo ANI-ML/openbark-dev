@@ -1,9 +1,10 @@
 import { Button, StatusDot } from "@openbark/ui";
-import { ArrowLeft, Microphone, PencilSimple } from "@phosphor-icons/react";
+import { ArrowLeft, ArrowsClockwise, Microphone, PencilSimple } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { fmtTime, useApp } from "../context";
 import * as engine from "../engine";
 import { templateName, useT } from "../i18n";
+import { ReprocessSheet } from "../components/ReprocessSheet";
 import { SPECIES, speciesName } from "../species";
 import { SpeciesIcon, TemplateIcon } from "../templateIcons";
 
@@ -16,6 +17,8 @@ export function PatientDetail({ id }: { id: string }) {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({ name: "", last_name: "", species: "" });
   const [busy, setBusy] = useState(false);
+  /** The visit whose note is being drafted again (Reprocess). */
+  const [reprocess, setReprocess] = useState<engine.VisitSummary | null>(null);
 
   useEffect(() => {
     engine.patientView(id).then(setView, (e) => setError(String(e?.message ?? e)));
@@ -150,7 +153,7 @@ export function PatientDetail({ id }: { id: string }) {
           <h2 className="tpl-group-title">{t("Visits")}</h2>
           <ul className="visit-list">
             {view.visits.map((v) => (
-              <li key={v.id}>
+              <li key={v.id} className="visit-item">
                 <button
                   type="button"
                   className="visit-row"
@@ -178,10 +181,35 @@ export function PatientDetail({ id }: { id: string }) {
                     )}
                   </span>
                 </button>
+                <button
+                  type="button"
+                  className="icon-btn reprocess-btn"
+                  aria-label={t("Reprocess this visit")}
+                  title={
+                    v.signed
+                      ? t("Signed notes are final. Add an addendum in Review instead.")
+                      : !v.drafted
+                        ? t("Draft this visit")
+                        : t("Reprocess this visit")
+                  }
+                  disabled={v.signed || !app.can.notes}
+                  onClick={() => setReprocess(v)}
+                >
+                  <ArrowsClockwise size={18} aria-hidden />
+                </button>
               </li>
             ))}
           </ul>
         </section>
+      )}
+      {reprocess && (
+        <ReprocessSheet
+          visit={reprocess}
+          onClose={() => setReprocess(null)}
+          onChoose={(template) =>
+            app.navigate({ screen: "review", id: reprocess.id, draft: true, template, pet: reprocess.pet ?? undefined })
+          }
+        />
       )}
     </div>
   );

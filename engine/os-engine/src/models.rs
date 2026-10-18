@@ -29,7 +29,9 @@ pub fn best_stt(store: &ModelStore, id: &str) -> String {
         _ => return id.to_string(),
     };
     let catalog = Catalog::builtin();
-    let ready = os_asr::cuda_pack_installed() && installed(&catalog, store, gpu).is_ok();
+    // Full precision only where it will really run on the GPU: on the
+    // processor it's slower than int8.
+    let ready = os_asr::asr_provider() == "cuda" && installed(&catalog, store, gpu).is_ok();
     if ready { gpu.to_string() } else { id.to_string() }
 }
 

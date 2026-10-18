@@ -36,12 +36,31 @@ pub struct FileSpec {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Layout {
-    LlmGguf { model: String },
-    AsrNemoTransducer { encoder: String, decoder: String, joiner: String, tokens: String },
-    AsrWhisper { encoder: String, decoder: String, tokens: String },
-    VadSilero { model: String },
-    DiarSegmentation { model: String },
-    SpeakerEmbedding { model: String },
+    LlmGguf {
+        model: String,
+    },
+    AsrNemoTransducer {
+        encoder: String,
+        decoder: String,
+        joiner: String,
+        tokens: String,
+    },
+    AsrWhisper {
+        encoder: String,
+        decoder: String,
+        tokens: String,
+    },
+    VadSilero {
+        model: String,
+    },
+    DiarSegmentation {
+        model: String,
+    },
+    SpeakerEmbedding {
+        model: String,
+    },
+    /// Archives unpacked elsewhere (the GPU speech pack, ADR-0014).
+    Archives,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -128,6 +147,7 @@ mod tests {
                     vec![encoder, decoder, joiner, tokens]
                 }
                 Layout::AsrWhisper { encoder, decoder, tokens } => vec![encoder, decoder, tokens],
+                Layout::Archives => vec![],
             };
             for r in referenced {
                 assert!(names.contains(r), "{}: layout references missing file {r}", m.id);

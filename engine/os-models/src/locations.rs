@@ -122,6 +122,28 @@ pub fn save(locations: &Locations) -> io::Result<()> {
     fs::rename(&tmp, &path)
 }
 
+/// The default place for a kind of folder, inside the app's data folder.
+pub fn default_path(kind: FolderKind) -> PathBuf {
+    app_dir().join(kind.default_name())
+}
+
+/// The app's own data folder (team list, key, templates, locations.json).
+pub fn app_data_dir() -> PathBuf {
+    app_dir()
+}
+
+/// A network path (`\\server\share`, `//server/share`, `\\?\UNC\...`).
+///
+/// Windows treats any two leading separators, in any mix of `/` and `\`
+/// (`//server`, `/\server`, `\\?\UNC\...`, `\\.\pipe\...`), and NT's `\??\`
+/// prefix as network or device paths, so all of them count.
+pub fn is_network_path(path: &Path) -> bool {
+    let s = path.to_string_lossy();
+    let mut chars = s.chars();
+    let sep = |c: Option<char>| matches!(c, Some('/' | '\\'));
+    (sep(chars.next()) && sep(chars.next())) || s.starts_with(r"\??\")
+}
+
 /// Where a kind of folder is now, and why.
 pub fn resolve(kind: FolderKind) -> (PathBuf, Source) {
     if let Some(dir) = std::env::var_os(kind.env()) {
@@ -264,27 +286,36 @@ pub enum Contents {
     Other,
 }
 
-/// Look at a folder: empty, OpenBark's (models: a folder per catalog model
-/// or a GGUF file; visits: visit folders or the patient list), or other.
+/// Look at a folder: empty, OpenBark's, or other. It counts as OpenBark's
+/// only when everything in it is OpenBark's (models: a folder per catalog
+/// model, the GPU speech pack and the user catalog; visits: visit folders
+/// and the patient list), so a folder that also holds the clinic's other
+/// files gets an OpenBark folder inside it instead, and a later move never
+/// takes those files along (review 2026-10-18).
 pub fn contents(kind: FolderKind, dir: &Path, model_ids: &[&str]) -> Contents {
     let Ok(entries) = fs::read_dir(dir) else { return Contents::Empty };
-    let mut any = false;
+    let (mut ours, mut other) = (false, false);
     for entry in entries.flatten() {
-        any = true;
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().into_owned();
-        let ours = match kind {
+        // Files the operating system leaves everywhere don't count either way.
+        if matches!(name.to_ascii_lowercase().as_str(), "desktop.ini" | "thumbs.db" | ".ds_store") {
+            continue;
+        }
+        let mine = match kind {
             FolderKind::Models => {
-                (path.is_dir() && model_ids.contains(&name.as_str()))
-                    || name.to_ascii_lowercase().ends_with(".gguf")
+                (path.is_dir() && (model_ids.contains(&name.as_str()) || name == crate::gpu_pack::PACK_ID))
+                    || name == "user-catalog.json"
             }
             FolderKind::Visits => name == "patients.json" || path.join("session.json").is_file(),
         };
-        if ours {
-            return Contents::OpenBark;
-        }
+        if mine { ours = true } else { other = true }
     }
-    if any { Contents::Other } else { Contents::Empty }
+    match (ours, other) {
+        (_, true) => Contents::Other,
+        (true, false) => Contents::OpenBark,
+        (false, false) => Contents::Empty,
+    }
 }
 
 /// What [`move_tree`] did.
@@ -518,6 +549,24 @@ mod tests {
     }
 
     #[test]
+    fn every_spelling_of_a_network_path_counts() {
+        for p in [
+            r"\\server\share",
+            "//server/share",
+            r"/\server\x",
+            r"\/server/x",
+            r"\\?\UNC\server\x",
+            r"\\.\pipe\x",
+            r"\??\UNC\server\x",
+        ] {
+            assert!(is_network_path(Path::new(p)), "{p}");
+        }
+        for p in [r"C:\Clinic", "/home/vet/OpenBark", r"\Users\x", "relative"] {
+            assert!(!is_network_path(Path::new(p)), "{p}");
+        }
+    }
+
+    #[test]
     fn folders_inside_each_other_overlap() {
         let tmp = tempfile::tempdir().unwrap();
         let a = tmp.path().join("data");
@@ -535,9 +584,16 @@ mod tests {
         write(&d.join("v/2026/session.json"), b"{}");
         assert_eq!(contents(FolderKind::Visits, &d.join("v"), &[]), Contents::OpenBark);
         write(&d.join("m/gemma-4-e4b/x.gguf"), b"");
+        write(&d.join("m/desktop.ini"), b"");
         assert_eq!(contents(FolderKind::Models, &d.join("m"), &["gemma-4-e4b"]), Contents::OpenBark);
         write(&d.join("docs/letter.txt"), b"hi");
         assert_eq!(contents(FolderKind::Models, &d.join("docs"), &["gemma-4-e4b"]), Contents::Other);
+        // A folder of the user's own files with one model file in it is not ours.
+        write(&d.join("mixed/gemma-4-e4b/x.gguf"), b"");
+        write(&d.join("mixed/holiday.jpg"), b"");
+        assert_eq!(contents(FolderKind::Models, &d.join("mixed"), &["gemma-4-e4b"]), Contents::Other);
+        write(&d.join("loose/model.gguf"), b"");
+        assert_eq!(contents(FolderKind::Models, &d.join("loose"), &["gemma-4-e4b"]), Contents::Other);
     }
 
     #[test]

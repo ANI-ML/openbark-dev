@@ -71,9 +71,9 @@ pub struct FolderCheck {
     /// The target already holds OpenBark data of this kind.
     pub has_data: bool,
     /// Why this folder can't be used; nothing changes while there is one.
-    pub problem: Option<String>,
+    pub problem: Option<FolderProblem>,
     /// Things worth knowing (cloud sync, removable or network drives).
-    pub notices: Vec<String>,
+    pub notices: Vec<FolderNotice>,
     /// Size of what's in the current folder.
     pub needed_bytes: u64,
     pub free_bytes: Option<u64>,
@@ -81,6 +81,61 @@ pub struct FolderCheck {
     pub same_disk: bool,
     /// Room to move the current folder's contents there.
     pub can_move: bool,
+}
+
+/// Why a chosen folder can't be used. Sent as a code the screen translates;
+/// [`FolderProblem::message`] is the English, for errors.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "code", rename_all = "snake_case")]
+pub enum FolderProblem {
+    /// Set by an environment variable or the command line.
+    Fixed {
+        by: String,
+    },
+    NotAbsolute,
+    SameFolder,
+    /// Inside the current folder, or around it.
+    AroundCurrent,
+    /// Overlaps the other kind's folder.
+    OverlapsOther,
+    /// Inside the app's own data folder, which "delete my data" removes.
+    InsideAppData,
+    /// A network path typed in the browser version.
+    NetworkPath,
+    NotWritable,
+}
+
+impl FolderProblem {
+    pub fn message(&self) -> String {
+        match self {
+            FolderProblem::Fixed { by } => format!("This folder is set by {by}, so it can't be changed here."),
+            FolderProblem::NotAbsolute => r"Choose a full folder path, such as D:\OpenBark.".into(),
+            FolderProblem::SameFolder => "That's the folder OpenBark already uses.".into(),
+            FolderProblem::AroundCurrent => "Choose a folder that isn't inside the current one, or around it.".into(),
+            FolderProblem::OverlapsOther => "Models and visits need separate folders, not one inside the other.".into(),
+            FolderProblem::InsideAppData => {
+                "Choose a folder outside OpenBark's own data folder: uninstalling with \"delete my data\" would remove it.".into()
+            }
+            FolderProblem::NetworkPath => {
+                "Network folders can't be chosen in the browser version. Map the share to a drive letter first, or use the desktop app.".into()
+            }
+            FolderProblem::NotWritable => {
+                "OpenBark can't write to that folder. Choose another, or ask whoever manages this computer for access.".into()
+            }
+        }
+    }
+}
+
+/// Things worth knowing about a chosen folder, as codes the screen translates.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "code", rename_all = "snake_case")]
+pub enum FolderNotice {
+    /// Synced by a cloud service (OneDrive, Dropbox, ...).
+    Synced { service: String },
+    /// A network share or an external disk.
+    NetworkDrive,
+    /// A drive that can be unplugged.
+    Removable,
 }
 
 /// How to change a folder.
@@ -113,6 +168,28 @@ impl<E: std::fmt::Display> From<E> for AppError {
 
 type Result<T> = std::result::Result<T, AppError>;
 
+/// Work that writes visits or models, against a folder change (ADR-0013;
+/// review 2026-10-18). Each write holds a [`Busy`] ticket while it runs; a
+/// folder change takes `changing` and refuses while any ticket is out, so a
+/// move never races a draft, a signature or a download. Once its folders
+/// have changed, an App is retired and refuses new work: requests still
+/// holding it (web mode swaps in a fresh App) can't write to the old folder.
+#[derive(Default)]
+struct Gate {
+    busy: std::sync::atomic::AtomicUsize,
+    changing: std::sync::atomic::AtomicBool,
+    retired: std::sync::atomic::AtomicBool,
+}
+
+/// A ticket for one piece of writing work; dropping it ends the work.
+pub struct Busy(Arc<Gate>);
+
+impl Drop for Busy {
+    fn drop(&mut self) {
+        self.0.busy.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 pub struct App {
     pub store: ModelStore,
     pub sessions_root: PathBuf,
@@ -123,7 +200,15 @@ pub struct App {
     pub patients: PatientStore,
     llm: Mutex<Option<(String, Arc<LlamaCppBackend>)>>,
     recorder: Mutex<Option<LiveRecorder>>,
+    /// The live recording's work ticket, held until it stops.
+    recording_work: Mutex<Option<Busy>>,
+    gate: Arc<Gate>,
     hardware: Hardware,
+    /// The GPU speech pack was in place when this process started, so its
+    /// libraries are the ones loaded (ADR-0014).
+    gpu_at_start: bool,
+    /// The GPU self-test: 0 not run, 1 passed, 2 failed.
+    gpu_checked: Arc<std::sync::atomic::AtomicU8>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -149,6 +234,110 @@ fn probe_hardware() -> Hardware {
         ram_bytes: ram,
         summary,
     }
+}
+
+/// A GPU speech pack download is running (one at a time per process).
+static GPU_INSTALLING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Passed to the program itself to run the GPU self-test in a child process.
+pub const GPU_CHECK_ARG: &str = "--openbark-gpu-check";
+
+/// The GPU self-test, run in a child process (`<program> --openbark-gpu-check`,
+/// with `OPENBARK_MODELS_DIR` set): load both full-precision recognisers on
+/// the GPU and transcribe a second of silence. Exits 0 when that works. If
+/// ONNX Runtime fails in a way that aborts, only this child goes down.
+pub fn gpu_check_main() -> i32 {
+    // SAFETY: single-threaded at this point; the child only runs this check.
+    unsafe { std::env::set_var("OPENBARK_ASR_PROVIDER", "cuda") };
+    let store = ModelStore::default_location();
+    let silence = vec![0.0f32; 16_000];
+    for id in [os_engine::models::GPU_STT, os_engine::models::GPU_SECOND_STT] {
+        let model = match os_engine::models::asr_model(&store, id) {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("{id}: {e}");
+                return 2;
+            }
+        };
+        match os_asr::OfflineAsr::with_threads(model, 2) {
+            Ok(asr) => {
+                if let Err(e) = os_asr::AsrBackend::transcribe(&asr, &silence) {
+                    eprintln!("{id}: {e}");
+                    return 3;
+                }
+            }
+            Err(e) => {
+                eprintln!("{id}: {e}");
+                return 4;
+            }
+        }
+    }
+    0
+}
+
+/// Whether the GPU passed its self-test: the saved result, or run the test
+/// now in a child process and save it (ADR-0014).
+fn verify_gpu(store: &ModelStore) -> bool {
+    let Some(file) = os_models::gpu_pack::check_file() else { return false };
+    if let Ok(saved) = std::fs::read_to_string(&file) {
+        return saved.trim() == "ok";
+    }
+    let Ok(exe) = std::env::current_exe() else { return false };
+    let mut cmd = std::process::Command::new(exe);
+    cmd.arg(GPU_CHECK_ARG)
+        .env("OPENBARK_MODELS_DIR", store.root())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    let ok = match cmd.output() {
+        Ok(out) if out.status.success() => true,
+        Ok(out) => {
+            let err = String::from_utf8_lossy(&out.stderr);
+            tracing::warn!(status = %out.status, detail = %err.lines().rev().take(3).collect::<Vec<_>>().join(" | "), "GPU self-test failed; speech recognition stays on the processor");
+            false
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "GPU self-test couldn't start");
+            false
+        }
+    };
+    let _ = std::fs::write(
+        &file,
+        if ok {
+            "ok
+"
+        } else {
+            "failed
+"
+        },
+    );
+    ok
+}
+
+/// Speech recognition on the graphics card (Models screen, ADR-0014).
+#[derive(Debug, Clone, Serialize)]
+pub struct GpuStatus {
+    /// Windows on x64 with an NVIDIA graphics card.
+    pub supported: bool,
+    pub gpu: Option<String>,
+    pub pack_installed: bool,
+    /// The full-precision recognisers the GPU runs.
+    pub models_installed: bool,
+    /// Installed and loaded: speech recognition runs on the GPU.
+    pub active: bool,
+    /// Downloading or setting up right now.
+    pub installing: bool,
+    /// Installed since OpenBark started: restart to use it.
+    pub restart_needed: bool,
+    /// The self-test failed, so the processor is used.
+    pub check_failed: bool,
+    /// Still to download.
+    pub download_bytes: u64,
 }
 
 #[derive(Serialize)]
@@ -185,6 +374,8 @@ pub struct VisitSummary {
     pub reason: String,
     /// The latest draft's template (the type of visit) and its icon.
     pub template: String,
+    /// Its id (empty before the first draft): Reprocess offers it first.
+    pub template_id: String,
     pub template_icon: String,
     pub drafted: bool,
     pub signed: bool,
@@ -315,7 +506,7 @@ impl App {
         if let Err(e) = os_engine::vault::init() {
             tracing::error!(error = %e, "encryption couldn't start; encounters will be saved unencrypted");
         }
-        Self {
+        let app = Self {
             store,
             patients: PatientStore::for_sessions(&sessions_root),
             sessions_root,
@@ -323,8 +514,30 @@ impl App {
             users: UserStore::default(),
             llm: Mutex::new(None),
             recorder: Mutex::new(None),
+            recording_work: Mutex::new(None),
+            gate: Arc::new(Gate::default()),
             hardware: probe_hardware(),
+            gpu_at_start: os_models::gpu_pack::loaded_at_start(),
+            gpu_checked: Arc::new(std::sync::atomic::AtomicU8::new(0)),
+        };
+        app.start_gpu_check();
+        app
+    }
+
+    /// With the GPU speech pack loaded, run its self-test in the background
+    /// (a few seconds; recognisers use the processor until it passes).
+    fn start_gpu_check(&self) {
+        let models_ready = self.gpu_models().iter().all(|m| self.store.is_installed(m, Verify::Size));
+        if !(self.gpu_at_start && models_ready) {
+            return;
         }
+        let store = ModelStore::new(self.store.root());
+        let checked = self.gpu_checked.clone();
+        std::thread::spawn(move || {
+            let ok = verify_gpu(&store);
+            os_asr::set_gpu_usable(ok);
+            checked.store(if ok { 1 } else { 2 }, std::sync::atomic::Ordering::SeqCst);
+        });
     }
 
     pub fn status(&self) -> Status {
@@ -420,6 +633,7 @@ impl App {
     /// Encrypt every encounter saved before encryption was on. Returns how
     /// many encounters were rewritten.
     pub fn encrypt_existing(&self) -> Result<usize> {
+        let _work = self.begin_work()?;
         if !os_engine::vault::enabled() {
             return Err(AppError("Encryption isn't set up on this computer.".into()));
         }
@@ -530,8 +744,10 @@ impl App {
         } else {
             s
         };
+        let template_id = s.latest_record().map(|r| r.template_id().to_string()).unwrap_or_default();
         let template = s.latest_record().and_then(|r| self.templates.load(r.template_id()).ok());
         VisitSummary {
+            template_id,
             id: id_of(s),
             created_at: s.meta.created_at.format("%Y-%m-%d %H:%M").to_string(),
             reason: s.meta.patient.as_ref().map(|p| p.reason.clone()).unwrap_or_default(),
@@ -561,6 +777,7 @@ impl App {
 
     /// Patients, most recently seen first.
     pub fn list_patients(&self) -> Result<Vec<PatientSummary>> {
+        let _work = self.begin_work()?;
         let mut visits = self.visits_by_patient()?;
         let mut out: Vec<PatientSummary> = self
             .patients
@@ -588,6 +805,7 @@ impl App {
 
     /// One patient and their visits, newest first.
     pub fn patient(&self, id: &str) -> Result<PatientView> {
+        let _work = self.begin_work()?;
         let mut visits = self.visits_by_patient()?;
         let patient = self
             .patients
@@ -597,6 +815,7 @@ impl App {
     }
 
     pub fn create_patient(&self, name: &str, last_name: &str, species: &str) -> Result<PatientRecord> {
+        let _work = self.begin_work()?;
         Ok(self.patients.create(name, last_name, species)?)
     }
 
@@ -607,6 +826,7 @@ impl App {
         last_name: &str,
         species: &str,
     ) -> Result<PatientRecord> {
+        let _work = self.begin_work()?;
         Ok(self.patients.update(id, name, last_name, species)?)
     }
 
@@ -673,6 +893,7 @@ impl App {
         by: Option<&str>,
         events: &dyn Events,
     ) -> Result<SessionView> {
+        let _work = self.begin_work()?;
         if let Some(c) = &consent {
             c.check()?;
         }
@@ -761,6 +982,7 @@ impl App {
             c.check()?;
         }
         let recorded_by = self.who(by, Need::Any)?;
+        let work = self.begin_work()?;
         let mut slot = self.recorder.lock().map_err(|_| AppError("recorder lock poisoned".into()))?;
         if slot.is_some() {
             return Err(AppError("A recording is already running. Stop it first.".into()));
@@ -784,6 +1006,7 @@ impl App {
         let id =
             recorder.session_dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         *slot = Some(recorder);
+        *self.recording_work.lock().map_err(|_| AppError("recorder lock poisoned".into()))? = Some(work);
         Ok(id)
     }
 
@@ -795,6 +1018,8 @@ impl App {
             .map_err(|_| AppError("recorder lock poisoned".into()))?
             .take()
             .ok_or_else(|| AppError("Nothing is recording.".into()))?;
+        // The recording's ticket ends once its transcript is saved and linked.
+        let _work = self.recording_work.lock().map_err(|_| AppError("recorder lock poisoned".into()))?.take();
         let result = recorder.stop()?;
         let mut s = Session::open(&result.session_dir)?;
         self.link_visit(&mut s)?;
@@ -803,6 +1028,7 @@ impl App {
 
     /// Set or change the patient details of a saved encounter (time-stamped).
     pub fn update_patient(&self, id: &str, patient: PatientInfo) -> Result<SessionView> {
+        let _work = self.begin_work()?;
         let dir = self.session_dir(id)?;
         let recording_here = self
             .recorder
@@ -845,6 +1071,7 @@ impl App {
         by: Option<&str>,
         events: &dyn Events,
     ) -> Result<NoteResponse> {
+        let _work = self.begin_work()?;
         let who = self.who(by, Need::Notes)?;
         let _awake = AwakeGuard::acquire(AwakeReason::Processing);
         let mut s = self.open(id, pet)?;
@@ -895,6 +1122,7 @@ impl App {
         request: &RefineRequest,
         events: &dyn Events,
     ) -> Result<NoteResponse> {
+        let _work = self.begin_work()?;
         let who = self.who(request.by.as_deref(), Need::Notes)?;
         let mut s = self.open(id, request.pet.as_deref())?;
         if s.is_signed() {
@@ -964,6 +1192,7 @@ impl App {
         by: &str,
         pet: Option<&str>,
     ) -> Result<NoteResponse> {
+        let _work = self.begin_work()?;
         let who = self
             .who(Some(by), Need::Notes)?
             .ok_or_else(|| AppError("Add your name in Settings, then save your edits.".into()))?;
@@ -989,6 +1218,7 @@ impl App {
 
     /// Add a signed addendum to a signed note.
     pub fn add_addendum(&self, id: &str, text: &str, by: &str, pet: Option<&str>) -> Result<SessionView> {
+        let _work = self.begin_work()?;
         let who = self
             .who(Some(by), Need::Sign)?
             .ok_or_else(|| AppError("Add your name in Settings, then sign the addendum.".into()))?;
@@ -1065,6 +1295,7 @@ impl App {
 
     /// Mark the latest draft as signed by `by` (refused while numbers are unsupported).
     pub fn sign(&self, id: &str, by: &str, pet: Option<&str>) -> Result<SessionView> {
+        let _work = self.begin_work()?;
         let who = self
             .who(Some(by), Need::Sign)?
             .ok_or_else(|| AppError("Enter the name of the veterinarian signing the note.".into()))?;
@@ -1175,7 +1406,9 @@ impl App {
 
     /// Look at a folder the clinic chose, without changing anything (except a
     /// quick write test, cleaned up after).
-    pub fn check_folder(&self, kind: FolderKind, chosen: &str) -> FolderCheck {
+    /// `from_browser`: web mode, where network paths are refused (a web page
+    /// mustn't be able to make OpenBark open a network share).
+    pub fn check_folder(&self, kind: FolderKind, chosen: &str, from_browser: bool) -> FolderCheck {
         let chosen_path = PathBuf::from(chosen.trim());
         let current = self.folder(kind);
         let other = self.folder(match kind {
@@ -1196,48 +1429,43 @@ impl App {
             (Some((a, _)), Some((b, _))) if a == b
         );
         let view = self.folder_view(kind);
-        let what = match kind {
-            FolderKind::Models => "models",
-            FolderKind::Visits => "visits",
-        };
+        let app_data = locations::app_data_dir();
         let problem = if let Some(by) = &view.fixed_by {
-            Some(format!("This folder is set by {by}, so it can't be changed here."))
+            Some(FolderProblem::Fixed { by: by.clone() })
         } else if !chosen_path.is_absolute() {
-            Some(r"Choose a full folder path, such as D:\OpenBark.".to_string())
+            Some(FolderProblem::NotAbsolute)
+        } else if from_browser && locations::is_network_path(&chosen_path) {
+            Some(FolderProblem::NetworkPath)
         } else if locations::overlaps(&target, &current)
             && locations::plain(&target) == locations::plain(&current)
         {
-            Some(format!("That's the folder OpenBark already uses for {what}."))
+            Some(FolderProblem::SameFolder)
         } else if locations::overlaps(&target, &current) {
-            Some(format!("Choose a folder that isn't inside the current {what} folder, or around it."))
+            Some(FolderProblem::AroundCurrent)
         } else if locations::overlaps(&target, &other) {
-            Some("Models and visits need separate folders, not one inside the other.".to_string())
+            Some(FolderProblem::OverlapsOther)
+        } else if locations::overlaps(&target, &app_data)
+            && locations::plain(&target) != locations::plain(&locations::default_path(kind))
+        {
+            Some(FolderProblem::InsideAppData)
+        } else if writable(&target).is_err() {
+            Some(FolderProblem::NotWritable)
         } else {
-            writable(&target).err()
+            None
         };
         let mut notices = Vec::new();
         if let Some(service) = locations::synced_by(&target) {
-            notices.push(match kind {
-                FolderKind::Visits => format!(
-                    "This folder is synced by {service}. Visits are encrypted, so {service} keeps copies it can't read: they open only with this computer's key or the recovery key."
-                ),
-                FolderKind::Models => format!(
-                    "This folder is synced by {service}. Models are several gigabytes, so syncing them uses a lot of upload and cloud space."
-                ),
-            });
+            notices.push(FolderNotice::Synced { service: service.to_string() });
         }
         let s = target.to_string_lossy();
-        if s.starts_with(r"\")
+        if locations::is_network_path(&target)
             || s.starts_with("/Volumes/")
             || s.starts_with("/mnt/")
             || s.starts_with("/media/")
         {
-            notices.push(format!(
-                "This is a network or external drive. OpenBark can only use the {what} while it's connected, and is slower over a network."
-            ));
+            notices.push(FolderNotice::NetworkDrive);
         } else if let Some((_, true)) = locations::disk_of(&target) {
-            notices
-                .push(format!("This drive can be unplugged. OpenBark can't use the {what} while it's away."));
+            notices.push(FolderNotice::Removable);
         }
         let can_move = same_disk || free_bytes.is_none_or(|free| free > needed_bytes + (512 << 20));
         FolderCheck {
@@ -1262,15 +1490,44 @@ impl App {
         kind: FolderKind,
         chosen: &str,
         mode: ChangeMode,
+        from_browser: bool,
         events: &dyn Events,
     ) -> Result<FolderChanged> {
-        let check = self.check_folder(kind, chosen);
+        use std::sync::atomic::Ordering::SeqCst;
+        let check = self.check_folder(kind, chosen, from_browser);
         if let Some(problem) = check.problem {
-            return Err(AppError(problem));
+            return Err(AppError(problem.message()));
         }
-        let recorder = self.recorder.lock().map_err(|_| AppError("recorder lock poisoned".into()))?;
-        if recorder.is_some() {
+        // One change at a time, and none while anything is writing.
+        if self.gate.retired.load(SeqCst) {
+            return Err(AppError(
+                "OpenBark has just changed where it keeps its files. Try again in a moment.".into(),
+            ));
+        }
+        if self.gate.changing.compare_exchange(false, true, SeqCst, SeqCst).is_err() {
+            return Err(AppError("Another folder change is already under way.".into()));
+        }
+        struct EndChange<'a>(&'a Gate);
+        impl Drop for EndChange<'_> {
+            fn drop(&mut self) {
+                self.0.changing.store(false, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+        let _changing = EndChange(&self.gate);
+        // Look again now that this change holds the gate: one that finished in
+        // between has retired this App.
+        if self.gate.retired.load(SeqCst) {
+            return Err(AppError(
+                "OpenBark has just changed where it keeps its files. Try again in a moment.".into(),
+            ));
+        }
+        if self.is_recording() {
             return Err(AppError("Stop the recording first, then change the folder.".into()));
+        }
+        if self.is_busy() {
+            return Err(AppError(
+                "OpenBark is importing, drafting, saving or downloading. Change the folder when that's finished.".into(),
+            ));
         }
         let target = PathBuf::from(&check.target);
         let moved = match mode {
@@ -1298,10 +1555,26 @@ impl App {
                 None
             }
         };
-        drop(recorder);
         let mut saved = locations::load();
         saved.set(kind, Some(target.clone()));
-        locations::save(&saved)?;
+        if let Err(e) = locations::save(&saved) {
+            // The files moved but the choice couldn't be saved: put them back,
+            // so OpenBark and its files agree.
+            if moved.is_some() {
+                let from = self.folder(kind);
+                let back = locations::move_tree(&target, &from, kind == FolderKind::Models, |_, _| {});
+                return Err(AppError(match back {
+                    Ok(_) => format!("The folder couldn't be changed, so everything was moved back: {e}."),
+                    Err(b) => format!(
+                        "The choice couldn't be saved ({e}) and moving back failed ({b}). Your files are in {}.",
+                        locations::plain(&target).display()
+                    ),
+                }));
+            }
+            return Err(AppError(format!("The folder couldn't be changed: {e}.")));
+        }
+        // This App's folders are now wrong: refuse new work until it's replaced.
+        self.gate.retired.store(true, SeqCst);
         Ok(FolderChanged { kind, path: check.target, moved })
     }
 
@@ -1312,6 +1585,8 @@ impl App {
         hub::full_catalog(&self.store)
             .models
             .into_iter()
+            // The GPU recognisers come with the GPU speech pack, not one by one.
+            .filter(|m| m.id != os_engine::models::GPU_STT && m.id != os_engine::models::GPU_SECOND_STT)
             .map(|m| self.row(&m, builtin.contains(&m.id)))
             .collect()
     }
@@ -1341,6 +1616,7 @@ impl App {
     }
 
     pub fn download_model(&self, id: &str, token: Option<&str>, events: &dyn Events) -> Result<()> {
+        let _work = self.begin_work()?;
         let _awake = AwakeGuard::acquire(AwakeReason::Processing);
         let catalog = hub::full_catalog(&self.store);
         let entry =
@@ -1358,6 +1634,151 @@ impl App {
             events.download(id, before + done, total);
         })?;
         Ok(())
+    }
+
+    // ---- GPU speech pack (ADR-0014) ---------------------------------------
+
+    fn gpu_models(&self) -> Vec<CatalogEntry> {
+        let catalog = os_models::Catalog::builtin();
+        [os_engine::models::GPU_STT, os_engine::models::GPU_SECOND_STT]
+            .iter()
+            .filter_map(|id| catalog.get(id).cloned())
+            .collect()
+    }
+
+    /// Start a piece of writing work, or refuse while the folders are changing.
+    pub fn begin_work(&self) -> Result<Busy> {
+        use std::sync::atomic::Ordering::SeqCst;
+        // Count first, then look: a change that starts after this sees the count.
+        self.gate.busy.fetch_add(1, SeqCst);
+        let ticket = Busy(self.gate.clone());
+        if self.gate.retired.load(SeqCst) {
+            return Err(AppError(
+                "OpenBark has just changed where it keeps its files. Try again in a moment.".into(),
+            ));
+        }
+        if self.gate.changing.load(SeqCst) {
+            return Err(AppError(
+                "OpenBark is changing where it keeps its files. Try again when that's finished.".into(),
+            ));
+        }
+        Ok(ticket)
+    }
+
+    /// Importing, drafting, saving, downloading or recording right now.
+    pub fn is_busy(&self) -> bool {
+        self.gate.busy.load(std::sync::atomic::Ordering::SeqCst) > 0
+    }
+
+    /// A live recording is running.
+    pub fn is_recording(&self) -> bool {
+        self.recorder.lock().map(|r| r.is_some()).unwrap_or(true)
+    }
+
+    pub fn gpu_status(&self) -> GpuStatus {
+        let gpu = os_models::gpu_pack::nvidia_gpu();
+        let nvidia = gpu.is_some();
+        let pack_installed = os_models::gpu_pack::installed();
+        let checked = self.gpu_checked.load(std::sync::atomic::Ordering::SeqCst);
+        let models = self.gpu_models();
+        let models_installed = models.iter().all(|m| self.store.is_installed(m, Verify::Size));
+        let missing = |m: &CatalogEntry| {
+            m.files.iter().filter(|f| !self.store.file_ok(m, f, Verify::Size)).map(|f| f.size).sum::<u64>()
+        };
+        let mut download_bytes: u64 = models.iter().map(missing).sum();
+        if !pack_installed {
+            download_bytes += os_models::gpu_pack::entry().total_size();
+        }
+        GpuStatus {
+            supported: os_models::gpu_pack::supported() && nvidia,
+            gpu,
+            pack_installed,
+            models_installed,
+            active: self.gpu_at_start && pack_installed && models_installed && os_asr::gpu_usable(),
+            installing: GPU_INSTALLING.load(std::sync::atomic::Ordering::SeqCst),
+            restart_needed: pack_installed && models_installed && !self.gpu_at_start && checked != 2,
+            check_failed: checked == 2,
+            download_bytes,
+        }
+    }
+
+    /// Download and set up the GPU speech pack and the full-precision
+    /// recognisers. Progress goes out as one download, `gpu-speech-pack`.
+    pub fn install_gpu(&self, accept_license: bool, events: &dyn Events) -> Result<GpuStatus> {
+        use std::sync::atomic::Ordering::SeqCst;
+        if !accept_license {
+            return Err(AppError("Accept NVIDIA's licence for its libraries first.".into()));
+        }
+        if !self.gpu_status().supported {
+            return Err(AppError(
+                "Speech recognition on the GPU needs Windows and an NVIDIA graphics card.".into(),
+            ));
+        }
+        // One install at a time, across tabs and windows.
+        if GPU_INSTALLING.compare_exchange(false, true, SeqCst, SeqCst).is_err() {
+            return Err(AppError("The GPU speech pack is already downloading.".into()));
+        }
+        struct Done;
+        impl Drop for Done {
+            fn drop(&mut self) {
+                GPU_INSTALLING.store(false, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+        let _done = Done;
+        let _work = self.begin_work()?;
+        let _awake = AwakeGuard::acquire(AwakeReason::Processing);
+        let mut entries = vec![os_models::gpu_pack::entry()];
+        entries.extend(self.gpu_models());
+        let total: u64 = entries.iter().map(|e| e.total_size()).sum();
+        let mut before = 0u64;
+        for entry in &entries {
+            if entry.id == os_models::gpu_pack::PACK_ID && os_models::gpu_pack::installed() {
+                before += entry.total_size();
+                continue;
+            }
+            let mut current = String::new();
+            let mut done_before_file = 0u64;
+            let mut file_done = 0u64;
+            os_models::download(&self.store, entry, None, &mut |file: &str, done: u64, _t: u64| {
+                if file != current {
+                    done_before_file += file_done;
+                    current = file.to_string();
+                }
+                file_done = done;
+                events.download(os_models::gpu_pack::PACK_ID, before + done_before_file + done, total);
+            })?;
+            if entry.id == os_models::gpu_pack::PACK_ID {
+                os_models::gpu_pack::unpack(&self.store, |_, _| {})
+                    .map_err(|e| AppError(format!("The GPU speech pack couldn't be set up: {e}.")))?;
+            }
+            before += entry.total_size();
+        }
+        // Test it now, in a child process that loads the new libraries; this
+        // process uses them from its next start. A new attempt tests afresh.
+        if let Some(f) = os_models::gpu_pack::check_file() {
+            let _ = std::fs::remove_file(f);
+        }
+        let ok = verify_gpu(&self.store);
+        self.gpu_checked.store(if ok { 1 } else { 2 }, SeqCst);
+        // Already running on the pack's libraries (a reinstall or a retry):
+        // use the GPU from now on. Otherwise from the next start.
+        if self.gpu_at_start {
+            os_asr::set_gpu_usable(ok);
+        }
+        Ok(self.gpu_status())
+    }
+
+    /// Take the GPU speech pack and the full-precision recognisers away again.
+    pub fn remove_gpu(&self) -> Result<GpuStatus> {
+        let _work = self.begin_work()?;
+        os_asr::set_gpu_usable(false);
+        self.gpu_checked.store(0, std::sync::atomic::Ordering::SeqCst);
+        os_models::gpu_pack::remove()
+            .map_err(|e| AppError(format!("The GPU speech pack couldn't be removed: {e}.")))?;
+        for m in self.gpu_models() {
+            let _ = std::fs::remove_dir_all(self.store.model_dir(&m));
+        }
+        Ok(self.gpu_status())
     }
 
     pub fn hub_search(&self, query: &str) -> Result<Vec<HubModel>> {
@@ -1380,6 +1801,7 @@ impl App {
 
     /// Add a Hub file to the catalog; download it with [`App::download_model`].
     pub fn hub_add(&self, repo: &str, file: &str, accept_license: bool) -> Result<ModelRow> {
+        let _work = self.begin_work()?;
         let r = hub::repo(repo, None)?;
         let entry = hub::add_to_catalog(&self.store, &r, file, accept_license)?;
         Ok(self.row(&entry, false))
@@ -1643,9 +2065,18 @@ mod tests {
     fn visits_group_under_patients_and_stay_linked_after_a_rename() {
         // A throwaway key, so the test never touches this computer's own.
         // SAFETY: the only test in this crate that touches the environment.
-        unsafe { std::env::set_var("OPENBARK_DATA_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=") };
         let tmp = tempfile::tempdir().unwrap();
+        unsafe {
+            std::env::set_var("OPENBARK_DATA_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=");
+            // Folder changes below save their choice here, never in the real locations.json.
+            std::env::set_var("OPENBARK_LOCATIONS_FILE", tmp.path().join("locations.json"));
+        }
         let root = tmp.path().join("sessions");
+        // Chosen folders, as Settings would save them (so they aren't "fixed").
+        let mut chosen = os_models::locations::Locations::default();
+        chosen.set(FolderKind::Visits, Some(root.clone()));
+        chosen.set(FolderKind::Models, Some(tmp.path().join("models")));
+        os_models::locations::save(&chosen).unwrap();
         let app = App::new(ModelStore::new(tmp.path().join("models")), root.clone());
         // A real (silent) 16 kHz mono WAV, a tenth of a second long.
         let audio = tmp.path().join("visit.wav");
@@ -1693,5 +2124,30 @@ mod tests {
         assert_eq!(app.list_patients().unwrap().len(), 3, "no duplicate made for the old spelling");
         let pickles = app.patient(&find("Pickles").patient.id).unwrap();
         assert_eq!(pickles.visits[0].pet.as_deref(), Some("Pickles"));
+
+        // The work gate (ADR-0013 review): no folder change while something
+        // is writing; after a change, this App takes no more work.
+        struct Quiet;
+        impl Events for Quiet {
+            fn segment(&self, _: &Segment) {}
+            fn token(&self, _: &str) {}
+            fn level(&self, _: f32, _: f32) {}
+            fn download(&self, _: &str, _: u64, _: u64) {}
+        }
+        let elsewhere = tmp.path().join("elsewhere");
+        let elsewhere = elsewhere.to_str().unwrap();
+        let drafting = app.begin_work().unwrap();
+        let busy = app.change_folder(FolderKind::Visits, elsewhere, ChangeMode::Switch, false, &Quiet);
+        let refusal = busy.err().map(|e| e.0).unwrap_or_default();
+        assert!(refusal.contains("importing"), "refused while a draft is running: {refusal}");
+        drop(drafting);
+        app.change_folder(FolderKind::Visits, elsewhere, ChangeMode::Switch, false, &Quiet).unwrap();
+        assert!(app.begin_work().is_err(), "a retired App refuses new work");
+        assert!(app.create_patient("Late", "Writer", "").is_err(), "no writes to the old folder");
+        assert!(app.change_folder(FolderKind::Visits, elsewhere, ChangeMode::Switch, false, &Quiet).is_err());
+        assert!(
+            std::fs::read_to_string(tmp.path().join("locations.json")).unwrap().contains("elsewhere"),
+            "the choice was saved"
+        );
     }
 }

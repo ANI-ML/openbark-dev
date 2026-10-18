@@ -140,7 +140,7 @@ async fn check_folder(
     path: String,
 ) -> Result<os_app::FolderCheck, String> {
     let app = app.inner().clone();
-    work(move || Ok(app.check_folder(kind, &path))).await
+    work(move || Ok(app.check_folder(kind, &path, false))).await
 }
 
 /// Change a folder; the window then calls `restart_app` so everything opens
@@ -154,12 +154,43 @@ async fn change_folder(
     mode: os_app::ChangeMode,
 ) -> Result<os_app::FolderChanged, String> {
     let app = app.inner().clone();
-    work(move || app.change_folder(kind, &path, mode, &TauriEvents(handle))).await
+    work(move || app.change_folder(kind, &path, mode, false, &TauriEvents(handle))).await
 }
 
 #[tauri::command]
-fn restart_app(handle: AppHandle) {
-    handle.restart();
+async fn gpu_status(app: State<'_, AppState>) -> Result<os_app::GpuStatus, String> {
+    let app = app.inner().clone();
+    work(move || Ok(app.gpu_status())).await
+}
+
+#[tauri::command]
+async fn install_gpu(
+    handle: AppHandle,
+    app: State<'_, AppState>,
+    accept_license: bool,
+) -> Result<os_app::GpuStatus, String> {
+    let app = app.inner().clone();
+    work(move || app.install_gpu(accept_license, &TauriEvents(handle))).await
+}
+
+#[tauri::command]
+async fn remove_gpu(app: State<'_, AppState>) -> Result<os_app::GpuStatus, String> {
+    let app = app.inner().clone();
+    work(move || app.remove_gpu()).await
+}
+
+/// Restart, unless a recording or other work is running (it would be lost).
+#[tauri::command]
+fn restart_app(handle: AppHandle, app: State<'_, AppState>) -> Result<(), String> {
+    if app.is_recording() {
+        return Err("Stop the recording first, then restart.".into());
+    }
+    if app.is_busy() {
+        return Err(
+            "OpenBark is importing, drafting, saving or downloading. Restart when that's finished.".into()
+        );
+    }
+    handle.restart()
 }
 
 #[tauri::command]
@@ -476,6 +507,9 @@ pub fn run() {
             check_folder,
             change_folder,
             restart_app,
+            gpu_status,
+            install_gpu,
+            remove_gpu,
             list_patients,
             patient,
             create_patient,

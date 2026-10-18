@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { fmtBytes, useApp } from "../context";
 import * as engine from "../engine";
 import { useT } from "../i18n";
+import { GpuCard } from "../components/GpuCard";
 import { ModelGuide, ModelMeaning, ModelTags } from "../components/ModelGuide";
 import { STARTERS } from "../modelGuide";
 
@@ -124,6 +125,8 @@ export function Models() {
           </div>
         </dl>
       </section>
+
+      <GpuCard />
 
       <section className="group">
         <h2>{t("Catalog")}</h2>
@@ -348,7 +351,13 @@ function HubBrowser({
                   <span className="small muted">{t("Good starting points")}</span>
                   <div className="ask-chips">
                     {STARTERS.map((st) => (
-                      <button key={st.repo} type="button" className="ob-chip ask-chip" title={t(st.why)} onClick={() => open(st.repo)}>
+                      <button
+                        key={st.repo}
+                        type="button"
+                        className="ob-chip ask-chip"
+                        title={t(st.why)}
+                        onClick={() => open(st.repo)}
+                      >
                         {`Gemma 4 ${st.size}`}
                       </button>
                     ))}

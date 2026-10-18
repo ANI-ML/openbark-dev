@@ -772,3 +772,22 @@ p > .ob-dot { display: inline-block; vertical-align: middle; }
 .folder-row:hover { background: var(--fill); }
 .folder-name { overflow-wrap: anywhere; }
 .folder-empty { padding: 10px 12px; }
+
+/* GPU speech pack (ADR-0014) */
+.gpu-card h2 { display: flex; align-items: center; gap: 8px; }
+.gpu-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+
+/* Reprocess a visit */
+.visit-item { display: flex; align-items: center; }
+.visit-item .visit-row { flex: 1 1 auto; min-width: 0; }
+.visit-list li + li.visit-item { border-top: 1px solid var(--border); }
+.visit-list li + li.visit-item .visit-row { border-top: 0; }
+.reprocess-btn { margin-right: 10px; flex: none; }
+.reprocess { display: flex; flex-direction: column; gap: 12px; }
+.reprocess-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.reprocess-list li + li .reprocess-row { border-top: 1px solid var(--border); }
+.reprocess-row { width: 100%; display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 0; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.reprocess-row:hover { background: var(--fill); }
+.reprocess-row.again { border: 1px solid var(--accent); border-radius: 12px; background: var(--accent-soft); }
+.reprocess-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.reprocess-name { font-weight: 600; }

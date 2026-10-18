@@ -136,7 +136,12 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
         },
         // The browser's last upload event can land after the engine's first
         // step (they travel separately); once the engine has started, it leads.
-        (next) => setProgress((prev) => (next.stage === "upload" && prev && prev.stage !== "upload" ? prev : next)),
+        (next) =>
+          setProgress((prev) =>
+            next.stage === "upload" && prev && ["read", "transcribe", "check", "save"].includes(prev.stage)
+              ? prev
+              : next,
+          ),
       );
       if (view) app.navigate({ screen: "review", id: view.id, draft: app.settings.draftOnStop });
       else setState("idle");

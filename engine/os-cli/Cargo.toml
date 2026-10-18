@@ -17,6 +17,7 @@ vulkan = ["os-llm/vulkan"]
 metal = ["os-llm/metal"]
 
 [dependencies]
+os-app.workspace = true
 os-asr.workspace = true
 os-diar.workspace = true
 os-engine.workspace = true

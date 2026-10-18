@@ -15,6 +15,9 @@
     CreateDirectory "$SMPROGRAMS\$AppStartMenuFolder"
     CreateShortcut "$SMPROGRAMS\$AppStartMenuFolder\Uninstall ${PRODUCTNAME}.lnk" "$INSTDIR\uninstall.exe"
   !insertmacro MUI_STARTMENU_WRITE_END
+  ; A new install puts back the processor-only ONNX Runtime: forget the last
+  ; GPU self-test (ADR-0014; the app also notices from the pack's manifest).
+  Delete "$INSTDIR\gpu-check.txt"
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
@@ -25,6 +28,39 @@
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL
+  ; The GPU speech pack (ADR-0014): after the app has been closed and its own
+  ; files removed, delete exactly the files the pack's manifest lists (and
+  ; any copies renamed aside), nothing else. An update keeps the pack.
+  ${If} $UpdateMode <> 1
+    ClearErrors
+    FileOpen $R0 "$INSTDIR\gpu-pack-files.txt" r
+    IfErrors openbark_pack_done
+    openbark_pack_next:
+      ClearErrors
+      FileRead $R0 $R1
+      IfErrors openbark_pack_close
+      ; Drop the line ending.
+      StrCpy $R2 $R1 1 -1
+      StrCmp $R2 "$\n" 0 +2
+        StrCpy $R1 $R1 -1
+      StrCpy $R2 $R1 1 -1
+      StrCmp $R2 "$\r" 0 +2
+        StrCpy $R1 $R1 -1
+      StrCmp $R1 "" openbark_pack_next
+      StrCpy $R2 $R1 1
+      StrCmp $R2 "#" openbark_pack_next
+      Delete "$INSTDIR\$R1"
+      Delete "$INSTDIR\$R1.old"
+      Goto openbark_pack_next
+    openbark_pack_close:
+      FileClose $R0
+    openbark_pack_done:
+    Delete "$INSTDIR\gpu-pack-files.txt"
+    Delete "$INSTDIR\gpu-check.txt"
+    Delete "$INSTDIR\onnxruntime.dll.old"
+    RMDir "$INSTDIR"
+  ${EndIf}
+
   ${If} $DeleteAppDataCheckboxState = 1
   ${AndIf} $UpdateMode <> 1
   ${AndIfNot} ${Silent}

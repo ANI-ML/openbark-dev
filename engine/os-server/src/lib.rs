@@ -5,6 +5,12 @@
 //! Clinic Hub's authentication and mutual TLS (M4); there is no auth yet, so
 //! it must never listen on other interfaces.
 //!
+//! Other pages in the same browser are kept out ([`local_only`]): a request
+//! must name this server as its Host (no DNS rebinding), any Origin must be
+//! this server, and every request that changes something must carry the
+//! `X-OpenBark` header, which a page on another site can't add without a
+//! CORS preflight that this server never grants.
+//!
 //! API (JSON unless noted):
 //! - `GET  /api/status`, `GET /api/devices`
 //! - `GET  /api/patients`, `POST /api/patients` `{name, last_name, species}`,
@@ -172,6 +178,10 @@ pub async fn serve(options: ServerOptions) -> std::io::Result<()> {
         .route("/api/record/stop", post(record_stop))
         .route("/api/models", get(|State(s): State<St>| async move { Json(s.app().models()) }))
         .route("/api/models/{id}/download", post(download_model))
+        .route("/api/gpu", get(|State(s): State<St>| async move { Json(s.app().gpu_status()) }))
+        .route("/api/gpu/install", post(install_gpu))
+        .route("/api/gpu/remove", post(remove_gpu))
+        .route("/api/restart", post(restart))
         .route("/api/hub/search", get(hub_search))
         .route("/api/hub/repo", get(hub_repo))
         .route("/api/hub/add", post(hub_add))
@@ -188,11 +198,25 @@ pub async fn serve(options: ServerOptions) -> std::io::Result<()> {
         .route("/api/events", get(events_stream))
         .layer(DefaultBodyLimit::max(1 << 30))
         .with_state(state);
-    let app = api.fallback_service(ServeDir::new(&options.ui_dir).fallback(ServeFile::new(index)));
+    let app = api
+        .fallback_service(ServeDir::new(&options.ui_dir).fallback(ServeFile::new(index)))
+        .layer(axum::middleware::from_fn_with_state(options.port, local_only));
 
     // Loopback only: there is no authentication yet (see module docs).
     let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, options.port));
-    let listener = tokio::net::TcpListener::bind(addr).await?;
+    // A restart (POST /api/restart) starts the new copy before the old one has
+    // let go of the port: wait for it, briefly.
+    let mut tries = 0;
+    let listener = loop {
+        match tokio::net::TcpListener::bind(addr).await {
+            Ok(l) => break l,
+            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse && tries < 40 => {
+                tries += 1;
+                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            }
+            Err(e) => return Err(e),
+        }
+    };
     tracing::info!(%addr, "OpenBark web mode");
     axum::serve(listener, app).await
 }
@@ -207,6 +231,39 @@ struct FolderRequest {
     mode: os_app::ChangeMode,
 }
 
+/// Only this computer's own OpenBark page may use the server (review
+/// 2026-10-18): the Host must be this server, an Origin (sent by browsers on
+/// cross-site and WebSocket requests) must be this server, and anything other
+/// than GET or HEAD needs the `X-OpenBark` header.
+async fn local_only(
+    State(port): State<u16>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    use axum::http::{Method, header};
+    let ours = [format!("127.0.0.1:{port}"), format!("localhost:{port}"), format!("[::1]:{port}")];
+    let host =
+        request.headers().get(header::HOST).and_then(|v| v.to_str().ok()).unwrap_or("").to_ascii_lowercase();
+    if !ours.contains(&host) {
+        return (StatusCode::FORBIDDEN, "OpenBark only answers this computer's own page.").into_response();
+    }
+    if let Some(origin) = request.headers().get(header::ORIGIN) {
+        let origin = origin.to_str().unwrap_or("").to_ascii_lowercase();
+        if !ours.iter().any(|h| origin == format!("http://{h}")) {
+            return (StatusCode::FORBIDDEN, "OpenBark only answers this computer's own page.")
+                .into_response();
+        }
+    }
+    // The folder browser reads the disk, so it needs the header even for GET:
+    // a cross-site <img> could otherwise make it open a network share.
+    let changes =
+        !matches!(*request.method(), Method::GET | Method::HEAD) || request.uri().path() == "/api/folders";
+    if changes && request.uri().path().starts_with("/api/") && !request.headers().contains_key("x-openbark") {
+        return (StatusCode::FORBIDDEN, "Missing the X-OpenBark header.").into_response();
+    }
+    next.run(request).await
+}
+
 fn switch() -> os_app::ChangeMode {
     os_app::ChangeMode::Switch
 }
@@ -215,7 +272,7 @@ async fn check_folder(
     State(s): State<St>,
     Json(r): Json<FolderRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || Ok(s.app().check_folder(r.kind, &r.path))).await
+    blocking(move || Ok(s.app().check_folder(r.kind, &r.path, true))).await
 }
 
 /// Change a folder, then carry on with a fresh app on the new folders.
@@ -224,8 +281,10 @@ async fn change_folder(
     Json(r): Json<FolderRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     blocking(move || {
+        // The App's own gate makes changes one at a time and refuses while
+        // anything is writing; once changed it's retired until replaced here.
         let app = s.app();
-        let changed = app.change_folder(r.kind, &r.path, r.mode, s.events.as_ref())?;
+        let changed = app.change_folder(r.kind, &r.path, r.mode, true, s.events.as_ref())?;
         let (models, visits) = match r.kind {
             os_app::FolderKind::Models => (PathBuf::from(&changed.path), app.sessions_root.clone()),
             os_app::FolderKind::Visits => (app.store.root().to_path_buf(), PathBuf::from(&changed.path)),
@@ -292,7 +351,19 @@ async fn list_folders(Query(q): Query<FolderQuery>) -> Result<impl IntoResponse,
             }
             return Ok(FolderListing { path: String::new(), parent: None, folders });
         }
-        let dir = PathBuf::from(q.path.trim());
+        let mut typed = q.path.trim().to_string();
+        // "D:" alone means the drive's current folder on Windows; mean its root.
+        if typed.len() == 2 && typed.ends_with(':') {
+            typed.push('\\');
+        }
+        let dir = PathBuf::from(&typed);
+        // A web page mustn't make OpenBark open a network share (it would
+        // send this computer's Windows credentials to it).
+        if os_models::locations::is_network_path(&dir) {
+            return Err(AppError(
+                "Network folders can't be browsed in the browser version. Map the share to a drive letter first, or use the desktop app.".into(),
+            ));
+        }
         let read =
             std::fs::read_dir(&dir).map_err(|e| AppError(format!("Can't open {}: {e}", dir.display())))?;
         let mut folders: Vec<FolderEntry> = read
@@ -309,6 +380,47 @@ async fn list_folders(Query(q): Query<FolderQuery>) -> Result<impl IntoResponse,
         })
     })
     .await
+}
+
+/// Start a fresh copy of this server (same arguments and settings) and stop
+/// this one, so newly installed libraries load (the GPU speech pack). Refused
+/// while recording.
+async fn restart(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
+    let app = s.app();
+    if app.is_recording() {
+        return Err(ApiError(StatusCode::CONFLICT, "Stop the recording first, then restart.".into()));
+    }
+    if app.is_busy() {
+        return Err(ApiError(
+            StatusCode::CONFLICT,
+            "OpenBark is importing, drafting, saving or downloading. Restart when that's finished.".into(),
+        ));
+    }
+    let exe =
+        std::env::current_exe().map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    std::process::Command::new(exe).args(std::env::args_os().skip(1)).spawn().map_err(|e| {
+        ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("OpenBark couldn't restart: {e}"))
+    })?;
+    tokio::spawn(async {
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        std::process::exit(0);
+    });
+    Ok(Json(serde_json::json!({ "restarting": true })))
+}
+
+#[derive(Deserialize)]
+struct InstallGpu {
+    /// The clinic ticked that it accepts NVIDIA's licence for its libraries.
+    #[serde(default)]
+    accept_license: bool,
+}
+
+async fn install_gpu(State(s): State<St>, Json(r): Json<InstallGpu>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().install_gpu(r.accept_license, s.events.as_ref())).await
+}
+
+async fn remove_gpu(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().remove_gpu()).await
 }
 
 async fn list_patients(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
@@ -923,4 +1035,44 @@ async fn events_stream(
     let stream = BroadcastStream::new(s.events.0.subscribe())
         .filter_map(|e| e.ok().map(|ev| Ok(Event::default().json_data(&ev).unwrap_or_default())));
     Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::body::Body;
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    use super::*;
+
+    /// Only this computer's own page gets through (review 2026-10-18).
+    #[tokio::test]
+    async fn other_pages_are_kept_out() {
+        let app = Router::new()
+            .route("/api/thing", get(|| async { "ok" }).post(|| async { "ok" }))
+            .layer(axum::middleware::from_fn_with_state(4317u16, local_only));
+        let send = |method: &str, host: &str, origin: Option<&str>, header: bool| {
+            let mut r = Request::builder().method(method).uri("/api/thing").header("host", host);
+            if let Some(o) = origin {
+                r = r.header("origin", o);
+            }
+            if header {
+                r = r.header("x-openbark", "1");
+            }
+            let app = app.clone();
+            async move { app.oneshot(r.body(Body::empty()).unwrap()).await.unwrap().status() }
+        };
+        assert_eq!(send("GET", "127.0.0.1:4317", None, false).await, StatusCode::OK);
+        assert_eq!(send("GET", "localhost:4317", Some("http://localhost:4317"), false).await, StatusCode::OK);
+        assert_eq!(send("POST", "127.0.0.1:4317", Some("http://127.0.0.1:4317"), true).await, StatusCode::OK);
+        // DNS rebinding: the attacker's name as Host.
+        assert_eq!(send("GET", "evil.example:4317", None, false).await, StatusCode::FORBIDDEN);
+        // Another site's page.
+        assert_eq!(
+            send("GET", "127.0.0.1:4317", Some("https://evil.example"), false).await,
+            StatusCode::FORBIDDEN
+        );
+        // A simple cross-site POST can't add the header.
+        assert_eq!(send("POST", "127.0.0.1:4317", None, false).await, StatusCode::FORBIDDEN);
+    }
 }
