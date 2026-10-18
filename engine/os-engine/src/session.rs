@@ -136,6 +136,17 @@ pub struct SessionMeta {
     /// Who started the recording or import.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recorded_by: Option<Who>,
+    /// Set when only the recording was deleted (ADR-0022 section 4). The
+    /// transcript, drafts, signatures and `audio_sha256` stay.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio_deleted: Option<AudioDeleted>,
+}
+
+/// When the recording was deleted, and by whom. The rest of the visit stays.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AudioDeleted {
+    pub at: DateTime<Local>,
+    pub by: Who,
 }
 
 /// The clinic's rule for recording a conversation.
@@ -336,6 +347,7 @@ impl Session {
             patient: None,
             consent: None,
             recorded_by: None,
+            audio_deleted: None,
         };
         let session = Self { dir, meta, pet: None };
         session.save_meta()?;
@@ -365,6 +377,7 @@ impl Session {
             patient: None,
             consent: None,
             recorded_by: None,
+            audio_deleted: None,
         };
         let session = Self { dir, meta, pet: None };
         session.save_meta()?;
@@ -637,8 +650,48 @@ impl Session {
     }
 
     /// Whether the medical record is signed (client documents don't count).
+    /// Only this handle's animal: for the whole visit, see [`Session::any_signed`].
     pub fn is_signed(&self) -> bool {
         self.latest_record().is_some_and(|r| r.signed_at.is_some())
+    }
+
+    /// Whether any note in the visit is signed, for any animal (ADR-0022
+    /// section 2). A signed note for one animal makes the whole visit signed.
+    pub fn any_signed(&self) -> bool {
+        self.meta.runs.iter().any(|r| r.signed_at.is_some())
+    }
+
+    /// The latest signature or addendum in the visit, for any animal: when
+    /// the record last changed (the phase 2 retention rule counts from here).
+    pub fn last_entry_at(&self) -> Option<DateTime<Local>> {
+        self.meta
+            .runs
+            .iter()
+            .flat_map(|r| r.signed_at.into_iter().chain(r.addenda.iter().map(|a| a.at)))
+            .max()
+    }
+
+    /// Whether the recording is still in the folder.
+    pub fn has_audio(&self) -> bool {
+        self.audio_path().is_file()
+    }
+
+    /// Delete only the recording (ADR-0022 section 4): `audio.wav` and any
+    /// leftover `audio.wav.tmp`. The transcript, every run, signatures,
+    /// addenda, consent, `audio_sha256`, `audio_secs` and the source stay, so
+    /// the length still shows and a later copy can still be matched.
+    pub fn delete_audio(&mut self, who: &Who) -> Result<(), EngineError> {
+        let audio = self.audio_path();
+        if !audio.is_file() {
+            return Err(EngineError::Session("This visit has no recording.".into()));
+        }
+        crate::trash::remove_file_retrying(&audio)?;
+        let tmp = self.dir.join(format!("{AUDIO_FILE}.tmp"));
+        if tmp.exists() {
+            crate::trash::remove_file_retrying(&tmp)?;
+        }
+        self.meta.audio_deleted = Some(AudioDeleted { at: Local::now(), by: who.clone() });
+        self.save_meta()
     }
 
     fn save_meta(&self) -> Result<(), EngineError> {
@@ -674,7 +727,7 @@ fn unique_dir(root: &Path, base: &str) -> Result<PathBuf, EngineError> {
 }
 
 /// File-name-safe, lowercase, ASCII: "Mochi Recheck (2)" → "mochi-recheck-2".
-fn slug(s: &str) -> String {
+pub(crate) fn slug(s: &str) -> String {
     let mut out = String::new();
     for c in s.chars() {
         if c.is_ascii_alphanumeric() {
@@ -831,6 +884,87 @@ mod tests {
         // A second session from the same file in the same second gets its own folder.
         let other = Session::create_from_file(&root, &src, 12.5).unwrap();
         assert_ne!(other.dir, s.dir);
+    }
+
+    /// ADR-0022 section 2: one animal's signed note makes the whole visit signed.
+    #[test]
+    fn any_signed_looks_at_every_animal() {
+        let _plain = crate::vault::tests::SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = tempfile::tempdir().unwrap();
+        let mut s = Session::create_live(&tmp.path().join("sessions"), "Olive").unwrap();
+        s.set_patient(PatientInfo {
+            name: "Olive".into(),
+            others: vec!["Pickles".into()],
+            last_name: "Haddad".into(),
+            ..Default::default()
+        })
+        .unwrap();
+        assert!(!s.any_signed() && s.last_entry_at().is_none());
+        let soap = LoadedTemplate::builtin("soap").unwrap();
+        let mut olive = s.clone().for_pet(Some("Olive"));
+        olive.save_run("gemma", &note_result(), &soap).unwrap();
+        let mut pickles = Session::open(&s.dir).unwrap().for_pet(Some("Pickles"));
+        pickles.save_run("gemma", &note_result(), &soap).unwrap();
+        pickles.sign_latest("Dr Rivera").unwrap();
+        let whole = Session::open(&s.dir).unwrap();
+        assert!(whole.any_signed(), "Pickles's note is signed");
+        assert!(!whole.is_signed(), "without a pet, is_signed only sees the visit's own note");
+        assert!(!whole.clone().for_pet(Some("Olive")).is_signed());
+        let signed_at = whole.meta.runs[1].signed_at;
+        assert_eq!(whole.last_entry_at(), signed_at);
+        let a = pickles.add_addendum("Owner called.", "Dr Rivera").unwrap();
+        assert_eq!(Session::open(&s.dir).unwrap().last_entry_at(), Some(a.at));
+    }
+
+    /// ADR-0022 section 4: deleting the recording keeps everything else.
+    #[test]
+    fn deleting_the_recording_keeps_the_rest() {
+        let _plain = crate::vault::tests::SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("Maple.wav");
+        fs::write(&src, b"RIFF....WAVE").unwrap();
+        let mut s = Session::create_from_file(&tmp.path().join("sessions"), &src, 12.5).unwrap();
+        let t = Transcript {
+            segments: vec![Segment {
+                id: 0,
+                start: 0.0,
+                end: 1.0,
+                speaker: Some(0),
+                text: "Hi".into(),
+                hints: Vec::new(),
+                check: None,
+            }],
+        };
+        s.save_transcript(&t, "parakeet", false, &Default::default()).unwrap();
+        s.save_run("gemma", &note_result(), &LoadedTemplate::builtin("soap").unwrap()).unwrap();
+        fs::write(s.dir.join("audio.wav.tmp"), b"left over").unwrap();
+        let (sha, secs) = (s.meta.audio_sha256.clone(), s.meta.audio_secs);
+        assert!(s.has_audio());
+        s.delete_audio(&Who::named("Sam")).unwrap();
+        assert!(!s.audio_path().exists() && !s.dir.join("audio.wav.tmp").exists());
+        let reopened = Session::open(&s.dir).unwrap();
+        assert!(!reopened.has_audio());
+        assert_eq!(reopened.meta.audio_deleted.as_ref().unwrap().by.name, "Sam");
+        assert_eq!((reopened.meta.audio_sha256.clone(), reopened.meta.audio_secs), (sha, secs));
+        assert_eq!(reopened.load_transcript().unwrap(), t);
+        assert!(reopened.latest_note().is_ok());
+        let again = s.delete_audio(&Who::named("Sam")).unwrap_err().to_string();
+        assert_eq!(again, "This visit has no recording.");
+    }
+
+    #[test]
+    fn listing_ignores_the_housekeeping_folder() {
+        let _plain = crate::vault::tests::SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("sessions");
+        let s = Session::create_live(&root, "Maple").unwrap();
+        let deleted = crate::deleted_dir(&root).join("0199a7f0-1c2d-7e3f-8a9b-0c1d2e3f4a5b");
+        fs::create_dir_all(&deleted).unwrap();
+        fs::copy(s.dir.join(SESSION_FILE), deleted.join(SESSION_FILE)).unwrap();
+        fs::write(crate::audit_path(&root), b"").unwrap();
+        let listed = list(&root);
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].dir, s.dir);
     }
 
     #[test]

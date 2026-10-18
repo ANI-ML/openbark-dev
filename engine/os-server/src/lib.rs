@@ -36,6 +36,10 @@
 //! - `GET  /api/models`, `POST /api/models/{id}/download`
 //! - `GET  /api/hub/search?q=`, `GET /api/hub/repo?id=`, `POST /api/hub/add`
 //! - `GET|POST /api/users`, `DELETE /api/users/{uid}?by=`, `POST /api/users/{uid}/pin`, `POST /api/users/{uid}/verify`
+//! - Deleting (ADR-0022): `POST /api/sessions/{id}/delete` `{by, reason: {kind, note}, pin?, confirm_signed?}`
+//!   → the visit moves to Deleted visits; `POST /api/sessions/{id}/recording/delete` `{by}` → the
+//!   visit without its recording; `GET /api/deleted?by=`; `POST /api/deleted/{tid}/restore` `{by}`;
+//!   `POST /api/deleted/{tid}/purge` `{by, pin?}` ("Delete now"). A PIN travels only in a body.
 //! - `GET  /api/events`                     server-sent events: segment, token, level, download
 
 use std::net::{Ipv4Addr, SocketAddr};
@@ -51,8 +55,8 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{delete, get, post};
 use os_app::{
-    App, AppError, AudioBlock, ConsentMethod, ConsentRule, Events, Patient, PdfRequest, RecordingConsent,
-    RecordingSource, RefineRequest,
+    App, AppError, AudioBlock, ConsentMethod, ConsentRule, DeleteRequest, Events, Patient, PdfRequest,
+    RecordingConsent, RecordingSource, RefineRequest,
 };
 use os_engine::Segment;
 use os_engine::template::Template;
@@ -147,11 +151,35 @@ async fn blocking<T: Send + 'static>(
 
 pub async fn serve(options: ServerOptions) -> std::io::Result<()> {
     let (tx, _) = broadcast::channel(4096);
-    let state: St = Arc::new(Shared {
-        app: RwLock::new(Arc::new(App::new(options.store, options.sessions_root))),
-        events: Arc::new(Broadcaster(tx)),
-    });
-    let index = options.ui_dir.join("index.html");
+    let app = Arc::new(App::new(options.store, options.sessions_root));
+    // Deleted visits: recover what a crash left, remove what's due, then hourly.
+    app.start_housekeeping();
+    let state: St = Arc::new(Shared { app: RwLock::new(app), events: Arc::new(Broadcaster(tx)) });
+    let app = router(state, &options.ui_dir, options.port);
+
+    // Loopback only: there is no authentication yet (see module docs).
+    let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, options.port));
+    // A restart (POST /api/restart) starts the new copy before the old one has
+    // let go of the port: wait for it, briefly.
+    let mut tries = 0;
+    let listener = loop {
+        match tokio::net::TcpListener::bind(addr).await {
+            Ok(l) => break l,
+            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse && tries < 40 => {
+                tries += 1;
+                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            }
+            Err(e) => return Err(e),
+        }
+    };
+    tracing::info!(%addr, "OpenBark web mode");
+    axum::serve(listener, app).await
+}
+
+/// The whole server: the API, the UI's files, and the guard that keeps other
+/// pages out ([`local_only`]).
+fn router(state: St, ui_dir: &std::path::Path, port: u16) -> Router {
+    let index = ui_dir.join("index.html");
     let api = Router::new()
         .route("/api/status", get(|State(s): State<St>| async move { Json(s.app().status()) }))
         .route("/api/devices", get(|State(s): State<St>| async move { Json(s.app().input_devices()) }))
@@ -167,6 +195,11 @@ pub async fn serve(options: ServerOptions) -> std::io::Result<()> {
         .route("/api/sessions/{id}/edit", post(edit_note))
         .route("/api/sessions/{id}/addenda", post(add_addendum))
         .route("/api/sessions/{id}/pdf", post(export_pdf))
+        .route("/api/sessions/{id}/delete", post(delete_visit))
+        .route("/api/sessions/{id}/recording/delete", post(delete_recording))
+        .route("/api/deleted", get(list_deleted))
+        .route("/api/deleted/{tid}/restore", post(restore_visit))
+        .route("/api/deleted/{tid}/purge", post(purge_deleted))
         .route("/api/templates", get(list_templates).post(save_template))
         .route("/api/templates/preview", post(preview_template))
         .route("/api/templates/from-example", post(template_from_example))
@@ -198,27 +231,66 @@ pub async fn serve(options: ServerOptions) -> std::io::Result<()> {
         .route("/api/events", get(events_stream))
         .layer(DefaultBodyLimit::max(1 << 30))
         .with_state(state);
-    let app = api
-        .fallback_service(ServeDir::new(&options.ui_dir).fallback(ServeFile::new(index)))
-        .layer(axum::middleware::from_fn_with_state(options.port, local_only));
+    api.fallback_service(ServeDir::new(ui_dir).fallback(ServeFile::new(index)))
+        .layer(axum::middleware::from_fn_with_state(port, local_only))
+}
 
-    // Loopback only: there is no authentication yet (see module docs).
-    let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, options.port));
-    // A restart (POST /api/restart) starts the new copy before the old one has
-    // let go of the port: wait for it, briefly.
-    let mut tries = 0;
-    let listener = loop {
-        match tokio::net::TcpListener::bind(addr).await {
-            Ok(l) => break l,
-            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse && tries < 40 => {
-                tries += 1;
-                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-            }
-            Err(e) => return Err(e),
-        }
-    };
-    tracing::info!(%addr, "OpenBark web mode");
-    axum::serve(listener, app).await
+// ---- deleting (ADR-0022) -------------------------------------------------------
+
+async fn delete_visit(
+    State(s): State<St>,
+    UrlPath(id): UrlPath<String>,
+    Json(req): Json<DeleteRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().delete_visit(&id, &req)).await
+}
+
+async fn delete_recording(
+    State(s): State<St>,
+    UrlPath(id): UrlPath<String>,
+    Json(req): Json<ByBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().delete_recording(&id, req.by.as_deref())).await
+}
+
+async fn list_deleted(State(s): State<St>, Query(q): Query<ByQuery>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().list_deleted(q.by.as_deref())).await
+}
+
+async fn restore_visit(
+    State(s): State<St>,
+    UrlPath(tid): UrlPath<String>,
+    Json(req): Json<ByBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().restore_visit(&tid, req.by.as_deref())).await
+}
+
+/// "Delete now". The PIN (for a signed visit) is read from the body only:
+/// never from the URL, never logged.
+async fn purge_deleted(
+    State(s): State<St>,
+    UrlPath(tid): UrlPath<String>,
+    Json(req): Json<PurgeBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || {
+        s.app().purge_deleted(&tid, req.by.as_deref(), req.pin.as_deref()).map(|()| serde_json::json!({}))
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+struct ByBody {
+    #[serde(default)]
+    by: Option<String>,
+}
+
+/// No `Debug`: it carries a PIN.
+#[derive(Deserialize)]
+struct PurgeBody {
+    #[serde(default)]
+    by: Option<String>,
+    #[serde(default)]
+    pin: Option<String>,
 }
 
 // ---- storage (ADR-0013) ------------------------------------------------------
@@ -290,7 +362,10 @@ async fn change_folder(
             os_app::FolderKind::Visits => (app.store.root().to_path_buf(), PathBuf::from(&changed.path)),
         };
         drop(app);
-        *s.app.write().expect("app lock") = Arc::new(App::new(ModelStore::new(models), visits));
+        let fresh = Arc::new(App::new(ModelStore::new(models), visits));
+        // The new folder's own Deleted visits (ADR-0022 section 9).
+        fresh.start_housekeeping();
+        *s.app.write().expect("app lock") = fresh;
         Ok(changed)
     })
     .await
@@ -1074,5 +1149,267 @@ mod tests {
         );
         // A simple cross-site POST can't add the header.
         assert_eq!(send("POST", "127.0.0.1:4317", None, false).await, StatusCode::FORBIDDEN);
+    }
+
+    // ---- deleting (ADR-0022), on the real router and a temporary App ----------
+
+    use std::sync::OnceLock;
+
+    use os_engine::faithfulness::FaithfulnessReport;
+    use os_engine::session::{PatientInfo, Session};
+    use os_engine::transcript::Transcript;
+    use os_engine::users::UserStore;
+
+    const PORT: u16 = 4399;
+
+    /// A throwaway key and temporary team, template and folder files, set
+    /// once for every test in this crate (never this computer's own).
+    fn test_env() -> &'static std::path::Path {
+        static DIR: OnceLock<PathBuf> = OnceLock::new();
+        DIR.get_or_init(|| {
+            let dir = std::env::temp_dir().join(format!("openbark-os-server-tests-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            // SAFETY: runs once, before any App exists; every test calls test_env() first.
+            unsafe {
+                std::env::set_var("OPENBARK_DATA_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=");
+                std::env::set_var("OPENBARK_LOCATIONS_FILE", dir.join("locations.json"));
+                std::env::set_var("OPENBARK_USERS_FILE", dir.join("users.json"));
+                std::env::set_var("OPENBARK_TEMPLATES_DIR", dir.join("templates"));
+                std::env::set_var("OPENBARK_KEY_FILE", dir.join("data.key"));
+            }
+            dir
+        })
+    }
+
+    struct Server {
+        router: Router,
+        app: Arc<App>,
+        _tmp: tempfile::TempDir,
+    }
+
+    fn server() -> Server {
+        test_env();
+        let tmp = tempfile::tempdir().unwrap();
+        let mut app = App::new(ModelStore::new(tmp.path().join("models")), tmp.path().join("sessions"));
+        app.users = UserStore::new(tmp.path().join("users.json"));
+        let app = Arc::new(app);
+        let (tx, _) = broadcast::channel(16);
+        let state: St = Arc::new(Shared { app: RwLock::new(app.clone()), events: Arc::new(Broadcaster(tx)) });
+        Server { router: router(state, &tmp.path().join("ui"), PORT), app, _tmp: tmp }
+    }
+
+    /// A visit with a transcript and a draft, signed when asked.
+    fn visit(app: &App, name: &str, sign: bool) -> Session {
+        let mut s = Session::create_live(&app.sessions_root, name).unwrap();
+        s.set_patient(PatientInfo { name: name.into(), last_name: "Okonkwo".into(), ..Default::default() })
+            .unwrap();
+        s.save_transcript(&Transcript { segments: Vec::new() }, "parakeet", false, &Default::default())
+            .unwrap();
+        let result = os_engine::NoteResult {
+            status: "draft",
+            template: "soap@0.1.0".into(),
+            model: "test".into(),
+            note: serde_json::json!({}),
+            faithfulness: FaithfulnessReport { passed: true, ..Default::default() },
+            stats: Default::default(),
+            refinement: None,
+            edit: None,
+            by: None,
+            markdown: "# SOAP note\n".into(),
+        };
+        s.save_run("gemma", &result, &os_engine::LoadedTemplate::builtin("soap").unwrap()).unwrap();
+        if sign {
+            s.sign_latest("Dr Rivera").unwrap();
+        }
+        s
+    }
+
+    fn id(s: &Session) -> String {
+        s.dir.file_name().unwrap().to_string_lossy().into_owned()
+    }
+
+    async fn call(
+        router: &Router,
+        method: &str,
+        uri: &str,
+        body: Option<serde_json::Value>,
+        header: bool,
+    ) -> (StatusCode, serde_json::Value) {
+        let mut r = Request::builder().method(method).uri(uri).header("host", format!("127.0.0.1:{PORT}"));
+        if header {
+            r = r.header("x-openbark", "1");
+        }
+        let body = match body {
+            Some(b) => {
+                r = r.header("content-type", "application/json");
+                Body::from(b.to_string())
+            }
+            None => Body::empty(),
+        };
+        let res = router.clone().oneshot(r.body(body).unwrap()).await.unwrap();
+        let status = res.status();
+        let bytes = axum::body::to_bytes(res.into_body(), usize::MAX).await.unwrap();
+        (status, serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null))
+    }
+
+    #[tokio::test]
+    async fn every_delete_route_needs_the_openbark_header() {
+        let srv = server();
+        let s = visit(&srv.app, "Maple", false);
+        let body = serde_json::json!({ "by": "Sam", "reason": { "kind": "mistake" } });
+        for uri in [
+            format!("/api/sessions/{}/delete", id(&s)),
+            format!("/api/sessions/{}/recording/delete", id(&s)),
+            "/api/deleted/0199a7f0-1c2d-7e3f-8a9b-0c1d2e3f4a5b/restore".to_string(),
+            "/api/deleted/0199a7f0-1c2d-7e3f-8a9b-0c1d2e3f4a5b/purge".to_string(),
+        ] {
+            let (status, _) = call(&srv.router, "POST", &uri, Some(body.clone()), false).await;
+            assert_eq!(status, StatusCode::FORBIDDEN, "{uri}");
+        }
+        assert!(s.dir.join("session.json").is_file(), "nothing was deleted");
+    }
+
+    #[tokio::test]
+    async fn a_deleted_visit_moves_to_deleted_visits_and_says_so_when_opened() {
+        let srv = server();
+        let s = visit(&srv.app, "Maple", false);
+        let uri = format!("/api/sessions/{}/delete", id(&s));
+        let body = serde_json::json!({ "by": "Sam", "reason": { "kind": "test", "note": "practice run" } });
+        let (status, deleted) = call(&srv.router, "POST", &uri, Some(body), true).await;
+        assert_eq!(status, StatusCode::OK, "{deleted}");
+        assert_eq!(deleted["trash_id"], serde_json::json!(s.meta.id));
+        let (status, err) = call(&srv.router, "GET", &format!("/api/sessions/{}", id(&s)), None, false).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(err["error"], "This visit was deleted. Restore it from Deleted visits in Settings.");
+        let (status, listed) = call(&srv.router, "GET", "/api/deleted?by=Sam", None, false).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(listed[0]["reason"], serde_json::json!({ "kind": "test", "note": "practice run" }));
+        let tid = deleted["trash_id"].as_str().unwrap();
+        let (status, restored) = call(
+            &srv.router,
+            "POST",
+            &format!("/api/deleted/{tid}/restore"),
+            Some(serde_json::json!({ "by": "Sam" })),
+            true,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{restored}");
+        assert_eq!(restored["id"], serde_json::json!(id(&s)));
+        // Signed visits are refused in phase 1.
+        let signed = visit(&srv.app, "Olive", true);
+        let body = serde_json::json!({ "by": "Sam", "reason": { "kind": "duplicate" } });
+        let (status, err) =
+            call(&srv.router, "POST", &format!("/api/sessions/{}/delete", id(&signed)), Some(body), true)
+                .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(err["error"], "Signed visits can't be deleted yet. Add an addendum to correct the note.");
+        // The recording route answers in the same way.
+        let (status, err) = call(
+            &srv.router,
+            "POST",
+            &format!("/api/sessions/{}/recording/delete", id(&s)),
+            Some(serde_json::json!({ "by": "Sam" })),
+            true,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(err["error"], "This visit has no recording.");
+    }
+
+    #[tokio::test]
+    async fn the_pin_is_read_from_the_body_only() {
+        let srv = server();
+        let dvm = srv.app.users.add("Dr Rivera", os_engine::users::Role::Dvm, "2468").unwrap();
+        let s = visit(&srv.app, "Maple", true);
+        // A signed visit in Deleted visits (phase 1 can't put one there itself).
+        let trash = os_engine::trash::Trash::for_sessions(&srv.app.sessions_root);
+        let now = chrono::Local::now();
+        let info = os_engine::trash::DeletedInfo {
+            trash_id: trash.new_id(&s.meta.id),
+            original_name: id(&s),
+            deleted_at: now,
+            by: os_engine::users::Who::named("Dr Rivera"),
+            reason: os_engine::audit::DeleteReason {
+                kind: os_engine::audit::ReasonKind::Duplicate,
+                note: String::new(),
+            },
+            signed: true,
+            purge_after: os_engine::trash::purge_after(now),
+            event_id: os_engine::audit::new_id(),
+            recovered: false,
+        };
+        trash.put(&s.dir, &info).unwrap();
+        let uri = format!("/api/deleted/{}/purge?pin=2468", info.trash_id);
+        let (status, err) =
+            call(&srv.router, "POST", &uri, Some(serde_json::json!({ "by": dvm.id })), true).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(err["error"], "That PIN isn't right.");
+        assert_eq!(trash.list().len(), 1, "still in Deleted visits");
+        let uri = format!("/api/deleted/{}/purge", info.trash_id);
+        let body = serde_json::json!({ "by": dvm.id, "pin": "2468" });
+        let (status, _) = call(&srv.router, "POST", &uri, Some(body), true).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(trash.list().is_empty());
+    }
+
+    /// Review: no way round the guards through the web API. A GET never
+    /// deletes, a request without a reason is refused, and with a team the
+    /// role is checked whoever's id is missing or wrong.
+    #[tokio::test]
+    async fn the_web_api_cant_be_used_to_slip_past_the_rules() {
+        let srv = server();
+        let s = visit(&srv.app, "Maple", false);
+        let uri = format!("/api/sessions/{}/delete", id(&s));
+        let still_there = || assert!(s.dir.join("session.json").is_file(), "the visit was deleted");
+        for method in ["GET", "HEAD"] {
+            let (status, _) = call(&srv.router, method, &uri, None, true).await;
+            assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED, "{method}");
+        }
+        still_there();
+        // No reason, or one that isn't on the list.
+        for body in [
+            serde_json::json!({ "by": "Sam" }),
+            serde_json::json!({ "by": "Sam", "reason": { "kind": "because" } }),
+            serde_json::json!({ "by": "Sam", "reason": "mistake" }),
+        ] {
+            let (status, _) = call(&srv.router, "POST", &uri, Some(body.clone()), true).await;
+            assert!(status.is_client_error(), "{body}: {status}");
+        }
+        still_there();
+        // Path tricks in the ids.
+        for bad in ["..", ".openbark", "%2e%2e", "a%2fb", "a%5cb"] {
+            let body = serde_json::json!({ "by": "Sam", "reason": { "kind": "mistake" } });
+            let (status, _) =
+                call(&srv.router, "POST", &format!("/api/sessions/{bad}/delete"), Some(body), true).await;
+            assert!(status.is_client_error(), "{bad}: {status}");
+            let (status, _) = call(
+                &srv.router,
+                "POST",
+                &format!("/api/deleted/{bad}/purge"),
+                Some(serde_json::json!({ "by": "Sam" })),
+                true,
+            )
+            .await;
+            assert!(status.is_client_error(), "{bad}: {status}");
+        }
+        still_there();
+        // With a team: reception, nobody, or a stranger's id are all refused.
+        srv.app.users.add("Dr Rivera", os_engine::users::Role::Dvm, "2468").unwrap();
+        let desk = srv.app.users.add("Lee", os_engine::users::Role::Reception, "1111").unwrap();
+        for by in [serde_json::json!(desk.id), serde_json::Value::Null, serde_json::json!("Sam")] {
+            let body = serde_json::json!({ "by": by, "reason": { "kind": "mistake" } });
+            let (status, err) = call(&srv.router, "POST", &uri, Some(body), true).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{by}: {err}");
+            let (status, _) = call(
+                &srv.router,
+                "GET",
+                &format!("/api/deleted?by={}", by.as_str().unwrap_or("")),
+                None,
+                false,
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{by} saw Deleted visits");
+        }
+        still_there();
     }
 }

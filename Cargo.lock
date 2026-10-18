@@ -3820,6 +3820,7 @@ dependencies = [
 name = "os-app"
 version = "0.0.1"
 dependencies = [
+ "chrono",
  "os-asr",
  "os-engine",
  "os-llm",
@@ -3942,12 +3943,14 @@ name = "os-server"
 version = "0.0.1"
 dependencies = [
  "axum",
+ "chrono",
  "dirs",
  "os-app",
  "os-engine",
  "os-models",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tokio-stream",
  "tower",

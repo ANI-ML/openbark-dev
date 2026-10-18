@@ -3,8 +3,9 @@ import { Box, ChevronRight, CircleHelp, Mic, NotebookText, PawPrint, Settings as
 import { useCallback, useEffect, useMemo, useState } from "react";
 import * as engine from "./engine";
 import { ConsentNotice } from "./components/ConsentNotice";
+import { Toast } from "./components/Toast";
 import { ROLE_LABEL, UserPicker } from "./components/UserPicker";
-import { AppContext, loadSettings, permissions, saveSettings, type Settings } from "./context";
+import { AppContext, loadSettings, permissions, saveSettings, type Settings, type ToastAction } from "./context";
 import { translate } from "./i18n";
 import { PatientDetail } from "./screens/PatientDetail";
 import { Patients } from "./screens/Patients";
@@ -48,7 +49,12 @@ export function App() {
   const [route, setRoute] = useState<Route>({ screen: "record" });
   const [status, setStatus] = useState<engine.Status | null>(null);
   const [settings, setSettingsState] = useState<Settings>(loadSettings);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToastState] = useState<{ n: number; message: string; action?: ToastAction } | null>(null);
+  const showToast = useCallback(
+    (message: string, action?: ToastAction) => setToastState((prev) => ({ n: (prev?.n ?? 0) + 1, message, action })),
+    [],
+  );
+  const closeToast = useCallback(() => setToastState(null), []);
   const [announce, setAnnounce] = useState("");
   const levels = useMemo(() => createLevelSource(), []);
 
@@ -68,12 +74,6 @@ export function App() {
       void off.then((f) => f());
     };
   }, [refreshStatus, levels]);
-
-  useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(null), 4000);
-    return () => clearTimeout(t);
-  }, [toast]);
 
   const setSettings = (s: Partial<Settings>) =>
     setSettingsState((prev) => {
@@ -129,7 +129,7 @@ export function App() {
     refreshStatus,
     settings,
     setSettings,
-    toast: setToast,
+    toast: showToast,
     announce: setAnnounce,
     levels,
   };
@@ -237,11 +237,7 @@ export function App() {
           }}
         />
       )}
-      {toast && (
-        <div className="ob-toast" role="status">
-          {toast}
-        </div>
-      )}
+      {toast && <Toast key={toast.n} message={toast.message} action={toast.action} onClose={closeToast} />}
       <div className="sr-only" aria-live="polite">
         {announce}
       </div>

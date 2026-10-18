@@ -5,16 +5,22 @@
 //! All methods block; callers run them on a worker thread. Progress goes to
 //! an [`Events`] sink (Tauri events on desktop, server-sent events on web).
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+use chrono::{DateTime, Local};
+use os_engine::audit::{self, AuditLog, EventDraft, EventKind, Purge};
+pub use os_engine::audit::{DeleteReason, ReasonKind};
 use os_engine::awake::{AwakeGuard, AwakeReason};
 use os_engine::live::{LiveOptions, LiveRecorder, LiveSink, LiveSource};
 pub use os_engine::live::{Progress, Stage};
 use os_engine::patients::{PatientRecord, PatientStore};
+pub use os_engine::session::AudioDeleted;
 use os_engine::session::{self, Addendum, Consent, PatientInfo, Session};
 use os_engine::template::{Standard, Template};
 use os_engine::template_store::TemplateSummary;
+use os_engine::trash::{self, DeletedInfo, Recovered, Trash};
 use os_engine::users::{Role, User, UserStore, Who};
 use os_engine::{LoadedTemplate, NoteOptions, Segment, TemplateStore, TranscribeStats, Transcript};
 use os_llm::{LlamaCppBackend, LlamaCppOptions};
@@ -57,6 +63,8 @@ pub struct FolderView {
 pub struct StorageView {
     pub models: FolderView,
     pub visits: FolderView,
+    /// Space Deleted visits take, inside the visits folder (ADR-0022 section 9).
+    pub deleted_bytes: u64,
 }
 
 /// What choosing a folder would do, shown before anything changes.
@@ -190,6 +198,56 @@ impl Drop for Busy {
     }
 }
 
+/// What is holding a visit (ADR-0022 section 7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Holder {
+    Importing,
+    Recording,
+    Drafting,
+    Saving,
+    Deleting,
+}
+
+impl Holder {
+    /// Why `asked` can't have the visit while `self` holds it.
+    fn refusal(self, asked: Holder) -> &'static str {
+        match (self, asked) {
+            (Holder::Deleting, _) => "This visit is being deleted.",
+            (Holder::Drafting, Holder::Deleting) => {
+                "This visit is being drafted. Delete it when that's finished."
+            }
+            (Holder::Importing, Holder::Deleting) => {
+                "This visit is still being transcribed. Delete it when that's finished."
+            }
+            (Holder::Recording, Holder::Deleting) => {
+                "This visit is still recording. Stop the recording first."
+            }
+            _ => "This visit is being saved in another window. Try again in a moment.",
+        }
+    }
+}
+
+type VisitLocks = Arc<Mutex<HashMap<String, Holder>>>;
+
+/// One visit held by one piece of work (a per-visit lock, per process).
+/// Dropping it frees the visit.
+pub struct VisitLock {
+    locks: VisitLocks,
+    key: String,
+}
+
+impl Drop for VisitLock {
+    fn drop(&mut self) {
+        if let Ok(mut held) = self.locks.lock() {
+            held.remove(&self.key);
+        }
+    }
+}
+
+/// Phase 1 of ADR-0022: signed visits are corrected with addenda.
+const SIGNED_NOT_YET: &str = "Signed visits can't be deleted yet. Add an addendum to correct the note.";
+const NOT_RECORDED: &str = "OpenBark couldn't record the deletion, so the visit was kept.";
+
 pub struct App {
     pub store: ModelStore,
     pub sessions_root: PathBuf,
@@ -202,6 +260,10 @@ pub struct App {
     recorder: Mutex<Option<LiveRecorder>>,
     /// The live recording's work ticket, held until it stops.
     recording_work: Mutex<Option<Busy>>,
+    /// The live recording's hold on its visit, until it stops.
+    recording_lock: Mutex<Option<VisitLock>>,
+    /// Visits being imported, recorded, drafted, saved or deleted (ADR-0022).
+    visit_locks: VisitLocks,
     gate: Arc<Gate>,
     hardware: Hardware,
     /// The GPU speech pack was in place when this process started, so its
@@ -383,6 +445,8 @@ pub struct VisitSummary {
     /// This animal's name, when the visit covered several.
     pub pet: Option<String>,
     pub source: String,
+    /// The recording is still kept (it can be deleted on its own, ADR-0022).
+    pub has_audio: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -399,6 +463,8 @@ pub struct PatientSummary {
 pub struct PatientView {
     pub patient: PatientRecord,
     pub visits: Vec<VisitSummary>,
+    /// This patient's visits waiting in Deleted visits.
+    pub deleted: usize,
 }
 
 #[derive(Serialize)]
@@ -447,6 +513,80 @@ pub struct SessionView {
     pub documents: Vec<DocumentView>,
     /// Who started the recording or import.
     pub recorded_by: Option<Who>,
+    /// Any note in the visit is signed, for any animal (ADR-0022 section 2).
+    pub any_signed: bool,
+    /// The recording is still kept.
+    pub has_audio: bool,
+    /// When only the recording was deleted, and by whom.
+    pub audio_deleted: Option<AudioDeleted>,
+}
+
+/// A visit just moved to Deleted visits.
+#[derive(Debug, Clone, Serialize)]
+pub struct DeletedVisit {
+    pub trash_id: String,
+    /// The animals in the visit.
+    pub pets: Vec<String>,
+    pub signed: bool,
+    pub purge_after: String,
+    /// The main animal's patient record, to go back to.
+    pub patient_id: Option<String>,
+}
+
+/// A row of Settings, Deleted visits.
+#[derive(Debug, Clone, Serialize)]
+pub struct DeletedSummary {
+    pub trash_id: String,
+    /// "Olive Haddad" (empty when no patient was entered).
+    pub patient: String,
+    /// The visit's patient records (main animal first).
+    pub patient_ids: Vec<String>,
+    pub pets: Vec<String>,
+    pub created_at: String,
+    pub deleted_at: String,
+    pub by: String,
+    pub reason: DeleteReason,
+    pub signed: bool,
+    pub purge_after: String,
+    /// Phase 2: kept longer by the clinic's retention rule.
+    pub kept_until: Option<String>,
+    pub bytes: u64,
+    /// Described at start after OpenBark closed mid-delete.
+    pub recovered: bool,
+}
+
+/// A visit brought back from Deleted visits.
+#[derive(Debug, Clone, Serialize)]
+pub struct RestoredVisit {
+    /// Its folder name now (a suffix is added if the original was taken).
+    pub id: String,
+    pub patient_id: Option<String>,
+}
+
+/// Delete a visit (ADR-0022 section 12).
+#[derive(Clone, serde::Deserialize)]
+pub struct DeleteRequest {
+    #[serde(default)]
+    pub by: Option<String>,
+    pub reason: DeleteReason,
+    /// Phase 2: a veterinarian's PIN, for signed visits. Body only, never logged.
+    #[serde(default)]
+    pub pin: Option<String>,
+    /// Phase 2: the acknowledgement that a signed note is kept elsewhere.
+    #[serde(default)]
+    pub confirm_signed: bool,
+}
+
+/// Written by hand so the PIN never reaches a log.
+impl std::fmt::Debug for DeleteRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DeleteRequest")
+            .field("by", &self.by)
+            .field("reason", &self.reason)
+            .field("pin", &self.pin.as_ref().map(|_| "***"))
+            .field("confirm_signed", &self.confirm_signed)
+            .finish()
+    }
 }
 
 /// A document for the client, drafted from the visit.
@@ -515,6 +655,8 @@ impl App {
             llm: Mutex::new(None),
             recorder: Mutex::new(None),
             recording_work: Mutex::new(None),
+            recording_lock: Mutex::new(None),
+            visit_locks: Arc::new(Mutex::new(HashMap::new())),
             gate: Arc::new(Gate::default()),
             hardware: probe_hardware(),
             gpu_at_start: os_models::gpu_pack::loaded_at_start(),
@@ -572,8 +714,8 @@ impl App {
             .ok_or_else(|| AppError("Choose who you are first.".into()))?;
         let allowed = match need {
             Need::Any => true,
-            Need::Notes => user.role.can_write_notes(),
-            Need::Sign => user.role.can_sign(),
+            Need::Notes | Need::Delete => user.role.can_write_notes(),
+            Need::Sign | Need::DeleteSigned | Need::DeleteSignedRecording => user.role.can_sign(),
             Need::Team => user.role.can_manage_team(),
         };
         if !allowed {
@@ -582,7 +724,20 @@ impl App {
                     "{} can record and enter patient details; drafting and editing notes needs a veterinarian or technician.",
                     user.name
                 ),
+                Need::Delete => format!(
+                    "{} can record and enter patient details; deleting visits needs a veterinarian or technician.",
+                    user.name
+                ),
                 Need::Sign => format!("Only a veterinarian can sign. {} is using OpenBark now.", user.name),
+                Need::DeleteSigned => {
+                    format!(
+                        "Only a veterinarian can delete a signed visit. {} is using OpenBark now.",
+                        user.name
+                    )
+                }
+                Need::DeleteSignedRecording => {
+                    "Only a veterinarian can delete the recording of a signed visit.".into()
+                }
                 Need::Team => "Only a veterinarian can change the team.".into(),
                 Need::Any => unreachable!(),
             }));
@@ -659,15 +814,28 @@ impl App {
     /// An encounter's recording as WAV bytes (decrypted for playback).
     pub fn session_audio(&self, id: &str) -> Result<Vec<u8>> {
         let dir = self.session_dir(id)?;
-        Ok(os_engine::vault::read(&dir.join(session::AUDIO_FILE))?)
+        let audio = dir.join(session::AUDIO_FILE);
+        if !audio.is_file()
+            && let Some(gone) = Session::open(&dir)?.meta.audio_deleted
+        {
+            return Err(AppError(format!(
+                "This visit's recording was deleted on {}.",
+                gone.at.format("%Y-%m-%d")
+            )));
+        }
+        Ok(os_engine::vault::read(&audio)?)
     }
 
     // ---- sessions --------------------------------------------------------
 
     /// Resolve a session id (its folder name) safely under the sessions root.
+    /// No trailing dot: Windows drops it, so "<id>." would open the same
+    /// folder as "<id>" under another name and slip past that visit's lock
+    /// (review of ADR-0022). OpenBark never names a visit folder that way.
     pub fn session_dir(&self, id: &str) -> Result<PathBuf> {
         let valid = !id.is_empty()
             && !id.starts_with('.')
+            && !id.ends_with('.')
             && id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
         if !valid {
             return Err(AppError(format!("'{id}' is not a session id")));
@@ -675,9 +843,36 @@ impl App {
         let dir = self.sessions_root.join(id);
         if dir.join(session::SESSION_FILE).is_file() {
             Ok(dir)
+        } else if self.trash().find_by_original(id).is_some() {
+            // Another window, or an old link (ADR-0022 section 9).
+            Err(AppError("This visit was deleted. Restore it from Deleted visits in Settings.".into()))
         } else {
             Err(AppError(format!("No saved encounter called {id}.")))
         }
+    }
+
+    fn trash(&self) -> Trash {
+        Trash::for_sessions(&self.sessions_root)
+    }
+
+    fn audit(&self) -> AuditLog {
+        AuditLog::for_sessions(&self.sessions_root)
+    }
+
+    /// Hold a visit (or another key) for one piece of work, or say why not.
+    fn lock_visit(&self, id: &str, holder: Holder) -> Result<VisitLock> {
+        let key = id.to_ascii_lowercase();
+        let mut held = self.visit_locks.lock().map_err(|_| AppError("visit lock poisoned".into()))?;
+        if let Some(by) = held.get(&key) {
+            return Err(AppError(by.refusal(holder).into()));
+        }
+        held.insert(key.clone(), holder);
+        Ok(VisitLock { locks: self.visit_locks.clone(), key })
+    }
+
+    /// A live recording is writing into this folder.
+    fn recording_into(&self, dir: &Path) -> bool {
+        self.recorder.lock().map(|r| r.as_ref().is_some_and(|rec| rec.session_dir == dir)).unwrap_or(false)
     }
 
     pub fn list_sessions(&self) -> Vec<SessionSummary> {
@@ -690,7 +885,8 @@ impl App {
                 source: source_label(&s.meta.source),
                 audio_secs: s.meta.audio_secs,
                 runs: s.meta.runs.len(),
-                signed: s.is_signed(),
+                // Any animal's signed note makes the visit signed (ADR-0022 section 2).
+                signed: s.any_signed(),
                 patient: s.meta.patient.as_ref().map(|p| p.display_name()).unwrap_or_default(),
                 reason: s.meta.patient.as_ref().map(|p| p.reason.clone()).unwrap_or_default(),
                 template: s
@@ -758,14 +954,25 @@ impl App {
             audio_secs: s.meta.audio_secs,
             pet: (animals > 1).then(|| pet.to_string()),
             source: source_label(&s.meta.source),
+            has_audio: s.has_audio(),
         }
     }
 
     /// Every visit, grouped under its patients' record ids.
-    fn visits_by_patient(&self) -> Result<std::collections::HashMap<String, Vec<VisitSummary>>> {
-        let mut out: std::collections::HashMap<String, Vec<VisitSummary>> = Default::default();
-        for mut s in session::list(&self.sessions_root) {
-            let pairs = self.link_visit(&mut s)?;
+    fn visits_by_patient(&self) -> Result<HashMap<String, Vec<VisitSummary>>> {
+        self.visits_by_patient_from(session::list(&self.sessions_root))
+    }
+
+    fn visits_by_patient_from(&self, sessions: Vec<Session>) -> Result<HashMap<String, Vec<VisitSummary>>> {
+        let mut out: HashMap<String, Vec<VisitSummary>> = Default::default();
+        for mut s in sessions {
+            let pairs = match self.link_visit(&mut s) {
+                Ok(pairs) => pairs,
+                // Deleted (or moved) while the list was being made: leave it out
+                // rather than failing the whole list (ADR-0022 section 7).
+                Err(_) if !s.dir.join(session::SESSION_FILE).is_file() => continue,
+                Err(e) => return Err(e),
+            };
             let animals = pairs.len();
             for (pet, id) in pairs {
                 let summary = self.visit_summary(&s, &pet, animals);
@@ -811,7 +1018,17 @@ impl App {
             .patients
             .get(id)
             .ok_or_else(|| AppError("That patient isn't in this computer's records.".into()))?;
-        Ok(PatientView { visits: visits.remove(id).unwrap_or_default(), patient })
+        let deleted = self
+            .trash()
+            .list()
+            .iter()
+            .filter(|(_, s)| {
+                s.meta.patient.as_ref().is_some_and(|p| {
+                    p.patient_id.as_deref() == Some(id) || p.other_ids.iter().any(|o| o == id)
+                })
+            })
+            .count();
+        Ok(PatientView { visits: visits.remove(id).unwrap_or_default(), patient, deleted })
     }
 
     pub fn create_patient(&self, name: &str, last_name: &str, species: &str) -> Result<PatientRecord> {
@@ -915,6 +1132,8 @@ impl App {
             Box::new(ChannelSink(tx)),
         )?;
         let dir = recorder.session_dir.clone();
+        // Held while the new folder fills (a delete waits for the transcript).
+        let _lock = self.lock_visit(&folder_name(&dir), Holder::Importing).ok();
         // The worker drops the sink when it finishes, which ends this loop.
         for msg in rx {
             match msg {
@@ -1003,10 +1222,11 @@ impl App {
             options,
             Box::new(EventsSink(events)),
         )?;
-        let id =
-            recorder.session_dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let id = folder_name(&recorder.session_dir);
         *slot = Some(recorder);
         *self.recording_work.lock().map_err(|_| AppError("recorder lock poisoned".into()))? = Some(work);
+        *self.recording_lock.lock().map_err(|_| AppError("recorder lock poisoned".into()))? =
+            self.lock_visit(&id, Holder::Recording).ok();
         Ok(id)
     }
 
@@ -1018,8 +1238,9 @@ impl App {
             .map_err(|_| AppError("recorder lock poisoned".into()))?
             .take()
             .ok_or_else(|| AppError("Nothing is recording.".into()))?;
-        // The recording's ticket ends once its transcript is saved and linked.
+        // The recording's ticket and hold end once its transcript is saved and linked.
         let _work = self.recording_work.lock().map_err(|_| AppError("recorder lock poisoned".into()))?.take();
+        let _lock = self.recording_lock.lock().map_err(|_| AppError("recorder lock poisoned".into()))?.take();
         let result = recorder.stop()?;
         let mut s = Session::open(&result.session_dir)?;
         self.link_visit(&mut s)?;
@@ -1038,6 +1259,7 @@ impl App {
         if recording_here {
             return Err(AppError("This encounter is still recording. Stop the recording first.".into()));
         }
+        let _lock = self.lock_visit(id, Holder::Saving)?;
         let mut s = Session::open(&dir)?;
         let mut patient = patient;
         // A different animal or family: link the visit afresh (ADR-0011).
@@ -1073,6 +1295,8 @@ impl App {
     ) -> Result<NoteResponse> {
         let _work = self.begin_work()?;
         let who = self.who(by, Need::Notes)?;
+        // One draft of a visit at a time, and no delete meanwhile (ADR-0022 section 7).
+        let _lock = self.lock_visit(id, Holder::Drafting)?;
         let _awake = AwakeGuard::acquire(AwakeReason::Processing);
         let mut s = self.open(id, pet)?;
         let template = self.templates.load(if template.is_empty() { "soap" } else { template })?;
@@ -1132,6 +1356,7 @@ impl App {
     ) -> Result<NoteResponse> {
         let _work = self.begin_work()?;
         let who = self.who(request.by.as_deref(), Need::Notes)?;
+        let _lock = self.lock_visit(id, Holder::Drafting)?;
         let mut s = self.open(id, request.pet.as_deref())?;
         if s.is_signed() {
             return Err(AppError(
@@ -1210,6 +1435,7 @@ impl App {
         let who = self
             .who(Some(by), Need::Notes)?
             .ok_or_else(|| AppError("Add your name in Settings, then save your edits.".into()))?;
+        let _lock = self.lock_visit(id, Holder::Saving)?;
         let mut s = self.open(id, pet)?;
         if s.is_signed() {
             return Err(AppError(
@@ -1236,6 +1462,7 @@ impl App {
         let who = self
             .who(Some(by), Need::Sign)?
             .ok_or_else(|| AppError("Add your name in Settings, then sign the addendum.".into()))?;
+        let _lock = self.lock_visit(id, Holder::Saving)?;
         let mut s = self.open(id, pet)?;
         s.add_addendum_by(text, &who)?;
         Ok(view(&s, None))
@@ -1313,8 +1540,335 @@ impl App {
         let who = self
             .who(Some(by), Need::Sign)?
             .ok_or_else(|| AppError("Enter the name of the veterinarian signing the note.".into()))?;
+        let _lock = self.lock_visit(id, Holder::Saving)?;
         let mut s = self.open(id, pet)?;
         s.sign_latest_by(&who)?;
+        Ok(view(&s, None))
+    }
+
+    // ---- deleting (ADR-0022) ---------------------------------------------
+
+    /// Move a visit to Deleted visits for 30 days. A veterinarian or
+    /// technician (single-user: the name in Settings) gives a reason. The
+    /// steps are: rename into `.openbark/deleted/`, write `deleted.json`, then
+    /// add the deletion record entry; if the entry can't be written, the
+    /// rename is undone. Signed visits are refused in phase 1.
+    pub fn delete_visit(&self, id: &str, req: &DeleteRequest) -> Result<DeletedVisit> {
+        let _work = self.begin_work()?;
+        let dir = self.session_dir(id)?;
+        let _lock = self.lock_visit(id, Holder::Deleting)?;
+        if self.recording_into(&dir) {
+            return Err(AppError(Holder::Recording.refusal(Holder::Deleting).into()));
+        }
+        let who = self
+            .who(req.by.as_deref(), Need::Delete)?
+            .ok_or_else(|| AppError("Add your name in Settings, then delete the visit.".into()))?;
+        let s = Session::open(&dir)?;
+        if s.any_signed() {
+            return Err(AppError(SIGNED_NOT_YET.into()));
+        }
+        let trash = self.trash();
+        let trash_id = trash.new_id(&s.meta.id);
+        let now = Local::now();
+        let reason = DeleteReason { kind: req.reason.kind, note: clean_note(&req.reason.note) };
+        let info = DeletedInfo {
+            trash_id: trash_id.clone(),
+            original_name: id.to_string(),
+            deleted_at: now,
+            by: who.clone(),
+            reason: reason.clone(),
+            signed: false,
+            purge_after: trash::purge_after(now),
+            event_id: audit::new_id(),
+            recovered: false,
+        };
+        let tombstone = audit::tombstone(&s, Some(&trash_id));
+        let trashed = trash.put(&dir, &info)?;
+        let mut entry = EventDraft::new(EventKind::VisitDeleted, who, self.users.is_team());
+        entry.id = Some(info.event_id.clone());
+        entry.visit = Some(tombstone);
+        entry.reason = Some(reason);
+        if let Err(e) = self.audit().append(entry) {
+            if let Err(back) = trash.undo_put(&trashed, &dir) {
+                tracing::error!(error = %back, "a deleted visit couldn't be put back after the record failed");
+            }
+            return Err(AppError(format!("{NOT_RECORDED} {e}")));
+        }
+        let patient = s.meta.patient.as_ref();
+        Ok(DeletedVisit {
+            trash_id,
+            pets: patient.map(|p| p.pets()).unwrap_or_default(),
+            signed: false,
+            purge_after: stamp(info.purge_after),
+            patient_id: patient.and_then(|p| p.patient_id.clone()),
+        })
+    }
+
+    /// Deleted visits, newest first. Reception can't see them.
+    pub fn list_deleted(&self, by: Option<&str>) -> Result<Vec<DeletedSummary>> {
+        self.who(by, Need::Delete)?;
+        Ok(self
+            .trash()
+            .list()
+            .into_iter()
+            .map(|(info, s)| {
+                let p = s.meta.patient.as_ref();
+                DeletedSummary {
+                    bytes: os_models::locations::dir_size(&s.dir),
+                    patient: p.map(|p| p.display_name()).unwrap_or_default(),
+                    patient_ids: p
+                        .map(|p| p.patient_id.iter().chain(&p.other_ids).cloned().collect())
+                        .unwrap_or_default(),
+                    pets: p.map(|p| p.pets()).unwrap_or_default(),
+                    created_at: stamp(s.meta.created_at),
+                    deleted_at: stamp(info.deleted_at),
+                    by: info.by.name,
+                    reason: info.reason,
+                    signed: info.signed,
+                    purge_after: stamp(info.purge_after),
+                    kept_until: None,
+                    recovered: info.recovered,
+                    trash_id: info.trash_id,
+                }
+            })
+            .collect())
+    }
+
+    /// Bring a visit back from Deleted visits, under its original folder name
+    /// (with a suffix if that's taken), and link it to its patients again.
+    pub fn restore_visit(&self, trash_id: &str, by: Option<&str>) -> Result<RestoredVisit> {
+        let _work = self.begin_work()?;
+        let who = self
+            .who(by, Need::Delete)?
+            .ok_or_else(|| AppError("Add your name in Settings, then restore the visit.".into()))?;
+        let _lock = self.lock_visit(&format!("deleted:{trash_id}"), Holder::Deleting)?;
+        let trash = self.trash();
+        let (info, s) = trash.get(trash_id)?;
+        let tombstone = audit::tombstone(&s, Some(trash_id));
+        let restored = trash.restore(trash_id)?;
+        let mut entry = EventDraft::new(EventKind::VisitRestored, who, self.users.is_team());
+        entry.visit = Some(tombstone);
+        if let Err(e) = self.audit().append(entry) {
+            // Back to Deleted visits, as it was.
+            if let Err(back) = trash.put(&restored, &info) {
+                tracing::error!(error = %back, "a restored visit couldn't go back to Deleted visits");
+            }
+            return Err(AppError(format!(
+                "OpenBark couldn't record the restore, so the visit stays in Deleted visits. {e}"
+            )));
+        }
+        let mut s = Session::open(&restored)?;
+        if let Err(e) = self.link_visit(&mut s) {
+            tracing::warn!(error = %e.0, "a restored visit couldn't be linked to its patients yet");
+        }
+        Ok(RestoredVisit {
+            id: id_of(&s),
+            patient_id: s.meta.patient.as_ref().and_then(|p| p.patient_id.clone()),
+        })
+    }
+
+    /// "Delete now": remove a deleted visit for good. Rename it to
+    /// `.purging`, record the removal, then remove the folder. A signed item
+    /// needs a veterinarian, with their PIN when there's a team.
+    pub fn purge_deleted(&self, trash_id: &str, by: Option<&str>, pin: Option<&str>) -> Result<()> {
+        let _work = self.begin_work()?;
+        let _lock = self.lock_visit(&format!("deleted:{trash_id}"), Holder::Deleting)?;
+        let trash = self.trash();
+        let (info, s) = trash.get(trash_id)?;
+        // What the folder holds, not only what deleted.json says: removal
+        // can't be undone, and another copy of OpenBark on this folder (the
+        // per-visit lock is per process) could have signed it meanwhile.
+        let who = if info.signed || s.any_signed() {
+            let who = self
+                .who(by, Need::DeleteSigned)?
+                .ok_or_else(|| AppError("Add your name in Settings, then delete the visit.".into()))?;
+            if self.users.is_team() {
+                // Checked here, in the same call (ADR-0022 section 2).
+                self.users.verify(who.id.as_deref().unwrap_or_default(), pin.unwrap_or_default())?;
+            }
+            who
+        } else {
+            self.who(by, Need::Delete)?
+                .ok_or_else(|| AppError("Add your name in Settings, then delete the visit.".into()))?
+        };
+        let tombstone = audit::tombstone(&s, Some(trash_id));
+        drop(s);
+        let purging = trash.begin_purge(trash_id)?;
+        let mut entry = EventDraft::new(EventKind::VisitPurged, who, self.users.is_team());
+        entry.visit = Some(tombstone);
+        entry.reason = Some(info.reason);
+        entry.purge = Some(Purge::ByHand);
+        if let Err(e) = self.audit().append(entry) {
+            if let Err(back) = trash.undo_purge(&purging) {
+                tracing::error!(error = %back, "a visit being removed couldn't go back to Deleted visits");
+            }
+            return Err(AppError(format!("{NOT_RECORDED} {e}")));
+        }
+        // Recorded; if a file is in use the folder goes at the next start.
+        trash.finish_purge(&purging)?;
+        Ok(())
+    }
+
+    /// Remove every deleted visit whose 30 days are up (by `now`). Does
+    /// nothing while the folders are changing. Returns how many were removed.
+    pub fn purge_due_at(&self, now: DateTime<Local>) -> Result<usize> {
+        let Ok(_work) = self.begin_work() else { return Ok(0) };
+        let trash = self.trash();
+        let audit = self.audit();
+        let team = self.users.is_team();
+        let mut removed = 0;
+        for trash_id in trash.due(now) {
+            // Phase 2: items the clinic's retention rule keeps are skipped here.
+            let Ok(_lock) = self.lock_visit(&format!("deleted:{trash_id}"), Holder::Deleting) else {
+                continue;
+            };
+            let Ok((info, s)) = trash.get(&trash_id) else { continue };
+            let tombstone = audit::tombstone(&s, Some(&trash_id));
+            drop(s);
+            let purging = match trash.begin_purge(&trash_id) {
+                Ok(p) => p,
+                Err(e) => {
+                    tracing::warn!(error = %e, "a deleted visit couldn't be removed yet");
+                    continue;
+                }
+            };
+            let mut entry =
+                EventDraft::new(EventKind::VisitPurged, Who::named(os_engine::PRODUCT_NAME), team);
+            entry.visit = Some(tombstone);
+            entry.reason = Some(info.reason);
+            entry.purge = Some(Purge::After30Days);
+            if let Err(e) = audit.append(entry) {
+                tracing::warn!(error = %e, "the removal couldn't be recorded; the visit stays in Deleted visits");
+                let _ = trash.undo_purge(&purging);
+                continue;
+            }
+            if let Err(e) = trash.finish_purge(&purging) {
+                tracing::warn!(error = %e, "a removed visit's folder goes at the next start");
+            }
+            removed += 1;
+        }
+        Ok(removed)
+    }
+
+    /// Put right what a crash left in Deleted visits (ADR-0022 section 3):
+    /// describe items without `deleted.json`, finish part-done removals, and
+    /// add any missing deletion record entries, marked as recovered. Returns
+    /// how many entries were added.
+    pub fn recover_deleted(&self, now: DateTime<Local>) -> usize {
+        let Ok(_work) = self.begin_work() else { return 0 };
+        let trash = self.trash();
+        let audit = self.audit();
+        let team = self.users.is_team();
+        let system = Who::named(os_engine::PRODUCT_NAME);
+        // A record that can't be read isn't added to blindly. A line torn by
+        // the crash being recovered from is left out, not a reason to wait.
+        let events = match audit.read_readable() {
+            Ok(events) => events,
+            Err(e) => {
+                tracing::warn!(error = %e, "the deletion record can't be read; recovery waits");
+                return 0;
+            }
+        };
+        let mut added = 0;
+        for recovered in trash.recover(now) {
+            let Recovered::Purged { trash_id, info, session } = recovered else { continue };
+            let recorded = events.iter().any(|e| {
+                e.kind == EventKind::VisitPurged
+                    && e.visit.as_ref().and_then(|v| v.trash_id.as_deref()) == Some(trash_id.as_str())
+            });
+            if recorded {
+                continue;
+            }
+            let mut entry = EventDraft::new(EventKind::VisitPurged, system.clone(), team);
+            entry.visit = session.as_ref().map(|s| audit::tombstone(s, Some(&trash_id)));
+            entry.purge = Some(match &info {
+                Some(i) if i.purge_after > now => Purge::ByHand,
+                _ => Purge::After30Days,
+            });
+            entry.reason = info.map(|i| i.reason);
+            entry.recovered = true;
+            if audit.append(entry).is_ok() {
+                added += 1;
+            }
+        }
+        // Deleted visits whose entry is missing (including any just described).
+        for (info, s) in trash.list() {
+            if events.iter().any(|e| e.id == info.event_id) {
+                continue;
+            }
+            let mut entry = EventDraft::new(EventKind::VisitDeleted, info.by.clone(), team);
+            entry.id = Some(info.event_id.clone());
+            entry.visit = Some(audit::tombstone(&s, Some(&info.trash_id)));
+            entry.reason = Some(info.reason.clone());
+            entry.recovered = true;
+            if audit.append(entry).is_ok() {
+                added += 1;
+            }
+        }
+        added
+    }
+
+    /// Recovery, then removal of what's due: at start, and hourly.
+    pub fn housekeeping_now(&self, now: DateTime<Local>) {
+        let recovered = self.recover_deleted(now);
+        let removed = self.purge_due_at(now).unwrap_or(0);
+        if recovered + removed > 0 {
+            tracing::info!(recovered, removed, "Deleted visits housekeeping");
+        }
+    }
+
+    /// Start housekeeping for Deleted visits: once now, then hourly while this
+    /// App is in use. Called by the desktop app's setup and by `serve` (on
+    /// start and for each fresh App after a folder change), never by
+    /// [`App::new`], so tests never run it in the background.
+    pub fn start_housekeeping(self: &Arc<Self>) {
+        let app = Arc::downgrade(self);
+        let spawned = std::thread::Builder::new().name("openbark-housekeeping".into()).spawn(move || {
+            loop {
+                {
+                    let Some(app) = app.upgrade() else { return };
+                    if app.gate.retired.load(std::sync::atomic::Ordering::SeqCst) {
+                        return;
+                    }
+                    app.housekeeping_now(Local::now());
+                }
+                for _ in 0..60 {
+                    std::thread::sleep(std::time::Duration::from_secs(60));
+                    if app.strong_count() == 0 {
+                        return;
+                    }
+                }
+            }
+        });
+        if let Err(e) = spawned {
+            tracing::warn!(error = %e, "Deleted visits housekeeping couldn't start");
+        }
+    }
+
+    /// Delete only the recording ("Delete this recording? The note stays.").
+    /// The transcript, drafts, signed notes and addenda are kept. On a signed
+    /// visit only a veterinarian can. Recorded first, then removed.
+    pub fn delete_recording(&self, id: &str, by: Option<&str>) -> Result<SessionView> {
+        let _work = self.begin_work()?;
+        let dir = self.session_dir(id)?;
+        let _lock = self.lock_visit(id, Holder::Deleting)?;
+        if self.recording_into(&dir) {
+            return Err(AppError(Holder::Recording.refusal(Holder::Deleting).into()));
+        }
+        let mut s = Session::open(&dir)?;
+        let need = if s.any_signed() { Need::DeleteSignedRecording } else { Need::Delete };
+        let who = self
+            .who(by, need)?
+            .ok_or_else(|| AppError("Add your name in Settings, then delete the recording.".into()))?;
+        if !s.has_audio() {
+            return Err(AppError("This visit has no recording.".into()));
+        }
+        let mut entry = EventDraft::new(EventKind::RecordingDeleted, who.clone(), self.users.is_team());
+        entry.visit = Some(audit::tombstone(&s, None));
+        self.audit().append(entry).map_err(|e| {
+            AppError(format!("OpenBark couldn't record the deletion, so the recording was kept. {e}"))
+        })?;
+        s.delete_audio(&who)?;
         Ok(view(&s, None))
     }
 
@@ -1425,6 +1979,7 @@ impl App {
         StorageView {
             models: self.folder_view(FolderKind::Models),
             visits: self.folder_view(FolderKind::Visits),
+            deleted_bytes: self.trash().bytes(),
         }
     }
 
@@ -1848,6 +2403,13 @@ enum Need {
     Notes,
     Sign,
     Team,
+    /// Delete, restore or remove an unsigned visit, or see Deleted visits
+    /// (veterinarian or technician; ADR-0022 section 1).
+    Delete,
+    /// Remove a signed visit from Deleted visits (veterinarian).
+    DeleteSigned,
+    /// Delete the recording of a signed visit (veterinarian).
+    DeleteSignedRecording,
 }
 
 /// What to put in a PDF export.
@@ -2000,8 +2562,22 @@ fn with_header(s: &Session, markdown: &str) -> String {
     format!("{header}{markdown}")
 }
 
+/// A deletion reason's words, as kept in the record: trimmed, on one line,
+/// and short (no clinical details belong there).
+fn clean_note(note: &str) -> String {
+    note.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(500).collect()
+}
+
 fn id_of(s: &Session) -> String {
-    s.dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+    folder_name(&s.dir)
+}
+
+fn folder_name(dir: &Path) -> String {
+    dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+}
+
+fn stamp(at: DateTime<Local>) -> String {
+    at.format("%Y-%m-%d %H:%M").to_string()
 }
 
 fn source_label(source: &str) -> String {
@@ -2065,6 +2641,9 @@ fn view(s: &Session, transcript: Option<Transcript>) -> SessionView {
         recorded_by: s.meta.recorded_by.clone(),
         pets: s.meta.patient.as_ref().map(|p| p.pets()).filter(|p| p.len() > 1).unwrap_or_default(),
         pet: s.pet.clone(),
+        any_signed: s.any_signed(),
+        has_audio: s.has_audio(),
+        audio_deleted: s.meta.audio_deleted.clone(),
     }
 }
 
@@ -2082,96 +2661,4 @@ fn with_addenda(mut markdown: String, addenda: &[Addendum]) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn visits_group_under_patients_and_stay_linked_after_a_rename() {
-        // A throwaway key, so the test never touches this computer's own.
-        // SAFETY: the only test in this crate that touches the environment.
-        let tmp = tempfile::tempdir().unwrap();
-        unsafe {
-            std::env::set_var("OPENBARK_DATA_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=");
-            // Folder changes below save their choice here, never in the real locations.json.
-            std::env::set_var("OPENBARK_LOCATIONS_FILE", tmp.path().join("locations.json"));
-        }
-        let root = tmp.path().join("sessions");
-        // Chosen folders, as Settings would save them (so they aren't "fixed").
-        let mut chosen = os_models::locations::Locations::default();
-        chosen.set(FolderKind::Visits, Some(root.clone()));
-        chosen.set(FolderKind::Models, Some(tmp.path().join("models")));
-        os_models::locations::save(&chosen).unwrap();
-        let app = App::new(ModelStore::new(tmp.path().join("models")), root.clone());
-        // A real (silent) 16 kHz mono WAV, a tenth of a second long.
-        let audio = tmp.path().join("visit.wav");
-        let data = vec![0u8; 3200];
-        let mut wav = Vec::new();
-        wav.extend(b"RIFF");
-        wav.extend((36 + data.len() as u32).to_le_bytes());
-        wav.extend(b"WAVEfmt ");
-        wav.extend(16u32.to_le_bytes());
-        wav.extend(1u16.to_le_bytes());
-        wav.extend(1u16.to_le_bytes());
-        wav.extend(16_000u32.to_le_bytes());
-        wav.extend(32_000u32.to_le_bytes());
-        wav.extend(2u16.to_le_bytes());
-        wav.extend(16u16.to_le_bytes());
-        wav.extend(b"data");
-        wav.extend((data.len() as u32).to_le_bytes());
-        wav.extend(data);
-        std::fs::write(&audio, wav).unwrap();
-        let visit = |p: Patient| {
-            let mut s = Session::create_from_file(&root, &audio, 1.0).unwrap();
-            s.set_patient(p).unwrap();
-        };
-        let named = |name: &str, last: &str| Patient {
-            name: name.into(),
-            last_name: last.into(),
-            ..Default::default()
-        };
-        visit(Patient { species: "canine".into(), ..named("Maple", "Okonkwo") });
-        visit(named("maple ", "OKONKWO"));
-        visit(Patient { others: vec!["Pickles".into()], ..named("Olive", "Haddad") });
-
-        let list = app.list_patients().unwrap();
-        let find =
-            |name: &str| list.iter().find(|p| p.patient.name.eq_ignore_ascii_case(name)).unwrap().clone();
-        assert_eq!(list.len(), 3, "{list:?}");
-        assert_eq!(find("Maple").visits, 2, "the same animal, spelt two ways");
-        assert_eq!(find("Maple").patient.species, "canine");
-        assert_eq!(find("Pickles").visits, 1, "each animal in a multi-pet visit has its own patient");
-
-        // Visits are now linked by id: renaming the patient keeps them.
-        let maple = find("Maple").patient;
-        app.update_patient_record(&maple.id, "Maple", "Okonkwo-Reid", "canine").unwrap();
-        assert_eq!(app.patient(&maple.id).unwrap().visits.len(), 2);
-        assert_eq!(app.list_patients().unwrap().len(), 3, "no duplicate made for the old spelling");
-        let pickles = app.patient(&find("Pickles").patient.id).unwrap();
-        assert_eq!(pickles.visits[0].pet.as_deref(), Some("Pickles"));
-
-        // The work gate (ADR-0013 review): no folder change while something
-        // is writing; after a change, this App takes no more work.
-        struct Quiet;
-        impl Events for Quiet {
-            fn segment(&self, _: &Segment) {}
-            fn token(&self, _: &str) {}
-            fn level(&self, _: f32, _: f32) {}
-            fn download(&self, _: &str, _: u64, _: u64) {}
-        }
-        let elsewhere = tmp.path().join("elsewhere");
-        let elsewhere = elsewhere.to_str().unwrap();
-        let drafting = app.begin_work().unwrap();
-        let busy = app.change_folder(FolderKind::Visits, elsewhere, ChangeMode::Switch, false, &Quiet);
-        let refusal = busy.err().map(|e| e.0).unwrap_or_default();
-        assert!(refusal.contains("importing"), "refused while a draft is running: {refusal}");
-        drop(drafting);
-        app.change_folder(FolderKind::Visits, elsewhere, ChangeMode::Switch, false, &Quiet).unwrap();
-        assert!(app.begin_work().is_err(), "a retired App refuses new work");
-        assert!(app.create_patient("Late", "Writer", "").is_err(), "no writes to the old folder");
-        assert!(app.change_folder(FolderKind::Visits, elsewhere, ChangeMode::Switch, false, &Quiet).is_err());
-        assert!(
-            std::fs::read_to_string(tmp.path().join("locations.json")).unwrap().contains("elsewhere"),
-            "the choice was saved"
-        );
-    }
-}
+mod tests;

@@ -10,6 +10,11 @@
 | "Choose who you are first" | The team is set up and nobody has picked their name | Pick your name and enter your PIN. |
 | "That PIN isn't right" | The PIN doesn't match | Try again, or ask a veterinarian to remove and re-add you with a new PIN. |
 | "This note is signed, so it can't be changed" | Signed notes are locked | Add an addendum instead. |
+| "Another program is using a file in this visit" | Windows won't move or remove a file while another program has it open, such as an Explorer window, a media player or antivirus | Close any window showing the visit's folder or recording, wait a moment, then try again. Nothing was deleted, and the visit is still listed. |
+| "Signed visits can't be deleted yet" | The visit has a signed note, for at least one animal | Correct the note with **Add addendum**. To remove only the recording, a veterinarian can choose **Delete recording**. |
+| "This visit was deleted" | Another window, or an old link, opened a visit that is now in Deleted visits | Restore it from **Settings → Deleted visits** if you need it. |
+| "OpenBark couldn't record the deletion, so the visit was kept" | The deletion record in the visits folder couldn't be written (a full or read-only drive, or a folder permission) | Check the drive has space and that you can write to the visits folder, then try again. |
+| "This visit is being drafted. Delete it when that's finished." | A draft of this visit is being written, perhaps in another window | Wait for the draft to finish, then delete. |
 | "The clipboard isn't available here" | The browser didn't allow copying | Select the text and copy it with the keyboard, or use the desktop app. |
 | Settings, Encryption: "The key is kept in a file …" | This computer's keychain isn't available (often over a remote connection) | It still works. Keep the recovery key somewhere safe. |
 | "… can't be decrypted with this computer's key" | The encounter was encrypted with a different key | Import the recovery key that was used before (see [Team and security](team-and-security.md)). |

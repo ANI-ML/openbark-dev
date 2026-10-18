@@ -33,5 +33,5 @@ API: `list_patients`, `patient(id)`, `create_patient`, `update_patient_record` (
 
 - One animal, one row, even if some visits were recorded before the registry existed.
 - Two different animals with the same name and family name merge into one patient. That is rare within a clinic, and choosing the right patient in **Find a patient** avoids it. If it becomes a problem, a later change can add merge and split, or carry the PIMS patient number, which the browser extension sees.
-- Deleting a patient isn't offered yet. A record with no visits is harmless, and deleting clinic data needs its own careful flow, the same as for visits.
+- Deleting a patient isn't offered yet. A record with no visits is harmless, and deleting clinic data needs its own careful flow, the same as for visits. Deleting visits: [ADR-0022](0022-deleting-visits.md).
 - The registry is one more encrypted file in the sessions folder. Backups and the recovery key cover it with no extra steps.

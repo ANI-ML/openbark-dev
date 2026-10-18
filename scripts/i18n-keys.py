@@ -36,6 +36,18 @@ INDIRECT = [
     "Your team's templates", "Common visits", "Specialty and other notes", "For the client",
     # promptExamples NOTE_EXAMPLES use cases
     "Small-animal general practice", "Emergency and critical care", "Feline-only clinic", "Equine ambulatory", "Exotics", "Farm and production animals", "Shelter medicine", "Referral specialty",
+    # Engine messages about deleting (os-app, os-engine trash; ADR-0022), shown
+    # through t(error) in Review and Settings. Messages with a name or a date
+    # in them stay in English.
+    "Add your name in Settings, then restore the visit.", "Add your name in Settings, then delete the recording.",
+    "This visit is being drafted. Delete it when that's finished.",
+    "This visit is still being transcribed. Delete it when that's finished.",
+    "This visit is still recording. Stop the recording first.",
+    "This visit is being saved in another window. Try again in a moment.", "This visit is being deleted.",
+    "Another program is using a file in this visit. Close any window showing it, then try again.",
+    "This visit was deleted. Restore it from Deleted visits in Settings.",
+    "That deleted visit is no longer there. It may have been restored or removed for good.",
+    "This visit has no recording.",
 ]
 
 

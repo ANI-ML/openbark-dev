@@ -125,6 +125,11 @@ impl UserStore {
         Self { path }
     }
 
+    /// The file the team is kept in.
+    pub fn path(&self) -> &std::path::Path {
+        &self.path
+    }
+
     fn load(&self) -> Result<Vec<StoredUser>, EngineError> {
         match crate::vault::read_to_string(&self.path) {
             Ok(text) => serde_json::from_str(&text).map_err(|e| EngineError::Session(format!("users: {e}"))),

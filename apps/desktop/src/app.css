@@ -262,7 +262,7 @@
 .visit-facts > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .visit-facts > div:first-child { flex: 1 1 320px; }
 .visit-facts dd { margin: 0; overflow-wrap: anywhere; }
-.visit-edit-btn { margin-left: auto; align-self: center; }
+.visit-edit-btn { margin-left: auto; align-self: center; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .visit-edit .patient-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
 .visit-edit .patient-fields > :last-child { grid-column: 1 / -1; }
 @media (max-width: 640px) { .visit-edit .patient-fields { grid-template-columns: 1fr; } .visit { padding: 20px; } }
@@ -1017,3 +1017,39 @@ p > .ob-dot { display: inline-block; vertical-align: middle; }
 @media (max-width: 1023px) { .draft-board-wrap { top: 64px; } }
 .note-under-redraft { opacity: 0.38; pointer-events: none; transition: opacity var(--dur-fast) var(--ease); }
 @media (prefers-reduced-motion: reduce) { .note-under-redraft { transition: none; } }
+
+/* Deleting visits and recordings (ADR-0022). Destructive buttons use the
+   danger outline (brand guide §7.2); the menu and rows are hairline surfaces. */
+.delete-visit { position: relative; display: inline-flex; }
+/* A disabled button lets its wrapper show why (the tooltip). */
+.delete-visit > .ob-button:disabled, .delete-recording > .ob-button:disabled { pointer-events: none; }
+.delete-recording { display: inline-flex; }
+.delete-menu {
+  position: absolute; z-index: 30; top: calc(100% + 6px); right: 0;
+  width: 320px; max-width: calc(100vw - 32px);
+  display: flex; flex-direction: column; gap: 8px; padding: 12px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow-raised);
+}
+.delete-menu p { margin: 0; text-wrap: pretty; }
+.delete-menu-items { list-style: none; margin: 0 -4px; padding: 0; display: flex; flex-direction: column; }
+.delete-menu-item {
+  width: 100%; min-height: 36px; padding: 6px 10px; text-align: left;
+  border: 0; border-radius: var(--r-sm); background: transparent; color: var(--ink);
+  font: inherit; font-size: 15px; line-height: 22px; cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+.delete-menu-item:hover:not(:disabled), .delete-menu-item:focus-visible { background: var(--surface-2); }
+.delete-menu-item:disabled { opacity: 0.45; cursor: not-allowed; }
+@media (pointer: coarse) { .delete-menu-item { min-height: 44px; } }
+.player-actions { flex: none; display: flex; justify-content: flex-end; padding: 4px 8px; border-bottom: 1px solid var(--border); }
+.recording-gone { flex: none; margin: 0; padding: 10px 16px; border-bottom: 1px solid var(--border); }
+.ob-toast[data-action] { display: flex; align-items: center; gap: 12px; padding: 6px 6px 6px 18px; }
+.deleted-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.deleted-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 12px 0; }
+.deleted-row + .deleted-row { border-top: 1px solid var(--border); }
+.deleted-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.deleted-who { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.deleted-actions { flex: none; display: flex; flex-wrap: wrap; gap: 8px; }
+.deleted-empty { margin: 0; }
+.deleted-line { margin: 12px 0 0; }
+@media (max-width: 640px) { .deleted-row { flex-direction: column; } }

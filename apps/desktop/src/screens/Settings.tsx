@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { DEFAULT_CONSENT_SCRIPT, useApp } from "../context";
 import * as engine from "../engine";
 import { NOTE_LANGUAGES, UI_LANGUAGES, useT } from "../i18n";
+import { DeletedVisits } from "../components/DeletedVisits";
 import { StorageSection } from "../components/StorageSection";
 import { TeamSettings } from "../components/TeamSettings";
 
@@ -346,6 +347,8 @@ export function SettingsScreen() {
       </section>
 
       <StorageSection />
+
+      {app.can.notes && <DeletedVisits />}
 
       <section className="group">
         <h2>{t("About")}</h2>

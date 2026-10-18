@@ -85,6 +85,12 @@ export function saveSettings(s: Settings) {
   }
 }
 
+/** A toast's one action, such as Undo. */
+export interface ToastAction {
+  label: string;
+  run: () => void;
+}
+
 export interface Ctx {
   route: Route;
   navigate: (r: Route) => void;
@@ -92,7 +98,8 @@ export interface Ctx {
   refreshStatus: () => void;
   settings: Settings;
   setSettings: (s: Partial<Settings>) => void;
-  toast: (message: string) => void;
+  /** Show a toast; `action` adds a button (Undo). */
+  toast: (message: string, action?: ToastAction) => void;
   announce: (message: string) => void;
   levels: LevelSource & { push(level: number): void };
   /** The team member using the app (null single-user, or before choosing). */

@@ -36,3 +36,49 @@ Pick a template in the top bar and choose **Draft as …** to draft the same con
 When the note is right, choose **Sign note**. Signing locks it: it can't be edited, re-asked or redrafted afterwards. For anything that comes later, such as a phone update, choose **Add addendum**. Addenda are dated, signed with your name, and appear under the note, in copies and in PDFs.
 
 If your clinic has a team set up, only veterinarians can sign and add addenda.
+
+## Delete a visit
+
+A test recording, a visit recorded by mistake, a duplicate import, or a client who withdraws consent: open the visit in Review and choose **Delete visit**, beside **Edit details**. Pick the reason from the short menu. The visit is deleted at once and a message offers **Undo**.
+
+- The visit goes to **Deleted visits** (Settings) for 30 days. Restore it from there any time in those 30 days.
+- In a visit with more than one animal, the whole visit is deleted, with every animal's notes. The menu names the other animals first.
+- Filed under the wrong patient? That's a correction, not a deletion: use **Edit details** instead.
+- **Signed visits can't be deleted yet.** To correct a signed note, add an addendum.
+- Veterinarians and technicians can delete visits. Reception can't, and doesn't see Deleted visits. Working alone, you need your name in Settings, as for signing.
+
+The patient stays in your patient list, even with no visits left. Their page says when a deleted visit is waiting in Deleted visits.
+
+## Deleted visits
+
+**Settings → Deleted visits** lists every deleted visit: the patient, the visit date, who deleted it and why, and the day it will be removed for good.
+
+- **Restore** puts the visit back, with its recording, transcript and every draft, and links it to its patients again.
+- **Delete now** removes it for good, after you confirm. It can't be undone.
+- After 30 days, OpenBark removes a deleted visit for good on its own.
+
+**Settings → Storage** shows how much space Deleted visits take.
+
+## Delete only the recording
+
+After the note is checked and signed, you may not need the recording any more. Choose **Delete recording**, under the player, and confirm: "Delete this recording? The note stays."
+
+- Only the recording goes, at once. The transcript, every draft, signed notes and addenda stay. Evidence links still light up the transcript line; they just can't play it.
+- You can't play the visit back or transcribe it again afterwards. Drafting again works, because drafts are written from the transcript.
+- On a signed visit, only a veterinarian can delete the recording.
+- Review then says "Recording deleted" with the date and who did it.
+
+## What deleting removes, and what it doesn't
+
+OpenBark only deletes its own files. When a visit is deleted for good (Delete now, or after 30 days):
+
+| Where | What happens |
+|---|---|
+| OpenBark's screens | The visit is gone |
+| This computer's disk | OpenBark's files are removed. Encrypted fragments can stay in free disk space until something overwrites them. They can't be read without the key |
+| Backups of this computer (File History, shadow copies, Time Machine, your own backups) | Encrypted copies stay until those backups expire. The recovery key can open them |
+| A visits folder kept in a cloud-synced folder | An encrypted copy can stay in that service's recycle bin for a few weeks |
+| Your practice software, saved PDFs, copied text | Not touched. OpenBark never controlled them |
+| The file you imported, if the visit came from a file | Still where it was. Delete it there too if you need to |
+| Visits saved before encryption was turned on | Plain-text fragments may stay on the disk |
+| The deletion record | Keeps a dated entry of who deleted what and why, with no transcript or note text (see [Team and security](team-and-security.md)) |

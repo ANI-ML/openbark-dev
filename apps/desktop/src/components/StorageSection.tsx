@@ -49,6 +49,9 @@ export function StorageSection() {
         {f.fixed_by && (
           <span className="small faint">{t("Set by {by}, so it can't be changed here.", { by: f.fixed_by })}</span>
         )}
+        {f.kind === "visits" && (view?.deleted_bytes ?? 0) > 0 && (
+          <span className="small faint">{t("Deleted visits: {size}", { size: fmtBytes(view?.deleted_bytes ?? 0) })}</span>
+        )}
       </div>
       <Button variant="ghost" onClick={() => void change(f.kind)} disabled={Boolean(f.fixed_by)}>
         <FolderOpen size={18} aria-hidden />

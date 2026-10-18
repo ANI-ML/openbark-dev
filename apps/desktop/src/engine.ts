@@ -165,6 +165,62 @@ export interface SessionView {
   pets: string[];
   /** Whose notes this view shows, in a multi-pet visit. */
   pet: string | null;
+  /** Any note in the visit is signed, for any animal (ADR-0022). */
+  any_signed?: boolean;
+  /** The recording is still kept. */
+  has_audio?: boolean;
+  /** When only the recording was deleted, and by whom. */
+  audio_deleted?: AudioDeleted | null;
+}
+
+// ---- deleting (ADR-0022) ----------------------------------------------------
+
+/** When only the recording was deleted, and by whom. */
+export interface AudioDeleted {
+  at: string;
+  by: Who;
+}
+
+export type ReasonKind = "test" | "mistake" | "duplicate" | "consent_withdrawn" | "other";
+
+export interface DeleteReason {
+  kind: ReasonKind;
+  note?: string;
+}
+
+/** A visit just moved to Deleted visits. */
+export interface DeletedVisit {
+  trash_id: string;
+  pets: string[];
+  signed: boolean;
+  purge_after: string;
+  /** The main animal's patient record, to go back to. */
+  patient_id: string | null;
+}
+
+/** A row of Settings, Deleted visits. */
+export interface DeletedSummary {
+  trash_id: string;
+  /** "Olive Haddad"; empty when no patient was entered. */
+  patient: string;
+  patient_ids: string[];
+  pets: string[];
+  created_at: string;
+  deleted_at: string;
+  by: string;
+  reason: DeleteReason;
+  signed: boolean;
+  purge_after: string;
+  /** Phase 2: kept longer by the clinic's retention rule. */
+  kept_until: string | null;
+  bytes: number;
+  recovered: boolean;
+}
+
+/** A visit brought back from Deleted visits (its id may have gained a suffix). */
+export interface RestoredVisit {
+  id: string;
+  patient_id: string | null;
 }
 
 /** A document for the client (discharge instructions, a summary). */
@@ -444,6 +500,8 @@ export interface FolderView {
 export interface StorageView {
   models: FolderView;
   visits: FolderView;
+  /** Space Deleted visits take, inside the visits folder. */
+  deleted_bytes?: number;
 }
 
 /** What choosing a folder would do, shown before anything changes. */
@@ -556,6 +614,8 @@ export interface VisitSummary {
   /** This animal's name, when the visit covered several. */
   pet?: string | null;
   source: string;
+  /** The recording is still kept. */
+  has_audio?: boolean;
 }
 
 export interface PatientSummary {
@@ -570,6 +630,8 @@ export interface PatientSummary {
 export interface PatientView {
   patient: PatientRecord;
   visits: VisitSummary[];
+  /** This patient's visits waiting in Deleted visits. */
+  deleted?: number;
 }
 
 export const listPatients = () =>
@@ -670,7 +732,11 @@ export async function exportPdf(id: string, request: PdfRequest): Promise<boolea
     await invoke<void>("export_pdf", { id, path, request });
     return true;
   }
-  const res = await fetch(`/api/sessions/${enc(id)}/pdf`, post(request));
+  // The server refuses a POST without X-OpenBark (os-server `local_only`).
+  const res = await fetch(`/api/sessions/${enc(id)}/pdf`, {
+    ...post(request),
+    headers: { "content-type": "application/json", "x-openbark": "1" },
+  });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(body.error ?? `${res.status} ${res.statusText}`);
@@ -704,6 +770,34 @@ export const signNote = (id: string, by: string, pet?: string | null) =>
   isDesktop
     ? invoke<SessionView>("sign_note", { id, by, pet: pet ?? null })
     : api<SessionView>(`/api/sessions/${enc(id)}/sign`, post({ by, pet: pet ?? null }));
+
+// ---- deleting (ADR-0022) ----------------------------------------------------
+
+/** Move a visit to Deleted visits for 30 days. */
+export const deleteVisit = (id: string, by: string | null, reason: DeleteReason) => {
+  const request = { by, reason: { kind: reason.kind, note: reason.note ?? "" } };
+  return isDesktop
+    ? invoke<DeletedVisit>("delete_visit", { id, request })
+    : api<DeletedVisit>(`/api/sessions/${enc(id)}/delete`, post(request));
+};
+/** Delete only the recording; the transcript and notes stay. */
+export const deleteRecording = (id: string, by: string | null) =>
+  isDesktop
+    ? invoke<SessionView>("delete_recording", { id, by })
+    : api<SessionView>(`/api/sessions/${enc(id)}/recording/delete`, post({ by }));
+export const listDeleted = (by: string | null) =>
+  isDesktop
+    ? invoke<DeletedSummary[]>("list_deleted", { by })
+    : api<DeletedSummary[]>(`/api/deleted?by=${enc(by ?? "")}`);
+export const restoreVisit = (tid: string, by: string | null) =>
+  isDesktop
+    ? invoke<RestoredVisit>("restore_visit", { tid, by })
+    : api<RestoredVisit>(`/api/deleted/${enc(tid)}/restore`, post({ by }));
+/** "Delete now": removed for good. A PIN (signed visits, phase 2) goes in the body only. */
+export const purgeDeleted = (tid: string, by: string | null, pin?: string | null) =>
+  isDesktop
+    ? invoke<void>("purge_deleted", { tid, by, pin: pin ?? null })
+    : api<void>(`/api/deleted/${enc(tid)}/purge`, post({ by, pin: pin ?? null }));
 export const models = () => (isDesktop ? invoke<ModelRow[]>("models") : api<ModelRow[]>("/api/models"));
 /** Speech recognition on the graphics card (ADR-0014). */
 export interface GpuStatus {

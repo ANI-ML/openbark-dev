@@ -111,6 +111,11 @@ pub fn rerun(store: &ModelStore, args: RerunArgs) -> Result<()> {
     let _awake = AwakeGuard::acquire(AwakeReason::Processing);
     let mut session = Session::open(&args.session).context("opening session")?;
     let transcript = if args.retranscribe || !session.transcript_path().is_file() {
+        if !session.has_audio() && session.meta.audio_deleted.is_some() {
+            bail!(
+                "This visit's recording was deleted, so it can't be transcribed again. Drafting from the transcript still works."
+            );
+        }
         let wav = os_engine::vault::read(&session.audio_path())?;
         let audio = Audio::decode_bytes(wav, "audio.wav")?;
         let transcriber = os_engine::models::transcriber(store, &args.stt, args.diarize, None, None, None)?;

@@ -403,6 +403,59 @@ async fn verify_user(app: State<'_, AppState>, uid: String, pin: String) -> Resu
     work(move || app.verify_user(&uid, &pin)).await
 }
 
+// ---- deleting (ADR-0022) ------------------------------------------------------
+
+#[tauri::command]
+async fn delete_visit(
+    app: State<'_, AppState>,
+    id: String,
+    request: os_app::DeleteRequest,
+) -> Result<os_app::DeletedVisit, String> {
+    let app = app.inner().clone();
+    work(move || app.delete_visit(&id, &request)).await
+}
+
+#[tauri::command]
+async fn delete_recording(
+    app: State<'_, AppState>,
+    id: String,
+    by: Option<String>,
+) -> Result<os_app::SessionView, String> {
+    let app = app.inner().clone();
+    work(move || app.delete_recording(&id, by.as_deref())).await
+}
+
+#[tauri::command]
+async fn list_deleted(
+    app: State<'_, AppState>,
+    by: Option<String>,
+) -> Result<Vec<os_app::DeletedSummary>, String> {
+    let app = app.inner().clone();
+    work(move || app.list_deleted(by.as_deref())).await
+}
+
+#[tauri::command]
+async fn restore_visit(
+    app: State<'_, AppState>,
+    tid: String,
+    by: Option<String>,
+) -> Result<os_app::RestoredVisit, String> {
+    let app = app.inner().clone();
+    work(move || app.restore_visit(&tid, by.as_deref())).await
+}
+
+/// "Delete now". A PIN (signed visits) is only ever an argument, never logged.
+#[tauri::command]
+async fn purge_deleted(
+    app: State<'_, AppState>,
+    tid: String,
+    by: Option<String>,
+    pin: Option<String>,
+) -> Result<(), String> {
+    let app = app.inner().clone();
+    work(move || app.purge_deleted(&tid, by.as_deref(), pin.as_deref())).await
+}
+
 #[tauri::command]
 fn list_templates(app: State<'_, AppState>) -> Vec<TemplateSummary> {
     app.list_templates()
@@ -496,6 +549,8 @@ async fn hub_add(
 pub fn run() {
     let app: AppState =
         Arc::new(App::new(ModelStore::default_location(), os_engine::session::default_root()));
+    // Deleted visits (ADR-0022): recover what a crash left, remove what's due, then hourly.
+    app.start_housekeeping();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -528,6 +583,11 @@ pub fn run() {
             export_pdf,
             pdf_name,
             session_audio,
+            delete_visit,
+            delete_recording,
+            list_deleted,
+            restore_visit,
+            purge_deleted,
             list_users,
             add_user,
             remove_user,

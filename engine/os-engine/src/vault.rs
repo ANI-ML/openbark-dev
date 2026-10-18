@@ -27,6 +27,9 @@ use serde::Serialize;
 
 const FILE_MAGIC: &[u8; 4] = b"OBK1";
 const AUDIO_MAGIC: &[u8; 4] = b"OBA1";
+/// Append-only logs (the deletion record, ADR-0022): one encrypted line each.
+const LINE_MAGIC: &[u8; 4] = b"OBL1";
+const LINE_PREFIX: &str = "OBL1:";
 const NONCE: usize = 24;
 const TAG: usize = 16;
 /// Audio plaintext per chunk: 2 s of 16 kHz 16-bit mono.
@@ -345,6 +348,94 @@ pub fn write(path: &Path, plain: &[u8]) -> io::Result<()> {
     ));
     fs::write(&tmp, data)?;
     fs::rename(&tmp, path)
+}
+
+fn line_aad(path: &Path) -> Vec<u8> {
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    [LINE_MAGIC.as_slice(), name.as_bytes()].concat()
+}
+
+/// Append one line to a log (ADR-0022 section 6). Encrypted, the line is
+/// `OBL1:` then base64 of a 24-byte nonce and the ciphertext, with the magic
+/// and the file name as associated data; with the vault off it's `plain` as
+/// is (one line of JSON). The whole line and its newline go in one write to a
+/// file opened for appending, then synced to disk. Returns the line as
+/// stored, which the caller hashes into the next entry.
+pub fn append_line(path: &Path, plain: &[u8]) -> io::Result<String> {
+    if plain.contains(&b'\n') || plain.contains(&b'\r') {
+        return Err(err("a log line can't contain a line break"));
+    }
+    let line = {
+        let state = STATE.read().expect("vault lock");
+        match state.as_ref() {
+            Some(s) => {
+                let nonce_bytes = random::<NONCE>()?;
+                let ct = s
+                    .cipher
+                    .encrypt(&XNonce::from(nonce_bytes), Payload { msg: plain, aad: &line_aad(path) })
+                    .map_err(|_| err("encryption failed"))?;
+                let body =
+                    base64::engine::general_purpose::STANDARD.encode([nonce_bytes.as_slice(), &ct].concat());
+                format!("{LINE_PREFIX}{body}")
+            }
+            None => {
+                String::from_utf8(plain.to_vec()).map_err(|e| err(format!("a log line must be text: {e}")))?
+            }
+        }
+    };
+    let mut file = fs::OpenOptions::new().create(true).append(true).read(true).open(path)?;
+    // A line torn by a crash has no newline: start this one on its own line.
+    let len = file.metadata()?.len();
+    let mut out = String::with_capacity(line.len() + 2);
+    if len > 0 {
+        let mut last = [0u8; 1];
+        file.seek(SeekFrom::Start(len - 1))?;
+        file.read_exact(&mut last)?;
+        if last[0] != b'\n' {
+            out.push('\n');
+        }
+    }
+    out.push_str(&line);
+    out.push('\n');
+    file.write_all(out.as_bytes())?;
+    file.sync_data()?;
+    Ok(line)
+}
+
+/// Every line of a log, as stored and decrypted, in order. Blank lines are
+/// skipped. A line that can't be decrypted or decoded is an error.
+pub fn read_lines(path: &Path) -> io::Result<Vec<(String, Vec<u8>)>> {
+    let text = fs::read_to_string(path)?;
+    let mut out = Vec::new();
+    for (i, raw) in text.lines().enumerate() {
+        let stored = raw.trim_end_matches('\r');
+        if stored.is_empty() {
+            continue;
+        }
+        let plain = decrypt_line(path, stored)
+            .map_err(|e| io::Error::new(e.kind(), format!("line {}: {e}", i + 1)))?;
+        out.push((stored.to_string(), plain));
+    }
+    Ok(out)
+}
+
+/// One stored log line, decrypted (or as is, when it was written plain).
+pub fn decrypt_line(path: &Path, stored: &str) -> io::Result<Vec<u8>> {
+    let Some(body) = stored.strip_prefix(LINE_PREFIX) else {
+        return Ok(stored.as_bytes().to_vec());
+    };
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(body)
+        .map_err(|_| err(format!("{} has a damaged line.", path.display())))?;
+    if bytes.len() < NONCE + TAG {
+        return Err(err(format!("{} has a damaged line.", path.display())));
+    }
+    let state = STATE.read().expect("vault lock");
+    let s = state.as_ref().ok_or_else(|| locked(path))?;
+    let nonce = XNonce::try_from(&bytes[..NONCE]).expect("24-byte nonce");
+    s.cipher.decrypt(&nonce, Payload { msg: &bytes[NONCE..], aad: &line_aad(path) }).map_err(|_| {
+        err(format!("{} has a line that can't be decrypted with this computer's key.", path.display()))
+    })
 }
 
 fn audio_aad(index: u64) -> [u8; 12] {
@@ -692,5 +783,43 @@ pub(crate) mod tests {
 
     fn write_key_to(path: &Path, key: &[u8; 32]) {
         fs::write(path, encode_key(key)).unwrap();
+    }
+
+    #[test]
+    fn log_lines_append_encrypted_and_are_bound_to_their_file() {
+        with_key(|| {
+            let dir = tempfile::tempdir().unwrap();
+            let log = dir.path().join("audit.log");
+            let a = append_line(&log, br#"{"seq":1,"reason":"secret words"}"#).unwrap();
+            let b = append_line(&log, br#"{"seq":2}"#).unwrap();
+            assert!(a.starts_with("OBL1:") && b.starts_with("OBL1:"));
+            let raw = fs::read_to_string(&log).unwrap();
+            assert_eq!(raw, format!("{a}\n{b}\n"));
+            assert!(!raw.contains("secret"));
+            let lines = read_lines(&log).unwrap();
+            assert_eq!(lines.len(), 2);
+            assert_eq!(lines[0].0, a);
+            assert_eq!(lines[1].1, br#"{"seq":2}"#);
+            // A line copied into a file with another name doesn't decrypt.
+            let other = dir.path().join("other.log");
+            fs::write(&other, format!("{a}\n")).unwrap();
+            assert!(read_lines(&other).is_err());
+            // A torn last line (no newline) doesn't swallow the next one.
+            fs::write(&log, format!("{a}\n{}", &b[..10])).unwrap();
+            let c = append_line(&log, b"{}").unwrap();
+            assert!(fs::read_to_string(&log).unwrap().ends_with(&format!("\n{c}\n")));
+            assert!(append_line(&log, b"two\nlines").is_err());
+        });
+    }
+
+    #[test]
+    fn log_lines_are_plain_json_with_the_vault_off() {
+        let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        disable();
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("audit.log");
+        let a = append_line(&log, br#"{"seq":1}"#).unwrap();
+        assert_eq!(a, r#"{"seq":1}"#);
+        assert_eq!(read_lines(&log).unwrap()[0].1, br#"{"seq":1}"#);
     }
 }

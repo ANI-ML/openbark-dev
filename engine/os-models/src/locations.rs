@@ -15,6 +15,11 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+/// OpenBark's own housekeeping folder inside the visits folder (ADR-0022):
+/// Deleted visits (`deleted/`), the deletion record (`audit.log`) and, later,
+/// the clinic's retention rule (`policy.json`). It moves with the visits.
+pub const HOUSEKEEPING_DIR: &str = ".openbark";
+
 /// The two kinds of folder a clinic can place.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -288,8 +293,9 @@ pub enum Contents {
 
 /// Look at a folder: empty, OpenBark's, or other. It counts as OpenBark's
 /// only when everything in it is OpenBark's (models: a folder per catalog
-/// model, the GPU speech pack and the user catalog; visits: visit folders
-/// and the patient list), so a folder that also holds the clinic's other
+/// model, the GPU speech pack and the user catalog; visits: visit folders,
+/// the patient list and the `.openbark` housekeeping folder, which holds
+/// Deleted visits and the deletion record), so a folder that also holds the clinic's other
 /// files gets an OpenBark folder inside it instead, and a later move never
 /// takes those files along (review 2026-10-18).
 pub fn contents(kind: FolderKind, dir: &Path, model_ids: &[&str]) -> Contents {
@@ -307,7 +313,11 @@ pub fn contents(kind: FolderKind, dir: &Path, model_ids: &[&str]) -> Contents {
                 (path.is_dir() && (model_ids.contains(&name.as_str()) || name == crate::gpu_pack::PACK_ID))
                     || name == "user-catalog.json"
             }
-            FolderKind::Visits => name == "patients.json" || path.join("session.json").is_file(),
+            FolderKind::Visits => {
+                name == "patients.json"
+                    || (name == HOUSEKEEPING_DIR && path.is_dir())
+                    || path.join("session.json").is_file()
+            }
         };
         if mine { ours = true } else { other = true }
     }
@@ -594,6 +604,41 @@ mod tests {
         assert_eq!(contents(FolderKind::Models, &d.join("mixed"), &["gemma-4-e4b"]), Contents::Other);
         write(&d.join("loose/model.gguf"), b"");
         assert_eq!(contents(FolderKind::Models, &d.join("loose"), &["gemma-4-e4b"]), Contents::Other);
+    }
+
+    /// ADR-0022: the housekeeping folder (Deleted visits, the deletion record)
+    /// is OpenBark's own, so a visits folder holding it still looks like ours
+    /// on a new computer, even when every visit in it was deleted.
+    #[test]
+    fn the_housekeeping_folder_counts_as_openbark() {
+        let tmp = tempfile::tempdir().unwrap();
+        let d = tmp.path();
+        write(&d.join("v/2026/session.json"), b"{}");
+        write(&d.join("v/.openbark/audit.log"), b"");
+        assert_eq!(contents(FolderKind::Visits, &d.join("v"), &[]), Contents::OpenBark);
+        write(&d.join("only/.openbark/deleted/0199/session.json"), b"{}");
+        assert_eq!(contents(FolderKind::Visits, &d.join("only"), &[]), Contents::OpenBark);
+        write(&d.join("mixed/.openbark/audit.log"), b"");
+        write(&d.join("mixed/notes.docx"), b"");
+        assert_eq!(contents(FolderKind::Visits, &d.join("mixed"), &[]), Contents::Other);
+        // A file that happens to be called .openbark isn't the folder.
+        write(&d.join("odd/.openbark"), b"");
+        assert_eq!(contents(FolderKind::Visits, &d.join("odd"), &[]), Contents::Other);
+    }
+
+    #[test]
+    fn moving_visits_carries_deleted_visits_and_the_record() {
+        let tmp = tempfile::tempdir().unwrap();
+        let from = tmp.path().join("old");
+        let to = tmp.path().join("new");
+        write(&from.join("2026-10-18_1/session.json"), b"{}");
+        write(&from.join(".openbark/deleted/0199-a/session.json"), b"{\"x\":1}");
+        write(&from.join(".openbark/audit.log"), b"OBL1:abc\n");
+        let moved = move_tree(&from, &to, false, |_, _| {}).unwrap();
+        assert_eq!(moved.files, 3);
+        assert!(to.join(".openbark/deleted/0199-a/session.json").is_file());
+        assert_eq!(fs::read(to.join(".openbark/audit.log")).unwrap(), b"OBL1:abc\n");
+        assert!(!from.exists());
     }
 
     #[test]

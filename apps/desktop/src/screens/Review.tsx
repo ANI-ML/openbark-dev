@@ -1,6 +1,9 @@
 import { Button, MarkMono, StatusDot } from "@openbark/ui";
-import { Copy, FileDown, FolderOpen, RotateCw, Signature } from "lucide-react";
+import { Copy, FileDown, FolderOpen, RotateCw, Signature, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { DeleteRecordingDialog } from "../components/DeleteRecordingDialog";
+import { DeleteVisitMenu } from "../components/DeleteVisitMenu";
+import { listNames, patientIdFor } from "../deleting";
 import { NoteView } from "../components/NoteView";
 import { PatientFields } from "../components/PatientFields";
 import { DocumentSheet } from "../components/DocumentSheet";
@@ -64,6 +67,9 @@ export function Review({
   const audio = useRef<HTMLAudioElement>(null);
   const [audioSrc, setAudioSrc] = useState<string | null>(null);
   const drafted = useRef(false);
+  /** Deleting the visit (ADR-0022), and the recording dialog. */
+  const [deleting, setDeleting] = useState(false);
+  const [askRecording, setAskRecording] = useState(false);
 
   /** In a multi-pet visit, the animal whose note is shown (M2 item 2). */
   const [pet, setPet] = useState<string | null>(initialPet ?? null);
@@ -90,7 +96,8 @@ export function Review({
   // The recording is decrypted for playback (ADR-0008).
   const viewId = view?.id;
   useEffect(() => {
-    if (!view || !viewId) return;
+    // A visit whose recording was deleted has nothing to play.
+    if (!view || !viewId || view.has_audio === false) return;
     let url: string | null = null;
     let live = true;
     engine.audioUrl(view).then(
@@ -346,6 +353,79 @@ export function Review({
     }
   }
 
+  /** Engine messages without a name in them are translated (the plan's copy table). */
+  const errorText = (e: unknown) => t(e instanceof Error ? e.message : String(e));
+
+  /**
+   * Stop the player, and any download of the recording still under way (web
+   * mode streams it), before the visit's files move. Returns a function that
+   * puts the player back if the deletion doesn't happen.
+   */
+  function stopPlayer(): () => void {
+    const a = audio.current;
+    const src = a?.getAttribute("src");
+    if (!a || !src) return () => {};
+    a.pause();
+    a.removeAttribute("src");
+    a.load();
+    return () => {
+      a.setAttribute("src", src);
+      a.load();
+    };
+  }
+
+  /** Delete the visit with a reason: to Deleted visits, with Undo in the toast. */
+  async function deleteVisit(kind: engine.ReasonKind) {
+    if (!view) return;
+    if (!app.actorName.trim()) {
+      setError(t("Add your name in Settings, then delete the visit."));
+      return;
+    }
+    setError(null);
+    setDeleting(true);
+    const by = app.actor.trim() || null;
+    const shownPet = pet;
+    // Back to the page of the animal this visit was opened for.
+    const back = patientIdFor(view.patient, shownPet);
+    const resumePlayer = stopPlayer();
+    try {
+      const done = await engine.deleteVisit(id, by, { kind });
+      app.toast(t("Visit deleted"), {
+        label: t("Undo"),
+        run: () => {
+          engine.restoreVisit(done.trash_id, by).then(
+            (r) => {
+              app.toast(t("Visit restored"));
+              app.navigate({ screen: "review", id: r.id, pet: shownPet ?? undefined });
+            },
+            (e) => app.toast(errorText(e)),
+          );
+        },
+      });
+      app.announce(t("Visit deleted"));
+      app.navigate(back ? { screen: "patient", id: back } : { screen: "patients" });
+    } catch (e) {
+      resumePlayer();
+      setError(errorText(e));
+      setDeleting(false);
+    }
+  }
+
+  /** Delete only the recording; the transcript and notes stay. */
+  async function deleteRecording() {
+    const resumePlayer = stopPlayer();
+    try {
+      await engine.deleteRecording(id, app.actor.trim() || null);
+    } catch (e) {
+      resumePlayer();
+      throw new Error(errorText(e));
+    }
+    if (audioSrc?.startsWith("blob:")) URL.revokeObjectURL(audioSrc);
+    setAudioSrc(null);
+    await load();
+    app.toast(t("Recording deleted"));
+  }
+
   async function savePatient() {
     if (!editing) return;
     try {
@@ -367,6 +447,11 @@ export function Review({
     (run?.faithfulness.unsupported_statements?.length ?? 0);
   const disputed = run?.faithfulness.disputed_numbers?.length ?? 0;
   const signed = Boolean(view?.signed_at);
+  /** Any animal's note signed makes the whole visit signed (ADR-0022 section 2). */
+  const signedVisit = Boolean(view?.any_signed ?? view?.signed_at);
+  const otherPets = view && view.pets.length > 1 ? view.pets.filter((x) => x !== (pet ?? view.pets[0])) : [];
+  const importedFile = view?.source && view.source !== "Recorded" ? view.source : null;
+  const canPlay = Boolean(view && audioSrc && view.has_audio !== false);
   const lines = segments.length;
   const lastSecs = run ? run.stats.total_ms / 1000 : null;
   const draftingName = draftingWith ? templateName(t, draftingWith.name) : "";
@@ -505,6 +590,16 @@ export function Review({
               <Button variant="ghost" onClick={() => setEditing(p ? { ...p } : engine.emptyPatient())} disabled={!view}>
                 {p ? t("Edit details") : t("Add patient details")}
               </Button>
+              {view && app.can.notes && (
+                <DeleteVisitMenu
+                  others={otherPets.length > 0 ? listNames(app.settings.uiLanguage, otherPets) : undefined}
+                  busy={deleting || generating || refining}
+                  disabledReason={
+                    signedVisit ? t("Signed visits can't be deleted yet. Add an addendum to correct the note.") : null
+                  }
+                  onDelete={(kind) => void deleteVisit(kind)}
+                />
+              )}
             </div>
           </dl>
         )}
@@ -547,16 +642,48 @@ export function Review({
 
       <div className="review-split" data-tab={tab}>
         <section className="pane pane-transcript" aria-label={t("Transcript")}>
-          {view && audioSrc && (
-            <audio
-              ref={audio}
-              className="player"
-              controls
-              preload="metadata"
-              src={audioSrc}
-              onTimeUpdate={onTime}
-              onPause={() => setPlayingId(null)}
-            />
+          {canPlay && audioSrc && (
+            <>
+              <audio
+                ref={audio}
+                className="player"
+                controls
+                preload="metadata"
+                src={audioSrc}
+                onTimeUpdate={onTime}
+                onPause={() => setPlayingId(null)}
+              />
+              {app.can.notes && (
+                <div className="player-actions">
+                  <span
+                    className="delete-recording"
+                    title={
+                      signedVisit && !app.can.sign
+                        ? t("Only a veterinarian can delete the recording of a signed visit.")
+                        : undefined
+                    }
+                  >
+                    <Button
+                      variant="ghost"
+                      size="compact"
+                      disabled={(signedVisit && !app.can.sign) || generating || refining}
+                      onClick={() => setAskRecording(true)}
+                    >
+                      <Trash2 size={16} aria-hidden />
+                      {t("Delete recording")}
+                    </Button>
+                  </span>
+                </div>
+              )}
+            </>
+          )}
+          {view?.audio_deleted && (
+            <p className="recording-gone small muted">
+              {t("Recording deleted {date} by {name}. The transcript and notes are kept.", {
+                date: engine.fmtStamp(view.audio_deleted.at),
+                name: view.audio_deleted.by.name,
+              })}
+            </p>
           )}
           {segments.length > 0 ? (
             <TranscriptList segments={segments} highlighted={lit} playingId={playingId} onSeek={seek} />
@@ -762,6 +889,15 @@ export function Review({
           )}
         </section>
       </div>
+      {askRecording && view && (
+        <DeleteRecordingDialog
+          signed={signedVisit}
+          multiPet={view.pets.length > 1}
+          importedFile={importedFile}
+          onConfirm={deleteRecording}
+          onClose={() => setAskRecording(false)}
+        />
+      )}
       {openDoc && (
         <DocumentSheet
           doc={

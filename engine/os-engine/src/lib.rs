@@ -7,6 +7,7 @@
 //! or writes to a PIMS.
 
 pub mod align;
+pub mod audit;
 pub mod awake;
 pub mod crosscheck;
 pub mod edit;
@@ -24,11 +25,31 @@ pub mod template;
 pub mod template_store;
 pub mod transcribe;
 pub mod transcript;
+pub mod trash;
 pub mod users;
 pub mod vault;
 pub mod vocab;
 
+use std::path::{Path, PathBuf};
+
 pub use faithfulness::FaithfulnessReport;
+/// OpenBark's housekeeping folder inside the visits folder (ADR-0022).
+pub use os_models::locations::HOUSEKEEPING_DIR;
+
+/// `<visits>/.openbark/deleted`: Deleted visits, kept for 30 days.
+pub fn deleted_dir(root: &Path) -> PathBuf {
+    root.join(HOUSEKEEPING_DIR).join("deleted")
+}
+
+/// `<visits>/.openbark/audit.log`: the deletion record.
+pub fn audit_path(root: &Path) -> PathBuf {
+    root.join(HOUSEKEEPING_DIR).join("audit.log")
+}
+
+/// `<visits>/.openbark/policy.json`: the clinic's retention rule (phase 2).
+pub fn policy_path(root: &Path) -> PathBuf {
+    root.join(HOUSEKEEPING_DIR).join("policy.json")
+}
 pub use note::{NoteOptions, NoteResult, Refinement, generate_note, refine_note};
 pub use template::LoadedTemplate;
 pub use template_store::TemplateStore;

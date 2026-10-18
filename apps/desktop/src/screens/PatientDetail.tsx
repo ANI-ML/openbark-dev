@@ -40,6 +40,16 @@ export function PatientDetail({ id }: { id: string }) {
   }
 
   const p = view?.patient;
+  /** This patient's visits in Deleted visits (ADR-0022 section 11). */
+  const deleted = view?.deleted ?? 0;
+  const deletedLine =
+    deleted > 0 ? (
+      <p className="small muted deleted-line">
+        {deleted === 1
+          ? t("1 deleted visit is kept for 30 days. Restore it from Deleted visits in Settings.")
+          : t("{n} deleted visits are kept for 30 days. Restore them from Deleted visits in Settings.", { n: deleted })}
+      </p>
+    ) : null;
   return (
     <div className="screen patient-page">
       <header className="screen-head">
@@ -154,6 +164,7 @@ export function PatientDetail({ id }: { id: string }) {
           <Button variant="primary" onClick={() => app.navigate({ screen: "record", patient: id })} disabled={!p}>
             {t("New visit")}
           </Button>
+          {deletedLine}
         </div>
       ) : (
         <section aria-label={t("Visits")}>
@@ -207,6 +218,7 @@ export function PatientDetail({ id }: { id: string }) {
               </li>
             ))}
           </ul>
+          {deletedLine}
         </section>
       )}
       {reprocess && (

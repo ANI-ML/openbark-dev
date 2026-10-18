@@ -1,6 +1,6 @@
 # Plan: deleting visits and recordings
 
-Status: **proposed**, with [ADR-0022](../adr/0022-deleting-visits.md). Date: 2026-10-18.
+Status: **phase 1 implemented** (steps 0 to 11 and 14 to 16), with [ADR-0022](../adr/0022-deleting-visits.md). Phase 2 (steps 12, 13 and 17) is next. Date: 2026-10-18.
 
 ## Goal
 

@@ -1,6 +1,6 @@
 # ADR-0022: Deleting visits and recordings
 
-- Status: proposed
+- Status: accepted (owner asked to implement, 2026-10-18); phase 1 implemented
 - Date: 2026-10-18
 - Deciders: product owner (asked: "Implement ... deleting visits."), engineering
 - Relations:
