@@ -19,7 +19,7 @@ To look at it locally, serve `website/dist` with any static server, for example 
 ## Publish on Vercel (first time)
 
 1. In Vercel, **Add New > Project**, and import the GitHub repo **ANI-ML/openbark**.
-2. Set **Root Directory** to `website`. Leave **Framework Preset** as **Other**. `vercel.json` already sets no build command and `dist` as the output.
+2. Set **Root Directory** to `website` (recommended) or leave it blank: both work. `website/vercel.json` and the root `vercel.json` set no install or build step and point at the committed `website/dist`. Leave **Framework Preset** as **Other** and the build settings empty.
 3. Deploy. Vercel gives the site a `*.vercel.app` address.
 4. When the domain is bought: **Project > Settings > Domains**, add it, and follow Vercel's DNS instructions at the registrar.
 
