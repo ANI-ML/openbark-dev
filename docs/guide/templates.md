@@ -6,21 +6,23 @@ A template is the headings of a note, and what goes under each one. OpenBark shi
 
 | Template | Who it's for |
 |---|---|
-| SOAP note, Wellness visit, Sick visit, Recheck visit | The medical record |
+| New consult, Recheck, Annual exam, Phone call, Results, Clinician rounds | The medical record |
+| SOAP note | The medical record |
 | Emergency and triage, Surgery and anaesthesia, Dental procedure | The medical record |
 | Dermatology consult, Oncology visit | The medical record |
 | Exotics consult, Equine visit, Production animal visit | The medical record |
-| Euthanasia and quality of life, Callback note | The medical record |
+| Euthanasia and quality of life | The medical record |
 | Discharge instructions, Client summary, Estimate explanation, Euthanasia aftercare | The client |
 
-Choose one under **Template** before recording, or **Draft as** in Review. Your clinic can also make its own, or copy a built-in one and change it.
+On **Record**, choose the type of visit from the icon tiles (or **More types**) before recording, or use **Draft as** in Review. Your clinic can also make its own, or copy a built-in one and change it.
 
 ## Make a template
 
 1. Open **Templates**. Choose **From an example note** to paste a note your clinic already writes (OpenBark proposes its headings for you to check), **Start from SOAP** to adapt SOAP, or **New template** for blank headings.
-2. Name it, and choose **Who it's for**: the medical record, or the client.
+2. Name it, choose its **Icon**, its **Level of detail** (concise, standard or thorough), and **Who it's for**: the medical record, or the client.
 3. For each heading, choose what goes under it:
    - **Bullet points** for findings, history and plans;
+   - **Text box** for a paragraph, such as a surgical report (every sentence still linked to the recording);
    - **Measurements** for named values with units, such as weight or teeth extracted;
    - **Medications** for drug, dose, route, frequency and duration;
    - **Subheadings**, each holding one of the above.

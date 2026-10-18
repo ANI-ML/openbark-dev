@@ -19,7 +19,8 @@ const SYSTEM: &str = "You turn an example veterinary note into a reusable note t
 Read the example and list its headings in the order they appear, keeping the clinic's own heading names \
 (\"Subjective\", \"Hx\", \"Dental chart\"; expand only unclear abbreviations).\n\
 For each heading choose what goes under it:\n\
-- \"statements\": findings, history, plans or free text, one fact per line;\n\
+- \"statements\": findings, history or plans as bullet points, one fact per line;\n\
+- \"text\": a narrative paragraph (a surgical report, an assessment written as prose);\n\
 - \"fields\": named measurements such as Weight, Temperature or HR; list the field names;\n\
 - \"medications\": drugs with dose, route, frequency and duration;\n\
 - \"parts\": the heading has its own subheadings; list them, each with its own kind.\n\
@@ -34,7 +35,7 @@ surgical reports, rechecks). Choose \"pet owner\" only when the note speaks to t
 /// The shape the model fills.
 fn draft_schema() -> Value {
     let kind = |with_parts: bool| {
-        let mut kinds = vec!["statements", "fields", "medications"];
+        let mut kinds = vec!["statements", "text", "fields", "medications"];
         if with_parts {
             kinds.push("parts");
         }
@@ -91,6 +92,7 @@ pub fn template_from_draft(draft: &Value) -> Result<LoadedTemplate, EngineError>
     let content = |kind: &str, fields: &[Value]| match kind {
         "fields" if !fields.is_empty() => "fields",
         "medications" => "medications",
+        "text" => "text",
         _ => "statements",
     };
     let mut sections = Vec::new();

@@ -290,6 +290,10 @@ fn guidance_line(
         PartKind::Medications if !label.to_lowercase().contains("medication") => {
             format!("- {name}: {label} (medications){}", with_instruction(instruction))
         }
+        PartKind::Text => format!(
+            "- {name}: {label} (a text box: connected sentences that read as a paragraph, each sentence one statement with its own evidence){}",
+            with_instruction(instruction)
+        ),
         _ => format!("- {name}: {label}{}", with_instruction(instruction)),
     };
     for standard in template.standards_for(path) {
@@ -356,6 +360,15 @@ fn rules(template: &LoadedTemplate) -> String {
     }
     for standard in template.standards_for("") {
         out.push_str(&format!("- Team standard: {}\n", standard.text));
+    }
+    match template.template.detail {
+        crate::template::Detail::Concise => out.push_str(
+            "- Level of detail: concise. Use the fewest words that keep every clinical fact; short phrases are fine.\n",
+        ),
+        crate::template::Detail::Thorough => out.push_str(
+            "- Level of detail: thorough. Include every relevant detail that was said, with its context; still nothing that wasn't said.\n",
+        ),
+        crate::template::Detail::Standard => {}
     }
     out
 }

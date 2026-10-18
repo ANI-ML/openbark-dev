@@ -381,6 +381,17 @@ fn statements(l: &mut Layout, value: &Value, indent: f32) {
     }
 }
 
+/// A text box: its sentences as one paragraph.
+fn paragraph(l: &mut Layout, value: &Value, indent: f32) {
+    let items = value.as_array().map(Vec::as_slice).unwrap_or_default();
+    if items.is_empty() {
+        l.text(l.labels.not_discussed, Font::Italic, BODY, 0.4, indent, None);
+        return;
+    }
+    let text: Vec<&str> = items.iter().filter_map(|i| i["text"].as_str()).collect();
+    l.text(&text.join(" "), Font::Regular, BODY, 0.0, indent, None);
+}
+
 fn medications(l: &mut Layout, value: &Value, indent: f32) {
     let items = value.as_array().map(Vec::as_slice).unwrap_or_default();
     if items.is_empty() {
@@ -421,6 +432,7 @@ fn fields(l: &mut Layout, defs: &[FieldDef], value: &Value, indent: f32) {
 fn content(l: &mut Layout, kind: PartKind, defs: &[FieldDef], value: &Value, indent: f32) {
     match kind {
         PartKind::Statements => statements(l, value, indent),
+        PartKind::Text => paragraph(l, value, indent),
         PartKind::Medications => medications(l, value, indent),
         PartKind::Fields => fields(l, defs, value, indent),
     }

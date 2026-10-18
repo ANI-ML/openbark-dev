@@ -4,26 +4,30 @@ OpenBark writes the note to your team's headings: SOAP, a dental procedure note,
 
 ## Built-in templates
 
-| Template | Who it's for |
-|---|---|
-| SOAP note | The medical record |
-| Wellness visit (preventive care, vaccines, parasite control) | The medical record |
-| Sick visit (problem-oriented) | The medical record |
-| Recheck visit | The medical record |
-| Emergency and triage (with treatment times and disposition) | The medical record |
-| Dental procedure (findings by tooth, Triadan numbers as said) | The medical record |
-| Surgery and anaesthesia (protocol, monitoring, surgical report) | The medical record |
-| Dermatology consult | The medical record |
-| Oncology visit (doses copied as said, never calculated) | The medical record |
-| Exotics consult (avian, reptile, small mammal; husbandry in full) | The medical record |
-| Equine visit (lameness by limb) | The medical record |
-| Production animal visit (ear tags, withdrawal times as said) | The medical record |
-| Euthanasia and quality of life | The medical record |
-| Callback note (a follow-up phone call) | The medical record |
-| Discharge instructions | The client |
-| Client summary | The client |
-| Estimate explanation (prices copied exactly, never added up) | The client |
-| Euthanasia aftercare | The client |
+Each template is a type of visit with its own icon. On **Record**, the common types are tiles (New consult, Recheck, Annual exam, Phone call, Results, Clinician rounds), followed by your team's own templates; every other type is under **More types**.
+
+| Template | Icon | Who it's for |
+|---|---|---|
+| New consult (a new problem or a new patient) | stethoscope | The medical record |
+| Recheck | arrows | The medical record |
+| Annual exam (preventive care, vaccines, parasite control) | calendar | The medical record |
+| Phone call (any call with a client, either way) | phone | The medical record |
+| Results (results reviewed or given, what they mean, what changes) | flask | The medical record |
+| Clinician rounds (hospitalised patient handover: since last rounds, treatments, plan, to do) | people | The medical record |
+| SOAP note | clipboard | The medical record |
+| Emergency and triage (with treatment times and disposition) | siren | The medical record |
+| Dental procedure (findings by tooth, Triadan numbers as said) | tooth | The medical record |
+| Surgery and anaesthesia (protocol, monitoring, surgical report) | scissors | The medical record |
+| Dermatology consult | hand | The medical record |
+| Oncology visit (doses copied as said, never calculated) | microscope | The medical record |
+| Exotics consult (avian, reptile, small mammal; husbandry in full) | bird | The medical record |
+| Equine visit (lameness by limb) | horse | The medical record |
+| Production animal visit (ear tags, withdrawal times as said) | cow | The medical record |
+| Euthanasia and quality of life | flower | The medical record |
+| Discharge instructions | house | The client |
+| Client summary | speech bubble | The client |
+| Estimate explanation (prices copied exactly, never added up) | receipt | The client |
+| Euthanasia aftercare | hand and heart | The client |
 
 Each specialty template has its own rules on top of the core ones. For example, the production-animal template leaves a withdrawal time empty unless one was said, and the oncology template never calculates a dose or body surface area. Each one was checked on a scripted consult of its kind (docs/eval/M2.md).
 
@@ -40,9 +44,11 @@ Open **Templates**, then **New template** or **Start from SOAP**.
 
 - **Headings.** Each heading holds either:
   - **Bullet points:** findings, history, plans. One fact per line, each linked to where it was said.
+  - **Text box:** connected sentences shown as a paragraph, such as a surgical report or an assessment written as prose. Every sentence is still linked to where it was said, and checked like any other line.
   - **Measurements:** named values, such as Weight, Temperature or Teeth extracted, each with its unit.
   - **Medications:** drug, dose, route, frequency and duration.
   - **Subheadings:** each of these holds one of the three kinds above.
+- **Icon** and **Level of detail** (for the whole template). The icon marks the visit type on Record and in lists. Level of detail is concise (the fewest words that keep every fact), standard, or thorough (every relevant detail that was said); it never allows anything that wasn't said.
 - **Instructions** (optional, per heading): plain language, for example "Injections and fluids given during the visit." The model follows them only where the recording supports them. Under each instruction, **Examples** offers instructions suited to that heading (Triadan numbers under a dental heading, lameness grade by limb under a lameness heading); choosing one adds it to the instruction.
 - **Examples by kind of practice** (under the whole-note rules): emergency, feline-only, equine ambulatory, exotics, farm, shelter and referral. Choosing one adds it as a rule.
 - **Instructions and rules for the whole note** (optional, under the disclosure). Every template also follows OpenBark's core rules: only what was said, numbers exactly as stated, every line linked to the transcript. You can't remove these.

@@ -53,4 +53,24 @@ describe("formatNote", () => {
     expect(text.startsWith("# SOAP note\n\nPatient: Miso Tanaka  \n")).toBe(true);
     expect(text).toContain("## Follow-up\n\n*Non abordé*");
   });
+
+  it("a text box pastes as one paragraph, without bullets", () => {
+    const t2: Template = { ...template, sections: [...template.sections, { id: "report", title: "Surgical report", kind: "text" }] };
+    const r = {
+      ...run,
+      note: {
+        ...run.note,
+        report: [
+          { text: "Ventral midline approach.", evidence: [5] },
+          { text: "Closed in three layers.", evidence: [7] },
+        ],
+      },
+    } as NoteRun;
+    const plain = formatNote(t2, r, { ...opts, format: "plain", citations: false }).text;
+    expect(plain).toContain("SURGICAL REPORT\nVentral midline approach. Closed in three layers.");
+    const md = formatNote(t2, r, { ...opts, format: "markdown", citations: true }).text;
+    expect(md).toContain("## Surgical report\n\nVentral midline approach. [5] Closed in three layers. [7]");
+    const { html } = formatNote(t2, r, { ...opts, format: "formatted", citations: false });
+    expect(html).toContain("<h3>Surgical report</h3><p>Ventral midline approach. Closed in three layers.</p>");
+  });
 });

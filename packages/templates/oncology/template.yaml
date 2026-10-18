@@ -3,6 +3,7 @@ id: oncology
 version: 0.1.0
 name: Oncology visit
 description: Diagnosis and staging, treatment options or chemotherapy dose, adverse events, quality of life.
+icon: microscope
 language: en
 
 instructions: |

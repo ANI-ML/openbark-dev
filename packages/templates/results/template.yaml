@@ -1,0 +1,53 @@
+# OpenBark template: results discussion (lab, imaging or pathology results).
+id: results
+version: 0.1.0
+name: Results
+description: Results reviewed or given to the client, what they mean, and what changes.
+icon: flask
+language: en
+
+instructions: |
+  Write the medical record of this results discussion: test results reviewed by the veterinarian or given to
+  the pet's owner, in person or by phone.
+  Use concise clinical veterinary English as a veterinarian would chart it.
+  The transcript is from a recording; speakers are labelled by number, not role. Infer roles from context,
+  but never put words in a speaker's mouth.
+
+rules:
+  - "Copy every result exactly as said, with its unit, and the reference range or flag (high, low) only if said."
+  - "Record an interpretation or diagnosis only in the veterinarian's words."
+  - "Results still pending are recorded as pending, with when they are expected if said."
+
+sections:
+  - id: patient
+    title: Patient
+    presence: optional
+    kind: fields
+    fields:
+      - { key: name, label: Name }
+      - { key: species, label: Species }
+  - title: Tests
+    kind: statements
+    presence: required
+    instruction: Which tests, from when, and which are still pending.
+    examples:
+      - "Name each test with the date it was run"
+  - title: Results
+    kind: statements
+    instruction: Each result with its value and unit as said; abnormal results first.
+    examples:
+      - "Put abnormal results first"
+      - "Give each value with its unit and the reference range if said"
+  - title: Interpretation
+    kind: text
+    instruction: What the veterinarian said the results mean.
+  - title: Discussed with the client
+    kind: statements
+    instruction: What the owner was told, their questions, and decisions made.
+  - title: Medication changes
+    kind: medications
+  - title: Plan
+    kind: statements
+    instruction: Further tests, treatment changes and rechecks.
+  - title: Follow-up
+    kind: statements

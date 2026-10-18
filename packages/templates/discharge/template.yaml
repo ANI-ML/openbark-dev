@@ -5,6 +5,7 @@ id: discharge
 version: 0.1.0
 name: Discharge instructions
 description: Take-home instructions for the pet owner, in plain language.
+icon: house-line
 document: client
 language: en
 

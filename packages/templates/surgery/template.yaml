@@ -3,6 +3,7 @@ id: surgery
 version: 0.1.0
 name: Surgery and anaesthesia
 description: Pre-anaesthetic assessment, protocol, procedure report, recovery and post-op plan.
+icon: scissors
 language: en
 
 instructions: |
@@ -54,9 +55,9 @@ sections:
     instruction: Heart rate, blood pressure, SpO2, EtCO2, temperature and events, as said.
   - title: Surgical report
     examples:
-      - "Write the report as numbered steps in the order described"
+      - "Describe each step in the order it was done"
       - "Include suture material and pattern for each layer"
-    kind: statements
+    kind: text
     presence: required
     instruction: Approach, findings, technique and closure in the order described.
   - title: Complications

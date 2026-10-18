@@ -5,6 +5,7 @@ id: estimate-explanation
 version: 0.1.0
 name: Estimate explanation
 description: Plain-language summary of the recommended plan, the options discussed and their costs.
+icon: receipt
 document: client
 language: en
 

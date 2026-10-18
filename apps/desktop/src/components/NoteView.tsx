@@ -130,6 +130,20 @@ export function NoteView({ template, run, onEvidence, onPlay, onCopySection, onA
     );
   };
 
+  const paragraph = (value: unknown, path: string) => {
+    const items = Array.isArray(value) ? (value as Statement[]) : [];
+    if (items.length === 0) return <p className="not-discussed">{t("Not discussed")}</p>;
+    return (
+      <div className="text-box">
+        {items.map((s, i) => (
+          <span key={i}>
+            {statement(s, `${path}/${i}`, s.text)}{" "}
+          </span>
+        ))}
+      </div>
+    );
+  };
+
   const fields = (defs: TemplateField[], value: unknown, path: string) => {
     const present = defs.filter((d) => get(get(value, d.key), "value") != null);
     const missing = defs.filter((d) => get(get(value, d.key), "value") == null);
@@ -184,7 +198,9 @@ export function NoteView({ template, run, onEvidence, onPlay, onCopySection, onA
   const content = (kind: ContentKind, defs: TemplateField[] | undefined, value: unknown, path: string) =>
     kind === "statements"
       ? statements(value, path)
-      : kind === "fields"
+      : kind === "text"
+        ? paragraph(value, path)
+        : kind === "fields"
         ? fields(defs ?? [], value, path)
         : medications(value, path);
 

@@ -3,6 +3,7 @@ id: emergency
 version: 0.1.0
 name: Emergency and triage
 description: ER presentation with triage, stabilisation, treatments with times, and disposition.
+icon: siren
 language: en
 
 instructions: |

@@ -3,6 +3,7 @@ id: exotics
 version: 0.1.0
 name: Exotics consult
 description: Avian, reptile and small-mammal consult with husbandry history in full.
+icon: bird
 language: en
 
 instructions: |

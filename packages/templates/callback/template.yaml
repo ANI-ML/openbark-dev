@@ -1,12 +1,13 @@
-# OpenBark template: callback note (a phone follow-up, for the medical record).
+# OpenBark template: phone call (any call with a client, for the medical record).
 id: callback
 version: 0.1.0
-name: Callback note
-description: Record of a follow-up phone call with a client.
+name: Phone call
+description: "A phone call with a client, either way: why, what was said, advice and changes."
+icon: phone
 language: en
 
 instructions: |
-  Write the medical record of this follow-up phone call between the clinic and the pet's owner.
+  Write the medical record of this phone call between the clinic and the pet's owner (a call either way: a follow-up, results, an owner's question).
   Use concise clinical veterinary English as a veterinarian would chart it.
   The transcript is from a recording; speakers are labelled by number, not role. Infer roles from context,
   but never put words in a speaker's mouth.

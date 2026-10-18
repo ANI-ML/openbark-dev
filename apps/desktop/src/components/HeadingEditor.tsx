@@ -31,7 +31,9 @@ const MED_LABELS: Record<(typeof MED_KEYS)[number], string> = {
  * Edit one heading by hand. Lines keep their citations; anything changed or
  * added is saved as the veterinarian's own statement, in a new draft.
  */
-export function HeadingEditor({ title, kind, fields, value, busy, onSave, onCancel }: HeadingEditorProps) {
+export function HeadingEditor({ title, kind: shown, fields, value, busy, onSave, onCancel }: HeadingEditorProps) {
+  // A text box holds the same cited sentences as bullet points, so it's edited the same way.
+  const kind: Exclude<ContentKind, "text"> = shown === "text" ? "statements" : shown;
   const t = useT();
   const [items, setItems] = useState<Item[]>(() => (Array.isArray(value) ? (structuredClone(value) as Item[]) : []));
   const [fieldValues, setFieldValues] = useState<Record<string, Item | null>>(() =>
@@ -178,7 +180,7 @@ export function HeadingEditor({ title, kind, fields, value, busy, onSave, onCanc
           }
         >
           <Plus size={16} aria-hidden />
-          {kind === "statements" ? t("Add line") : t("Add medication")}
+          {shown === "text" ? t("Add sentence") : kind === "statements" ? t("Add line") : t("Add medication")}
         </Button>
       )}
       <p className="small faint">

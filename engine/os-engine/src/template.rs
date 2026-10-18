@@ -46,6 +46,27 @@ pub enum PartKind {
     Fields,
     /// Drug, dose, route, frequency, duration.
     Medications,
+    /// A text box: connected sentences shown as a paragraph. Each sentence
+    /// still cites its evidence, so the evidence link works inside it.
+    Text,
+}
+
+/// How much the model writes (the team's preference for this template).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Detail {
+    /// The fewest words that keep every clinical fact.
+    Concise,
+    #[default]
+    Standard,
+    /// Every relevant detail that was said, with its context.
+    Thorough,
+}
+
+impl Detail {
+    pub fn is_standard(&self) -> bool {
+        *self == Detail::Standard
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -255,6 +276,12 @@ pub struct Template {
     /// The medical record (default) or a document for the client.
     #[serde(default, skip_serializing_if = "Document::is_record")]
     pub document: Document,
+    /// Icon shown for this kind of visit ("stethoscope", "phone"; a Phosphor name).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub icon: String,
+    /// How much the model writes (concise, standard, thorough).
+    #[serde(default, skip_serializing_if = "Detail::is_standard")]
+    pub detail: Detail,
     /// Optional hand-written schema file (advanced). Normally generated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schema: Option<String>,
@@ -314,22 +341,24 @@ pub struct LoadedTemplate {
 }
 
 const BUILTIN: &[(&str, &str)] = &[
-    ("soap", include_str!("../../../packages/templates/soap/template.yaml")),
-    ("callback", include_str!("../../../packages/templates/callback/template.yaml")),
-    ("discharge", include_str!("../../../packages/templates/discharge/template.yaml")),
-    ("client-summary", include_str!("../../../packages/templates/client-summary/template.yaml")),
-    ("wellness", include_str!("../../../packages/templates/wellness/template.yaml")),
     ("sick-visit", include_str!("../../../packages/templates/sick-visit/template.yaml")),
+    ("recheck", include_str!("../../../packages/templates/recheck/template.yaml")),
+    ("wellness", include_str!("../../../packages/templates/wellness/template.yaml")),
+    ("callback", include_str!("../../../packages/templates/callback/template.yaml")),
+    ("results", include_str!("../../../packages/templates/results/template.yaml")),
+    ("rounds", include_str!("../../../packages/templates/rounds/template.yaml")),
+    ("soap", include_str!("../../../packages/templates/soap/template.yaml")),
     ("emergency", include_str!("../../../packages/templates/emergency/template.yaml")),
     ("dental", include_str!("../../../packages/templates/dental/template.yaml")),
     ("surgery", include_str!("../../../packages/templates/surgery/template.yaml")),
-    ("recheck", include_str!("../../../packages/templates/recheck/template.yaml")),
     ("dermatology", include_str!("../../../packages/templates/dermatology/template.yaml")),
     ("oncology", include_str!("../../../packages/templates/oncology/template.yaml")),
     ("exotics", include_str!("../../../packages/templates/exotics/template.yaml")),
     ("equine", include_str!("../../../packages/templates/equine/template.yaml")),
     ("production-animal", include_str!("../../../packages/templates/production-animal/template.yaml")),
     ("euthanasia", include_str!("../../../packages/templates/euthanasia/template.yaml")),
+    ("discharge", include_str!("../../../packages/templates/discharge/template.yaml")),
+    ("client-summary", include_str!("../../../packages/templates/client-summary/template.yaml")),
     ("estimate-explanation", include_str!("../../../packages/templates/estimate-explanation/template.yaml")),
     ("euthanasia-aftercare", include_str!("../../../packages/templates/euthanasia-aftercare/template.yaml")),
 ];
@@ -635,6 +664,11 @@ fn normalize(t: &mut Template) -> Result<(), EngineError> {
     if !id_ok {
         return Err(bad(format!("'{}' can't be a template id (use a-z, 0-9 and -).", t.id)));
     }
+    t.icon = t.icon.trim().to_lowercase();
+    if t.icon.len() > 32 || !t.icon.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    {
+        return Err(bad(format!("'{}' can't be an icon name (use a-z, 0-9 and -).", t.icon)));
+    }
     check_text("The instructions", &t.instructions)?;
     t.rules.retain(|r| !r.trim().is_empty());
     for r in &t.rules {
@@ -725,7 +759,8 @@ fn normalize(t: &mut Template) -> Result<(), EngineError> {
 
 fn kind_schema(kind: PartKind, fields: &[FieldDef]) -> Value {
     match kind {
-        PartKind::Statements => json!({ "$ref": "#/$defs/statements" }),
+        // A text box holds the same cited sentences, shown as a paragraph.
+        PartKind::Statements | PartKind::Text => json!({ "$ref": "#/$defs/statements" }),
         PartKind::Medications => json!({ "type": "array", "items": { "$ref": "#/$defs/medication" } }),
         PartKind::Fields => {
             let props: serde_json::Map<String, Value> =
@@ -805,7 +840,7 @@ pub fn generate_schema(t: &Template) -> Value {
 pub fn empty_note(t: &Template) -> Value {
     fn empty(kind: PartKind, fields: &[FieldDef]) -> Value {
         match kind {
-            PartKind::Statements | PartKind::Medications => json!([]),
+            PartKind::Statements | PartKind::Medications | PartKind::Text => json!([]),
             PartKind::Fields => fields.iter().map(|f| (f.key.clone(), Value::Null)).collect(),
         }
     }

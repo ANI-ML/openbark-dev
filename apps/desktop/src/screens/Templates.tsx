@@ -6,6 +6,8 @@ import * as engine from "../engine";
 import { useT } from "../i18n";
 import type { ContentKind, Standard, Template, TemplateField, TemplatePart, TemplateSection } from "../engine";
 import { examplesForTitle, NOTE_EXAMPLES } from "../promptExamples";
+import { COMMON_TYPES, TEMPLATE_ICONS, TemplateIcon } from "../templateIcons";
+import { templateName } from "../i18n";
 import { ExampleSheet } from "../components/ExampleSheet";
 import { SHOW_FOR, speciesPlural, speciesValue } from "../species";
 import type { TemplateCondition } from "../engine";
@@ -50,6 +52,87 @@ function ShowFor({
         ))}
       </select>
     </label>
+  );
+}
+
+/** Templates as grouped rows with their icons: the team's own, common visits, specialty, and client documents. */
+function TemplateGroups({ list, onOpen }: { list: engine.TemplateSummary[]; onOpen: (id: string) => void }) {
+  const t = useT();
+  const groups: { title: string; items: engine.TemplateSummary[] }[] = [
+    { title: "Your team's templates", items: list.filter((x) => !x.builtin) },
+    {
+      title: "Common visits",
+      items: COMMON_TYPES.map((id) => list.find((x) => x.id === id && x.builtin)).filter((x): x is engine.TemplateSummary => !!x),
+    },
+    { title: "Specialty and other notes", items: list.filter((x) => x.builtin && x.document !== "client" && !COMMON_TYPES.includes(x.id)) },
+    { title: "For the client", items: list.filter((x) => x.builtin && x.document === "client") },
+  ];
+  return (
+    <>
+      {groups
+        .filter((g) => g.items.length > 0)
+        .map((g) => (
+          <section key={g.title} className="tpl-group" aria-label={t(g.title)}>
+            <h2 className="tpl-group-title">{t(g.title)}</h2>
+            <ul className="tpl-list">
+              {g.items.map((tpl) => (
+                <li key={tpl.id}>
+                  <button type="button" className="tpl-row" onClick={() => onOpen(tpl.id)}>
+                    <span className="type-icon">
+                      <TemplateIcon template={tpl} size={20} />
+                    </span>
+                    <span className="tpl-text">
+                      <span className="tpl-name">{templateName(t, tpl.name)}</span>
+                      <span className="small muted tpl-desc">{tpl.description}</span>
+                    </span>
+                    <span className="tpl-meta small muted">
+                      {t("{n} headings", { n: tpl.headings })}
+                      {tpl.standards > 0 && <span>{t("{n} standards", { n: tpl.standards })}</span>}
+                      {!tpl.builtin && <StatusDot tone="accent">{t("Team")}</StatusDot>}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))}
+    </>
+  );
+}
+
+/** The icon for a template, chosen from a small set (built-ins name theirs). */
+function IconPicker({
+  value,
+  document,
+  readOnly,
+  onChange,
+}: {
+  value: string | undefined;
+  document: Template["document"];
+  readOnly: boolean;
+  onChange: (icon: string | undefined) => void;
+}) {
+  const t = useT();
+  return (
+    <div className="ob-field icon-field">
+      <span className="label">{t("Icon")}</span>
+      <div className="icon-picker" role="radiogroup" aria-label={t("Icon")}>
+        {Object.entries(TEMPLATE_ICONS).map(([name, I]) => (
+          <button
+            key={name}
+            type="button"
+            role="radio"
+            aria-checked={value === name || (!value && name === (document === "client" ? "chat-text" : "clipboard-text"))}
+            aria-label={name.replace(/-/g, " ")}
+            className="icon-choice"
+            disabled={readOnly}
+            onClick={() => onChange(name)}
+          >
+            <I size={18} aria-hidden />
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -163,41 +246,7 @@ export function Templates() {
       {list === null ? (
         <div className="ob-skeleton" style={{ height: 120 }} />
       ) : (
-        <div className="table-wrap">
-          <table className="ob-table">
-            <thead>
-              <tr>
-                <th>{t("Name")}</th>
-                <th>{t("Description")}</th>
-                <th className="num">{t("Headings")}</th>
-                <th className="num">{t("Standards")}</th>
-                <th>{t("Version")}</th>
-                <th>{t("Kind")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.map((tpl) => (
-                <tr
-                  key={tpl.id}
-                  tabIndex={0}
-                  className="row-link"
-                  onClick={() => setOpen({ id: tpl.id })}
-                  onKeyDown={(e) => e.key === "Enter" && setOpen({ id: tpl.id })}
-                >
-                  <td>{tpl.name}</td>
-                  <td className="muted reason-cell">{tpl.description}</td>
-                  <td className="num">{tpl.headings}</td>
-                  <td className="num">{tpl.standards}</td>
-                  <td className="mono">{tpl.version}</td>
-                  <td>
-                    {tpl.builtin ? <StatusDot>{t("Built in")}</StatusDot> : <StatusDot tone="accent">{t("Team")}</StatusDot>}
-                    {tpl.document === "client" && <span className="small muted"> {t("For the client")}</span>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <TemplateGroups list={list} onOpen={(id) => setOpen({ id })} />
       )}
       {list !== null && team.length === 0 && (
         <p className="empty small muted">{t("No team templates yet. Start from SOAP, or start a new one from blank headings.")}</p>
@@ -220,6 +269,7 @@ export function Templates() {
 type Kind = ContentKind | "parts";
 const KINDS: { value: Kind; label: string }[] = [
   { value: "statements", label: "Bullet points" },
+  { value: "text", label: "Text box" },
   { value: "fields", label: "Measurements" },
   { value: "medications", label: "Medications" },
   { value: "parts", label: "Subheadings" },
@@ -487,6 +537,20 @@ function Builder({ id, from, onClose, onOpen, onSaved }: BuilderProps) {
             placeholder={t("Who uses it, and when")}
             onChange={(e) => set({ description: e.target.value })}
           />
+        </label>
+        <IconPicker value={draft.icon} document={draft.document} readOnly={readOnly} onChange={(icon) => set({ icon })} />
+        <label className="ob-field">
+          <span className="label">{t("Level of detail")}</span>
+          <select
+            className="ob-select"
+            value={draft.detail ?? "standard"}
+            disabled={readOnly}
+            onChange={(e) => set({ detail: e.target.value === "standard" ? undefined : (e.target.value as Template["detail"]) })}
+          >
+            <option value="concise">{t("Concise: the fewest words that keep every fact")}</option>
+            <option value="standard">{t("Standard")}</option>
+            <option value="thorough">{t("Thorough: every relevant detail that was said")}</option>
+          </select>
         </label>
         <label className="ob-field">
           <span className="label">{t("Who it's for")}</span>
@@ -960,6 +1024,7 @@ function StandardList({ title, items, onRemove }: { title: string; items: Standa
 }
 
 const KIND_HINT: Record<ContentKind, string> = {
+  text: "Sentences that read as a paragraph, each linked to where it was said",
   statements: "Bullet points, each linked to where it was said",
   fields: "",
   medications: "Drug, dose, route, frequency, duration",

@@ -40,6 +40,7 @@ pub fn markdown(
             out.push('\n');
             out.push_str(&match kind {
                 PartKind::Statements => statements(sec_value, &sec_path, &flagged),
+                PartKind::Text => paragraph(sec_value, &sec_path, &flagged),
                 PartKind::Fields => fields(&section.fields, sec_value, &sec_path, &flagged),
                 PartKind::Medications => medications(sec_value, &sec_path, &flagged),
             });
@@ -51,6 +52,7 @@ pub fn markdown(
             out.push_str(&format!("\n**{}**\n\n", part.label));
             out.push_str(&match part.kind {
                 PartKind::Statements => statements(value, &path, &flagged),
+                PartKind::Text => paragraph(value, &path, &flagged),
                 PartKind::Fields => fields(&part.fields, value, &path, &flagged),
                 PartKind::Medications => medications(value, &path, &flagged),
             });
@@ -87,6 +89,23 @@ fn statements(value: &Value, path: &str, flagged: &HashSet<String>) -> String {
             format!("- {}{}{}\n", item["text"].as_str().unwrap_or_default(), cite(item), flag(&p, flagged))
         })
         .collect()
+}
+
+/// A text box: its sentences run together as one paragraph, each keeping its citation.
+fn paragraph(value: &Value, path: &str, flagged: &HashSet<String>) -> String {
+    let items = value.as_array().map(Vec::as_slice).unwrap_or_default();
+    if items.is_empty() {
+        return format!("{NOT_DISCUSSED}\n");
+    }
+    let sentences: Vec<String> = items
+        .iter()
+        .enumerate()
+        .map(|(i, item)| {
+            let p = format!("{path}/{i}");
+            format!("{}{}{}", item["text"].as_str().unwrap_or_default(), cite(item), flag(&p, flagged))
+        })
+        .collect();
+    format!("{}\n", sentences.join(" "))
 }
 
 fn fields(defs: &[FieldDef], value: &Value, path: &str, flagged: &HashSet<String>) -> String {

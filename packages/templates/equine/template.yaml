@@ -3,6 +3,7 @@ id: equine
 version: 0.1.0
 name: Equine visit
 description: Ambulatory or clinic equine exam, including lameness and colic findings.
+icon: horse
 language: en
 
 instructions: |

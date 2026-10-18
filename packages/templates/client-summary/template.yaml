@@ -5,6 +5,7 @@ id: client-summary
 version: 0.1.0
 name: Client summary
 description: A short plain-language summary of the visit for the pet owner.
+icon: chat-text
 document: client
 language: en
 

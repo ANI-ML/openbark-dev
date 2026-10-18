@@ -1,8 +1,9 @@
 # OpenBark template: recheck / progress visit.
 id: recheck
 version: 0.1.0
-name: Recheck visit
+name: Recheck
 description: "Follow-up on a known problem: response to treatment, today's findings, plan changes."
+icon: arrows-clockwise
 language: en
 
 instructions: |

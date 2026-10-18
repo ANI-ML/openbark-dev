@@ -1,4 +1,5 @@
 import { Button, RecordButton, Waveform } from "@openbark/ui";
+import { VisitTypePicker } from "../components/VisitTypePicker";
 import { UploadSimple } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import { fmtTime, useApp } from "../context";
@@ -183,6 +184,12 @@ export function Recorder() {
               onCancel={() => setState("idle")}
             />
           )}
+          <VisitTypePicker
+            templates={templates}
+            value={app.settings.template}
+            onChange={(id) => app.setSettings({ template: id })}
+            disabled={state !== "idle"}
+          />
           <div className="recorder-stage">
             <RecordButton
               recording={state === "recording"}
@@ -212,27 +219,9 @@ export function Recorder() {
         </section>
 
         <aside className="recorder-rail" aria-label={t("Recording options")}>
-          <div className="ob-field">
-            <span className="label">{t("Template")}</span>
-            <select
-              className="ob-select"
-              value={app.settings.template}
-              aria-label={t("Template")}
-              onChange={(e) => app.setSettings({ template: e.target.value })}
-            >
-              {templates.length === 0 && <option value={app.settings.template}>SOAP note</option>}
-              {templates
-                .filter((x) => x.document !== "client")
-                .map((x) => (
-                  <option key={x.id} value={x.id}>
-                    {templateName(t, x.name)}
-                  </option>
-                ))}
-            </select>
-            <button type="button" className="link small" onClick={() => app.navigate({ screen: "templates" })}>
-              {t("Edit templates")}
-            </button>
-          </div>
+          <button type="button" className="link small" onClick={() => app.navigate({ screen: "templates" })}>
+            {t("Edit templates")}
+          </button>
           <label className="check">
             <input
               type="checkbox"

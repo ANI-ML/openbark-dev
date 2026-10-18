@@ -19,6 +19,8 @@ export interface CopyOptions {
 type Item = Record<string, unknown> & { evidence?: number[]; text?: string; value?: unknown; unit?: string | null };
 
 interface Block {
+  /** A text box: one paragraph, no bullet. */
+  paragraph?: boolean;
   heading: string;
   sub?: string;
   lines: string[];
@@ -43,6 +45,10 @@ function lines(kind: ContentKind, fields: TemplateField[] | undefined, value: un
   }
   const items = Array.isArray(value) ? (value as Item[]) : [];
   if (kind === "statements") return items.map((s) => `${s.text ?? ""}${cite(s, citations)}`);
+  if (kind === "text") {
+    const sentences = items.map((s) => `${s.text ?? ""}${cite(s, citations)}`);
+    return sentences.length ? [sentences.join(" ")] : [];
+  }
   return items.map((m) => {
     const details = ["dose", "route", "frequency", "duration"].map((k) => m[k]).filter((x): x is string => typeof x === "string" && !!x);
     return `${String(m.drug ?? "")}${details.length ? `: ${details.join(", ")}` : ""}${cite(m, citations)}`;
@@ -55,11 +61,11 @@ function blocks(template: Template, run: NoteRun, citations: boolean): Block[] {
     const value = run.note[sec.id];
     if (sec.kind) {
       const l = lines(sec.kind, sec.fields, value, citations);
-      out.push({ heading: sec.title, lines: l, empty: l.length === 0 });
+      out.push({ heading: sec.title, lines: l, empty: l.length === 0, paragraph: sec.kind === "text" });
     } else {
       (sec.parts ?? []).forEach((p, i) => {
         const l = lines(p.kind, p.fields, get(value, p.key), citations);
-        out.push({ heading: i === 0 ? sec.title : "", sub: p.label, lines: l, empty: l.length === 0 });
+        out.push({ heading: i === 0 ? sec.title : "", sub: p.label, lines: l, empty: l.length === 0, paragraph: p.kind === "text" });
       });
     }
   }
@@ -77,7 +83,7 @@ export function formatNote(template: Template, run: NoteRun, o: CopyOptions): { 
     for (const b of bs) {
       if (b.heading) md.push("", `## ${b.heading}`);
       if (b.sub) md.push("", `**${b.sub}**`);
-      md.push("", ...(b.empty ? [`*${nd}*`] : b.lines.map((l) => `- ${l}`)));
+      md.push("", ...(b.empty ? [`*${nd}*`] : b.lines.map((l) => (b.paragraph ? l : `- ${l}`))));
     }
     for (const [h, t] of o.addenda) md.push("", `## ${h}`, "", t);
     return { text: md.join("\n").trim() + "\n" };
@@ -86,7 +92,7 @@ export function formatNote(template: Template, run: NoteRun, o: CopyOptions): { 
   for (const b of bs) {
     if (b.heading) plain.push("", b.heading.toUpperCase());
     if (b.sub) plain.push(`${b.sub}:`);
-    plain.push(...(b.empty ? [nd] : b.lines.map((l) => `- ${l}`)));
+    plain.push(...(b.empty ? [nd] : b.lines.map((l) => (b.paragraph ? l : `- ${l}`))));
   }
   for (const [h, t] of o.addenda) plain.push("", h.toUpperCase(), t);
   const text = plain.join("\n").trim() + "\n";
@@ -96,7 +102,13 @@ export function formatNote(template: Template, run: NoteRun, o: CopyOptions): { 
   for (const b of bs) {
     if (b.heading) html.push(`<h3>${escapeHtml(b.heading)}</h3>`);
     if (b.sub) html.push(`<p><strong>${escapeHtml(b.sub)}</strong></p>`);
-    html.push(b.empty ? `<p><em>${escapeHtml(nd)}</em></p>` : `<ul>${b.lines.map((l) => `<li>${escapeHtml(l)}</li>`).join("")}</ul>`);
+    html.push(
+      b.empty
+        ? `<p><em>${escapeHtml(nd)}</em></p>`
+        : b.paragraph
+          ? b.lines.map((l) => `<p>${escapeHtml(l)}</p>`).join("")
+          : `<ul>${b.lines.map((l) => `<li>${escapeHtml(l)}</li>`).join("")}</ul>`,
+    );
   }
   for (const [h, t] of o.addenda) html.push(`<h3>${escapeHtml(h)}</h3><p>${escapeHtml(t)}</p>`);
   return { text, html: html.join("") };

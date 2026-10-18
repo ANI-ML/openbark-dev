@@ -1,8 +1,9 @@
 # OpenBark template: wellness / preventive care visit (general practice).
 id: wellness
 version: 0.1.0
-name: Wellness visit
+name: Annual exam
 description: Annual or puppy/kitten preventive-care exam, vaccines and parasite control.
+icon: calendar-check
 language: en
 
 instructions: |

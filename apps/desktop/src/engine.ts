@@ -230,7 +230,8 @@ export interface HubRepoView {
 // ---- templates ----------------------------------------------------------------
 
 /** What goes under a heading: bullet points, named measurements, or medications. */
-export type ContentKind = "statements" | "fields" | "medications";
+/** "text" is a text box: cited sentences shown as a paragraph. */
+export type ContentKind = "statements" | "fields" | "medications" | "text";
 
 export interface TemplateField {
   /** JSON key; the engine derives it from the label when empty. */
@@ -285,6 +286,10 @@ export interface Template {
   description?: string;
   /** "record" (default): the medical record. "client": for the pet owner. */
   document?: "record" | "client";
+  /** Icon for this kind of visit (a Phosphor name, e.g. "stethoscope"). */
+  icon?: string;
+  /** How much the model writes. */
+  detail?: "concise" | "standard" | "thorough";
   language?: string;
   instructions?: string;
   rules?: string[];
@@ -299,6 +304,7 @@ export interface TemplateSummary {
   version: string;
   builtin: boolean;
   document: "record" | "client";
+  icon?: string;
   headings: number;
   standards: number;
 }

@@ -3,6 +3,7 @@ id: euthanasia
 version: 0.1.0
 name: Euthanasia and quality of life
 description: Quality-of-life discussion, consent, procedure, confirmation of death and aftercare choice.
+icon: flower-lotus
 language: en
 
 instructions: |

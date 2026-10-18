@@ -5,6 +5,7 @@ id: euthanasia-aftercare
 version: 0.1.0
 name: Euthanasia aftercare
 description: "A gentle note for the family: aftercare arrangements, what to expect, and support."
+icon: hand-heart
 document: client
 language: en
 

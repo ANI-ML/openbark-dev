@@ -1,8 +1,9 @@
 # OpenBark template: sick visit / problem-oriented consult (general practice).
 id: sick-visit
 version: 0.1.0
-name: Sick visit
-description: Problem-oriented consult for an unwell patient, with problem list and plan.
+name: New consult
+description: "A new problem or a new patient: history, exam, problem list and plan."
+icon: stethoscope
 language: en
 
 instructions: |

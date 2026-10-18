@@ -3,6 +3,7 @@ id: production-animal
 version: 0.1.0
 name: Production animal visit
 description: Individual or herd visit for cattle, sheep, goats or pigs, with withdrawal times.
+icon: cow
 language: en
 
 instructions: |

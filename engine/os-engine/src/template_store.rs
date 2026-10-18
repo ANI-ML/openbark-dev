@@ -39,6 +39,8 @@ pub struct TemplateSummary {
     pub builtin: bool,
     /// "record" or "client".
     pub document: crate::template::Document,
+    /// Icon for this kind of visit (a Phosphor name; "" for the default).
+    pub icon: String,
     pub headings: usize,
     pub standards: usize,
 }
@@ -249,6 +251,7 @@ fn summary(t: &LoadedTemplate, builtin: bool) -> TemplateSummary {
         id: t.template.id.clone(),
         name: t.template.name.clone(),
         description: t.template.description.clone(),
+        icon: t.template.icon.clone(),
         version: t.template.version.clone(),
         builtin,
         document: t.template.document,
@@ -367,7 +370,7 @@ mod tests {
             soap.standards_for("plan/medications").next().unwrap().added_by.as_deref(),
             Some("Dr Patel")
         );
-        assert_eq!(store.list()[0].standards, 2);
+        assert_eq!(store.list().iter().find(|t| t.id == "soap").unwrap().standards, 2);
         // A soap folder holding only standards is not listed as a team template.
         assert_eq!(store.list().len(), LoadedTemplate::builtin_ids().count());
 

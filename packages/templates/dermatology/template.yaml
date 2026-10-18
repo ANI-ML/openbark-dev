@@ -3,6 +3,7 @@ id: dermatology
 version: 0.1.0
 name: Dermatology consult
 description: "Skin and ear workup: pruritus history, lesion distribution, cytology, plan."
+icon: hand
 language: en
 
 instructions: |
