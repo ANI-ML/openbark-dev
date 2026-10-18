@@ -94,6 +94,9 @@ pub struct NoteResult {
     /// Set when this draft is a veterinarian's hand edit of an earlier one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub edit: Option<crate::edit::Edit>,
+    /// Who asked for this revision (team members, M1 item 11).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<crate::users::Who>,
     #[serde(skip)]
     pub markdown: String,
 }
@@ -339,6 +342,7 @@ pub fn generate_note(
         stats: output.stats,
         refinement: None,
         edit: None,
+        by: None,
         markdown,
     })
 }
@@ -416,6 +420,7 @@ pub fn refine_note(
             saved_as_standard: false,
         }),
         edit: None,
+        by: None,
         markdown,
     })
 }

@@ -145,6 +145,7 @@ pub fn apply_edit(
         faithfulness,
         stats: Default::default(),
         refinement: None,
+        by: None,
         edit: Some(Edit {
             heading: heading.to_string(),
             by: by.to_string(),

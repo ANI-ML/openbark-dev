@@ -1,7 +1,7 @@
 import type { LevelSource } from "@openbark/ui";
 import { createContext, useContext } from "react";
 import type { Route } from "./App";
-import type { Status } from "./engine";
+import type { Role, Status, User } from "./engine";
 
 /** Per-device preferences (conveniences only; safe to lose). */
 export interface Settings {
@@ -95,6 +95,24 @@ export interface Ctx {
   toast: (message: string) => void;
   announce: (message: string) => void;
   levels: LevelSource & { push(level: number): void };
+  /** The team member using the app (null single-user, or before choosing). */
+  user: User | null;
+  setUser: (u: User | null) => void;
+  /** Sent as `by`: the team member's id, or the name from Settings. */
+  actor: string;
+  /** The acting person's name, for messages. */
+  actorName: string;
+  /** What the person using the app may do. */
+  can: { notes: boolean; sign: boolean; team: boolean };
+}
+
+/** Permissions for a role; single-user (no role) may do everything. */
+export function permissions(role: Role | null | undefined) {
+  return {
+    notes: !role || role === "dvm" || role === "rvt",
+    sign: !role || role === "dvm",
+    team: !role || role === "dvm",
+  };
 }
 
 export const AppContext = createContext<Ctx | null>(null);

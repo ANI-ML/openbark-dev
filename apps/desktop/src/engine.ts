@@ -143,6 +143,8 @@ export interface SessionView {
   consent: RecordingConsent | null;
   /** The latest draft of each client document. */
   documents: DocumentView[];
+  /** Who started the recording or import. */
+  recorded_by: Who | null;
 }
 
 /** A document for the client (discharge instructions, a summary). */
@@ -174,6 +176,8 @@ export interface Status {
   encryption: { enabled: boolean; source: "environment" | "keychain" | "key_file" | null; warning: string | null };
   /** Encounters saved before encryption, still in plain files. */
   plain_encounters: number;
+  /** Team members are set up (otherwise single-user). */
+  team: boolean;
 }
 
 export type Fit = "fits" | "tight" | "wont_fit";
@@ -299,6 +303,33 @@ export function headingTitle(t: Template, heading: string): string {
   return p ? `${s.title} > ${p.label}` : s.title;
 }
 
+// ---- team members (M1 item 11) ------------------------------------------------
+
+export type Role = "dvm" | "rvt" | "reception";
+
+export interface User {
+  id: string;
+  name: string;
+  role: Role;
+}
+
+/** Who did something, as stored on a revision. */
+export interface Who {
+  id?: string | null;
+  name: string;
+  role?: Role | null;
+}
+
+/**
+ * Who is using the app: a team member's id, or (single-user) the name from
+ * Settings. Sent with recordings, imports and drafts so each revision records
+ * who made it. Set by the app shell.
+ */
+let actor: string | null = null;
+export const setActor = (who: string | null) => {
+  actor = who && who.trim() ? who : null;
+};
+
 export const isDesktop = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -358,8 +389,11 @@ export const refineNote = (id: string, request: RefineRequest) =>
 /** Draft with a template; `language` is the note language ("fr"…), English when absent. */
 export const generateNote = (id: string, llm: string, tpl: string, language?: string | null) =>
   isDesktop
-    ? invoke<{ markdown: string; run: NoteRun }>("generate_note", { id, llm, template: tpl, language: language ?? null })
-    : api<{ markdown: string; run: NoteRun }>(`/api/sessions/${enc(id)}/notes`, post({ llm, template: tpl, language: language ?? null }));
+    ? invoke<{ markdown: string; run: NoteRun }>("generate_note", { id, llm, template: tpl, language: language ?? null, by: actor })
+    : api<{ markdown: string; run: NoteRun }>(
+        `/api/sessions/${enc(id)}/notes`,
+        post({ llm, template: tpl, language: language ?? null, by: actor }),
+      );
 
 /** Clinic letterhead and paper size for PDFs. */
 export interface PdfRequest {
@@ -432,6 +466,18 @@ export async function audioUrl(s: SessionView): Promise<string> {
   return URL.createObjectURL(new Blob([bytes], { type: "audio/wav" }));
 }
 
+export const listUsers = () => (isDesktop ? invoke<User[]>("list_users") : api<User[]>("/api/users"));
+export const addUser = (name: string, role: Role, pin: string, by: string | null) =>
+  isDesktop ? invoke<User>("add_user", { name, role, pin, by }) : api<User>("/api/users", post({ name, role, pin, by }));
+export const removeUser = (uid: string, by: string | null) =>
+  isDesktop
+    ? invoke<void>("remove_user", { uid, by })
+    : api<void>(`/api/users/${enc(uid)}?by=${enc(by ?? "")}`, { method: "DELETE" });
+export const setUserPin = (uid: string, pin: string, by: string | null) =>
+  isDesktop ? invoke<void>("set_user_pin", { uid, pin, by }) : api<void>(`/api/users/${enc(uid)}/pin`, post({ pin, by }));
+export const verifyUser = (uid: string, pin: string) =>
+  isDesktop ? invoke<User>("verify_user", { uid, pin }) : api<User>(`/api/users/${enc(uid)}/verify`, post({ pin }));
+
 export const encryptExisting = () =>
   isDesktop ? invoke<number>("encrypt_existing") : api<number>("/api/encryption/encrypt-existing", { method: "POST" });
 export const recoveryKey = () =>
@@ -468,7 +514,7 @@ export async function importRecording(
     const picked = await open({ multiple: false, filters: [{ name: "Recording", extensions: AUDIO_EXTENSIONS }] });
     if (typeof picked !== "string") return null;
     onPicked();
-    return invoke<SessionView>("import_file", { path: picked, speakers, patient: p, consent });
+    return invoke<SessionView>("import_file", { path: picked, speakers, patient: p, consent, by: actor });
   }
   const file = await pickBrowserFile();
   if (!file) return null;
@@ -480,6 +526,7 @@ export async function importRecording(
     last_name: p?.last_name ?? "",
     reason: p?.reason ?? "",
     ...consentQuery(consent),
+    by: actor ?? "",
   });
   return api<SessionView>(`/api/sessions?${q}`, {
     method: "POST",
@@ -502,7 +549,7 @@ async function startDesktopRecording(
   patient: Patient | null,
   consent: RecordingConsent | null,
 ): Promise<Recording> {
-  await invoke<string>("start_recording", { device, speakers, patient, consent });
+  await invoke<string>("start_recording", { device, speakers, patient, consent, by: actor });
   return { stop: () => invoke<SessionView>("stop_recording") };
 }
 
@@ -554,6 +601,7 @@ async function startBrowserRecording(
     last_name: patient?.last_name ?? "",
     reason: patient?.reason ?? "",
     ...consentQuery(consent),
+    by: actor ?? "",
   });
   const ws = new WebSocket(`${proto}://${location.host}/api/live?${q}`);
   ws.binaryType = "arraybuffer";

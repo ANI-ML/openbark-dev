@@ -13,6 +13,7 @@ use os_engine::live::{LiveOptions, LiveRecorder, LiveSink, LiveSource};
 use os_engine::session::{self, Addendum, Consent, PatientInfo, Session};
 use os_engine::template::{Standard, Template};
 use os_engine::template_store::TemplateSummary;
+use os_engine::users::{Role, User, UserStore, Who};
 use os_engine::{LoadedTemplate, NoteOptions, Segment, TemplateStore, TranscribeStats, Transcript};
 use os_llm::{LlamaCppBackend, LlamaCppOptions};
 use os_models::hub::{self, Fit, HubModel, HubRepo};
@@ -49,6 +50,8 @@ pub struct App {
     pub store: ModelStore,
     pub sessions_root: PathBuf,
     pub templates: TemplateStore,
+    /// Team members with roles (M1 item 11); empty means single-user.
+    pub users: UserStore,
     llm: Mutex<Option<(String, Arc<LlamaCppBackend>)>>,
     recorder: Mutex<Option<LiveRecorder>>,
     hardware: Hardware,
@@ -99,6 +102,8 @@ pub struct Status {
     pub encryption: os_engine::vault::VaultStatus,
     /// Encounters saved before encryption, still in plain files.
     pub plain_encounters: usize,
+    /// Whether team members are set up (otherwise single-user).
+    pub team: bool,
 }
 
 #[derive(Serialize)]
@@ -141,6 +146,8 @@ pub struct SessionView {
     pub consent: Option<Consent>,
     /// The latest draft of each client document (discharge, summary…).
     pub documents: Vec<DocumentView>,
+    /// Who started the recording or import.
+    pub recorded_by: Option<Who>,
 }
 
 /// A document for the client, drafted from the visit.
@@ -204,6 +211,7 @@ impl App {
             store,
             sessions_root,
             templates: TemplateStore::default(),
+            users: UserStore::default(),
             llm: Mutex::new(None),
             recorder: Mutex::new(None),
             hardware: probe_hardware(),
@@ -225,7 +233,70 @@ impl App {
             recording: self.recorder.lock().map(|r| r.is_some()).unwrap_or(false),
             encryption: os_engine::vault::status(),
             plain_encounters: self.plain_encounters(),
+            team: self.users.is_team(),
         }
+    }
+
+    /// Who is acting. With a team set up, `by` is a team member's id and
+    /// their role must allow `need`; single-user, `by` is just a name.
+    fn who(&self, by: Option<&str>, need: Need) -> Result<Option<Who>> {
+        let by = by.map(str::trim).filter(|b| !b.is_empty());
+        if !self.users.is_team() {
+            return Ok(by.map(Who::named));
+        }
+        let user = by
+            .and_then(|id| self.users.get(id))
+            .ok_or_else(|| AppError("Choose who you are first.".into()))?;
+        let allowed = match need {
+            Need::Any => true,
+            Need::Notes => user.role.can_write_notes(),
+            Need::Sign => user.role.can_sign(),
+            Need::Team => user.role.can_manage_team(),
+        };
+        if !allowed {
+            return Err(AppError(match need {
+                Need::Notes => format!(
+                    "{} can record and enter patient details; drafting and editing notes needs a veterinarian or technician.",
+                    user.name
+                ),
+                Need::Sign => format!("Only a veterinarian can sign. {} is using OpenBark now.", user.name),
+                Need::Team => "Only a veterinarian can change the team.".into(),
+                Need::Any => unreachable!(),
+            }));
+        }
+        Ok(Some(Who::from(&user)))
+    }
+
+    // ---- team (M1 item 11) -----------------------------------------------
+
+    pub fn list_users(&self) -> Result<Vec<User>> {
+        Ok(self.users.list()?)
+    }
+
+    /// Add a team member. Once a team exists, only a veterinarian can.
+    pub fn add_user(&self, name: &str, role: Role, pin: &str, by: Option<&str>) -> Result<User> {
+        if self.users.is_team() {
+            self.who(by, Need::Team)?;
+        }
+        Ok(self.users.add(name, role, pin)?)
+    }
+
+    pub fn remove_user(&self, id: &str, by: Option<&str>) -> Result<()> {
+        self.who(by, Need::Team)?;
+        Ok(self.users.remove(id)?)
+    }
+
+    /// Change a PIN: your own, or anyone's as a veterinarian.
+    pub fn set_user_pin(&self, id: &str, pin: &str, by: Option<&str>) -> Result<()> {
+        if by.map(str::trim) != Some(id) {
+            self.who(by, Need::Team)?;
+        }
+        Ok(self.users.set_pin(id, pin)?)
+    }
+
+    /// Check a team member's PIN when they start using the app.
+    pub fn verify_user(&self, id: &str, pin: &str) -> Result<User> {
+        Ok(self.users.verify(id, pin)?)
     }
 
     /// Encounter folders still holding plain (unencrypted) files.
@@ -328,10 +399,11 @@ impl App {
         label_speakers: bool,
         patient: Option<PatientInfo>,
         consent: Option<Consent>,
+        by: Option<&str>,
         events: &dyn Events,
     ) -> Result<SessionView> {
         let source = LiveSource::File { path: path.to_path_buf(), realtime: false };
-        self.import_source(source, label_speakers, patient, consent, events)
+        self.import_source(source, label_speakers, patient, consent, by, events)
     }
 
     fn import_source(
@@ -340,17 +412,20 @@ impl App {
         label_speakers: bool,
         patient: Option<PatientInfo>,
         consent: Option<Consent>,
+        by: Option<&str>,
         events: &dyn Events,
     ) -> Result<SessionView> {
         if let Some(c) = &consent {
             c.check()?;
         }
+        let recorded_by = self.who(by, Need::Any)?;
         let _awake = AwakeGuard::acquire(AwakeReason::Processing);
         let (tx, rx) = std::sync::mpsc::channel::<Segment>();
         let mut options = LiveOptions::microphone();
         options.label_speakers = label_speakers;
         options.patient = patient.filter(|p| !p.is_empty());
         options.consent = consent;
+        options.recorded_by = recorded_by;
         let recorder = LiveRecorder::start(
             &self.store,
             &self.sessions_root,
@@ -370,6 +445,7 @@ impl App {
     /// Same as [`App::import_file`] for uploaded bytes (web mode). Any format
     /// the engine decodes (WAV, m4a, mp3, CAF, FLAC, Ogg); the file name's
     /// extension is kept as a hint.
+    #[allow(clippy::too_many_arguments)]
     pub fn import_bytes(
         &self,
         name: &str,
@@ -377,6 +453,7 @@ impl App {
         label_speakers: bool,
         patient: Option<PatientInfo>,
         consent: Option<Consent>,
+        by: Option<&str>,
         events: &dyn Events,
     ) -> Result<SessionView> {
         if wav.len() < 16 {
@@ -386,7 +463,7 @@ impl App {
         let file = Path::new(name).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let name = if file.is_empty() { "recording.wav".to_string() } else { file };
         let source = LiveSource::Memory { name, bytes: wav.to_vec() };
-        self.import_source(source, label_speakers, patient, consent, events)
+        self.import_source(source, label_speakers, patient, consent, by, events)
     }
 
     // ---- live recording --------------------------------------------------
@@ -405,11 +482,13 @@ impl App {
         label_speakers: bool,
         patient: Option<PatientInfo>,
         consent: Option<Consent>,
+        by: Option<&str>,
         events: Arc<dyn Events>,
     ) -> Result<String> {
         if let Some(c) = &consent {
             c.check()?;
         }
+        let recorded_by = self.who(by, Need::Any)?;
         let mut slot = self.recorder.lock().map_err(|_| AppError("recorder lock poisoned".into()))?;
         if slot.is_some() {
             return Err(AppError("A recording is already running. Stop it first.".into()));
@@ -422,6 +501,7 @@ impl App {
         options.label_speakers = label_speakers;
         options.patient = patient.filter(|p| !p.is_empty());
         options.consent = consent;
+        options.recorded_by = recorded_by;
         let recorder = LiveRecorder::start(
             &self.store,
             &self.sessions_root,
@@ -474,8 +554,10 @@ impl App {
         llm: &str,
         template: &str,
         language: Option<&str>,
+        by: Option<&str>,
         events: &dyn Events,
     ) -> Result<NoteResponse> {
+        let who = self.who(by, Need::Notes)?;
         let _awake = AwakeGuard::acquire(AwakeReason::Processing);
         let mut s = Session::open(&self.session_dir(id)?)?;
         let template = self.templates.load(if template.is_empty() { "soap" } else { template })?;
@@ -511,6 +593,7 @@ impl App {
                 events.token(p);
                 true
             })?;
+        result.by = who;
         result.markdown = with_header(&s, &result.markdown);
         s.save_run(llm, &result, &template)?;
         Ok(NoteResponse { markdown: result.markdown.clone(), run: serde_json::to_value(&result)? })
@@ -527,6 +610,7 @@ impl App {
         request: &RefineRequest,
         events: &dyn Events,
     ) -> Result<NoteResponse> {
+        let who = self.who(request.by.as_deref(), Need::Notes)?;
         let mut s = Session::open(&self.session_dir(id)?)?;
         if s.is_signed() {
             return Err(AppError(
@@ -576,13 +660,14 @@ impl App {
                 &template.template.id,
                 &request.heading,
                 &request.request,
-                request.by.as_deref(),
+                who.as_ref().map(|w| w.name.as_str()),
             )?;
         }
         if let Some(r) = result.refinement.as_mut() {
             r.from_run = Some(run.dir.clone());
             r.saved_as_standard = request.save_as_standard;
         }
+        result.by = who;
         result.markdown = with_header(&s, &result.markdown);
         s.save_run(&request.llm, &result, &template)?;
         Ok(NoteResponse { markdown: result.markdown.clone(), run: serde_json::to_value(&result)? })
@@ -597,9 +682,9 @@ impl App {
         value: serde_json::Value,
         by: &str,
     ) -> Result<NoteResponse> {
-        if by.trim().is_empty() {
-            return Err(AppError("Add your name in Settings, then save your edits.".into()));
-        }
+        let who = self
+            .who(Some(by), Need::Notes)?
+            .ok_or_else(|| AppError("Add your name in Settings, then save your edits.".into()))?;
         let mut s = Session::open(&self.session_dir(id)?)?;
         if s.is_signed() {
             return Err(AppError(
@@ -610,7 +695,8 @@ impl App {
         let template = s.run_template(&run)?;
         let transcript = s.load_transcript()?;
         let mut result =
-            os_engine::edit::apply_edit(&template, &transcript, &note, heading, value, by, &run.llm)?;
+            os_engine::edit::apply_edit(&template, &transcript, &note, heading, value, &who.name, &run.llm)?;
+        result.by = Some(who);
         if let Some(e) = result.edit.as_mut() {
             e.from_run = Some(run.dir.clone());
         }
@@ -621,11 +707,11 @@ impl App {
 
     /// Add a signed addendum to a signed note.
     pub fn add_addendum(&self, id: &str, text: &str, by: &str) -> Result<SessionView> {
-        if by.trim().is_empty() {
-            return Err(AppError("Add your name in Settings, then sign the addendum.".into()));
-        }
+        let who = self
+            .who(Some(by), Need::Sign)?
+            .ok_or_else(|| AppError("Add your name in Settings, then sign the addendum.".into()))?;
         let mut s = Session::open(&self.session_dir(id)?)?;
-        s.add_addendum(text, by)?;
+        s.add_addendum_by(text, &who)?;
         Ok(view(&s, None))
     }
 
@@ -697,11 +783,11 @@ impl App {
 
     /// Mark the latest draft as signed by `by` (refused while numbers are unsupported).
     pub fn sign(&self, id: &str, by: &str) -> Result<SessionView> {
-        if by.trim().is_empty() {
-            return Err(AppError("Enter the name of the veterinarian signing the note.".into()));
-        }
+        let who = self
+            .who(Some(by), Need::Sign)?
+            .ok_or_else(|| AppError("Enter the name of the veterinarian signing the note.".into()))?;
         let mut s = Session::open(&self.session_dir(id)?)?;
-        s.sign_latest(by)?;
+        s.sign_latest_by(&who)?;
         Ok(view(&s, None))
     }
 
@@ -837,6 +923,15 @@ impl App {
         let entry = hub::add_to_catalog(&self.store, &r, file, accept_license)?;
         Ok(self.row(&entry, false))
     }
+}
+
+/// What an action needs from the person doing it (M1 item 11).
+#[derive(Clone, Copy)]
+enum Need {
+    Any,
+    Notes,
+    Sign,
+    Team,
 }
 
 /// What to put in a PDF export.
@@ -1016,6 +1111,7 @@ fn view(s: &Session, transcript: Option<Transcript>) -> SessionView {
         addenda,
         consent: s.meta.consent.clone(),
         documents,
+        recorded_by: s.meta.recorded_by.clone(),
     }
 }
 

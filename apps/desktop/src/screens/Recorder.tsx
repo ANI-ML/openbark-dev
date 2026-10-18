@@ -113,7 +113,7 @@ export function Recorder() {
   }
 
   function confirmConsent(consent: engine.RecordingConsent, signer: string) {
-    if (!app.settings.signer.trim()) app.setSettings({ signer });
+    if (!app.settings.signer.trim() && !app.user) app.setSettings({ signer });
     if (consentFor === "record") void begin(consent);
     else void importWith(consent);
   }
@@ -176,7 +176,7 @@ export function Recorder() {
             <ConsentStep
               rule={app.settings.consentRule}
               script={app.settings.consentScript}
-              signer={app.settings.signer}
+              signer={app.actorName}
               purpose={consentFor}
               onConfirm={confirmConsent}
               onDecline={declineConsent}

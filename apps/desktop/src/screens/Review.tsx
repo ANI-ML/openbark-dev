@@ -116,14 +116,14 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
 
   async function saveEdit(heading: string, value: unknown) {
     if (!template) return;
-    if (!app.settings.signer.trim()) {
+    if (!app.actorName.trim()) {
       setError(t("Add your name in Settings, then save your edits."));
       return;
     }
     setError(null);
     setSavingEdit(true);
     try {
-      await engine.editNote(id, heading, value, app.settings.signer);
+      await engine.editNote(id, heading, value, app.actor);
       await load();
       setEditingHeading(null);
       app.toast(t("{heading} saved", { heading: engine.headingTitle(template, heading) }));
@@ -136,12 +136,12 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
 
   async function signAddendum() {
     if (!addendum?.trim()) return;
-    if (!app.settings.signer.trim()) {
+    if (!app.actorName.trim()) {
       setError(t("Add your name in Settings, then sign the addendum."));
       return;
     }
     try {
-      setView(await engine.addAddendum(id, addendum, app.settings.signer));
+      setView(await engine.addAddendum(id, addendum, app.actor));
       setAddendum(null);
       app.toast(t("Addendum signed"));
     } catch (e) {
@@ -160,7 +160,7 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
         heading,
         request,
         save_as_standard: saveAsStandard,
-        by: app.settings.signer.trim() || null,
+        by: app.actor.trim() || null,
         language: app.settings.noteLanguage,
       });
       await load();
@@ -250,12 +250,12 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
   }
 
   async function sign() {
-    if (!app.settings.signer.trim()) {
+    if (!app.actorName.trim()) {
       setError(t("Add your name in Settings, then sign."));
       return;
     }
     try {
-      setView(await engine.signNote(id, app.settings.signer));
+      setView(await engine.signNote(id, app.actor));
       app.toast(t("Note signed"));
       app.announce(t("Note signed"));
     } catch (e) {
@@ -315,13 +315,13 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
           {run && <span className="ob-chip mono">{run.model}</span>}
           {signed ? (
             <StatusDot tone="ok">{t("Signed by {name}, {at}", { name: view?.signed_by ?? "", at: view?.signed_at ?? "" })}</StatusDot>
-          ) : run ? (
+          ) : run && app.can.sign ? (
             <Button variant="primary" onClick={sign} disabled={generating || refining || hardFails > 0}>
               <Signature size={20} aria-hidden />
               {t("Sign note")}
             </Button>
-          ) : (
-            <Button variant="primary" onClick={draft} disabled={generating || segments.length === 0}>
+          ) : run ? null : (
+            <Button variant="primary" onClick={draft} disabled={!app.can.notes || generating || segments.length === 0}>
               {t("Draft note")}
             </Button>
           )}
@@ -441,7 +441,7 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
                 onPlay={playIds}
                 onCopySection={(title, text) => copy(`${title}\n${text}`, title)}
                 onAsk={
-                  signed || generating
+                  signed || generating || !app.can.notes
                     ? undefined
                     : (heading) => {
                         setEditingHeading(null);
@@ -449,7 +449,7 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
                       }
                 }
                 onEdit={
-                  signed || generating || refining
+                  signed || generating || refining || !app.can.notes
                     ? undefined
                     : (heading) => {
                         setAsking(null);
@@ -498,7 +498,7 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
                   <FilePdf size={20} aria-hidden />
                   {t("Save PDF")}
                 </Button>
-                {!signed && (
+                {!signed && app.can.notes && (
                   <Button variant="ghost" onClick={draft} disabled={generating || refining}>
                     <ArrowClockwise size={20} aria-hidden />
                     {chosen === template?.id
@@ -547,7 +547,7 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
                       <p>{a.text}</p>
                     </article>
                   ))}
-                  {addendum === null ? (
+                  {!app.can.sign ? null : addendum === null ? (
                     <Button variant="ghost" onClick={() => setAddendum("")}>
                       {t("Add addendum")}
                     </Button>

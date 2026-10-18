@@ -11,6 +11,7 @@ use os_app::{App, AppError, Events, Patient, PdfRequest, RecordingConsent, Recor
 use os_engine::Segment;
 use os_engine::template::{Standard, Template};
 use os_engine::template_store::TemplateSummary;
+use os_engine::users::{Role, User};
 use os_models::ModelStore;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
@@ -83,9 +84,13 @@ async fn import_file(
     speakers: bool,
     patient: Option<Patient>,
     consent: Option<RecordingConsent>,
+    by: Option<String>,
 ) -> Result<os_app::SessionView, String> {
     let app = app.inner().clone();
-    work(move || app.import_file(Path::new(&path), speakers, patient, consent, &TauriEvents(handle))).await
+    work(move || {
+        app.import_file(Path::new(&path), speakers, patient, consent, by.as_deref(), &TauriEvents(handle))
+    })
+    .await
 }
 
 #[tauri::command]
@@ -96,6 +101,7 @@ async fn start_recording(
     speakers: bool,
     patient: Option<Patient>,
     consent: Option<RecordingConsent>,
+    by: Option<String>,
 ) -> Result<String, String> {
     let app = app.inner().clone();
     work(move || {
@@ -104,6 +110,7 @@ async fn start_recording(
             speakers,
             patient,
             consent,
+            by.as_deref(),
             Arc::new(TauriEvents(handle)),
         )
     })
@@ -134,9 +141,13 @@ async fn generate_note(
     llm: String,
     template: String,
     language: Option<String>,
+    by: Option<String>,
 ) -> Result<os_app::NoteResponse, String> {
     let app = app.inner().clone();
-    work(move || app.generate_note(&id, &llm, &template, language.as_deref(), &TauriEvents(handle))).await
+    work(move || {
+        app.generate_note(&id, &llm, &template, language.as_deref(), by.as_deref(), &TauriEvents(handle))
+    })
+    .await
 }
 
 #[tauri::command]
@@ -219,6 +230,43 @@ async fn export_pdf(
 #[tauri::command]
 fn pdf_name(app: State<'_, AppState>, id: String, request: PdfRequest) -> Result<String, String> {
     app.export_pdf(&id, &request).map(|(_, name)| name).map_err(|e| e.0)
+}
+
+#[tauri::command]
+fn list_users(app: State<'_, AppState>) -> Result<Vec<User>, String> {
+    app.list_users().map_err(|e| e.0)
+}
+
+#[tauri::command]
+fn add_user(
+    app: State<'_, AppState>,
+    name: String,
+    role: Role,
+    pin: String,
+    by: Option<String>,
+) -> Result<User, String> {
+    app.add_user(&name, role, &pin, by.as_deref()).map_err(|e| e.0)
+}
+
+#[tauri::command]
+fn remove_user(app: State<'_, AppState>, uid: String, by: Option<String>) -> Result<(), String> {
+    app.remove_user(&uid, by.as_deref()).map_err(|e| e.0)
+}
+
+#[tauri::command]
+fn set_user_pin(
+    app: State<'_, AppState>,
+    uid: String,
+    pin: String,
+    by: Option<String>,
+) -> Result<(), String> {
+    app.set_user_pin(&uid, &pin, by.as_deref()).map_err(|e| e.0)
+}
+
+#[tauri::command]
+async fn verify_user(app: State<'_, AppState>, uid: String, pin: String) -> Result<User, String> {
+    let app = app.inner().clone();
+    work(move || app.verify_user(&uid, &pin)).await
 }
 
 #[tauri::command]
@@ -324,6 +372,11 @@ pub fn run() {
             export_pdf,
             pdf_name,
             session_audio,
+            list_users,
+            add_user,
+            remove_user,
+            set_user_pin,
+            verify_user,
             encrypt_existing,
             recovery_key,
             list_templates,

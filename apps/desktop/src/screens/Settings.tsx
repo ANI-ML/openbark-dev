@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { DEFAULT_CONSENT_SCRIPT, useApp } from "../context";
 import * as engine from "../engine";
 import { NOTE_LANGUAGES, UI_LANGUAGES, useT } from "../i18n";
+import { TeamSettings } from "../components/TeamSettings";
 
 /** DESIGN.md §6 Settings: hairline-separated groups. */
 export function SettingsScreen() {
@@ -48,20 +49,24 @@ export function SettingsScreen() {
         <h1>{t("Settings")}</h1>
       </header>
 
-      <section className="group">
-        <h2>{t("You")}</h2>
-        <label className="ob-field narrow">
-          <span className="label">{t("Name for signing notes")}</span>
-          <input
-            className="ob-input"
-            value={s.signer}
-            onChange={(e) => app.setSettings({ signer: e.target.value })}
-            placeholder="Dr. A. Patel"
-            autoComplete="name"
-          />
-          <span className="ob-help">{t("Saved with each note you sign.")}</span>
-        </label>
-      </section>
+      {!app.status?.team && (
+        <section className="group">
+          <h2>{t("You")}</h2>
+          <label className="ob-field narrow">
+            <span className="label">{t("Name for signing notes")}</span>
+            <input
+              className="ob-input"
+              value={s.signer}
+              onChange={(e) => app.setSettings({ signer: e.target.value })}
+              placeholder="Dr. A. Patel"
+              autoComplete="name"
+            />
+            <span className="ob-help">{t("Saved with each note you sign.")}</span>
+          </label>
+        </section>
+      )}
+
+      <TeamSettings />
 
       <section className="group">
         <h2>{t("Language")}</h2>

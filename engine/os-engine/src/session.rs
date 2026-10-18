@@ -29,6 +29,7 @@ use crate::note::Refinement;
 use crate::template::{Document, LoadedTemplate};
 use crate::transcribe::TranscribeStats;
 use crate::transcript::Transcript;
+use crate::users::Who;
 use crate::{EngineError, NoteResult};
 
 pub const SESSION_FILE: &str = "session.json";
@@ -67,6 +68,12 @@ pub struct RunInfo {
     pub signed_at: Option<DateTime<Local>>,
     #[serde(default)]
     pub signed_by: Option<String>,
+    /// The signer with their role, when the clinic has a team set up.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signer: Option<Who>,
+    /// Who drafted, re-prompted or edited this revision (M1 item 11).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<Who>,
     /// Set when this run redrafted one heading of an earlier run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refinement: Option<Refinement>,
@@ -96,6 +103,9 @@ pub struct Addendum {
     pub text: String,
     pub by: String,
     pub at: DateTime<Local>,
+    /// The author with their role, when the clinic has a team set up.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub who: Option<Who>,
 }
 
 impl RunInfo {
@@ -122,6 +132,9 @@ pub struct SessionMeta {
     /// Consent to record, confirmed before recording started.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub consent: Option<Consent>,
+    /// Who started the recording or import.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recorded_by: Option<Who>,
 }
 
 /// The clinic's rule for recording a conversation.
@@ -291,6 +304,7 @@ impl Session {
             runs: Vec::new(),
             patient: None,
             consent: None,
+            recorded_by: None,
         };
         let session = Self { dir, meta };
         session.save_meta()?;
@@ -319,6 +333,7 @@ impl Session {
             runs: Vec::new(),
             patient: None,
             consent: None,
+            recorded_by: None,
         };
         let session = Self { dir, meta };
         session.save_meta()?;
@@ -411,6 +426,8 @@ impl Session {
             signed_at: None,
             signed_by: None,
             refinement: result.refinement.clone(),
+            signer: None,
+            by: result.by.clone(),
             edited: result.edit.as_ref().map(|e| EditSummary {
                 heading: e.heading.clone(),
                 by: e.by.clone(),
@@ -445,6 +462,11 @@ impl Session {
         self.save_meta()
     }
 
+    pub fn set_recorded_by(&mut self, who: Who) -> Result<(), EngineError> {
+        self.meta.recorded_by = Some(who);
+        self.save_meta()
+    }
+
     /// Save the consent to record, time-stamped now.
     pub fn set_consent(&mut self, mut consent: Consent) -> Result<(), EngineError> {
         consent.check()?;
@@ -458,6 +480,11 @@ impl Session {
     /// Sign the latest run. Refused if it has numbers absent from the
     /// transcript (DESIGN.md §5: hard-fail content blocks signing).
     pub fn sign_latest(&mut self, signed_by: &str) -> Result<(), EngineError> {
+        self.sign_latest_by(&Who::named(signed_by))
+    }
+
+    /// Sign as a team member (their role is kept with the signature).
+    pub fn sign_latest_by(&mut self, who: &Who) -> Result<(), EngineError> {
         let run = self
             .meta
             .runs
@@ -474,7 +501,8 @@ impl Session {
             ));
         }
         run.signed_at = Some(Local::now());
-        run.signed_by = Some(signed_by.trim().to_string());
+        run.signed_by = Some(who.name.clone());
+        run.signer = who.role.is_some().then(|| who.clone());
         self.save_meta()
     }
 
@@ -508,7 +536,12 @@ impl Session {
 
     /// Add a signed addendum to the signed note.
     pub fn add_addendum(&mut self, text: &str, by: &str) -> Result<Addendum, EngineError> {
-        let (text, by) = (text.trim(), by.trim());
+        self.add_addendum_by(text, &Who::named(by))
+    }
+
+    /// Add an addendum as a team member.
+    pub fn add_addendum_by(&mut self, text: &str, who: &Who) -> Result<Addendum, EngineError> {
+        let (text, by) = (text.trim(), who.name.trim());
         if by.is_empty() {
             return Err(EngineError::Session(
                 "Enter the name of the veterinarian signing the addendum.".into(),
@@ -532,6 +565,7 @@ impl Session {
             text: text.into(),
             by: by.into(),
             at: Local::now(),
+            who: who.role.is_some().then(|| who.clone()),
         };
         run.addenda.push(addendum.clone());
         self.save_meta()?;
@@ -628,6 +662,7 @@ mod tests {
             stats: Default::default(),
             refinement: None,
             edit: None,
+            by: None,
             markdown: "# SOAP note\n".into(),
         }
     }

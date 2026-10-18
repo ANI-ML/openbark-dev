@@ -25,6 +25,8 @@ INDIRECT = [
     "Record", "Encounters", "Templates", "Models", "Settings", "This device", "Web, this computer only",
     # @openbark/ui ThemeToggle (translated through its `translate` prop)
     "Theme", "System", "Light", "Dark",
+    # UserPicker ROLE_LABEL
+    "Veterinarian", "Technician", "Reception",
 ]
 
 

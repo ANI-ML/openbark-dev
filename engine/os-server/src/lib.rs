@@ -26,6 +26,7 @@
 //! - `POST /api/record/start|stop`          record from this machine's microphone
 //! - `GET  /api/models`, `POST /api/models/{id}/download`
 //! - `GET  /api/hub/search?q=`, `GET /api/hub/repo?id=`, `POST /api/hub/add`
+//! - `GET|POST /api/users`, `DELETE /api/users/{uid}?by=`, `POST /api/users/{uid}/pin`, `POST /api/users/{uid}/verify`
 //! - `GET  /api/events`                     server-sent events: segment, token, level, download
 
 use std::net::{Ipv4Addr, SocketAddr};
@@ -46,6 +47,7 @@ use os_app::{
 };
 use os_engine::Segment;
 use os_engine::template::Template;
+use os_engine::users::Role;
 use os_models::ModelStore;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
@@ -154,6 +156,10 @@ pub async fn serve(options: ServerOptions) -> std::io::Result<()> {
         .route("/api/hub/add", post(hub_add))
         .route("/api/encryption/encrypt-existing", post(encrypt_existing))
         .route("/api/encryption/recovery-key", get(recovery_key))
+        .route("/api/users", get(list_users).post(add_user))
+        .route("/api/users/{uid}", delete(remove_user))
+        .route("/api/users/{uid}/pin", post(set_user_pin))
+        .route("/api/users/{uid}/verify", post(verify_user))
         .route("/api/events", get(events_stream))
         .layer(DefaultBodyLimit::max(1 << 30))
         .with_state(state);
@@ -212,6 +218,65 @@ async fn session_audio(
             .into_response(),
         None => (common, wav).into_response(),
     })
+}
+
+async fn list_users(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app.list_users()).await
+}
+
+#[derive(Deserialize)]
+struct NewUser {
+    name: String,
+    role: Role,
+    pin: String,
+    #[serde(default)]
+    by: Option<String>,
+}
+
+async fn add_user(State(s): State<St>, Json(u): Json<NewUser>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app.add_user(&u.name, u.role, &u.pin, u.by.as_deref())).await
+}
+
+#[derive(Deserialize)]
+struct ByQuery {
+    #[serde(default)]
+    by: Option<String>,
+}
+
+async fn remove_user(
+    State(s): State<St>,
+    UrlPath(uid): UrlPath<String>,
+    Query(q): Query<ByQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app.remove_user(&uid, q.by.as_deref())).await
+}
+
+#[derive(Deserialize)]
+struct PinChange {
+    pin: String,
+    #[serde(default)]
+    by: Option<String>,
+}
+
+async fn set_user_pin(
+    State(s): State<St>,
+    UrlPath(uid): UrlPath<String>,
+    Json(p): Json<PinChange>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app.set_user_pin(&uid, &p.pin, p.by.as_deref())).await
+}
+
+#[derive(Deserialize)]
+struct PinCheck {
+    pin: String,
+}
+
+async fn verify_user(
+    State(s): State<St>,
+    UrlPath(uid): UrlPath<String>,
+    Json(p): Json<PinCheck>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app.verify_user(&uid, &p.pin)).await
 }
 
 async fn encrypt_existing(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
@@ -280,6 +345,9 @@ struct CreateSession {
     patient: PatientQuery,
     #[serde(flatten)]
     consent: ConsentQuery,
+    /// The team member (or name) importing it.
+    #[serde(default)]
+    by: Option<String>,
 }
 
 async fn create_session(
@@ -296,6 +364,7 @@ async fn create_session(
             q.diarize,
             q.patient.into_patient(),
             q.consent.into_consent(),
+            q.by.as_deref(),
             events.as_ref(),
         )
     })
@@ -309,6 +378,8 @@ struct CreateNote {
     template: String,
     #[serde(default)]
     language: Option<String>,
+    #[serde(default)]
+    by: Option<String>,
 }
 
 fn soap() -> String {
@@ -322,7 +393,14 @@ async fn create_note(
 ) -> Result<impl IntoResponse, ApiError> {
     blocking(move || {
         let events = s.events.clone();
-        s.app.generate_note(&id, &req.llm, &req.template, req.language.as_deref(), events.as_ref())
+        s.app.generate_note(
+            &id,
+            &req.llm,
+            &req.template,
+            req.language.as_deref(),
+            req.by.as_deref(),
+            events.as_ref(),
+        )
     })
     .await
 }
@@ -468,6 +546,8 @@ struct LiveQuery {
     patient: PatientQuery,
     #[serde(flatten)]
     consent: ConsentQuery,
+    #[serde(default)]
+    by: Option<String>,
 }
 
 fn yes() -> bool {
@@ -492,7 +572,14 @@ async fn live_session(s: St, mut q: LiveQuery, mut socket: WebSocket) {
     let started = {
         let s = s.clone();
         tokio::task::spawn_blocking(move || {
-            s.app.start_recording(RecordingSource::Stream(rx), q.speakers, patient, consent, events)
+            s.app.start_recording(
+                RecordingSource::Stream(rx),
+                q.speakers,
+                patient,
+                consent,
+                q.by.as_deref(),
+                events,
+            )
         })
         .await
     };
@@ -550,6 +637,8 @@ struct RecordStart {
     patient: Option<Patient>,
     #[serde(default)]
     consent: Option<RecordingConsent>,
+    #[serde(default)]
+    by: Option<String>,
 }
 
 async fn record_start(
@@ -563,6 +652,7 @@ async fn record_start(
             req.speakers,
             req.patient,
             req.consent,
+            req.by.as_deref(),
             events,
         )
     })

@@ -3,7 +3,8 @@ import { Cube, Gear, ListBullets, Microphone, Notebook } from "@phosphor-icons/r
 import { useCallback, useEffect, useMemo, useState } from "react";
 import * as engine from "./engine";
 import { ConsentNotice } from "./components/ConsentNotice";
-import { AppContext, loadSettings, saveSettings, type Settings } from "./context";
+import { ROLE_LABEL, UserPicker } from "./components/UserPicker";
+import { AppContext, loadSettings, permissions, saveSettings, type Settings } from "./context";
 import { translate } from "./i18n";
 import { Encounters } from "./screens/Encounters";
 import { Models } from "./screens/Models";
@@ -61,7 +62,47 @@ export function App() {
       return next;
     });
 
+  // The team member using the app (M1 item 11), remembered on this device.
+  const [user, setUserState] = useState<engine.User | null>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("openbark.user") ?? "null") as engine.User | null;
+    } catch {
+      return null;
+    }
+  });
+  const setUser = (u: engine.User | null) => {
+    setUserState(u);
+    try {
+      if (u) localStorage.setItem("openbark.user", JSON.stringify(u));
+      else localStorage.removeItem("openbark.user");
+    } catch {
+      // Non-fatal: they choose again next time.
+    }
+  };
+  const team = Boolean(status?.team);
+  const acting = team ? user : null;
+  const actor = team ? (user?.id ?? "") : settings.signer;
+  const actorName = team ? (user?.name ?? "") : settings.signer;
+  engine.setActor(actor);
+
+  // A remembered team member who has since been removed must choose again.
+  useEffect(() => {
+    if (!team || !user) return;
+    engine.listUsers().then(
+      (list) => {
+        if (!list.some((u) => u.id === user.id)) setUser(null);
+      },
+      () => {},
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [team, user?.id]);
+
   const ctx = {
+    user: acting,
+    setUser,
+    actor,
+    actorName,
+    can: permissions(team ? (user?.role ?? "reception") : null),
     route,
     navigate: setRoute,
     status,
@@ -108,6 +149,13 @@ export function App() {
             })}
           </ul>
           <div className="sidebar-foot small faint">
+            {acting && (
+              <button type="button" className="link small who-now" onClick={() => setUser(null)} title={t("Switch user")}>
+                <span className="nav-label">
+                  {acting.name}, {t(ROLE_LABEL[acting.role])}. {t("Switch")}
+                </span>
+              </button>
+            )}
             <span className="nav-label">{t(engine.isDesktop ? "This device" : "Web, this computer only")}</span>
           </div>
         </nav>
@@ -124,6 +172,14 @@ export function App() {
       </div>
       {!settings.consentAcknowledgedAt && (
         <ConsentNotice onAccept={() => setSettings({ consentAcknowledgedAt: new Date().toISOString() })} />
+      )}
+      {settings.consentAcknowledgedAt && team && !user && (
+        <UserPicker
+          onChosen={(u) => {
+            setUser(u);
+            refreshStatus();
+          }}
+        />
       )}
       {toast && (
         <div className="ob-toast" role="status">

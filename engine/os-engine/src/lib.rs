@@ -21,6 +21,7 @@ pub mod template;
 pub mod template_store;
 pub mod transcribe;
 pub mod transcript;
+pub mod users;
 pub mod vault;
 pub mod vocab;
 

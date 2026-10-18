@@ -414,3 +414,15 @@ a { color: var(--accent); }
 .recovery-key { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .recovery-key code { padding: 6px 10px; background: var(--surface-2); border-radius: var(--radius-control); overflow-wrap: anywhere; user-select: all; }
 p > .ob-dot { display: inline-block; vertical-align: middle; }
+
+/* Who's using OpenBark (M1 item 11) */
+.who-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
+.who { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.who:hover { background: var(--surface-2); }
+.who-name { font-weight: 500; }
+.who-pin { display: flex; flex-direction: column; gap: 12px; }
+.who-now { display: block; margin-bottom: 4px; text-align: left; }
+.team-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; max-width: 520px; }
+.team-list li { display: grid; grid-template-columns: 1fr auto 28px; gap: 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.team-add { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px 12px; align-items: end; max-width: 820px; }
+@media (max-width: 640px) { .team-add { grid-template-columns: minmax(0, 1fr); } }
