@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use os_engine::awake::{AwakeGuard, AwakeReason};
 use os_engine::live::{LiveOptions, LiveRecorder, LiveSink, LiveSource};
+use os_engine::patients::{PatientRecord, PatientStore};
 use os_engine::session::{self, Addendum, Consent, PatientInfo, Session};
 use os_engine::template::{Standard, Template};
 use os_engine::template_store::TemplateSummary;
@@ -52,6 +53,8 @@ pub struct App {
     pub templates: TemplateStore,
     /// Team members with roles (M1 item 11); empty means single-user.
     pub users: UserStore,
+    /// Patients, with their visits linked by id (ADR-0011).
+    pub patients: PatientStore,
     llm: Mutex<Option<(String, Arc<LlamaCppBackend>)>>,
     recorder: Mutex<Option<LiveRecorder>>,
     hardware: Hardware,
@@ -106,6 +109,39 @@ pub struct Status {
     pub team: bool,
     /// "macos", "windows" or "linux": the Mac shows MLX-optimized models.
     pub platform: String,
+}
+
+/// A visit as listed under a patient.
+#[derive(Debug, Clone, Serialize)]
+pub struct VisitSummary {
+    pub id: String,
+    pub created_at: String,
+    pub reason: String,
+    /// The latest draft's template (the type of visit) and its icon.
+    pub template: String,
+    pub template_icon: String,
+    pub drafted: bool,
+    pub signed: bool,
+    pub audio_secs: f32,
+    /// This animal's name, when the visit covered several.
+    pub pet: Option<String>,
+    pub source: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PatientSummary {
+    pub patient: PatientRecord,
+    pub visits: usize,
+    pub last_visit: Option<String>,
+    pub last_type: String,
+    pub last_icon: String,
+    pub last_reason: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PatientView {
+    pub patient: PatientRecord,
+    pub visits: Vec<VisitSummary>,
 }
 
 #[derive(Serialize)]
@@ -215,6 +251,7 @@ impl App {
         }
         Self {
             store,
+            patients: PatientStore::for_sessions(&sessions_root),
             sessions_root,
             templates: TemplateStore::default(),
             users: UserStore::default(),
@@ -389,6 +426,116 @@ impl App {
             .collect()
     }
 
+    // ---- patients (ADR-0011) -------------------------------------------------
+
+    /// The patient records for a visit's animals (main first), linking the
+    /// visit by id the first time it's seen. Visits from before the registry
+    /// are matched by animal and family name.
+    fn link_visit(&self, s: &mut Session) -> Result<Vec<(String, String)>> {
+        let Some(p) = s.meta.patient.clone() else { return Ok(Vec::new()) };
+        if p.name.trim().is_empty() {
+            return Ok(Vec::new());
+        }
+        let known = |id: &Option<String>| id.as_ref().filter(|id| self.patients.get(id).is_some()).cloned();
+        let main = match known(&p.patient_id) {
+            Some(id) => id,
+            None => self.patients.find_or_create(&p.name, &p.last_name, &p.species)?.id,
+        };
+        let mut pairs = vec![(p.name.clone(), main.clone())];
+        let mut others = Vec::new();
+        for (i, name) in p.others.iter().enumerate() {
+            let id = match known(&p.other_ids.get(i).cloned()) {
+                Some(id) => id,
+                None => self.patients.find_or_create(name, &p.last_name, "")?.id,
+            };
+            pairs.push((name.clone(), id.clone()));
+            others.push(id);
+        }
+        s.link_patients(Some(main), others)?;
+        Ok(pairs)
+    }
+
+    fn visit_summary(&self, s: &Session, pet: &str, animals: usize) -> VisitSummary {
+        let template = s.latest_record().and_then(|r| self.templates.load(r.template_id()).ok());
+        VisitSummary {
+            id: id_of(s),
+            created_at: s.meta.created_at.format("%Y-%m-%d %H:%M").to_string(),
+            reason: s.meta.patient.as_ref().map(|p| p.reason.clone()).unwrap_or_default(),
+            template: template.as_ref().map(|t| t.template.name.clone()).unwrap_or_default(),
+            template_icon: template.as_ref().map(|t| t.template.icon.clone()).unwrap_or_default(),
+            drafted: !s.meta.runs.is_empty(),
+            signed: s.is_signed(),
+            audio_secs: s.meta.audio_secs,
+            pet: (animals > 1).then(|| pet.to_string()),
+            source: source_label(&s.meta.source),
+        }
+    }
+
+    /// Every visit, grouped under its patients' record ids.
+    fn visits_by_patient(&self) -> Result<std::collections::HashMap<String, Vec<VisitSummary>>> {
+        let mut out: std::collections::HashMap<String, Vec<VisitSummary>> = Default::default();
+        for mut s in session::list(&self.sessions_root) {
+            let pairs = self.link_visit(&mut s)?;
+            let animals = pairs.len();
+            for (pet, id) in pairs {
+                let summary = self.visit_summary(&s, &pet, animals);
+                out.entry(id).or_default().push(summary);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Patients, most recently seen first.
+    pub fn list_patients(&self) -> Result<Vec<PatientSummary>> {
+        let mut visits = self.visits_by_patient()?;
+        let mut out: Vec<PatientSummary> = self
+            .patients
+            .list()?
+            .into_iter()
+            .map(|p| {
+                let v = visits.remove(&p.id).unwrap_or_default();
+                PatientSummary {
+                    visits: v.len(),
+                    last_visit: v.first().map(|x| x.created_at.clone()),
+                    last_type: v.first().map(|x| x.template.clone()).unwrap_or_default(),
+                    last_icon: v.first().map(|x| x.template_icon.clone()).unwrap_or_default(),
+                    last_reason: v.first().map(|x| x.reason.clone()).unwrap_or_default(),
+                    patient: p,
+                }
+            })
+            .collect();
+        out.sort_by(|a, b| {
+            b.last_visit
+                .cmp(&a.last_visit)
+                .then_with(|| a.patient.name.to_lowercase().cmp(&b.patient.name.to_lowercase()))
+        });
+        Ok(out)
+    }
+
+    /// One patient and their visits, newest first.
+    pub fn patient(&self, id: &str) -> Result<PatientView> {
+        let mut visits = self.visits_by_patient()?;
+        let patient = self
+            .patients
+            .get(id)
+            .ok_or_else(|| AppError("That patient isn't in this computer's records.".into()))?;
+        Ok(PatientView { visits: visits.remove(id).unwrap_or_default(), patient })
+    }
+
+    pub fn create_patient(&self, name: &str, last_name: &str, species: &str) -> Result<PatientRecord> {
+        Ok(self.patients.create(name, last_name, species)?)
+    }
+
+    pub fn update_patient_record(
+        &self,
+        id: &str,
+        name: &str,
+        last_name: &str,
+        species: &str,
+    ) -> Result<PatientRecord> {
+        Ok(self.patients.update(id, name, last_name, species)?)
+    }
+
     /// An encounter, showing one animal's notes in a multi-pet visit
     /// (`pet`), or the visit's single note.
     pub fn open_session(&self, id: &str, pet: Option<&str>) -> Result<SessionView> {
@@ -470,17 +617,25 @@ impl App {
             options,
             Box::new(ChannelSink(tx)),
         )?;
+        let dir = recorder.session_dir.clone();
         // The worker drops the sink when it finishes, which ends this loop.
         for segment in rx {
             events.segment(&segment);
         }
-        let result = recorder.wait()?;
+        let result = match recorder.wait() {
+            Ok(r) => r,
+            Err(e) => {
+                // An import that couldn't be read leaves no empty visit behind.
+                let _ = std::fs::remove_dir_all(&dir);
+                return Err(e.into());
+            }
+        };
         let s = Session::open(&result.session_dir)?;
         Ok(view(&s, Some(result.transcript)))
     }
 
     /// Same as [`App::import_file`] for uploaded bytes (web mode). Any format
-    /// the engine decodes (WAV, m4a, mp3, CAF, FLAC, Ogg); the file name's
+    /// the engine decodes (see `os_asr::audio::Audio::load`); the file name's
     /// extension is kept as a hint.
     #[allow(clippy::too_many_arguments)]
     pub fn import_bytes(
@@ -1189,4 +1344,65 @@ fn with_addenda(mut markdown: String, addenda: &[Addendum]) -> String {
         ));
     }
     markdown
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn visits_group_under_patients_and_stay_linked_after_a_rename() {
+        // A throwaway key, so the test never touches this computer's own.
+        // SAFETY: the only test in this crate that touches the environment.
+        unsafe { std::env::set_var("OPENBARK_DATA_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=") };
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("sessions");
+        let app = App::new(ModelStore::new(tmp.path().join("models")), root.clone());
+        // A real (silent) 16 kHz mono WAV, a tenth of a second long.
+        let audio = tmp.path().join("visit.wav");
+        let data = vec![0u8; 3200];
+        let mut wav = Vec::new();
+        wav.extend(b"RIFF");
+        wav.extend((36 + data.len() as u32).to_le_bytes());
+        wav.extend(b"WAVEfmt ");
+        wav.extend(16u32.to_le_bytes());
+        wav.extend(1u16.to_le_bytes());
+        wav.extend(1u16.to_le_bytes());
+        wav.extend(16_000u32.to_le_bytes());
+        wav.extend(32_000u32.to_le_bytes());
+        wav.extend(2u16.to_le_bytes());
+        wav.extend(16u16.to_le_bytes());
+        wav.extend(b"data");
+        wav.extend((data.len() as u32).to_le_bytes());
+        wav.extend(data);
+        std::fs::write(&audio, wav).unwrap();
+        let visit = |p: Patient| {
+            let mut s = Session::create_from_file(&root, &audio, 1.0).unwrap();
+            s.set_patient(p).unwrap();
+        };
+        let named = |name: &str, last: &str| Patient {
+            name: name.into(),
+            last_name: last.into(),
+            ..Default::default()
+        };
+        visit(Patient { species: "canine".into(), ..named("Maple", "Okonkwo") });
+        visit(named("maple ", "OKONKWO"));
+        visit(Patient { others: vec!["Pickles".into()], ..named("Olive", "Haddad") });
+
+        let list = app.list_patients().unwrap();
+        let find =
+            |name: &str| list.iter().find(|p| p.patient.name.eq_ignore_ascii_case(name)).unwrap().clone();
+        assert_eq!(list.len(), 3, "{list:?}");
+        assert_eq!(find("Maple").visits, 2, "the same animal, spelt two ways");
+        assert_eq!(find("Maple").patient.species, "canine");
+        assert_eq!(find("Pickles").visits, 1, "each animal in a multi-pet visit has its own patient");
+
+        // Visits are now linked by id: renaming the patient keeps them.
+        let maple = find("Maple").patient;
+        app.update_patient_record(&maple.id, "Maple", "Okonkwo-Reid", "canine").unwrap();
+        assert_eq!(app.patient(&maple.id).unwrap().visits.len(), 2);
+        assert_eq!(app.list_patients().unwrap().len(), 3, "no duplicate made for the old spelling");
+        let pickles = app.patient(&find("Pickles").patient.id).unwrap();
+        assert_eq!(pickles.visits[0].pet.as_deref(), Some("Pickles"));
+    }
 }

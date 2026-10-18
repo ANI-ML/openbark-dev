@@ -64,7 +64,13 @@ export interface NoteRun {
   model: string;
   note: Record<string, unknown>;
   faithfulness: Faithfulness;
-  stats: { prompt_tokens: number; completion_tokens: number; total_ms: number; tokens_per_second: number; time_to_first_token_ms: number };
+  stats: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_ms: number;
+    tokens_per_second: number;
+    time_to_first_token_ms: number;
+  };
   /** Set when this draft re-prompted one heading of an earlier draft. */
   refinement?: Refinement;
   /** Set when this draft is a veterinarian's hand edit of one heading. */
@@ -378,8 +384,7 @@ const post = (body: unknown): RequestInit => ({
 const enc = encodeURIComponent;
 
 export const status = () => (isDesktop ? invoke<Status>("status") : api<Status>("/api/status"));
-export const inputDevices = () =>
-  isDesktop ? invoke<string[]>("input_devices") : api<string[]>("/api/devices");
+export const inputDevices = () => (isDesktop ? invoke<string[]>("input_devices") : api<string[]>("/api/devices"));
 export const listSessions = () =>
   isDesktop ? invoke<SessionSummary[]>("list_sessions") : api<SessionSummary[]>("/api/sessions");
 /** An encounter; `pet` picks one animal's notes in a multi-pet visit. */
@@ -392,7 +397,9 @@ export const listTemplates = () =>
 export const template = (id: string) =>
   isDesktop ? invoke<TemplateView>("template", { id }) : api<TemplateView>(`/api/templates/${enc(id)}`);
 export const previewTemplate = (t: Template) =>
-  isDesktop ? invoke<TemplateView>("preview_template", { template: t }) : api<TemplateView>("/api/templates/preview", post(t));
+  isDesktop
+    ? invoke<TemplateView>("preview_template", { template: t })
+    : api<TemplateView>("/api/templates/preview", post(t));
 /** A template proposed from an example note (not saved; M2 item 5). */
 export const templateFromExample = (llm: string, text: string) =>
   isDesktop
@@ -485,7 +492,10 @@ export const updatePatient = (id: string, patient: Patient) =>
 export const editNote = (id: string, heading: string, value: unknown, by: string, pet?: string | null) =>
   isDesktop
     ? invoke<{ markdown: string; run: NoteRun }>("edit_note", { id, heading, value, by, pet: pet ?? null })
-    : api<{ markdown: string; run: NoteRun }>(`/api/sessions/${enc(id)}/edit`, post({ heading, value, by, pet: pet ?? null }));
+    : api<{ markdown: string; run: NoteRun }>(
+        `/api/sessions/${enc(id)}/edit`,
+        post({ heading, value, by, pet: pet ?? null }),
+      );
 export const addAddendum = (id: string, text: string, by: string, pet?: string | null) =>
   isDesktop
     ? invoke<SessionView>("add_addendum", { id, text, by, pet: pet ?? null })
@@ -519,13 +529,17 @@ export async function audioUrl(s: SessionView): Promise<string> {
 
 export const listUsers = () => (isDesktop ? invoke<User[]>("list_users") : api<User[]>("/api/users"));
 export const addUser = (name: string, role: Role, pin: string, by: string | null) =>
-  isDesktop ? invoke<User>("add_user", { name, role, pin, by }) : api<User>("/api/users", post({ name, role, pin, by }));
+  isDesktop
+    ? invoke<User>("add_user", { name, role, pin, by })
+    : api<User>("/api/users", post({ name, role, pin, by }));
 export const removeUser = (uid: string, by: string | null) =>
   isDesktop
     ? invoke<void>("remove_user", { uid, by })
     : api<void>(`/api/users/${enc(uid)}?by=${enc(by ?? "")}`, { method: "DELETE" });
 export const setUserPin = (uid: string, pin: string, by: string | null) =>
-  isDesktop ? invoke<void>("set_user_pin", { uid, pin, by }) : api<void>(`/api/users/${enc(uid)}/pin`, post({ pin, by }));
+  isDesktop
+    ? invoke<void>("set_user_pin", { uid, pin, by })
+    : api<void>(`/api/users/${enc(uid)}/pin`, post({ pin, by }));
 export const verifyUser = (uid: string, pin: string) =>
   isDesktop ? invoke<User>("verify_user", { uid, pin }) : api<User>(`/api/users/${enc(uid)}/verify`, post({ pin }));
 
@@ -539,8 +553,79 @@ export const reveal = (path: string) => revealItemInDir(path);
 
 // ---- importing a recording file -------------------------------------------
 
-/** Recordings the engine decodes: WAV, phone recordings (m4a, caf), mp3, flac, ogg. */
-export const AUDIO_EXTENSIONS = ["wav", "m4a", "mp4", "aac", "caf", "mp3", "flac", "ogg", "oga"];
+/**
+ * Recordings the engine decodes: WAV (PCM, ADPCM), AIFF, MP3 and MP2, phone
+ * recordings (m4a, caf, mov), FLAC, Ogg and Opus voice notes, WebM and MKV
+ * from browsers and call apps, and video files (their audio track).
+ */
+export const AUDIO_EXTENSIONS = [
+  "wav",
+  "m4a",
+  "mp4",
+  "m4v",
+  "mov",
+  "aac",
+  "caf",
+  "mp3",
+  "mp2",
+  "flac",
+  "ogg",
+  "oga",
+  "opus",
+  "webm",
+  "weba",
+  "mkv",
+  "mka",
+  "aif",
+  "aiff",
+  "aifc",
+];
+
+/**
+ * Web mode: decode a recording the engine can't read, in the browser (which
+ * knows more codecs, such as HE-AAC), and hand back a 16 kHz mono WAV. Null
+ * when the browser can't read it either.
+ */
+export async function decodeInBrowser(file: Blob): Promise<Blob | null> {
+  const rate = 16000;
+  try {
+    // decodeAudioData resamples to the context's rate.
+    const ctx = new OfflineAudioContext(1, 1, rate);
+    const audio = await ctx.decodeAudioData(await file.arrayBuffer());
+    const mono = new Float32Array(audio.length);
+    for (let c = 0; c < audio.numberOfChannels; c++) {
+      const data = audio.getChannelData(c);
+      for (let i = 0; i < data.length; i++) mono[i]! += data[i]! / audio.numberOfChannels;
+    }
+    return wavBlob(mono, rate);
+  } catch {
+    return null;
+  }
+}
+
+/** A 16-bit PCM mono WAV. */
+export function wavBlob(samples: Float32Array, rate: number): Blob {
+  const bytes = new ArrayBuffer(44 + samples.length * 2);
+  const v = new DataView(bytes);
+  const text = (at: number, s: string) => [...s].forEach((ch, i) => v.setUint8(at + i, ch.charCodeAt(0)));
+  text(0, "RIFF");
+  v.setUint32(4, 36 + samples.length * 2, true);
+  text(8, "WAVEfmt ");
+  v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true);
+  v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true);
+  v.setUint32(28, rate * 2, true);
+  v.setUint16(32, 2, true);
+  v.setUint16(34, 16, true);
+  text(36, "data");
+  v.setUint32(40, samples.length * 2, true);
+  for (let i = 0; i < samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]!));
+    v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return new Blob([bytes], { type: "audio/wav" });
+}
 
 function pickBrowserFile(): Promise<File | null> {
   return new Promise((resolve) => {
@@ -570,22 +655,36 @@ export async function importRecording(
   const file = await pickBrowserFile();
   if (!file) return null;
   onPicked();
-  const q = new URLSearchParams({
-    diarize: String(speakers),
-    name: file.name,
-    patient_name: p?.name ?? "",
-    others: (p?.others ?? []).map((o) => o.trim()).filter(Boolean).join("\n"),
-    species: p?.species ?? "",
-    last_name: p?.last_name ?? "",
-    reason: p?.reason ?? "",
-    ...consentQuery(consent),
-    by: actor ?? "",
-  });
-  return api<SessionView>(`/api/sessions?${q}`, {
-    method: "POST",
-    headers: { "content-type": file.type || "application/octet-stream" },
-    body: file,
-  });
+  const upload = (body: Blob, name: string) => {
+    const q = new URLSearchParams({
+      diarize: String(speakers),
+      name,
+      patient_name: p?.name ?? "",
+      others: (p?.others ?? [])
+        .map((o) => o.trim())
+        .filter(Boolean)
+        .join("\n"),
+      species: p?.species ?? "",
+      last_name: p?.last_name ?? "",
+      reason: p?.reason ?? "",
+      ...consentQuery(consent),
+      by: actor ?? "",
+    });
+    return api<SessionView>(`/api/sessions?${q}`, {
+      method: "POST",
+      headers: { "content-type": body.type || "application/octet-stream" },
+      body,
+    });
+  };
+  try {
+    return await upload(file, file.name);
+  } catch (e) {
+    // The engine can't read this kind of file: try the browser's decoders.
+    if (!String(e instanceof Error ? e.message : e).includes("can't read")) throw e;
+    const wav = await decodeInBrowser(file);
+    if (!wav) throw e;
+    return upload(wav, `${file.name.replace(/\.[^.]+$/, "")}.wav`);
+  }
 }
 
 // ---- live recording ---------------------------------------------------------
@@ -636,7 +735,9 @@ async function startBrowserRecording(
       audio: { channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: true },
     });
   } catch {
-    throw new Error("Microphone access was blocked. Allow the microphone for this page in the browser's address bar, then try again.");
+    throw new Error(
+      "Microphone access was blocked. Allow the microphone for this page in the browser's address bar, then try again.",
+    );
   }
   const ctx = new AudioContext();
   const url = URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" }));
@@ -651,7 +752,10 @@ async function startBrowserRecording(
     speakers: String(speakers),
     sample_rate: String(ctx.sampleRate),
     patient_name: patient?.name ?? "",
-    others: (patient?.others ?? []).map((o) => o.trim()).filter(Boolean).join("\n"),
+    others: (patient?.others ?? [])
+      .map((o) => o.trim())
+      .filter(Boolean)
+      .join("\n"),
     species: patient?.species ?? "",
     last_name: patient?.last_name ?? "",
     reason: patient?.reason ?? "",

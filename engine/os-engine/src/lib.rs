@@ -16,6 +16,7 @@ pub mod live;
 pub mod models;
 pub mod note;
 pub mod numbers;
+pub mod patients;
 pub mod pdf;
 pub mod render;
 pub mod session;

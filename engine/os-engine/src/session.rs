@@ -230,6 +230,12 @@ pub struct PatientInfo {
     /// headings (M2 item 4). Never taken from the recording.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub species: String,
+    /// The main animal's patient record (ADR-0011), when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub patient_id: Option<String>,
+    /// The other animals' patient records, in the order of `others`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub other_ids: Vec<String>,
     /// When these details were first entered, and last changed.
     #[serde(default)]
     pub entered_at: Option<DateTime<Local>>,
@@ -500,6 +506,18 @@ impl Session {
             }
         }
         self.meta.patient = if info.is_empty() { None } else { Some(info) };
+        self.save_meta()
+    }
+
+    /// Record which patient records this visit's animals belong to (ADR-0011).
+    /// Not an edit of the details, so their time stamps don't change.
+    pub fn link_patients(&mut self, main: Option<String>, others: Vec<String>) -> Result<(), EngineError> {
+        let Some(p) = self.meta.patient.as_mut() else { return Ok(()) };
+        if p.patient_id == main && p.other_ids == others {
+            return Ok(());
+        }
+        p.patient_id = main;
+        p.other_ids = others;
         self.save_meta()
     }
 

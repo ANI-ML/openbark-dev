@@ -16,7 +16,14 @@ When you use OpenBark in a browser on this computer, the browser asks for permis
 
 ## Importing a recording
 
-**Import a recording** creates an encounter from an audio file: WAV, or what phones and recorders produce (m4a, mp3, CAF, FLAC, Ogg). The file goes through the same transcription as a live recording.
+**Import a recording** creates an encounter from an audio file. The file goes through the same transcription as a live recording. These work:
+
+- WAV (including ADPCM from dictaphones), AIFF, MP3 and MP2, FLAC;
+- phone recordings: M4A, MOV, CAF;
+- voice notes and calls: Ogg and Opus (WhatsApp, Telegram), WebM and MKV (browser recordings, Zoom, Teams, Meet);
+- video files (MP4, MOV, WebM): OpenBark uses their sound.
+
+In the browser version, a file OpenBark can't read itself is decoded by the browser first, so some other kinds work too. Windows Media (WMA), AMR and Olympus or Philips dictation files (DSS, DS2) don't; the message says so, and you can convert them with the recorder's own software.
 
 To chart a **phone call**, record it with your phone's own call recording, export the audio, then import it and draft with the **Callback note** template.
 

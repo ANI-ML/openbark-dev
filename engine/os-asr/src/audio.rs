@@ -9,6 +9,11 @@ pub enum AudioError {
     Read(String),
     #[error("cannot decode {0}: {1}")]
     Decode(String, String),
+    /// A container or codec no decoder here reads (WMA, AMR, DSS…).
+    #[error(
+        "OpenBark can't read {0}: it isn't a kind of recording OpenBark supports, or the file is damaged. Recordings in WAV, MP3, M4A, MP4, MOV, AAC, FLAC, Ogg, Opus, WebM, MKV, AIFF or CAF work; save or convert it to one of these first."
+    )]
+    Unsupported(String),
     #[error("cannot resample from {0} Hz")]
     Resample(i32),
 }
@@ -40,9 +45,11 @@ impl Audio {
         Ok(Self { samples })
     }
 
-    /// Read any supported recording (WAV, m4a with AAC or ALAC, mp3, CAF,
-    /// FLAC, Ogg Vorbis: what phones and recorders produce), mix it down to
-    /// mono and resample to 16 kHz.
+    /// Read any supported recording, mix it down to mono and resample to
+    /// 16 kHz: WAV (PCM or ADPCM), AIFF, MP3 and MPEG layers 1 and 2, M4A,
+    /// MP4 and MOV (AAC, ALAC), FLAC, Ogg (Vorbis, Opus), Opus, WebM and
+    /// MKV (Opus, Vorbis) and CAF: what phones, dictaphones, browsers and
+    /// call apps produce. Video files work too; their audio track is used.
     pub fn load(path: &Path) -> Result<Self, AudioError> {
         let is_wav = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("wav"));
         if is_wav && let Ok(audio) = Self::load_wav(path) {
@@ -78,6 +85,11 @@ impl Audio {
         use symphonia::core::meta::MetadataOptions;
 
         let fail = |e: &dyn std::fmt::Display| AudioError::Decode(display.clone(), e.to_string());
+        let file_name = Path::new(&display)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| display.clone());
+        let unsupported = || AudioError::Unsupported(file_name.clone());
         let mss = MediaSourceStream::new(source, Default::default());
         let mut hint = Hint::new();
         if let Some(ext) = ext {
@@ -85,13 +97,24 @@ impl Audio {
         }
         let mut format = symphonia::default::get_probe()
             .probe(&hint, mss, FormatOptions::default(), MetadataOptions::default())
-            .map_err(|e| fail(&e))?;
+            .map_err(|_| unsupported())?;
         let track = format.default_track(TrackType::Audio).ok_or_else(|| fail(&"no audio track"))?;
         let params =
             track.codec_params.as_ref().and_then(|p| p.audio()).ok_or_else(|| fail(&"no audio track"))?;
+        if params.codec == symphonia::core::codecs::audio::well_known::CODEC_ID_OPUS {
+            // The encoder's lead-in, from the OpusHead header (counted at 48 kHz).
+            let pre_skip = params
+                .extra_data
+                .as_deref()
+                .filter(|h| h.len() >= 12 && h.starts_with(b"OpusHead"))
+                .map(|h| u16::from_le_bytes([h[10], h[11]]) as usize)
+                .unwrap_or(0);
+            let track_id = track.id;
+            return decode_opus(format, track_id, pre_skip, &fail);
+        }
         let mut decoder = symphonia::default::get_codecs()
             .make_audio_decoder(params, &AudioDecoderOptions::default())
-            .map_err(|e| fail(&e))?;
+            .map_err(|_| unsupported())?;
         let track_id = track.id;
 
         let mut mono: Vec<f32> = Vec::new();
@@ -138,6 +161,42 @@ impl Audio {
     }
 }
 
+/// Opus, decoded straight to 16 kHz mono (Opus decodes at any of its
+/// rates and mixes stereo down itself, so nothing is resampled).
+fn decode_opus(
+    mut format: Box<dyn symphonia::core::formats::FormatReader>,
+    track_id: u32,
+    pre_skip_48k: usize,
+    fail: &dyn Fn(&dyn std::fmt::Display) -> AudioError,
+) -> Result<Audio, AudioError> {
+    use symphonia::core::errors::Error;
+    let mut decoder = opus_decoder::OpusDecoder::new(SAMPLE_RATE, 1).map_err(|e| fail(&e))?;
+    // The longest Opus packet is 120 ms.
+    let mut pcm = vec![0f32; (SAMPLE_RATE as usize * 120) / 1000];
+    let mut samples: Vec<f32> = Vec::new();
+    loop {
+        let packet = match format.next_packet() {
+            Ok(Some(p)) => p,
+            Ok(None) => break,
+            Err(Error::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
+            Err(e) => return Err(fail(&e)),
+        };
+        if packet.track_id != track_id {
+            continue;
+        }
+        match decoder.decode_float(&packet.data, &mut pcm, false) {
+            Ok(n) => samples.extend_from_slice(&pcm[..n.min(pcm.len())]),
+            Err(_) => continue, // skip a damaged packet
+        }
+    }
+    let skip = (pre_skip_48k * SAMPLE_RATE as usize / 48_000).min(samples.len());
+    samples.drain(..skip);
+    if samples.is_empty() {
+        return Err(fail(&"no audio in the file"));
+    }
+    Ok(Audio { samples })
+}
+
 /// Resample mono audio to [`SAMPLE_RATE`].
 fn resample(samples: Vec<f32>, rate: u32) -> Result<Vec<f32>, AudioError> {
     if rate == SAMPLE_RATE {
@@ -174,6 +233,14 @@ mod tests {
     }
 
     #[test]
+    fn an_unsupported_recording_says_which_formats_work() {
+        let err = Audio::decode_bytes(b"MAC not really a recording".to_vec(), "dictation.wma").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.starts_with("OpenBark can't read dictation.wma"), "{msg}");
+        assert!(msg.contains("WebM") && msg.contains("Opus"), "{msg}");
+    }
+
+    #[test]
     fn decoder_mixes_stereo_down_and_resamples() {
         let dir = tempfile::tempdir().unwrap();
         // One second of stereo at 48 kHz: left at half scale, right silent.
@@ -191,7 +258,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("notes.m4a");
         std::fs::write(&path, b"not audio at all").unwrap();
-        assert!(matches!(Audio::load(&path), Err(AudioError::Decode(..))));
+        assert!(matches!(Audio::load(&path), Err(AudioError::Unsupported(name)) if name == "notes.m4a"));
     }
 
     #[test]
