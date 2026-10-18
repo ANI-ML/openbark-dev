@@ -11,6 +11,7 @@ pub mod awake;
 pub mod crosscheck;
 pub mod edit;
 pub mod faithfulness;
+pub mod from_example;
 pub mod live;
 pub mod models;
 pub mod note;

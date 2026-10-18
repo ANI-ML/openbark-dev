@@ -257,7 +257,7 @@ fn main() -> Result<()> {
         Command::Serve(args) => serve(store, args),
         Command::Record(args) => record::record(&store, args),
         Command::Devices => record::devices(),
-        Command::Templates(cmd) => templates::run(cmd),
+        Command::Templates(cmd) => templates::run(cmd, &store),
         Command::Key(cmd) => match cmd {
             KeyCommand::Status => {
                 println!("{}", serde_json::to_string_pretty(&os_engine::vault::status())?);

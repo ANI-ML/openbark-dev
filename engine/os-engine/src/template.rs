@@ -74,6 +74,115 @@ impl Document {
     }
 }
 
+/// Species OpenBark recognises: (key, plain name, words that mean it). The
+/// keys are what templates store (`when: { species: [feline] }`).
+pub const SPECIES: &[(&str, &str, &[&str])] = &[
+    ("canine", "dogs", &["canine", "dog", "dogs", "puppy", "pup", "k9"]),
+    ("feline", "cats", &["feline", "cat", "cats", "kitten"]),
+    ("equine", "horses", &["equine", "horse", "horses", "pony", "foal", "donkey", "mule"]),
+    ("bovine", "cattle", &["bovine", "cow", "cows", "cattle", "calf", "heifer", "bull", "steer"]),
+    (
+        "small_ruminant",
+        "sheep and goats",
+        &[
+            "small ruminant",
+            "sheep",
+            "ewe",
+            "lamb",
+            "ram",
+            "goat",
+            "kid",
+            "ovine",
+            "caprine",
+            "camelid",
+            "alpaca",
+            "llama",
+        ],
+    ),
+    ("porcine", "pigs", &["porcine", "pig", "pigs", "swine", "sow", "piglet", "boar"]),
+    (
+        "avian",
+        "birds",
+        &[
+            "avian",
+            "bird",
+            "birds",
+            "parrot",
+            "budgie",
+            "cockatiel",
+            "chicken",
+            "hen",
+            "duck",
+            "pigeon",
+            "raptor",
+        ],
+    ),
+    (
+        "reptile",
+        "reptiles",
+        &[
+            "reptile",
+            "lizard",
+            "snake",
+            "python",
+            "gecko",
+            "tortoise",
+            "turtle",
+            "bearded dragon",
+            "iguana",
+            "chameleon",
+        ],
+    ),
+    ("rabbit", "rabbits", &["rabbit", "bunny", "lagomorph"]),
+    (
+        "rodent",
+        "small rodents",
+        &["rodent", "guinea pig", "hamster", "rat", "mouse", "gerbil", "chinchilla", "degu"],
+    ),
+    ("ferret", "ferrets", &["ferret"]),
+];
+
+/// The species key for what someone typed or chose ("Cat", "domestic shorthair cat", "feline").
+pub fn species_key(text: &str) -> Option<&'static str> {
+    let lower = text.trim().to_lowercase();
+    if lower.is_empty() {
+        return None;
+    }
+    let padded = format!(
+        " {} ",
+        lower.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).collect::<Vec<_>>().join(" ")
+    );
+    if let Some((key, _, _)) = SPECIES.iter().find(|(key, _, _)| *key == lower) {
+        return Some(key);
+    }
+    // The longest phrase wins: "guinea pig" is a rodent, not a pig.
+    SPECIES
+        .iter()
+        .flat_map(|(key, _, words)| words.iter().map(move |w| (*key, *w)))
+        .filter(|(_, w)| padded.contains(&format!(" {w} ")))
+        .max_by_key(|(_, w)| w.len())
+        .map(|(key, _)| key)
+}
+
+/// When a heading applies (M2 item 4). Empty: always.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+pub struct Condition {
+    /// Shown only for these species (keys of [`SPECIES`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub species: Vec<String>,
+}
+
+impl Condition {
+    pub fn is_empty(&self) -> bool {
+        self.species.is_empty()
+    }
+
+    /// Does the heading apply to an animal of this species key?
+    pub fn allows(&self, species: &str) -> bool {
+        self.species.is_empty() || self.species.iter().any(|s| s == species)
+    }
+}
+
 /// A subheading inside a section.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Part {
@@ -90,6 +199,9 @@ pub struct Part {
     /// one-click suggestions when re-prompting it. Never sent to the model.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub examples: Vec<String>,
+    /// When the heading applies ("show when species is feline"); always when empty.
+    #[serde(default, skip_serializing_if = "Condition::is_empty")]
+    pub when: Condition,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fields: Vec<FieldDef>,
 }
@@ -109,6 +221,9 @@ pub struct Section {
     /// Example requests for this heading (see [`Part::examples`]).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub examples: Vec<String>,
+    /// When the heading applies ("show when species is feline"); always when empty.
+    #[serde(default, skip_serializing_if = "Condition::is_empty")]
+    pub when: Condition,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fields: Vec<FieldDef>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -269,6 +384,28 @@ impl LoadedTemplate {
         let loaded = Self { template, schema, schema_text: schema_text.to_string() };
         loaded.check_sections_match_schema()?;
         Ok(loaded)
+    }
+
+    /// The template as drafted for one animal: headings shown only for other
+    /// species are removed, so neither the prompt nor the schema asks for
+    /// them (M2 item 4). With no species, or one OpenBark doesn't recognise,
+    /// every heading stays.
+    pub fn for_species(&self, species: Option<&str>) -> Self {
+        let Some(key) = species.and_then(species_key) else { return self.clone() };
+        if self.template.schema.is_some() {
+            return self.clone(); // a hand-written schema can't be trimmed
+        }
+        let mut t = self.template.clone();
+        let before: usize = t.sections.iter().map(|s| 1 + s.parts.len()).sum();
+        t.sections.retain_mut(|s| {
+            s.parts.retain(|p| p.when.allows(key));
+            s.when.allows(key) && (s.kind.is_some() || !s.parts.is_empty())
+        });
+        let after: usize = t.sections.iter().map(|s| 1 + s.parts.len()).sum();
+        if after == before || t.sections.is_empty() {
+            return self.clone();
+        }
+        Self::new(t).unwrap_or_else(|_| self.clone())
     }
 
     /// A built-in id, a template directory, or a team template id.
@@ -442,6 +579,24 @@ fn normalize_examples(examples: &mut Vec<String>, heading: &str) -> Result<(), E
     Ok(())
 }
 
+fn normalize_condition(when: &mut Condition, heading: &str) -> Result<(), EngineError> {
+    let mut keys: Vec<String> = Vec::new();
+    for s in &when.species {
+        let key = species_key(s).ok_or_else(|| {
+            let known: Vec<&str> = SPECIES.iter().map(|(_, name, _)| *name).collect();
+            bad(format!(
+                "\"{heading}\" is shown for '{s}', which isn't a species OpenBark knows ({}).",
+                known.join(", ")
+            ))
+        })?;
+        if !keys.iter().any(|k| k == key) {
+            keys.push(key.to_string());
+        }
+    }
+    when.species = keys;
+    Ok(())
+}
+
 fn normalize_fields(fields: &mut [FieldDef], heading: &str) -> Result<(), EngineError> {
     if fields.is_empty() {
         return Err(bad(format!("\"{heading}\" holds measurements but lists none. Add at least one.")));
@@ -508,6 +663,7 @@ fn normalize(t: &mut Template) -> Result<(), EngineError> {
             check_text(&format!("The instruction for \"{}\"", s.title), i)?;
         }
         normalize_examples(&mut s.examples, &s.title)?;
+        normalize_condition(&mut s.when, &s.title)?;
         headings += 1;
         match s.kind {
             Some(kind) => {
@@ -552,6 +708,7 @@ fn normalize(t: &mut Template) -> Result<(), EngineError> {
                 check_text(&format!("The instruction for \"{}\"", p.label), i)?;
             }
             normalize_examples(&mut p.examples, &p.label)?;
+            normalize_condition(&mut p.when, &p.label)?;
             if p.kind == PartKind::Fields {
                 normalize_fields(&mut p.fields, &p.label)?;
             } else {
@@ -688,6 +845,52 @@ mod tests {
         assert_eq!(LoadedTemplate::builtin("discharge").unwrap().template.document, Document::Client);
         assert_eq!(LoadedTemplate::builtin("client-summary").unwrap().template.document, Document::Client);
         assert_eq!(LoadedTemplate::builtin("callback").unwrap().template.document, Document::Record);
+    }
+
+    #[test]
+    fn species_words_are_recognised() {
+        assert_eq!(species_key("Cat"), Some("feline"));
+        assert_eq!(species_key("domestic shorthair cat"), Some("feline"));
+        assert_eq!(species_key("Bearded dragon"), Some("reptile"));
+        assert_eq!(species_key("guinea pig"), Some("rodent"));
+        assert_eq!(species_key("small_ruminant"), Some("small_ruminant"));
+        assert_eq!(species_key("catfish"), None);
+        assert_eq!(species_key(""), None);
+    }
+
+    #[test]
+    fn headings_for_other_species_are_left_out_of_prompt_and_schema() {
+        let yaml = r#"
+name: Species test
+sections:
+  - title: History
+    kind: statements
+  - title: Retrovirus status
+    kind: statements
+    when: { species: [cat] }
+  - title: Heartworm test
+    kind: statements
+    when: { species: [canine] }
+  - title: Plan
+    parts:
+      - { label: Medications, kind: medications }
+      - { label: Hoof care, kind: statements, when: { species: [horse] } }
+"#;
+        let t = LoadedTemplate::from_yaml(yaml).unwrap();
+        // Words are stored as keys.
+        assert_eq!(t.template.sections[1].when.species, ["feline"]);
+        let cat = t.for_species(Some("Cat"));
+        let ids: Vec<&str> = cat.template.sections.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, ["history", "retrovirus_status", "plan"]);
+        assert!(cat.schema["properties"].get("heartworm_test").is_none());
+        assert!(cat.schema["properties"]["plan"]["properties"].get("hoof_care").is_none());
+        assert!(!crate::note::system_prompt(&cat).contains("Heartworm"));
+        // Unknown or missing species: everything stays.
+        assert_eq!(t.for_species(None).template.sections.len(), 4);
+        assert_eq!(t.for_species(Some("axolotl")).template.sections.len(), 4);
+        // Unknown species in a template is refused.
+        let err = LoadedTemplate::from_yaml(&yaml.replace("[cat]", "[unicorn]")).unwrap_err();
+        assert!(err.to_string().contains("unicorn"), "{err}");
     }
 
     #[test]

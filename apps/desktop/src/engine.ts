@@ -86,6 +86,8 @@ export interface Patient {
   reason: string;
   /** Other animals seen in the same visit (one note each). */
   others?: string[];
+  /** The main animal's species key ("feline"); decides species-only headings. */
+  species?: string;
   entered_at?: string | null;
   updated_at?: string | null;
 }
@@ -236,6 +238,10 @@ export interface TemplateField {
   label: string;
 }
 
+export interface TemplateCondition {
+  species?: string[];
+}
+
 export interface TemplatePart {
   key: string;
   label: string;
@@ -244,6 +250,8 @@ export interface TemplatePart {
   instruction?: string | null;
   /** Example requests for this heading, shown as suggestions (never sent unless used). */
   examples?: string[];
+  /** Shown only for these species ("show when species is feline"). */
+  when?: TemplateCondition | null;
   fields?: TemplateField[];
 }
 
@@ -255,6 +263,7 @@ export interface TemplateSection {
   kind?: ContentKind | null;
   instruction?: string | null;
   examples?: string[];
+  when?: TemplateCondition | null;
   fields?: TemplateField[];
   parts?: TemplatePart[];
 }
@@ -378,6 +387,11 @@ export const template = (id: string) =>
   isDesktop ? invoke<TemplateView>("template", { id }) : api<TemplateView>(`/api/templates/${enc(id)}`);
 export const previewTemplate = (t: Template) =>
   isDesktop ? invoke<TemplateView>("preview_template", { template: t }) : api<TemplateView>("/api/templates/preview", post(t));
+/** A template proposed from an example note (not saved; M2 item 5). */
+export const templateFromExample = (llm: string, text: string) =>
+  isDesktop
+    ? invoke<TemplateView>("template_from_example", { llm, text })
+    : api<TemplateView>("/api/templates/from-example", post({ llm, text }));
 export const saveTemplate = (t: Template) =>
   isDesktop ? invoke<TemplateView>("save_template", { template: t }) : api<TemplateView>("/api/templates", post(t));
 export const deleteTemplate = (id: string) =>
@@ -555,6 +569,7 @@ export async function importRecording(
     name: file.name,
     patient_name: p?.name ?? "",
     others: (p?.others ?? []).map((o) => o.trim()).filter(Boolean).join("\n"),
+    species: p?.species ?? "",
     last_name: p?.last_name ?? "",
     reason: p?.reason ?? "",
     ...consentQuery(consent),
@@ -631,6 +646,7 @@ async function startBrowserRecording(
     sample_rate: String(ctx.sampleRate),
     patient_name: patient?.name ?? "",
     others: (patient?.others ?? []).map((o) => o.trim()).filter(Boolean).join("\n"),
+    species: patient?.species ?? "",
     last_name: patient?.last_name ?? "",
     reason: patient?.reason ?? "",
     ...consentQuery(consent),

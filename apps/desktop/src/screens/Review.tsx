@@ -7,6 +7,7 @@ import { DocumentSheet } from "../components/DocumentSheet";
 import { HeadingEditor } from "../components/HeadingEditor";
 import { RefinePanel } from "../components/RefinePanel";
 import { headingExamples } from "../promptExamples";
+import { speciesName } from "../species";
 import { TranscriptList } from "../components/TranscriptList";
 import { fmtTime, useApp } from "../context";
 import { copyToClipboard, formatNote } from "../copyFormats";
@@ -396,6 +397,12 @@ export function Review({ id, autoDraft, draftTemplate }: { id: string; autoDraft
               <dt className="label muted">{t("Reason for visit")}</dt>
               <dd>{p?.reason || <span className="faint">{t("Not entered")}</span>}</dd>
             </div>
+            {p?.species && (
+              <div>
+                <dt className="label muted">{t("Species")}</dt>
+                <dd>{t(speciesName(p.species))}</dd>
+              </div>
+            )}
             <div>
               <dt className="label muted">{t("Recorded")}</dt>
               <dd className="mono">{view?.created_at}</dd>

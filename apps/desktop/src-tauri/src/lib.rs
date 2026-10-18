@@ -305,6 +305,17 @@ fn preview_template(app: State<'_, AppState>, template: Template) -> Result<os_a
     app.preview_template(template).map_err(|e| e.0)
 }
 
+/// A template proposed from an example note; not saved (M2 item 5).
+#[tauri::command]
+async fn template_from_example(
+    app: State<'_, AppState>,
+    llm: String,
+    text: String,
+) -> Result<os_app::TemplateView, String> {
+    let app = app.inner().clone();
+    work(move || app.template_from_example(&llm, &text)).await
+}
+
 #[tauri::command]
 fn save_template(app: State<'_, AppState>, template: Template) -> Result<os_app::TemplateView, String> {
     app.save_template(template).map_err(|e| e.0)
@@ -403,6 +414,7 @@ pub fn run() {
             list_templates,
             template,
             preview_template,
+            template_from_example,
             save_template,
             delete_template,
             add_standard,

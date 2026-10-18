@@ -227,6 +227,10 @@ button.turn-text:hover { color: var(--ink); }
 .ask-examples { display: flex; flex-direction: column; gap: 6px; }
 .ask-examples .ask-chip { background: var(--accent-soft); }
 .tb-examples { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.example-text { min-height: 240px; font-family: var(--font-mono, monospace); font-size: 0.8125rem; }
+.tb-when { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tb-when .ob-select { width: auto; min-width: 0; max-width: 100%; }
+.preview-when { margin: -4px 0 8px; }
 .tb-examples .ask-chip:disabled { color: var(--ink-2, var(--ink)); cursor: default; opacity: 1; }
 .ask-chip { border: 1px solid transparent; font: inherit; font-size: 0.8125rem; cursor: pointer; height: auto; min-height: 24px; text-align: left; }
 .ask-chip:hover:not(:disabled) { border-color: var(--border-strong); }

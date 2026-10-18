@@ -1,11 +1,57 @@
 import { Button, StatusDot } from "@openbark/ui";
-import { ArrowLeft, CaretDown, CaretUp, CopySimple, DotsSixVertical, Plus, Trash, X } from "@phosphor-icons/react";
+import { ArrowLeft, CaretDown, CaretUp, ClipboardText, CopySimple, DotsSixVertical, Plus, Trash, X } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../context";
 import * as engine from "../engine";
 import { useT } from "../i18n";
 import type { ContentKind, Standard, Template, TemplateField, TemplatePart, TemplateSection } from "../engine";
 import { examplesForTitle, NOTE_EXAMPLES } from "../promptExamples";
+import { ExampleSheet } from "../components/ExampleSheet";
+import { SHOW_FOR, speciesPlural, speciesValue } from "../species";
+import type { TemplateCondition } from "../engine";
+
+/** "Show only for cats": which species a heading is drafted for (DESIGN.md §5 conditionals as sentences). */
+function ShowFor({
+  label,
+  when,
+  readOnly,
+  onChange,
+}: {
+  label: string;
+  when: TemplateCondition | null | undefined;
+  readOnly: boolean;
+  onChange: (when: TemplateCondition | null) => void;
+}) {
+  const t = useT();
+  const current = speciesValue(when?.species);
+  const known = SHOW_FOR.some((o) => speciesValue(o.species) === current);
+  return (
+    <label className="tb-when small">
+      <span className="muted">{t("Show")}</span>
+      <select
+        className="ob-select"
+        aria-label={t("Which species {label} is shown for", { label })}
+        disabled={readOnly}
+        value={known ? current : "custom"}
+        onChange={(e) => {
+          if (e.target.value === "custom") return;
+          onChange(e.target.value ? { species: e.target.value.split(",") } : null);
+        }}
+      >
+        {!known && (
+          <option value="custom">
+            {t("only for {species}", { species: (when?.species ?? []).map((s) => t(speciesPlural(s))).join(", ") })}
+          </option>
+        )}
+        {SHOW_FOR.map((o) => (
+          <option key={o.label} value={speciesValue(o.species)}>
+            {t(o.label)}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
 
 /** Append an example sentence to an instruction (or start one). */
 function appendSentence(text: string | null | undefined, sentence: string): string {
@@ -53,6 +99,7 @@ export function Templates() {
   const [open, setOpen] = useState<{ id: string | null; from?: Template; key?: number } | null>(null);
   const [list, setList] = useState<engine.TemplateSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [fromExample, setFromExample] = useState(false);
 
   const refresh = useCallback(() => engine.listTemplates().then(setList, (e) => setError(String(e?.message ?? e))), []);
   useEffect(() => void refresh(), [refresh]);
@@ -89,6 +136,10 @@ export function Templates() {
       <header className="screen-head">
         <h1>{t("Templates")}</h1>
         <div className="head-actions">
+          <Button onClick={() => setFromExample(true)}>
+            <ClipboardText size={20} aria-hidden />
+            {t("From an example note")}
+          </Button>
           <Button onClick={startFromSoap}>
             <CopySimple size={20} aria-hidden />
             {t("Start from SOAP")}
@@ -150,6 +201,15 @@ export function Templates() {
       )}
       {list !== null && team.length === 0 && (
         <p className="empty small muted">{t("No team templates yet. Start from SOAP, or start a new one from blank headings.")}</p>
+      )}
+      {fromExample && (
+        <ExampleSheet
+          onClose={() => setFromExample(false)}
+          onProposed={(proposed) => {
+            setFromExample(false);
+            setOpen({ id: null, from: proposed, key: Date.now() });
+          }}
+        />
       )}
     </div>
   );
@@ -684,6 +744,7 @@ function HeadingRow({
         own={s.examples}
         onPick={(e) => onChange({ instruction: appendSentence(s.instruction, e) })}
       />
+      <ShowFor label={label} when={s.when} readOnly={readOnly} onChange={(when) => onChange({ when })} />
       {kind === "fields" && (
         <FieldsEditor fields={s.fields ?? []} readOnly={readOnly} owner={label} onChange={(fields) => onChange({ fields })} />
       )}
@@ -815,6 +876,7 @@ function PartRow({ part: p, index, count, readOnly, standards, onChange, onMove,
         own={p.examples}
         onPick={(e) => onChange({ instruction: appendSentence(p.instruction, e) })}
       />
+      <ShowFor label={label} when={p.when} readOnly={readOnly} onChange={(when) => onChange({ when })} />
       {p.kind === "fields" && (
         <FieldsEditor fields={p.fields ?? []} readOnly={readOnly} owner={label} onChange={(fields) => onChange({ fields })} />
       )}
@@ -931,6 +993,11 @@ function TemplatePreview({ template }: { template: Template }) {
           <header className="note-section-head">
             <h2>{s.title || t("Untitled heading")}</h2>
           </header>
+          {s.when?.species?.length ? (
+            <p className="small muted preview-when">
+              {t("Only for {species}", { species: s.when.species.map((x) => t(speciesPlural(x))).join(", ") })}
+            </p>
+          ) : null}
           {s.kind
             ? body(s.kind, s.fields, s.instruction)
             : (
@@ -939,6 +1006,11 @@ function TemplatePreview({ template }: { template: Template }) {
                   {(s.parts ?? []).map((p, j) => (
                     <div className="note-part" key={j}>
                       <h3 className="label">{p.label || t("Untitled subheading")}</h3>
+                      {p.when?.species?.length ? (
+                        <p className="small muted preview-when">
+                          {t("Only for {species}", { species: p.when.species.map((x) => t(speciesPlural(x))).join(", ") })}
+                        </p>
+                      ) : null}
                       {body(p.kind, p.fields, p.instruction)}
                     </div>
                   ))}

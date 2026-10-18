@@ -63,6 +63,10 @@ struct Expected {
 #[derive(Deserialize)]
 struct Script {
     id: String,
+    /// The consult's species ("feline"): headings for other species are left
+    /// out, as in the app (M2 item 4).
+    #[serde(default)]
+    species: Option<String>,
     /// The template this consult is meant for (M2 specialty library); the
     /// `--template` option is used when absent.
     #[serde(default)]
@@ -360,7 +364,8 @@ pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
         let template = match &script.template {
             Some(id) if !args.force_template => LoadedTemplate::resolve(id)?,
             _ => default_template.clone(),
-        };
+        }
+        .for_species(script.species.as_deref());
         let s = if script.expected.vitals_by_patient.is_empty() {
             let result =
                 generate_note(&llm, &template, &transcript, &note_options(&args.llm), &mut |_| true)?;

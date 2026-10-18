@@ -51,6 +51,32 @@ The right-hand pane shows the note's shape and, under **What the model is told**
 
 Saving a changed template increases its version. Every note keeps a copy of the template it was written with (`runs/NNN/template.yaml` in the encounter folder), so older notes keep their own headings.
 
+## A template from an example note
+
+**From an example note** (Templates) takes a note your clinic already writes. Paste it, choose **Propose headings**, and the note model lists its headings in order, what goes under each (bullet points, measurements, medications or subheadings), and short instructions. The proposal opens in the builder, unsaved, to check, change and save.
+
+- The model works to a fixed structure, so the result is always a valid template.
+- It keeps the clinic's own heading names, and decides whether the note is for the medical record or for the pet owner.
+- Nothing about the patient is copied into the template, and the example itself isn't saved. It's processed on this computer.
+- `openbark templates from-example note.txt` prints the proposed template as YAML; `--expect headings.txt` reports which expected headings it found.
+
+## Headings for one species
+
+Any heading or subheading can be shown only for some species: **Show** under the heading reads as a sentence, such as "Show only for cats" or "Show for every species". In the YAML:
+
+```yaml
+  - title: FeLV and FIV status
+    when: { species: [feline] }
+    kind: statements
+```
+
+Species are dogs, cats, horses, cattle, sheep and goats, pigs, birds, reptiles, rabbits, small rodents and ferrets. Everyday words work too (`[cat]`, `[guinea pig]`), and are saved as the species key (`feline`, `rodent`).
+
+- The species comes from the patient's details (**Species**, entered by the clinic). It's never guessed from the recording.
+- When drafting, headings for other species are removed before the model sees the template, so neither the prompt nor the schema asks for them. The note's saved template copy has the same headings, so Review shows only what applied.
+- With no species entered, or for the other animals in a multi-pet visit (only the main animal has a species), every heading stays.
+- The built-in wellness template has heartworm testing for dogs and FeLV/FIV status for cats; the dental template has tooth resorption for cats.
+
 ## Asking for changes, and standards
 
 In Review, every heading and subheading has **Ask**. Describe what should change, for example:

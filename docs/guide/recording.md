@@ -2,7 +2,7 @@
 
 Video: **Help → Recording a consult** in the app.
 
-1. On **Record**, enter the patient's name, the client's last name and the reason for the visit. They're optional and can be added or changed later in Review. They're saved with the encounter and time-stamped.
+1. On **Record**, enter the patient's name and species, the client's last name and the reason for the visit. The species decides headings that only apply to some animals, such as FeLV/FIV status for cats. They're optional and can be added or changed later in Review. They're saved with the encounter and time-stamped.
 2. Choose the **template** on the right, for example SOAP note or your clinic's own.
 3. Press the red button, or the Space bar, to start.
 4. Talk as you normally would. Each sentence appears in the live transcript once it's finished, with the speaker labelled (Speaker 1, Speaker 2). The waveform shows that the microphone is hearing you.

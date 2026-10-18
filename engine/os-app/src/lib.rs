@@ -401,6 +401,14 @@ impl App {
 
     /// Note options for this encounter: patient context and, in a
     /// multi-pet visit, which animal the note is about.
+    /// The species entered for the animal this handle works on. Other animals
+    /// in a multi-pet visit have no species entered, so they get every heading.
+    fn species_of(s: &Session) -> Option<String> {
+        let p = s.meta.patient.as_ref()?;
+        let main = s.pet.as_deref().is_none_or(|pet| pet.trim().eq_ignore_ascii_case(p.name.trim()));
+        (main && !p.species.trim().is_empty()).then(|| p.species.trim().to_string())
+    }
+
     fn note_options(&self, s: &Session, language: Option<String>) -> NoteOptions {
         let pets = s.meta.patient.as_ref().map(|p| p.pets()).unwrap_or_default();
         let other_pets = match &s.pet {
@@ -593,6 +601,8 @@ impl App {
         let _awake = AwakeGuard::acquire(AwakeReason::Processing);
         let mut s = self.open(id, pet)?;
         let template = self.templates.load(if template.is_empty() { "soap" } else { template })?;
+        // Headings for other species are left out (M2 item 4).
+        let template = template.for_species(Self::species_of(&s).as_deref());
         let record = template.template.document.is_record();
         if record && s.is_signed() {
             return Err(AppError(
@@ -833,6 +843,18 @@ impl App {
             t.template.standards = saved.template.standards;
         }
         Ok(TemplateView::of(t))
+    }
+
+    /// Propose a template from a note the clinic already writes (M2 item 5).
+    /// Nothing is saved: the proposal opens in the builder for editing.
+    pub fn template_from_example(&self, llm: &str, example: &str) -> Result<TemplateView> {
+        let _awake = AwakeGuard::acquire(AwakeReason::Processing);
+        let backend = self.load_llm(llm)?;
+        let t = os_engine::from_example::template_from_example(backend.as_ref(), example)?;
+        let prompt = os_engine::note::system_prompt(&t);
+        // A new template: its id comes from the name the team saves it under.
+        let template = Template { id: String::new(), ..t.template };
+        Ok(TemplateView { template, builtin: false, prompt })
     }
 
     /// Save a team template (new, or a change that bumps its version).

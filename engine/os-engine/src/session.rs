@@ -226,6 +226,10 @@ pub struct PatientInfo {
     /// Family or client surname.
     pub last_name: String,
     pub reason: String,
+    /// The main animal's species as entered ("Cat"); decides species-only
+    /// headings (M2 item 4). Never taken from the recording.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub species: String,
     /// When these details were first entered, and last changed.
     #[serde(default)]
     pub entered_at: Option<DateTime<Local>>,
@@ -243,7 +247,10 @@ impl PatientInfo {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.name.trim().is_empty() && self.last_name.trim().is_empty() && self.reason.trim().is_empty()
+        self.name.trim().is_empty()
+            && self.last_name.trim().is_empty()
+            && self.reason.trim().is_empty()
+            && self.species.trim().is_empty()
     }
 
     /// "Maple Okonkwo".
@@ -262,6 +269,9 @@ impl PatientInfo {
         }
         if !self.reason.trim().is_empty() {
             parts.push(format!("reason for visit: {}", self.reason.trim()));
+        }
+        if !self.species.trim().is_empty() {
+            parts.push(format!("species: {}", self.species.trim()));
         }
         parts.join("; ")
     }

@@ -68,6 +68,14 @@ sections:
   - title: Screening tests
     kind: statements
     instruction: Heartworm, fecal, bloodwork or other tests run, offered or declined.
+  - title: Heartworm and tick-borne disease testing
+    when: { species: [canine] }
+    kind: statements
+    instruction: Heartworm and tick-borne disease test results, offered or declined, as said.
+  - title: FeLV and FIV status
+    when: { species: [feline] }
+    kind: statements
+    instruction: Feline leukaemia and immunodeficiency virus test results or vaccination status, as said.
   - title: Advice given
     examples:
       - "Keep dental-care advice as its own line"

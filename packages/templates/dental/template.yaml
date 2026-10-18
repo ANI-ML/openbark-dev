@@ -51,6 +51,10 @@ sections:
       - "Include pocket depths in mm when they were called out"
     kind: statements
     presence: required
+  - title: Tooth resorption
+    when: { species: [feline] }
+    kind: statements
+    instruction: Teeth with resorptive lesions, with their stage and type if said.
   - title: Overall periodontal status
     kind: statements
   - title: Treatment performed

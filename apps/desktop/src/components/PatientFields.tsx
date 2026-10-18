@@ -1,5 +1,6 @@
 import type { Patient } from "../engine";
 import { useT } from "../i18n";
+import { SPECIES } from "../species";
 
 /** Patient name, last name and reason for visit (DESIGN.md §5 Inputs: label above). */
 export function PatientFields({
@@ -29,6 +30,24 @@ export function PatientFields({
           placeholder={t("Maple")}
           autoComplete="off"
         />
+      </label>
+      <label className="ob-field" htmlFor={`${idPrefix}-species`}>
+        <span className="label">{t("Species")}</span>
+        <select
+          id={`${idPrefix}-species`}
+          className="ob-select"
+          value={value.species ?? ""}
+          disabled={disabled}
+          onChange={(e) => onChange({ ...value, species: e.target.value })}
+        >
+          <option value="">{t("Not entered")}</option>
+          {value.species && !SPECIES.some((s) => s.key === value.species) && <option value={value.species}>{value.species}</option>}
+          {SPECIES.map((s) => (
+            <option key={s.key} value={s.key}>
+              {t(s.one)}
+            </option>
+          ))}
+        </select>
       </label>
       {(value.others ?? []).map((other, i) => (
         <div key={i} className="ob-field other-pet">

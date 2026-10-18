@@ -30,6 +30,8 @@ INDIRECT = [
     # Built-in template names (templateName() in src/i18n.ts)
     "SOAP note", "Callback note", "Discharge instructions", "Client summary",
     "Wellness visit", "Sick visit", "Emergency and triage", "Dental procedure", "Surgery and anaesthesia", "Recheck visit", "Dermatology consult", "Oncology visit", "Exotics consult", "Equine visit", "Production animal visit", "Euthanasia and quality of life", "Estimate explanation", "Euthanasia aftercare",
+    # species.ts SPECIES (one, many) and SHOW_FOR
+    "Dog", "Cat", "Horse", "Cattle", "Sheep or goat", "Pig", "Bird", "Reptile", "Rabbit", "Small rodent", "Ferret", "dogs", "cats", "horses", "cattle", "sheep and goats", "pigs", "birds", "reptiles", "rabbits", "small rodents", "ferrets", "for every species", "only for dogs", "only for cats", "only for horses", "only for cattle", "only for sheep and goats", "only for pigs", "only for birds", "only for reptiles", "only for rabbits", "only for small rodents", "only for ferrets", "only for dogs and cats", "only for farm animals", "only for exotics",
     # promptExamples NOTE_EXAMPLES use cases
     "Small-animal general practice", "Emergency and critical care", "Feline-only clinic", "Equine ambulatory", "Exotics", "Farm and production animals", "Shelter medicine", "Referral specialty",
 ]

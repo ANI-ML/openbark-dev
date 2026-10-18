@@ -9,7 +9,7 @@
 //! - `GET  /api/status`, `GET /api/devices`
 //! - `GET  /api/sessions`, `GET /api/sessions/{id}`, `GET /api/sessions/{id}/audio` (Range)
 //! - `POST /api/sessions?diarize=&name=`    body: WAV bytes → new encounter, transcribed
-//!   (patient: `patient_name`, `others` (one per line), `last_name`, `reason`; consent: `consent_rule`,
+//!   (patient: `patient_name`, `others` (one per line), `last_name`, `reason`, `species`; consent: `consent_rule`,
 //!   `consent_method`, `consent_by`, `consent_script`; the same on `/api/live`,
 //!   where consent is required)
 //! - `POST /api/sessions/{id}/notes`        `{llm, template, language?}`
@@ -19,6 +19,7 @@
 //! - `POST /api/sessions/{id}/addenda`      `{text, by}`: signed addition to a signed note
 //! - `POST /api/sessions/{id}/pdf`          `{clinic: {name, lines}, page, document?}` → application/pdf
 //! - `GET  /api/templates`, `POST /api/templates` (save), `POST /api/templates/preview`
+//! - `POST /api/templates/from-example`   `{llm, text}`: a proposed template, not saved
 //! - `GET|DELETE /api/templates/{id}`
 //! - `POST /api/templates/{id}/standards` `{heading, text, by}`, `DELETE /api/templates/{id}/standards/{sid}`
 //! - `GET  /api/live` (WebSocket)           browser microphone: binary f32 PCM frames
@@ -143,6 +144,7 @@ pub async fn serve(options: ServerOptions) -> std::io::Result<()> {
         .route("/api/sessions/{id}/pdf", post(export_pdf))
         .route("/api/templates", get(list_templates).post(save_template))
         .route("/api/templates/preview", post(preview_template))
+        .route("/api/templates/from-example", post(template_from_example))
         .route("/api/templates/{id}", get(template).delete(delete_template))
         .route("/api/templates/{id}/standards", post(add_standard))
         .route("/api/templates/{id}/standards/{sid}", delete(remove_standard))
@@ -306,6 +308,9 @@ struct PatientQuery {
     /// Other animals in the visit, one per line.
     #[serde(default)]
     others: String,
+    /// The main animal's species ("Cat").
+    #[serde(default)]
+    species: String,
 }
 
 /// Consent passed as query parameters alongside the patient details.
@@ -340,6 +345,7 @@ impl PatientQuery {
             others: self.others.lines().map(str::trim).filter(|o| !o.is_empty()).map(String::from).collect(),
             last_name: self.last_name,
             reason: self.reason,
+            species: self.species,
             ..Default::default()
         };
         (!p.is_empty()).then_some(p)
@@ -530,6 +536,19 @@ async fn delete_template(
     UrlPath(id): UrlPath<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     blocking(move || s.app.delete_template(&id)).await
+}
+
+#[derive(Deserialize)]
+struct FromExample {
+    llm: String,
+    text: String,
+}
+
+async fn template_from_example(
+    State(s): State<St>,
+    Json(req): Json<FromExample>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app.template_from_example(&req.llm, &req.text)).await
 }
 
 #[derive(Deserialize)]

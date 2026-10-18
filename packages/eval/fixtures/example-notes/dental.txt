@@ -1,0 +1,35 @@
+DENTAL PROCEDURE NOTE (synthetic example, not a real patient)
+Patient: Milo, 9 y MN DSH
+
+PRE-ANAESTHETIC ASSESSMENT
+Weight: 5.1 kg   ASA: 2   Bloodwork: within reference intervals
+
+ANAESTHESIA
+Premed: butorphanol 0.2 mg/kg IM, dexmedetomidine 5 mcg/kg IM
+Induction: alfaxalone 2 mg/kg IV
+Maintenance: isoflurane in O2
+Nerve blocks: L caudal mandibular block, bupivacaine 0.2 mL
+
+MONITORING
+HR: 140-160   SpO2: 98%   MAP: 70-85   Temp nadir: 36.9
+
+DENTAL CHART
+307: resorptive lesion type 1, stage 3
+309: missing
+404: gingival recession 2 mm
+Periodontal stage overall: 2
+
+RADIOGRAPHS
+Full-mouth radiographs taken. Root replacement 307 confirmed.
+
+TREATMENT
+Scaling and polishing all teeth. 307 extracted surgically, flap closed with 5-0 Monocryl.
+
+RECOVERY
+Extubated uneventfully, warm and comfortable at 30 min.
+
+DISCHARGE MEDICATIONS
+Buprenorphine 0.02 mg/kg OTM q8h x 3 days
+
+HOME CARE
+Soft food 10 days. Recheck 2 weeks.

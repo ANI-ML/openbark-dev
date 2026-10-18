@@ -21,9 +21,18 @@ pub enum TemplatesCommand {
     },
     /// Check a template.yaml (or its directory) before sharing it.
     Check { path: PathBuf },
+    /// Propose a template from an example note (a text file); prints YAML.
+    FromExample {
+        file: PathBuf,
+        /// Expected headings, one per line: report which were found.
+        #[arg(long)]
+        expect: Option<PathBuf>,
+        #[command(flatten)]
+        llm: crate::LlmArgs,
+    },
 }
 
-pub fn run(cmd: TemplatesCommand) -> Result<()> {
+pub fn run(cmd: TemplatesCommand, models: &os_models::ModelStore) -> Result<()> {
     let store = TemplateStore::default();
     match cmd {
         TemplatesCommand::List => {
@@ -56,6 +65,39 @@ pub fn run(cmd: TemplatesCommand) -> Result<()> {
             };
             let headings: usize = t.template.sections.iter().map(|s| 1 + s.parts.len()).sum();
             println!("{} ({}): {headings} headings, ready to use", t.template.name, t.label());
+        }
+        TemplatesCommand::FromExample { file, expect, llm } => {
+            let backend = crate::load_llm(models, &llm)?;
+            let t =
+                os_engine::from_example::template_from_example(&backend, &std::fs::read_to_string(&file)?)?;
+            println!("{}", serde_yaml_ng::to_string(&t.template)?);
+            if let Some(expect) = expect {
+                let got: Vec<String> = t
+                    .template
+                    .sections
+                    .iter()
+                    .flat_map(|s| {
+                        std::iter::once(s.title.clone()).chain(s.parts.iter().map(|p| p.label.clone()))
+                    })
+                    .map(|h| h.to_lowercase())
+                    .collect();
+                let wanted: Vec<String> = std::fs::read_to_string(&expect)?
+                    .lines()
+                    .map(str::trim)
+                    .filter(|l| !l.is_empty())
+                    .map(String::from)
+                    .collect();
+                // A line may list alternatives: "S | Subjective".
+                let found = |w: &String| w.split('|').any(|alt| got.contains(&alt.trim().to_lowercase()));
+                let missing: Vec<&String> = wanted.iter().filter(|w| !found(w)).collect();
+                eprintln!(
+                    "{}: {}/{} expected headings found{}",
+                    file.display(),
+                    wanted.len() - missing.len(),
+                    wanted.len(),
+                    if missing.is_empty() { String::new() } else { format!("; missing: {missing:?}") }
+                );
+            }
         }
     }
     Ok(())
