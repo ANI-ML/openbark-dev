@@ -1,0 +1,413 @@
+/*
+ * OpenBark design tokens: docs/design/DESIGN.md §10, as amended by ADR-0010
+ * (the Apple-style refresh) and ADR-0015 (Geist and ANI.ML Health orange,
+ * 2026-10-18). Components use only these variables; no raw colours anywhere
+ * else.
+ *
+ * Type is Geist, bundled, on every platform (ADR-0015): one face that reads
+ * the same in every clinic, with Geist Mono for times and sizes. Fonts never
+ * load from a CDN.
+ */
+@font-face {
+  font-family: "Geist Sans";
+  src: url("./fonts/Geist-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Geist Mono";
+  src: url("./fonts/GeistMono-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+:root {
+  /* Neutrals: grouped grey canvas, white surfaces (light). */
+  --bg: #F5F5F7; --surface: #FFFFFF; --surface-2: #F0F0F3;
+  --border: rgba(60, 60, 67, 0.13); --border-strong: rgba(60, 60, 67, 0.3);
+  --ink: #1D1D1F; --ink-2: #636369; --ink-3: #86868B;
+  /* Fills for tinted controls (grey buttons, segmented track, hovers). */
+  --fill: rgba(118, 118, 128, 0.12); --fill-strong: rgba(118, 118, 128, 0.2);
+  --segment-thumb: #FFFFFF;
+  /* One accent; Pulse Red is for recording only. */
+  --accent: #B35209; --accent-soft: #FDF0E6;
+  /* The ANI.ML Health mark colour, for the logo only (not text). */
+  --brand: #F47C20;
+  --record: #B3443C; --danger: #A8453A; --warn: #9A6414; --ok: #3C7A4F;
+  --on-accent: #FFFFFF;
+  /* §5: the Record button's icon is white in both modes. */
+  --on-record: #FFFFFF;
+  /* Materials (translucent floating chrome; ADR-0010). */
+  --material-chrome: rgba(246, 246, 248, 0.78);
+  --material-sheet: rgba(255, 255, 255, 0.86);
+  --material-blur: blur(24px) saturate(180%);
+  --material-edge: rgba(255, 255, 255, 0.55);
+  --backdrop: rgba(0, 0, 0, 0.22);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow: 0 16px 40px -12px rgba(0, 0, 0, 0.22), 0 2px 8px rgba(0, 0, 0, 0.06);
+  --shadow-thumb: 0 1px 3px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.06);
+  --radius-control: 9px; --radius-panel: 14px; --radius-sheet: 18px; --radius-mark: 3px;
+  --font-sans: "Geist Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", "Cascadia Mono", monospace;
+  /* Motion: critically damped springs (damping 1.0). The curve is the same
+     at every speed; the duration sets the response (0.35 s / 0.25 s). */
+  --spring: linear(0, 0.0671, 0.2058, 0.3592, 0.5008, 0.6207, 0.7171, 0.792, 0.8488, 0.8911, 0.9222, 0.9447, 0.961, 0.9726, 0.9808, 0.9866, 0.9907, 0.9936, 0.9956, 0.9969, 0.9979, 0.9986, 1);
+  --spring-dur: 520ms; --spring-fast: 370ms;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1); --dur-fast: 180ms; --dur: 240ms;
+  --press: 100ms ease-out;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #161618; --surface: #1C1C1E; --surface-2: #2C2C2E;
+  --border: rgba(255, 255, 255, 0.1); --border-strong: rgba(255, 255, 255, 0.2);
+  --ink: #F2F2F4; --ink-2: #A1A1A6; --ink-3: #75757B;
+  --fill: rgba(118, 118, 128, 0.24); --fill-strong: rgba(118, 118, 128, 0.34);
+  --segment-thumb: #636366;
+  --accent: #FF9A4D; --accent-soft: #3A2414;
+  --record: #D9655C; --danger: #D46A5E; --warn: #D29A3A; --ok: #6FB07F;
+  --on-accent: #1A0E04;
+  --material-chrome: rgba(30, 30, 32, 0.78);
+  --material-sheet: rgba(38, 38, 40, 0.86);
+  --material-edge: rgba(255, 255, 255, 0.08);
+  --backdrop: rgba(0, 0, 0, 0.5);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow: 0 16px 40px -12px rgba(0, 0, 0, 0.7), 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-thumb: 0 1px 3px rgba(0, 0, 0, 0.4);
+  color-scheme: dark;
+}}
+:root[data-theme="dark"] {
+  --bg: #161618; --surface: #1C1C1E; --surface-2: #2C2C2E;
+  --border: rgba(255, 255, 255, 0.1); --border-strong: rgba(255, 255, 255, 0.2);
+  --ink: #F2F2F4; --ink-2: #A1A1A6; --ink-3: #75757B;
+  --fill: rgba(118, 118, 128, 0.24); --fill-strong: rgba(118, 118, 128, 0.34);
+  --segment-thumb: #636366;
+  --accent: #FF9A4D; --accent-soft: #3A2414;
+  --record: #D9655C; --danger: #D46A5E; --warn: #D29A3A; --ok: #6FB07F;
+  --on-accent: #1A0E04;
+  --material-chrome: rgba(30, 30, 32, 0.78);
+  --material-sheet: rgba(38, 38, 40, 0.86);
+  --material-edge: rgba(255, 255, 255, 0.08);
+  --backdrop: rgba(0, 0, 0, 0.5);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow: 0 16px 40px -12px rgba(0, 0, 0, 0.7), 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-thumb: 0 1px 3px rgba(0, 0, 0, 0.4);
+  color-scheme: dark;
+}
+/* Increased contrast: near-solid surfaces, defined borders. */
+@media (prefers-contrast: more) {
+  :root {
+    --border: rgba(60, 60, 67, 0.45); --border-strong: rgba(60, 60, 67, 0.7);
+    --ink-2: #48484D; --ink-3: #5E5E64;
+    --material-chrome: var(--surface); --material-sheet: var(--surface);
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  line-height: 1.5;
+  letter-spacing: -0.006em;
+  font-optical-sizing: auto;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Light and dark change gently, not as a flash (ADR-0010). */
+  transition: background-color 300ms ease, color 300ms ease;
+}
+
+/* Type: size-specific tracking and leading (tighter as it grows). */
+h1 { font-size: 1.75rem; line-height: 1.15; font-weight: 700; letter-spacing: -0.022em; margin: 0; }
+h2 { font-size: 1.125rem; line-height: 1.3; font-weight: 600; letter-spacing: -0.012em; margin: 0; }
+h3 { font-size: 0.9375rem; line-height: 1.35; font-weight: 600; letter-spacing: -0.006em; margin: 0; }
+p { margin: 0; }
+.small { font-size: 0.875rem; line-height: 1.45; letter-spacing: -0.003em; }
+.label { font-size: 0.8125rem; line-height: 1.35; font-weight: 500; letter-spacing: 0; }
+.muted { color: var(--ink-2); }
+.faint { color: var(--ink-3); }
+.mono, code, kbd {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+kbd {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0 6px;
+}
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Buttons (§5, ADR-0010): tinted grey by default, accent fill for the one
+   primary action, accent text for plain actions. Feedback on press. */
+.ob-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 16px;
+  border-radius: var(--radius-control);
+  border: 0;
+  background: var(--fill);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  letter-spacing: -0.006em;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), transform var(--press);
+}
+.ob-button:hover:not(:disabled) { background: var(--fill-strong); }
+.ob-button:active:not(:disabled) { transform: scale(0.97); }
+.ob-button:disabled { opacity: 0.4; cursor: not-allowed; }
+.ob-button[data-variant="primary"] { background: var(--accent); color: var(--on-accent); }
+.ob-button[data-variant="primary"]:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 90%, var(--ink));
+}
+.ob-button[data-variant="ghost"] { background: transparent; color: var(--accent); padding: 0 10px; }
+.ob-button[data-variant="ghost"]:hover:not(:disabled) { background: var(--fill); }
+.ob-button[data-variant="danger"] { background: var(--danger); color: var(--on-accent); }
+@media (pointer: coarse) { .ob-button { height: 44px; } }
+
+/* Inputs (§5) */
+.ob-field { display: flex; flex-direction: column; gap: 6px; }
+.ob-input, .ob-select {
+  height: 36px;
+  padding: 0 12px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.9375rem;
+  transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+.ob-input::placeholder { color: var(--ink-3); }
+.ob-input:focus, .ob-select:focus {
+  border-color: var(--accent);
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.ob-select {
+  appearance: none;
+  padding-right: 32px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238E8E93' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  cursor: pointer;
+}
+@media (pointer: coarse) { .ob-input, .ob-select { height: 44px; } }
+.ob-help { font-size: 0.8125rem; color: var(--ink-3); }
+.ob-error { font-size: 0.8125rem; color: var(--danger); }
+
+/* Segmented control: grey track, raised thumb (Apple style). */
+.ob-segmented {
+  display: inline-flex;
+  align-self: flex-start;
+  width: fit-content;
+  max-width: 100%;
+  padding: 2px;
+  gap: 2px;
+  border-radius: var(--radius-control);
+  background: var(--fill);
+}
+.ob-segment {
+  height: 28px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease), transform var(--press);
+}
+.ob-segment:active:not(:disabled) { transform: scale(0.97); }
+.ob-segment[aria-checked="true"], .ob-segment[aria-selected="true"] {
+  background: var(--segment-thumb);
+  box-shadow: var(--shadow-thumb);
+  font-weight: 600;
+}
+@media (pointer: coarse) { .ob-segment { height: 36px; } }
+
+/* Chips and status (§5): capsules. */
+.ob-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 2px 10px;
+  border-radius: 9999px;
+  background: var(--fill);
+  color: var(--ink);
+  font-size: 0.8125rem;
+  line-height: 1.3;
+}
+.ob-dot { width: 8px; height: 8px; border-radius: 9999px; flex: none; background: var(--ink-3); }
+.ob-dot[data-tone="ok"] { background: var(--ok); }
+.ob-dot[data-tone="warn"] { background: var(--warn); }
+.ob-dot[data-tone="danger"] { background: var(--danger); }
+.ob-dot[data-tone="record"] { background: var(--record); }
+.ob-dot[data-tone="accent"] { background: var(--accent); }
+
+/* Progress (§5: determinate, never a spinner): a slim capsule track. */
+.ob-progress { height: 3px; border-radius: 9999px; background: var(--fill); overflow: hidden; }
+.ob-progress > span {
+  display: block;
+  height: 100%;
+  width: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transform-origin: left;
+  transition: transform var(--spring-dur) var(--spring);
+}
+
+/* Inline notices: a coloured leading rule, never large colour blocks (§2). */
+.ob-notice {
+  border-left: 3px solid var(--warn);
+  border-radius: 4px var(--radius-control) var(--radius-control) 4px;
+  padding: 10px 14px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 0.875rem;
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.ob-notice[data-tone="danger"] { border-left-color: var(--danger); }
+.ob-notice[data-tone="ok"] { border-left-color: var(--ok); }
+
+/* Toast (§5): a floating material, rising from the bottom edge. */
+.ob-toast {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 50;
+  padding: 12px 18px;
+  background: var(--material-sheet);
+  -webkit-backdrop-filter: var(--material-blur);
+  backdrop-filter: var(--material-blur);
+  border: 1px solid var(--material-edge);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  transition: transform var(--spring-dur) var(--spring), opacity var(--dur) ease;
+}
+@starting-style { .ob-toast { transform: translateY(16px); opacity: 0; } }
+@media (max-width: 640px) { .ob-toast { top: 12px; bottom: auto; left: 12px; right: 12px; } @starting-style { .ob-toast { transform: translateY(-16px); } } }
+
+/* Sheets and dialogs (§5, ADR-0010): translucent, floating, entering and
+   leaving along the same path. Motion is handled by <Sheet> / <Dialog>. */
+.ob-backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--backdrop);
+  z-index: 40;
+  transition: opacity var(--dur) ease;
+}
+@starting-style { .ob-backdrop { opacity: 0; } }
+.ob-backdrop[data-closing] { opacity: 0; }
+.ob-sheet {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  bottom: 10px;
+  width: min(560px, calc(100vw - 20px));
+  z-index: 41;
+  display: flex;
+  flex-direction: column;
+  background: var(--material-sheet);
+  -webkit-backdrop-filter: var(--material-blur);
+  backdrop-filter: var(--material-blur);
+  border: 1px solid var(--material-edge);
+  border-radius: var(--radius-sheet);
+  box-shadow: var(--shadow);
+  transition: transform var(--spring-dur) var(--spring), opacity var(--dur-fast) ease;
+}
+@starting-style { .ob-sheet { transform: translateX(calc(100% + 20px)); } }
+.ob-sheet[data-closing] { transform: translateX(calc(100% + 20px)); transition-duration: var(--spring-fast), var(--dur-fast); }
+.ob-grabber { display: none; }
+@media (max-width: 640px) {
+  .ob-sheet {
+    top: auto; left: 0; right: 0; bottom: 0;
+    width: 100vw; max-height: 88dvh;
+    border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
+    border-bottom: 0;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  @starting-style { .ob-sheet { transform: translateY(100%); } }
+  .ob-sheet[data-closing] { transform: translateY(100%); }
+  .ob-grabber {
+    display: block;
+    flex: none;
+    width: 100%;
+    height: 22px;
+    border: 0;
+    background: transparent;
+    touch-action: none;
+    cursor: grab;
+  }
+  .ob-grabber::before {
+    content: "";
+    display: block;
+    width: 36px;
+    height: 5px;
+    margin: 8px auto 0;
+    border-radius: 9999px;
+    background: var(--border-strong);
+  }
+}
+
+/* Tables (§5): grouped list rows on a surface, inset separators. */
+.ob-table { width: 100%; border-collapse: collapse; font-size: 0.9375rem; }
+.ob-table th {
+  text-align: left;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 12px;
+}
+.ob-table td { border-bottom: 1px solid var(--border); padding: 12px; vertical-align: middle; }
+.ob-table tbody tr:last-child td { border-bottom: 0; }
+.ob-table th:first-child, .ob-table td:first-child { padding-left: 16px; }
+.ob-table th:last-child, .ob-table td:last-child { padding-right: 16px; }
+.ob-table td.num, .ob-table th.num { text-align: right; }
+.ob-table td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.ob-table tbody tr { transition: background-color var(--dur-fast) var(--ease); }
+.ob-table tbody tr:hover { background: var(--fill); }
+
+/* Skeleton (§5: slow layout-matched shimmer) */
+.ob-skeleton { background: var(--surface-2); border-radius: var(--radius-control); position: relative; overflow: hidden; }
+.ob-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--surface) 60%, transparent), transparent);
+  transform: translateX(-100%);
+  animation: ob-shimmer 1.6s linear infinite;
+}
+@keyframes ob-shimmer { to { transform: translateX(100%); } }
+
+/* Reduced transparency: frosted surfaces become solid. */
+@media (prefers-reduced-transparency: reduce) {
+  :root { --material-chrome: var(--surface); --material-sheet: var(--surface); }
+  .ob-sheet, .ob-toast { -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+/* Reduced motion: no slides or springs, short cross-fades instead. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0s !important; }
+  .ob-sheet, .ob-toast { transition: opacity 200ms ease !important; }
+  @starting-style { .ob-sheet, .ob-toast { transform: none; opacity: 0; } }
+  .ob-sheet[data-closing] { transform: none; opacity: 0; }
+  .ob-button:active, .ob-segment:active { transform: none; }
+}

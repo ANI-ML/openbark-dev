@@ -1,0 +1,34 @@
+# OpenBark template: euthanasia aftercare letter (for the pet owner).
+# A client document: it follows the veterinarian's note where that differs
+# from the transcript.
+id: euthanasia-aftercare
+version: 0.1.0
+name: Euthanasia aftercare
+description: "A gentle note for the family: aftercare arrangements, what to expect, and support."
+icon: hand-heart
+document: client
+language: en
+
+instructions: |
+  Write a short, gentle note for the family after their pet's euthanasia (or a planned euthanasia).
+  Write in warm, plain, everyday language. Use the pet's name when it was said.
+  Include only what was said or arranged in this visit; do not add condolence stories or claims about the pet.
+
+rules:
+  - "Aftercare arrangements (burial, cremation type, collection, keepsakes, timing) only as said."
+  - "Costs only if they were discussed."
+  - "Never invent support services; include only those the clinic mentioned."
+  - "Spell drug names correctly: where a line has a hint such as [heard \"marapitin\", likely maropitant], use the likely spelling if it fits. Write doses, amounts and durations with digits and units (1 mg/kg, 100 mL, 14 days), so they are easy to read."
+
+sections:
+  - title: Aftercare arrangements
+    examples:
+      - "Say when the ashes will be ready if a time was given"
+    kind: statements
+    instruction: What was chosen and what happens next, with timing if said.
+  - title: What to expect
+    kind: statements
+    instruction: Anything the veterinarian explained about the process or the coming days.
+  - title: Support
+    kind: statements
+    instruction: Support resources or contacts the clinic offered.

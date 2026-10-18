@@ -1,0 +1,299 @@
+# OpenBark veterinary vocabulary: term<TAB>kind. Written for OpenBark (Apache-2.0).
+# Used for transparent hints on likely mis-heard words; the transcript itself is never changed.
+# Users can add terms in <data>/OpenBark/vocab.tsv (same format).
+acepromazine	drug
+alfaxalone	drug
+allopurinol	drug
+amantadine	drug
+amitriptyline	drug
+amlodipine	drug
+amoxicillin	drug
+amoxicillin-clavulanate	drug
+ampicillin	drug
+apomorphine	drug
+apoquel	drug
+atenolol	drug
+atipamezole	drug
+atropine	drug
+azithromycin	drug
+benazepril	drug
+bravecto	drug
+bupivacaine	drug
+buprenorphine	drug
+butorphanol	drug
+capromorelin	drug
+carprofen	drug
+cefazolin	drug
+cefovecin	drug
+cefpodoxime	drug
+cephalexin	drug
+cetirizine	drug
+chlorambucil	drug
+chloramphenicol	drug
+chlorhexidine	drug
+cimetidine	drug
+ciprofloxacin	drug
+cisapride	drug
+clavamox	drug
+clindamycin	drug
+clomipramine	drug
+clopidogrel	drug
+cyclosporine	drug
+cytarabine	drug
+cytopoint	drug
+deracoxib	drug
+dexamethasone	drug
+dexmedetomidine	drug
+diazepam	drug
+diphenhydramine	drug
+doxorubicin	drug
+doxycycline	drug
+enalapril	drug
+enrofloxacin	drug
+entyce	drug
+epinephrine	drug
+famotidine	drug
+fenbendazole	drug
+fentanyl	drug
+fipronil	drug
+firocoxib	drug
+fluconazole	drug
+fludrocortisone	drug
+fluoxetine	drug
+frunevetmab	drug
+furosemide	drug
+gabapentin	drug
+gentamicin	drug
+glargine	drug
+glipizide	drug
+grapiprant	drug
+hydrocodone	drug
+hydromorphone	drug
+imidacloprid	drug
+insulin	drug
+itraconazole	drug
+ivermectin	drug
+ketamine	drug
+ketoconazole	drug
+lactulose	drug
+levetiracetam	drug
+levothyroxine	drug
+lidocaine	drug
+lokivetmab	drug
+lomustine	drug
+lufenuron	drug
+marbofloxacin	drug
+maropitant	drug
+meloxicam	drug
+methadone	drug
+methimazole	drug
+methocarbamol	drug
+methylprednisolone	drug
+metoclopramide	drug
+metronidazole	drug
+midazolam	drug
+milbemycin	drug
+mirtazapine	drug
+mitotane	drug
+moxidectin	drug
+naloxone	drug
+neomycin	drug
+nexgard	drug
+nitenpyram	drug
+omeprazole	drug
+ondansetron	drug
+oclacitinib	drug
+oxytocin	drug
+pantoprazole	drug
+paroxetine	drug
+pentobarbital	drug
+phenobarbital	drug
+pimobendan	drug
+piroxicam	drug
+potassium bromide	drug
+praziquantel	drug
+prednisolone	drug
+prednisone	drug
+propofol	drug
+pyrantel	drug
+ranitidine	drug
+revolution	drug
+robenacoxib	drug
+ronidazole	drug
+selamectin	drug
+sevoflurane	drug
+sildenafil	drug
+simparica	drug
+solensia	drug
+sotalol	drug
+spironolactone	drug
+sucralfate	drug
+telmisartan	drug
+terbinafine	drug
+theophylline	drug
+tramadol	drug
+trazodone	drug
+trilostane	drug
+trimethoprim-sulfamethoxazole	drug
+tylosin	drug
+ursodiol	drug
+vincristine	drug
+voriconazole	drug
+zonisamide	drug
+lactated ringer's	drug
+dhpp	vaccine
+fvrcp	vaccine
+leptospirosis	vaccine
+bordetella	vaccine
+rabies	vaccine
+felv	vaccine
+lyme	vaccine
+canine influenza	vaccine
+otitis	condition
+otitis externa	condition
+pyoderma	condition
+dermatitis	condition
+pancreatitis	condition
+gastritis	condition
+gastroenteritis	condition
+colitis	condition
+enteritis	condition
+cystitis	condition
+urolithiasis	condition
+hyperthyroidism	condition
+hypothyroidism	condition
+hyperadrenocorticism	condition
+hypoadrenocorticism	condition
+diabetes mellitus	condition
+chronic kidney disease	condition
+cardiomyopathy	condition
+hypertrophic cardiomyopathy	condition
+mitral valve disease	condition
+osteoarthritis	condition
+arthritis	condition
+cruciate	condition
+luxation	condition
+pyometra	condition
+parvovirus	condition
+panleukopenia	condition
+lymphoma	condition
+mast cell tumor	condition
+osteosarcoma	condition
+hemangiosarcoma	condition
+inflammatory bowel disease	condition
+foreign body	condition
+megaesophagus	condition
+brachycephalic	condition
+periodontal disease	condition
+gingivitis	condition
+stomatitis	condition
+conjunctivitis	condition
+keratoconjunctivitis sicca	condition
+uveitis	condition
+glaucoma	condition
+cataract	condition
+heartworm	condition
+giardia	condition
+coccidia	condition
+anaplasmosis	condition
+ehrlichiosis	condition
+babesiosis	condition
+tachycardia	condition
+bradycardia	condition
+tachypnea	condition
+dyspnea	condition
+lethargy	condition
+anorexia	condition
+hematochezia	condition
+melena	condition
+polyuria	condition
+polydipsia	condition
+ataxia	condition
+echocardiogram	procedure
+radiographs	procedure
+ultrasound	procedure
+urinalysis	procedure
+cystocentesis	procedure
+fine needle aspirate	procedure
+cytology	procedure
+biopsy	procedure
+histopathology	procedure
+sdma	procedure
+complete blood count	procedure
+chemistry panel	procedure
+ovariohysterectomy	procedure
+castration	procedure
+enucleation	procedure
+cystotomy	procedure
+gastrotomy	procedure
+enterotomy	procedure
+splenectomy	procedure
+dental prophylaxis	procedure
+extraction	procedure
+triadan	procedure
+subcutaneous	route
+intramuscular	route
+intravenous	route
+ceftiofur	drug
+flunixin	drug
+phenylbutazone	drug
+bute	drug
+oxytetracycline	drug
+penicillin	drug
+procaine penicillin	drug
+tulathromycin	drug
+florfenicol	drug
+ketoprofen	drug
+cloprostenol	drug
+dinoprost	drug
+gonadorelin	drug
+calcium borogluconate	drug
+propylene glycol	drug
+isoflurane	drug
+detomidine	drug
+romifidine	drug
+xylazine	drug
+trimethoprim-sulfa	drug
+ceftriaxone	drug
+cefquinome	drug
+oxfendazole	drug
+doramectin	drug
+eprinomectin	drug
+toltrazuril	drug
+flunixin meglumine	drug
+ponazuril	drug
+mastitis	condition
+ketosis	condition
+milk fever	condition
+hypocalcaemia	condition
+displaced abomasum	condition
+bloat	condition
+pneumonia	condition
+scours	condition
+foot rot	condition
+laminitis	condition
+colic	condition
+choke	condition
+strangles	condition
+sub-solar abscess	condition
+navicular	condition
+metabolic bone disease	condition
+dysecdysis	condition
+egg binding	condition
+gastrointestinal stasis	condition
+malocclusion	condition
+bumblefoot	condition
+hoof testers	procedure
+nerve block	procedure
+flexion test	procedure
+rectal examination	procedure
+nasogastric intubation	procedure
+poultice	procedure
+california mastitis test	procedure
+abdominocentesis	procedure
+coggins	procedure
+monocryl	product
+vicryl	product
+nylon	product
+staples	product
+e-collar	product

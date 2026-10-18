@@ -1,0 +1,19 @@
+{
+  "product": "OpenBark",
+  "version": "0.0.1",
+  "published": false,
+  "date": null,
+  "download_base": "https://github.com/ANI-ML/openbark-releases/releases/download/v0.0.1",
+  "all": "https://github.com/ANI-ML/openbark-releases/releases",
+  "notes": null,
+  "app_store": null,
+  "files": {
+    "windows": [{ "label": "Windows setup (.exe)", "name": "OpenBark_0.0.1_x64-setup.exe", "size": "" }],
+    "mac": [{ "label": "Disk image (.dmg)", "name": "OpenBark_0.0.1_aarch64.dmg", "size": "" }],
+    "linux": [
+      { "label": "Ubuntu, Debian (.deb)", "name": "OpenBark_0.0.1_amd64.deb", "size": "" },
+      { "label": "Fedora (.rpm)", "name": "OpenBark-0.0.1-1.x86_64.rpm", "size": "" },
+      { "label": "Any distribution (AppImage)", "name": "OpenBark_0.0.1_amd64.AppImage", "size": "" }
+    ]
+  }
+}

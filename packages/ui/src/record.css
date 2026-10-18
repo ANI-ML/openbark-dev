@@ -1,0 +1,46 @@
+/* DESIGN.md §5 Record button and waveform. Tokens only. */
+.ob-record {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 9999px;
+  border: 0;
+  display: grid;
+  place-items: center;
+  background: var(--record);
+  color: var(--on-record);
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease);
+}
+.ob-record:active:not(:disabled) { transform: scale(0.96); }
+.ob-record:disabled { opacity: 0.45; cursor: not-allowed; }
+.ob-record[data-recording] { background: var(--surface); color: var(--record); }
+.ob-record-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 3px solid var(--record);
+  animation: ob-breathe 2s ease-in-out infinite alternate;
+}
+@keyframes ob-breathe { from { opacity: 0.75; } to { opacity: 1; } }
+.ob-record-wave { position: absolute; inset: 18px 16px; height: auto; gap: 2px; }
+.ob-record-wave > span { background: var(--record); }
+.ob-record-stop { position: absolute; bottom: 8px; opacity: 0.85; }
+@media (pointer: coarse) { .ob-record { width: 72px; height: 72px; } }
+@media (prefers-reduced-motion: reduce) { .ob-record-ring { animation: none; opacity: 1; } }
+
+.ob-wave {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 48px;
+}
+.ob-wave > span {
+  flex: 1;
+  height: 100%;
+  border-radius: var(--radius-mark);
+  background: var(--accent);
+  transform: scaleY(0.08);
+  transform-origin: center;
+  will-change: transform;
+}

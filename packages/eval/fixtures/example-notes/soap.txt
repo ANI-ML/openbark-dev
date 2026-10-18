@@ -1,0 +1,22 @@
+SOAP - Daisy (synthetic example, not a real patient)
+
+S:
+CC: Itchy ears x 1 wk
+Hx: Shaking head, scratching L ear. Eating/drinking normally. No V/D. On monthly flea prevention.
+Current meds: none
+
+O:
+Wt 18.2 kg  T 38.6 C  HR 96  RR 24  MM pink  CRT <2s  BCS 5/9
+PE: L ear canal erythematous with brown waxy discharge. R ear WNL. Rest of exam unremarkable.
+Diagnostics: Ear cytology L: yeast ++, no bacteria.
+
+A:
+Problem list: 1. Otitis externa, L, Malassezia
+DDx: underlying atopy vs food allergy
+
+P:
+Dx: none further today
+Rx: Otic suspension 5 drops L ear SID x 14 d
+Tx: Ear flush in clinic
+Client communication: Discussed ear cleaning technique; owner to clean weekly after course.
+F/U: Recheck 2 wk

@@ -1,0 +1,16 @@
+[package]
+name = "fixture-tts"
+description = "Dev tool: render synthetic consult scripts to 16 kHz WAV with Kokoro (sherpa-onnx)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+os-asr.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml_ng.workspace = true

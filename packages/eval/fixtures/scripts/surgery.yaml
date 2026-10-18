@@ -1,0 +1,34 @@
+# Synthetic consult: written for OpenBark's test suite; not a real patient.
+id: surgery
+title: Canine spay, anaesthesia and surgical report
+species: canine
+template: surgery
+speakers:
+  dvm: af_sarah
+  tech: am_adam
+pause_secs: 0.6
+lines:
+  - [dvm, "This is Luna, a one year old female Labrador, here for an ovariohysterectomy. She was fasted overnight."]
+  - [tech, "Weight twenty-four point five kilos, temp thirty-eight point six, heart rate one hundred, resp rate twenty. Bloodwork was normal."]
+  - [dvm, "ASA one. Premed is hydromorphone point one milligrams per kilo IM with acepromazine point zero two milligrams per kilo IM."]
+  - [tech, "Induced with propofol, four milligrams per kilo IV, intubated, maintained on isoflurane. Lactated Ringer's at five mils per kilo per hour."]
+  - [dvm, "Ventral midline incision, about six centimetres. Both ovarian pedicles ligated with two oh PDS, uterine body ligated the same."]
+  - [tech, "Blood pressure dipped to a mean of fifty-eight around the uterine body, came back up after I turned the iso down."]
+  - [dvm, "Linea closed with two oh PDS simple continuous, subcutaneous with three oh Monocryl, and an intradermal skin closure."]
+  - [dvm, "No other complications. She extubated smoothly. Pain score two out of ten in recovery."]
+  - [dvm, "Home with carprofen, four point four milligrams per kilo once a day for five days. Cone on for fourteen days, leash walks only."]
+  - [dvm, "Recheck the incision in ten to fourteen days. No sutures to remove since it's intradermal."]
+
+expected:
+  vitals:
+    weight: "24.5"
+    temperature: "38.6"
+    heart_rate: "100"
+    respiratory_rate: "20"
+  medications:
+    - { drug: hydromorphone, dose: "0.1" }
+    - { drug: acepromazine, dose: "0.02" }
+    - { drug: propofol, dose: "4" }
+    - { drug: carprofen, dose: "4.4", duration: "5" }
+  must_mention: [ASA, PDS, Monocryl, "58", intradermal, "fourteen days"]
+  must_not_mention: [sutures removed, ASA 2]

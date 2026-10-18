@@ -1,0 +1,27 @@
+# Synthetic consult: written for OpenBark's test suite; not a real patient.
+id: euthanasia
+title: Quality-of-life discussion and euthanasia, senior dog
+species: canine
+template: euthanasia
+speakers:
+  dvm: af_nicole
+  client: am_adam
+pause_secs: 0.8
+lines:
+  - [dvm, "I'm so sorry we're here today. How has Rosie been this week?"]
+  - [client, "She's fifteen now. She can't get up on her own anymore, she's stopped eating since Tuesday, and she's had accidents in the house."]
+  - [dvm, "With her kidney disease getting worse, and her not eating and not able to stand, her quality of life has really declined."]
+  - [client, "We think it's time. We've talked about it as a family and we're ready."]
+  - [dvm, "Okay. I'll need you to sign the consent form, and then we can take our time."]
+  - [client, "I've signed it."]
+  - [dvm, "First I'll give her a sedative so she's relaxed. Dexmedetomidine and butorphanol, into the muscle."]
+  - [dvm, "She's very relaxed now. Now the euthanasia solution, pentobarbital, six mils IV, through the catheter."]
+  - [dvm, "I'm listening to her heart. There's no heartbeat. She passed at three forty."]
+  - [client, "We'd like her cremated privately, and could we have a paw print?"]
+  - [dvm, "Of course. The ashes are usually back in about two weeks and we'll call you. Take as long as you need with her."]
+
+expected:
+  medications:
+    - { drug: pentobarbital, dose: "6" }
+  must_mention: [consent, private, paw print, "3:40", "two weeks"]
+  must_not_mention: [communal]

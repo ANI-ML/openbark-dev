@@ -1,0 +1,88 @@
+[workspace]
+resolver = "3"
+members = [
+    "engine/os-llm",
+    "engine/os-asr",
+    "engine/os-diar",
+    "engine/os-models",
+    "engine/os-engine",
+    "engine/os-app",
+    "engine/os-server",
+    "engine/os-cli",
+    "tools/fixture-tts",
+    "apps/desktop/src-tauri",
+]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+license = "Apache-2.0"
+rust-version = "1.99"
+repository = "https://github.com/ANI-ML/openbark"
+
+# Versions verified live on 2026-10-17 (see docs/versions.md).
+# Native/inference crates are exact-pinned; bump only with a spike note.
+[workspace.dependencies]
+llama-cpp-2 = { version = "=0.1.160", default-features = false, features = ["common", "openmp"] }
+sherpa-onnx = { version = "=1.13.8", default-features = false }
+
+anyhow = "1.0.104"
+thiserror = "2.0.21"
+serde = { version = "1.0.229", features = ["derive"] }
+# preserve_order: JSON keeps insertion order, so a template's schema lists its
+# headings in the template's order and the model writes them in that order
+# (alphabetical before: Assessment ahead of Subjective).
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
+serde_yaml_ng = "0.10.0"
+clap = { version = "4.6.7", features = ["derive", "env"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+# native-tls = SChannel / Security.framework / OpenSSL: avoids building aws-lc (NASM) on Windows.
+reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "native-tls", "http2"] }
+sha2 = "0.11.1"
+hex = "0.4.3"
+dirs = "7.0.0"
+sysinfo = "0.39.6"
+# GPU speech pack archives (ADR-0014); the versions already in Cargo.lock.
+bzip2 = "=0.5.2"
+tar = "=0.4.46"
+zip = { version = "=2.6.1", default-features = false, features = ["deflate"] }
+minijinja = { version = "3.0.1", features = ["serde", "json", "loop_controls", "preserve_order"] }
+minijinja-contrib = { version = "3.0.1", features = ["pycompat"] }
+indicatif = "0.18.6"
+jsonschema = { version = "0.59.0", default-features = false }
+tempfile = "3.27.0"
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std", "serde"] }
+uuid = { version = "1.28.0", features = ["v7", "serde"] }
+# Desktop sleep prevention (Windows/macOS/Linux). Mobile uses native APIs (spike S1).
+keepawake = "=0.6.1"
+cpal = "=0.18.2"
+# Local web mode (seed of the Clinic Hub API).
+axum = { version = "0.8.9", features = ["ws"] }
+tokio = { version = "1.53.3", features = ["rt-multi-thread", "macros", "net", "sync"] }
+tokio-stream = { version = "0.1.19", features = ["sync"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.7.1", features = ["fs"] }
+# Tauri: pin to 2.12.x (3.0 alpha is out; do not drift).
+tauri = { version = "~2.12.4", features = [] }
+tauri-build = { version = "~2.7.3", features = [] }
+tauri-plugin-dialog = "~2.8.3"
+tauri-plugin-opener = "~2.7.2"
+
+os-llm = { path = "engine/os-llm" }
+os-asr = { path = "engine/os-asr" }
+os-diar = { path = "engine/os-diar" }
+os-models = { path = "engine/os-models" }
+os-engine = { path = "engine/os-engine" }
+os-server = { path = "engine/os-server" }
+os-app = { path = "engine/os-app" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 4
+
+[profile.dev.package."*"]
+opt-level = 2
+# Full debuginfo on optimised deps made rustc crash (0xc0000005) on the
+# `windows` crate; we don't step into dependencies anyway.
+debug = false

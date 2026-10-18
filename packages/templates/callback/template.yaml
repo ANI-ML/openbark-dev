@@ -1,0 +1,39 @@
+# OpenBark template: phone call (any call with a client, for the medical record).
+id: callback
+version: 0.1.0
+name: Phone call
+description: "A phone call with a client, either way: why, what was said, advice and changes."
+icon: phone
+language: en
+
+instructions: |
+  Write the medical record of this phone call between the clinic and the pet's owner (a call either way: a follow-up, results, an owner's question).
+  Use concise clinical veterinary English as a veterinarian would chart it.
+  The transcript is from a recording; speakers are labelled by number, not role. Infer roles from context,
+  but never put words in a speaker's mouth.
+
+rules:
+  - "Record who called whom only if it was said."
+  - "Changes to medication are medications, with dose, route, frequency and duration as said."
+
+sections:
+  - title: Reason for call
+    kind: statements
+    instruction: Why the call was made (results, recheck, owner question).
+  - title: Update from the client
+    kind: statements
+    instruction: How the patient is doing at home, as the owner described it.
+  - title: Results discussed
+    examples:
+      - "Give each result with its unit and reference range if said"
+    kind: statements
+    instruction: Test results given on the call, with values as said.
+  - title: Advice given
+    examples:
+      - "Note whether the owner agreed to the plan"
+    kind: statements
+  - title: Medication changes
+    kind: medications
+  - title: Plan
+    kind: statements
+    instruction: Next steps, rechecks and when the clinic will be in touch.

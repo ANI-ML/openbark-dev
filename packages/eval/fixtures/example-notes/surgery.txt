@@ -1,0 +1,29 @@
+Surgical Report (synthetic example, not a real patient)
+
+Procedure: Cystotomy
+Surgeon: Dr A   Assistant: RVT B
+
+Indication: Struvite/oxalate cystic calculi not responsive to dissolution diet.
+
+Anaesthetic Protocol:
+- Methadone 0.3 mg/kg IV
+- Propofol to effect IV
+- Isoflurane maintenance
+- Epidural: morphine 0.1 mg/kg
+
+Surgical Findings:
+Bladder wall thickened. 6 calculi removed, largest 8 mm.
+
+Technique:
+Ventral midline celiotomy. Bladder isolated, stay sutures placed. Dorsal cystotomy. Calculi removed, urethra flushed retrograde. Bladder closed with 4-0 PDS simple continuous.
+
+Closure:
+Linea 2-0 PDS, SC 3-0 Monocryl, intradermal 3-0 Monocryl.
+
+Complications: none
+
+Post-op Plan:
+- Meloxicam 0.1 mg/kg PO SID x 5 d
+- Cone 14 days
+- Submit calculi for analysis
+- Recheck radiographs in 2 weeks

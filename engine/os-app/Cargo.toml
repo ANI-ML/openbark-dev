@@ -1,0 +1,18 @@
+[package]
+name = "os-app"
+description = "OpenBark application layer shared by the desktop app and web mode"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+os-asr.workspace = true
+os-engine.workspace = true
+os-llm.workspace = true
+os-models.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sysinfo.workspace = true
+tracing.workspace = true
+tempfile.workspace = true

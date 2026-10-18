@@ -1,0 +1,34 @@
+# Synthetic consult: written for OpenBark's test suite; not a real patient.
+id: emergency
+title: Emergency, dog hit by a car
+species: canine
+template: emergency
+speakers:
+  dvm: am_michael
+  tech: af_sky
+  client: af_bella
+pause_secs: 0.5
+lines:
+  - [client, "He got hit by a car about twenty minutes ago. His name is Diesel. He's five, a German Shepherd."]
+  - [tech, "Triage category red. He's breathing fast, gums are pale."]
+  - [dvm, "Heart rate one sixty, resp rate forty-eight, mucous membranes pale, CRT three seconds. Mentation is quiet but responsive."]
+  - [tech, "Weight thirty-two kilos. Blood pressure systolic eighty."]
+  - [dvm, "Oxygen by flow-by. Place an IV catheter. Give a bolus of lactated Ringer's, ten mils per kilo, over fifteen minutes."]
+  - [dvm, "Methadone, point two milligrams per kilo IV, for pain."]
+  - [tech, "Bolus started at two fifteen. PCV forty-two percent, total solids five point two, lactate four point five."]
+  - [dvm, "AFAST is negative. TFAST shows a small pneumothorax on the right, not enough to tap right now."]
+  - [dvm, "After the bolus, heart rate one twenty and systolic one hundred and ten. Much better."]
+  - [dvm, "He has a right hind laceration and is non weight-bearing on that leg. Radiographs once he's stable."]
+  - [client, "Please do whatever he needs. And if his heart stops, yes, try to bring him back."]
+  - [dvm, "Okay. We'll hospitalise him overnight on fluids and pain relief, and recheck the chest in four hours."]
+
+expected:
+  vitals:
+    weight: "32"
+    heart_rate: "160"
+    respiratory_rate: "48"
+  medications:
+    - { drug: lactated Ringer, dose: "10" }
+    - { drug: methadone, dose: "0.2" }
+  must_mention: [red, pneumothorax, "42", lactate, hospitali, "four hours"]
+  must_not_mention: [thoracocentesis performed, fracture confirmed]

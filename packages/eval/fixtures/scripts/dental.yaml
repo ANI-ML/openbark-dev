@@ -1,0 +1,31 @@
+# Synthetic consult: written for OpenBark's test suite; not a real patient.
+id: dental
+title: Canine dental under anaesthesia, with extractions
+species: canine
+template: dental
+speakers:
+  dvm: am_michael
+  tech: af_nicole
+pause_secs: 0.6
+lines:
+  - [dvm, "Okay, this is Biscuit, eight year old Shih Tzu, in for his dental cleaning. Owner noticed bad breath and him chewing on one side."]
+  - [tech, "He weighs seven point two kilos. Premed was methadone and dexmedetomidine, induced with propofol, and he's on isoflurane now."]
+  - [dvm, "Good. I'm doing an infraorbital block on the left, point three mils of bupivacaine."]
+  - [tech, "Heart rate ninety, SpO2 ninety-eight percent, blood pressure mean of seventy-five."]
+  - [dvm, "Alright, charting. One oh eight, upper left fourth premolar, has a slab fracture with pulp exposure. That one needs to come out."]
+  - [dvm, "Two oh nine is missing. Three oh nine has stage three periodontal disease with a six millimetre pocket and grade two mobility."]
+  - [dvm, "Four oh four, the lower right canine, looks fine. Overall I'd call this stage two periodontal disease across the mouth."]
+  - [dvm, "Radiographs confirm the fracture on one oh eight and bone loss around three oh nine. No resorptive lesions."]
+  - [dvm, "Extracting one oh eight surgically, with a gingival flap, closed with four oh Monocryl. Three oh nine is a simple extraction."]
+  - [tech, "Scaling and polishing done."]
+  - [dvm, "He goes home on meloxicam, point one milligrams per kilo by mouth once a day for five days. Soft food for ten days."]
+  - [dvm, "Recheck in two weeks, and start brushing daily once the gums have healed."]
+
+expected:
+  vitals:
+    weight: "7.2"
+  medications:
+    - { drug: bupivacaine, dose: "0.3" }
+    - { drug: meloxicam, dose: "0.1", duration: "5" }
+  must_mention: ["108", "309", "6 mm", "ten days", "two weeks", Monocryl]
+  must_not_mention: [resorption present, stage 4]

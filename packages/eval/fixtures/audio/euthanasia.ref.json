@@ -1,0 +1,68 @@
+[
+  {
+    "speaker": "dvm",
+    "start": 0.0,
+    "end": 3.9791875,
+    "text": "I'm so sorry we're here today. How has Rosie been this week?"
+  },
+  {
+    "speaker": "client",
+    "start": 4.7791877,
+    "end": 11.270687,
+    "text": "She's fifteen now. She can't get up on her own anymore, she's stopped eating since Tuesday, and she's had accidents in the house."
+  },
+  {
+    "speaker": "dvm",
+    "start": 12.070687,
+    "end": 20.236563,
+    "text": "With her kidney disease getting worse, and her not eating and not able to stand, her quality of life has really declined."
+  },
+  {
+    "speaker": "client",
+    "start": 21.036562,
+    "end": 24.590187,
+    "text": "We think it's time. We've talked about it as a family and we're ready."
+  },
+  {
+    "speaker": "dvm",
+    "start": 25.390188,
+    "end": 30.646313,
+    "text": "Okay. I'll need you to sign the consent form, and then we can take our time."
+  },
+  {
+    "speaker": "client",
+    "start": 31.446312,
+    "end": 32.393936,
+    "text": "I've signed it."
+  },
+  {
+    "speaker": "dvm",
+    "start": 33.19394,
+    "end": 40.406437,
+    "text": "First I'll give her a sedative so she's relaxed. Dexmedetomidine and butorphanol, into the muscle."
+  },
+  {
+    "speaker": "dvm",
+    "start": 41.206436,
+    "end": 48.88125,
+    "text": "She's very relaxed now. Now the euthanasia solution, pentobarbital, six mils IV, through the catheter."
+  },
+  {
+    "speaker": "dvm",
+    "start": 49.68125,
+    "end": 54.314064,
+    "text": "I'm listening to her heart. There's no heartbeat. She passed at three forty."
+  },
+  {
+    "speaker": "client",
+    "start": 55.114063,
+    "end": 58.32775,
+    "text": "We'd like her cremated privately, and could we have a paw print?"
+  },
+  {
+    "speaker": "dvm",
+    "start": 59.12775,
+    "end": 66.34463,
+    "text": "Of course. The ashes are usually back in about two weeks and we'll call you. Take as long as you need with her."
+  }
+]

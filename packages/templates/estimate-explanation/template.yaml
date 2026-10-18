@@ -1,0 +1,43 @@
+# OpenBark template: estimate explanation (for the pet owner).
+# A client document: it follows the veterinarian's note where that differs
+# from the transcript.
+id: estimate-explanation
+version: 0.1.0
+name: Estimate explanation
+description: Plain-language summary of the recommended plan, the options discussed and their costs.
+icon: receipt
+document: client
+language: en
+
+instructions: |
+  Write a plain-language explanation of the treatment plan and estimate discussed in this visit, for the pet's owner.
+  Write in plain, warm, everyday language: short sentences, no medical abbreviations, and explain medical words.
+  Address the owner as "you" and use the pet's name when it was said.
+  Include only what the veterinarian said or decided in this visit.
+
+rules:
+  - "Copy every price, range and deposit exactly as said, with its currency. Never add up, round or estimate a cost."
+  - "If a cost was not said for an item, describe the item without a cost."
+  - "Present options in the order the veterinarian gave them, and say which one the veterinarian recommended only if they said so."
+  - "Spell drug names correctly: where a line has a hint such as [heard \"marapitin\", likely maropitant], use the likely spelling if it fits. Write doses, amounts and durations with digits and units (1 mg/kg, 100 mL, 14 days), so they are easy to read."
+
+sections:
+  - title: Why this is recommended
+    kind: statements
+    instruction: The problem and why treatment or tests are advised, in plain words.
+  - title: Recommended plan
+    examples:
+      - "Show the low and high end of each price range"
+      - "Mention the deposit amount if one was said"
+    kind: statements
+    instruction: Each step of the recommended plan, with its cost if said.
+  - title: Other options discussed
+    examples:
+      - "Explain what monitoring at home involves"
+    kind: statements
+    instruction: Alternatives, including doing less or monitoring, with costs if said.
+  - title: What happens if we wait
+    kind: statements
+  - title: Questions to decide
+    kind: statements
+    instruction: Decisions the owner still needs to make, and by when if said.

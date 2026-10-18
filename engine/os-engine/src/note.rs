@@ -1,0 +1,797 @@
+//! Template-constrained note generation.
+
+use os_llm::{ChatMessage, GenerateRequest, GenerateStats, LlmBackend};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+use crate::faithfulness::{self, FaithfulnessReport};
+use crate::render;
+use crate::template::{CORE_RULES, FieldDef, LoadedTemplate, PartKind, split_heading};
+use crate::transcript::Transcript;
+use crate::{EngineError, PRODUCT_NAME};
+
+#[derive(Debug, Clone)]
+pub struct NoteOptions {
+    pub max_tokens: u32,
+    pub temperature: f32,
+    pub seed: u32,
+    /// Details entered by the clinic (patient name, reason for visit). Given
+    /// to the model as context, never as evidence.
+    pub context: Option<String>,
+    /// For client documents: the veterinarian's note for the visit, which the
+    /// document follows where it differs from the transcript.
+    pub reference: Option<Reference>,
+    /// Language to write the note in ("fr", "es"…); the template's when None.
+    pub language: Option<String>,
+    /// Multi-pet visits: the animal this note is about, and the others.
+    pub pet: Option<String>,
+    pub other_pets: Vec<String>,
+}
+
+/// "This visit covered several animals… write only about Mango."
+fn pet_line(pet: Option<&str>, others: &[String]) -> Option<String> {
+    let pet = pet?.trim();
+    if pet.is_empty() || others.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "\n\nThis consultation covered more than one animal: {pet} and {}. Write this note only about {pet}: \
+         include only what was said about {pet} (or about all the animals together, such as advice for the household), \
+         and leave out what was said only about the others. If it's unclear which animal something was about, leave it out.",
+        others.join(", ")
+    ))
+}
+
+/// In a multi-pet visit, hint words that sound like the animals' names
+/// ("Arlive" for Olive), so the model can tell whose findings a line holds.
+/// Only the prompt sees these hints; the saved transcript is unchanged.
+fn with_name_hints<'a>(
+    transcript: &'a Transcript,
+    options: &NoteOptions,
+) -> std::borrow::Cow<'a, Transcript> {
+    let names: Vec<String> = options.pet.iter().chain(options.other_pets.iter()).cloned().collect();
+    if names.len() < 2 {
+        return std::borrow::Cow::Borrowed(transcript);
+    }
+    let mut named = transcript.clone();
+    for s in &mut named.segments {
+        for h in crate::vocab::name_hints(&s.text, &names) {
+            if !s.hints.iter().any(|x| x.heard == h.heard) {
+                s.hints.push(h);
+            }
+        }
+    }
+    std::borrow::Cow::Owned(named)
+}
+
+/// Multi-pet visits: which animal each transcript line is about ("all" for
+/// lines about every animal, the household, or none in particular). Asked of
+/// the model as a short labelling task, so each animal's draft can be written
+/// from its own lines (M2 item 2: drafting from the whole visit mixed up the
+/// animals' vitals).
+pub fn attribute_lines(
+    llm: &dyn LlmBackend,
+    transcript: &Transcript,
+    pets: &[String],
+) -> Result<(std::collections::BTreeMap<u32, String>, GenerateStats), EngineError> {
+    let names = pets.join(", ");
+    let system = format!(
+        "You label the lines of a veterinary consultation that covered several animals: {names}.\n\
+         For every line, say which animal it is about: one of {names}, or \"all\" when it is about every animal, \
+         the household, or no animal in particular (greetings, small talk, payment).\n\
+         Once the conversation turns to one animal, the following lines are about that animal until another is named. \
+         Follow pronouns (he, she, his, her) and the exam being done. Names may be misheard; a hint such as \
+         [heard \"Arlive\", likely Olive] tells you which animal was meant.\n\
+         Label every line id once, in order."
+    );
+    let mut options =
+        NoteOptions { pet: pets.first().cloned(), other_pets: pets[1..].to_vec(), ..Default::default() };
+    options.pet = pets.first().cloned();
+    let named = with_name_hints(transcript, &options);
+    let user = format!("Transcript:\n\n{}", named.for_prompt());
+    let mut choices: Vec<Value> = pets.iter().map(|p| Value::String(p.clone())).collect();
+    choices.push(Value::String("all".into()));
+    let schema = serde_json::json!({
+        "type": "object",
+        "properties": {
+            "lines": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": { "type": "integer" },
+                        "about": { "type": "string", "enum": choices }
+                    },
+                    "required": ["id", "about"],
+                    "additionalProperties": false
+                }
+            }
+        },
+        "required": ["lines"],
+        "additionalProperties": false
+    });
+    let request = GenerateRequest {
+        messages: vec![ChatMessage::system(system), ChatMessage::user(user)],
+        max_tokens: 64 + 24 * transcript.segments.len() as u32,
+        temperature: 0.0,
+        seed: 42,
+        json_schema: Some(schema.to_string()),
+    };
+    let output = llm.generate(&request, &mut |_| true)?;
+    let parsed: Value = serde_json::from_str(output.text.trim())
+        .map_err(|e| EngineError::BadJson(format!("line labels: {e}")))?;
+    let labels = parsed["lines"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|l| Some((l["id"].as_u64()? as u32, l["about"].as_str()?.to_string())))
+        .collect();
+    Ok((labels, output.stats))
+}
+
+/// The lines one animal's note may draw on: its own, and those about all of
+/// them. Unlabelled lines are kept (when in doubt, the model's own rule to
+/// leave out what's unclear applies).
+pub fn lines_for_pet(
+    transcript: &Transcript,
+    labels: &std::collections::BTreeMap<u32, String>,
+    pet: &str,
+) -> Transcript {
+    Transcript {
+        segments: transcript
+            .segments
+            .iter()
+            .filter(|s| labels.get(&s.id).is_none_or(|l| l == pet || l == "all"))
+            .cloned()
+            .collect(),
+    }
+}
+
+/// Add the multi-pet instruction to a system message.
+fn with_pet(mut messages: Vec<ChatMessage>, pet: Option<&str>, others: &[String]) -> Vec<ChatMessage> {
+    if let (Some(line), Some(system)) = (pet_line(pet, others), messages.first_mut()) {
+        system.content.push_str(&line);
+    }
+    messages
+}
+
+/// English names of the note languages offered in the app.
+pub const NOTE_LANGUAGES: &[(&str, &str)] = &[
+    ("en", "English"),
+    ("fr", "French"),
+    ("es", "Spanish"),
+    ("de", "German"),
+    ("pt", "Portuguese"),
+    ("it", "Italian"),
+    ("nl", "Dutch"),
+];
+
+/// "Write the note in French…" when the language isn't English.
+fn language_line(code: Option<&str>) -> Option<String> {
+    let code = code?.trim();
+    if code.is_empty() || code == "en" {
+        return None;
+    }
+    let name = NOTE_LANGUAGES.iter().find(|(c, _)| *c == code).map(|(_, n)| *n).unwrap_or(code);
+    Some(format!(
+        "\n\nLanguage: write all text in the note in {name}, whatever language the consultation was in. \
+         This overrides any mention of English above. \
+         Keep drug names, doses, units and numbers exactly as said. Field and heading names stay as given."
+    ))
+}
+
+/// Add the language instruction to a system message.
+fn with_language(mut messages: Vec<ChatMessage>, code: Option<&str>) -> Vec<ChatMessage> {
+    if let (Some(line), Some(system)) = (language_line(code), messages.first_mut()) {
+        system.content.push_str(&line);
+    }
+    messages
+}
+
+/// The vet's note given to a client document as reference.
+#[derive(Debug, Clone, Default)]
+pub struct Reference {
+    /// The note as rendered Markdown (compact, with "[entered by …]" marks).
+    pub markdown: String,
+    /// Numbers the vet entered by hand: supported even if not in the transcript.
+    pub vet_numbers: std::collections::HashSet<String>,
+}
+
+impl Reference {
+    pub fn from_note(note: &Value, markdown: &str) -> Self {
+        Self { markdown: markdown.to_string(), vet_numbers: faithfulness::vet_entered_numbers(note) }
+    }
+}
+
+impl Default for NoteOptions {
+    fn default() -> Self {
+        // Low temperature: charting should be deterministic and literal.
+        Self {
+            max_tokens: 4096,
+            temperature: 0.1,
+            seed: 42,
+            context: None,
+            reference: None,
+            language: None,
+            pet: None,
+            other_pets: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct NoteResult {
+    /// Always "draft": only a DVM can sign a note, and the engine never does.
+    pub status: &'static str,
+    pub template: String,
+    pub model: String,
+    pub note: Value,
+    pub faithfulness: FaithfulnessReport,
+    pub stats: GenerateStats,
+    /// Set when this draft came from re-prompting one heading.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refinement: Option<Refinement>,
+    /// Set when this draft is a veterinarian's hand edit of an earlier one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edit: Option<crate::edit::Edit>,
+    /// Who asked for this revision (team members, M1 item 11).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<crate::users::Who>,
+    #[serde(skip)]
+    pub markdown: String,
+}
+
+/// What a re-prompt asked for, kept with the run it produced.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Refinement {
+    /// Heading path that was redrafted: "plan" or "plan/medications".
+    pub heading: String,
+    pub request: String,
+    /// The run whose note was refined ("runs/002_gemma…").
+    #[serde(default)]
+    pub from_run: Option<String>,
+    /// Whether the request was also saved as a standard for the template.
+    #[serde(default)]
+    pub saved_as_standard: bool,
+}
+
+const JSON_FORMATS: &str = r#"JSON formats:
+- a field is null, or {"value": 4.1, "unit": "kg", "evidence": [18]} for a measurement,
+  or {"value": "pink but tacky", "unit": null, "evidence": [20]} for a description
+- a statement is {"text": "Vomiting once or twice daily for 3 days", "evidence": [2, 4]}
+- a medication is {"drug": "Maropitant", "dose": "1 mg/kg", "route": "SC", "frequency": "once", "duration": null, "evidence": [34]}
+"#;
+
+fn with_instruction(instruction: Option<&str>) -> String {
+    instruction.map(|i| format!(" — {i}")).unwrap_or_default()
+}
+
+/// One guidance line per heading: "- plan.follow_up: Follow-up — instruction".
+fn guidance_line(
+    template: &LoadedTemplate,
+    path: &str,
+    name: &str,
+    label: &str,
+    kind: PartKind,
+    fields: &[FieldDef],
+    instruction: Option<&str>,
+) -> String {
+    let labels: Vec<&str> = fields.iter().map(|f| f.label.as_str()).collect();
+    let mut line = match kind {
+        // A section that is only measurements: "- patient: Name, Species (null if not stated)".
+        PartKind::Fields if !name.contains('.') => {
+            format!("- {name}: {} (null if not stated){}", labels.join(", "), with_instruction(instruction))
+        }
+        PartKind::Fields => format!(
+            "- {name}: {label}{} [{}; null if not stated]",
+            with_instruction(instruction),
+            labels.join(", ")
+        ),
+        PartKind::Medications if !label.to_lowercase().contains("medication") => {
+            format!("- {name}: {label} (medications){}", with_instruction(instruction))
+        }
+        PartKind::Text => format!(
+            "- {name}: {label} (a text box: connected sentences that read as a paragraph, each sentence one statement with its own evidence){}",
+            with_instruction(instruction)
+        ),
+        _ => format!("- {name}: {label}{}", with_instruction(instruction)),
+    };
+    for standard in template.standards_for(path) {
+        line.push_str(&format!(" Team standard: {}.", standard.text.trim_end_matches('.')));
+    }
+    line.push('\n');
+    line
+}
+
+/// "What each part of the JSON should contain", for every heading or for
+/// one heading path (a section path includes its subheadings).
+fn guidance(template: &LoadedTemplate, only: Option<&str>) -> String {
+    let mut out = String::new();
+    for section in &template.template.sections {
+        let in_section = only.is_none_or(|o| o == section.id || o.starts_with(&format!("{}/", section.id)));
+        if !in_section {
+            continue;
+        }
+        if let Some(kind) = section.kind {
+            out.push_str(&guidance_line(
+                template,
+                &section.id,
+                &section.id,
+                &section.title,
+                kind,
+                &section.fields,
+                section.instruction.as_deref(),
+            ));
+            continue;
+        }
+        if let Some(instruction) = &section.instruction {
+            out.push_str(&format!("- {}: {} — {instruction}\n", section.id, section.title));
+        }
+        for standard in template.standards_for(&section.id) {
+            out.push_str(&format!(
+                "- {} (whole section): Team standard: {}.\n",
+                section.id,
+                standard.text.trim_end_matches('.')
+            ));
+        }
+        for part in &section.parts {
+            let path = format!("{}/{}", section.id, part.key);
+            if only.is_some_and(|o| o != section.id && o != path) {
+                continue;
+            }
+            out.push_str(&guidance_line(
+                template,
+                &path,
+                &format!("{}.{}", section.id, part.key),
+                &part.label,
+                part.kind,
+                &part.fields,
+                part.instruction.as_deref(),
+            ));
+        }
+    }
+    out
+}
+
+fn rules(template: &LoadedTemplate) -> String {
+    let mut out = String::from("\nRules:\n");
+    for rule in CORE_RULES.iter().copied().chain(template.template.rules.iter().map(String::as_str)) {
+        out.push_str(&format!("- {rule}\n"));
+    }
+    for standard in template.standards_for("") {
+        out.push_str(&format!("- Team standard: {}\n", standard.text));
+    }
+    match template.template.detail {
+        crate::template::Detail::Concise => out.push_str(
+            "- Level of detail: concise. Use the fewest words that keep every clinical fact; short phrases are fine.\n",
+        ),
+        crate::template::Detail::Thorough => out.push_str(
+            "- Level of detail: thorough. Include every relevant detail that was said, with its context; still nothing that wasn't said.\n",
+        ),
+        crate::template::Detail::Standard => {}
+    }
+    out
+}
+
+/// The system prompt: role, template instructions, rules and standards.
+pub fn system_prompt(template: &LoadedTemplate) -> String {
+    format!(
+        "You are the documentation assistant inside {PRODUCT_NAME}, a veterinary scribe. \
+         You turn a consultation transcript into a structured draft for the veterinarian to review.\n\n{}\n{}\
+         \nWhat each part of the JSON should contain:\n{}\n{JSON_FORMATS}\nRespond with the JSON object only.",
+        template.template.instructions.trim(),
+        rules(template),
+        guidance(template, None),
+    )
+}
+
+fn reference_message(reference: Option<&Reference>) -> String {
+    reference
+        .filter(|r| !r.markdown.trim().is_empty())
+        .map(|r| {
+            format!(
+                "The veterinarian's note for this visit. Follow it where it differs from the transcript \
+                 (the veterinarian corrected it); lines marked [entered by …] are the veterinarian's own. \
+                 Still cite transcript lines as evidence.\n\n{}\n\n",
+                r.markdown.trim()
+            )
+        })
+        .unwrap_or_default()
+}
+
+fn user_message(transcript: &Transcript, context: Option<&str>) -> String {
+    let entered = context
+        .filter(|c| !c.trim().is_empty())
+        .map(|c| {
+            format!("Entered by the clinic before the visit (not from the recording, not evidence): {c}.\n\n")
+        })
+        .unwrap_or_default();
+    format!(
+        "{entered}Transcript of the consultation. Each line starts with its segment id in brackets; cite these ids as evidence.\n\n{}",
+        transcript.for_prompt()
+    )
+}
+
+/// System and user messages for a template + transcript.
+pub fn build_messages(
+    template: &LoadedTemplate,
+    transcript: &Transcript,
+    context: Option<&str>,
+) -> Vec<ChatMessage> {
+    vec![ChatMessage::system(system_prompt(template)), ChatMessage::user(user_message(transcript, context))]
+}
+
+/// Messages for redrafting one heading of an existing note.
+pub fn build_refine_messages(
+    template: &LoadedTemplate,
+    transcript: &Transcript,
+    context: Option<&str>,
+    heading: &str,
+    current: &Value,
+    request: &str,
+) -> Vec<ChatMessage> {
+    let title = template.heading_title(heading).unwrap_or_else(|| heading.to_string());
+    let system = format!(
+        "You are the documentation assistant inside {PRODUCT_NAME}, a veterinary scribe. \
+         A veterinarian is reviewing a draft note and asked you to redraft one part of it.\n\n{}\n{}\
+         - The veterinarian's request says what to look for and how to write it. It is not evidence: \
+         if the transcript doesn't contain what is asked, leave it out rather than invent it.\n\
+         - Keep every fact in the current draft that the transcript supports, unless the veterinarian asked \
+         to remove it. Reword, split, merge or add; don't drop.\n\
+         \nThe part to redraft is \"{title}\":\n{}\n{JSON_FORMATS}\nRespond with the JSON for this part only.",
+        template.template.instructions.trim(),
+        rules(template),
+        guidance(template, Some(heading)),
+    );
+    let user = format!(
+        "{}\n\nCurrent draft of \"{title}\" (may be incomplete or wrong):\n{}\n\nThe veterinarian asks: {}",
+        user_message(transcript, context),
+        serde_json::to_string(current).unwrap_or_default(),
+        request.trim()
+    );
+    vec![ChatMessage::system(system), ChatMessage::user(user)]
+}
+
+/// Generate a draft note. `on_token` streams raw JSON text as it is produced.
+pub fn generate_note(
+    llm: &dyn LlmBackend,
+    template: &LoadedTemplate,
+    transcript: &Transcript,
+    options: &NoteOptions,
+    on_token: &mut dyn FnMut(&str) -> bool,
+) -> Result<NoteResult, EngineError> {
+    if transcript.is_empty() {
+        return Err(EngineError::EmptyTranscript);
+    }
+    // Multi-pet: draft each animal from its own lines (and the shared ones).
+    let mut labelling_ms = 0;
+    let scoped = match (options.pet.as_deref(), options.other_pets.is_empty()) {
+        (Some(pet), false) => {
+            let pets: Vec<String> =
+                std::iter::once(pet.to_string()).chain(options.other_pets.iter().cloned()).collect();
+            match attribute_lines(llm, transcript, &pets) {
+                Ok((labels, stats)) => {
+                    labelling_ms = stats.total_ms;
+                    std::borrow::Cow::Owned(lines_for_pet(transcript, &labels, pet))
+                }
+                // Labelling failed: draft from the whole visit, with the multi-pet instruction.
+                Err(_) => std::borrow::Cow::Borrowed(transcript),
+            }
+        }
+        _ => std::borrow::Cow::Borrowed(transcript),
+    };
+    let named = with_name_hints(&scoped, options);
+    let mut messages = with_pet(
+        with_language(
+            build_messages(template, &named, options.context.as_deref()),
+            options.language.as_deref().or(Some(template.template.language.as_str())),
+        ),
+        options.pet.as_deref(),
+        &options.other_pets,
+    );
+    if let Some(user) = messages.last_mut() {
+        user.content = format!("{}{}", reference_message(options.reference.as_ref()), user.content);
+    }
+    let request = GenerateRequest {
+        messages,
+        max_tokens: options.max_tokens,
+        temperature: options.temperature,
+        seed: options.seed,
+        json_schema: Some(template.schema_text.clone()),
+    };
+    let output = llm.generate(&request, on_token)?;
+    let note: Value = serde_json::from_str(output.text.trim()).map_err(|e| {
+        let hint = if output.stats.hit_max_tokens { " (output hit max_tokens)" } else { "" };
+        EngineError::BadJson(format!("{e}{hint}"))
+    })?;
+    validate(template, &note)?;
+    let vet_numbers = options.reference.as_ref().map(|r| r.vet_numbers.clone()).unwrap_or_default();
+    // Word-level alignment only when the note is in the consultation's language
+    // (English here; other consultation languages pass through untranslated).
+    let align = options.language.as_deref().is_none_or(|l| l == "en");
+    let faithfulness = faithfulness::check_opts(&note, transcript, &vet_numbers, align);
+    let markdown = render::markdown(template, &note, transcript, &faithfulness);
+    Ok(NoteResult {
+        status: "draft",
+        template: template.label(),
+        model: llm.capabilities().model_name,
+        note,
+        faithfulness,
+        stats: GenerateStats { total_ms: output.stats.total_ms + labelling_ms, ..output.stats },
+        refinement: None,
+        edit: None,
+        by: None,
+        markdown,
+    })
+}
+
+/// Redraft one heading of `note` following the veterinarian's `request`.
+/// The rest of the note is kept as it was; the whole note is then validated
+/// and checked for faithfulness again.
+#[allow(clippy::too_many_arguments)]
+pub fn refine_note(
+    llm: &dyn LlmBackend,
+    template: &LoadedTemplate,
+    transcript: &Transcript,
+    note: &Value,
+    heading: &str,
+    request: &str,
+    options: &NoteOptions,
+    on_token: &mut dyn FnMut(&str) -> bool,
+) -> Result<NoteResult, EngineError> {
+    if transcript.is_empty() {
+        return Err(EngineError::EmptyTranscript);
+    }
+    if request.trim().is_empty() {
+        return Err(EngineError::Template("Say what should change under this heading.".into()));
+    }
+    let schema = template.heading_schema(heading).ok_or_else(|| {
+        EngineError::Template(format!("{} has no heading '{heading}'.", template.template.name))
+    })?;
+    let (sec, part) = split_heading(heading);
+    let current = match part {
+        Some(key) => note[sec][key].clone(),
+        None => note[sec].clone(),
+    };
+    let named = with_name_hints(transcript, options);
+    let generate = GenerateRequest {
+        messages: with_pet(
+            with_language(
+                build_refine_messages(
+                    template,
+                    &named,
+                    options.context.as_deref(),
+                    heading,
+                    &current,
+                    request,
+                ),
+                options.language.as_deref().or(Some(template.template.language.as_str())),
+            ),
+            options.pet.as_deref(),
+            &options.other_pets,
+        ),
+        max_tokens: options.max_tokens,
+        temperature: options.temperature,
+        seed: options.seed,
+        json_schema: Some(schema.to_string()),
+    };
+    let output = llm.generate(&generate, on_token)?;
+    let redrafted: Value = serde_json::from_str(output.text.trim()).map_err(|e| {
+        let hint = if output.stats.hit_max_tokens { " (output hit max_tokens)" } else { "" };
+        EngineError::BadJson(format!("{e}{hint}"))
+    })?;
+    let mut note = note.clone();
+    match part {
+        Some(key) => note[sec][key] = redrafted,
+        None => note[sec] = redrafted,
+    }
+    // The rest of the note may hold the vet's own edits.
+    crate::edit::validate_edited(template, &note)?;
+    let faithfulness = faithfulness::check(&note, transcript);
+    let markdown = render::markdown(template, &note, transcript, &faithfulness);
+    Ok(NoteResult {
+        status: "draft",
+        template: template.label(),
+        model: llm.capabilities().model_name,
+        note,
+        faithfulness,
+        stats: output.stats,
+        refinement: Some(Refinement {
+            heading: heading.to_string(),
+            request: request.trim().to_string(),
+            from_run: None,
+            saved_as_standard: false,
+        }),
+        edit: None,
+        by: None,
+        markdown,
+    })
+}
+
+pub fn validate(template: &LoadedTemplate, note: &Value) -> Result<(), EngineError> {
+    let validator =
+        jsonschema::validator_for(&template.schema).map_err(|e| EngineError::Template(e.to_string()))?;
+    let errors: Vec<String> =
+        validator.iter_errors(note).map(|e| format!("{} at {}", e, e.instance_path())).collect();
+    if errors.is_empty() { Ok(()) } else { Err(EngineError::SchemaViolation(errors.join("; "))) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::transcript::Segment;
+
+    #[test]
+    fn prompt_contains_rules_parts_and_transcript() {
+        let template = LoadedTemplate::builtin("soap").unwrap();
+        let transcript = Transcript {
+            segments: vec![Segment {
+                id: 0,
+                start: 0.0,
+                end: 1.0,
+                speaker: Some(0),
+                text: "Hello".into(),
+                hints: Vec::new(),
+                check: None,
+            }],
+        };
+        let messages = build_messages(&template, &transcript, Some("patient name Milo"));
+        assert!(messages[1].content.contains("not evidence): patient name Milo."));
+        assert_eq!(messages.len(), 2);
+        assert!(messages[0].content.contains("Do not add findings"));
+        assert!(messages[0].content.contains("objective.vitals"));
+        assert!(messages[0].content.contains("plan.medications"));
+        assert!(messages[1].content.contains("[0] Speaker 1 (00:00): Hello"));
+    }
+
+    fn one_line() -> Transcript {
+        Transcript {
+            segments: vec![Segment {
+                id: 0,
+                start: 0.0,
+                end: 1.0,
+                speaker: Some(0),
+                text: "We gave 100 mL of LRS.".into(),
+                hints: Vec::new(),
+                check: None,
+            }],
+        }
+    }
+
+    #[test]
+    fn each_animal_drafts_from_its_own_and_shared_lines() {
+        let t = Transcript {
+            segments: [
+                "Hi both",
+                "Olive weighs 3.9 kilos",
+                "Pickles weighs 6.3 kilos",
+                "Keep the litter clean",
+                "Thanks",
+            ]
+            .iter()
+            .enumerate()
+            .map(|(i, text)| crate::transcript::Segment {
+                id: i as u32,
+                start: i as f32,
+                end: i as f32 + 1.0,
+                speaker: Some(0),
+                text: text.to_string(),
+                hints: Vec::new(),
+                check: None,
+            })
+            .collect(),
+        };
+        let labels: std::collections::BTreeMap<u32, String> =
+            [(0, "all"), (1, "Olive"), (2, "Pickles"), (3, "all")]
+                .into_iter()
+                .map(|(i, l)| (i, l.to_string()))
+                .collect();
+        let olive: Vec<u32> = lines_for_pet(&t, &labels, "Olive").segments.iter().map(|s| s.id).collect();
+        assert_eq!(olive, [0, 1, 3, 4], "unlabelled line 4 is kept; Pickles's line 2 isn't");
+        let pickles: Vec<u32> = lines_for_pet(&t, &labels, "Pickles").segments.iter().map(|s| s.id).collect();
+        assert_eq!(pickles, [0, 2, 3, 4]);
+    }
+
+    #[test]
+    fn multi_pet_notes_are_about_one_animal() {
+        assert!(pet_line(Some("Mango"), &[]).is_none(), "single pet: no instruction");
+        assert!(pet_line(None, &["Biscuit".into()]).is_none());
+        let line = pet_line(Some("Mango"), &["Biscuit".into(), "Pepper".into()]).unwrap();
+        assert!(line.contains("Mango and Biscuit, Pepper"));
+        assert!(line.contains("only about Mango"));
+    }
+
+    #[test]
+    fn note_language_is_asked_for_except_english() {
+        assert!(language_line(Some("en")).is_none());
+        assert!(language_line(None).is_none());
+        let fr = language_line(Some("fr")).unwrap();
+        assert!(fr.contains("in French") && fr.contains("numbers exactly as said"));
+        assert!(language_line(Some("pl")).unwrap().contains("in pl"));
+    }
+
+    #[test]
+    fn standards_reach_the_prompt() {
+        let mut template = LoadedTemplate::builtin("soap").unwrap();
+        let standard = |heading: &str, text: &str| crate::template::Standard {
+            id: text.into(),
+            heading: heading.into(),
+            text: text.into(),
+            added_at: chrono::Local::now(),
+            added_by: None,
+        };
+        template.template.standards = vec![
+            standard("plan/medications", "List fluids with volume and rate"),
+            standard("", "Use metric units"),
+            standard("assessment", "Problems before differentials"),
+        ];
+        let system = system_prompt(&template);
+        assert!(
+            system.contains(
+                "- plan.medications: Medications Team standard: List fluids with volume and rate.\n"
+            ),
+            "{system}"
+        );
+        assert!(system.contains("- Team standard: Use metric units\n"));
+        assert!(
+            system.contains("- assessment (whole section): Team standard: Problems before differentials.")
+        );
+        assert!(
+            system.contains("Use only information stated in the transcript"),
+            "core rules always present"
+        );
+        assert!(system.contains("Differentials only if"), "template rules follow");
+    }
+
+    #[test]
+    fn refine_prompt_covers_only_the_heading() {
+        let template = LoadedTemplate::builtin("soap").unwrap();
+        let messages = build_refine_messages(
+            &template,
+            &one_line(),
+            None,
+            "plan/medications",
+            &serde_json::json!([]),
+            "Include the fluids",
+        );
+        assert!(messages[0].content.contains("The part to redraft is \"Plan > Medications\""));
+        assert!(messages[0].content.contains("- plan.medications: Medications"));
+        assert!(!messages[0].content.contains("plan.follow_up"));
+        assert!(messages[0].content.contains("It is not evidence"));
+        assert!(messages[1].content.ends_with("The veterinarian asks: Include the fluids"));
+        assert!(messages[1].content.contains("[0] Speaker 1 (00:00): We gave 100 mL of LRS."));
+        // A whole section brings its subheadings.
+        let section =
+            build_refine_messages(&template, &one_line(), None, "plan", &serde_json::json!({}), "x");
+        assert!(section[0].content.contains("plan.follow_up") && !section[0].content.contains("subjective."));
+    }
+
+    #[test]
+    fn team_template_prompt_lists_headings() {
+        let template = LoadedTemplate::from_yaml(
+            "name: Dental\nsections:\n  - { title: Anaesthesia, kind: medications, instruction: Premeds and induction }\n  - { title: Charting, kind: fields, fields: [{ label: Teeth extracted }] }\n",
+        )
+        .unwrap();
+        let system = system_prompt(&template);
+        assert!(
+            system.contains("- anaesthesia: Anaesthesia (medications) — Premeds and induction\n"),
+            "{system}"
+        );
+        assert!(system.contains("- charting: Teeth extracted (null if not stated)\n"));
+    }
+
+    #[test]
+    fn empty_note_skeleton_validates() {
+        let template = LoadedTemplate::builtin("soap").unwrap();
+        let note = render::tests::empty_note();
+        validate(&template, &note).unwrap();
+    }
+
+    #[test]
+    fn missing_section_fails_validation() {
+        let template = LoadedTemplate::builtin("soap").unwrap();
+        let mut note = render::tests::empty_note();
+        note.as_object_mut().unwrap().remove("plan");
+        assert!(matches!(validate(&template, &note), Err(EngineError::SchemaViolation(_))));
+    }
+}

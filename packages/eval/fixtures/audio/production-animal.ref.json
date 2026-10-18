@@ -1,0 +1,62 @@
+[
+  {
+    "speaker": "client",
+    "start": 0.0,
+    "end": 8.258125,
+    "text": "It's cow four one seven in the fresh pen. She calved ten days ago and her milk dropped off this morning. Her front left quarter is hard."
+  },
+  {
+    "speaker": "dvm",
+    "start": 8.858125,
+    "end": 15.651188,
+    "text": "Temperature is forty point one. Heart rate ninety, resp rate thirty-six. Rumen contractions one per minute, a bit slow."
+  },
+  {
+    "speaker": "dvm",
+    "start": 16.251188,
+    "end": 22.749187,
+    "text": "Left front quarter is hot, swollen and firm. The milk is watery with clots. The other three quarters look normal."
+  },
+  {
+    "speaker": "dvm",
+    "start": 23.349188,
+    "end": 25.996187,
+    "text": "I'll take a milk sample from that quarter for culture."
+  },
+  {
+    "speaker": "dvm",
+    "start": 26.596188,
+    "end": 32.09469,
+    "text": "Ceftiofur, intramammary, one tube in the affected quarter once a day for five days."
+  },
+  {
+    "speaker": "dvm",
+    "start": 32.694687,
+    "end": 37.164124,
+    "text": "Plus flunixin, two point two milligrams per kilo IV, today only."
+  },
+  {
+    "speaker": "dvm",
+    "start": 37.764126,
+    "end": 43.66725,
+    "text": "Milk withdrawal for the ceftiofur is three days after the last tube. Meat withdrawal is two days."
+  },
+  {
+    "speaker": "dvm",
+    "start": 44.26725,
+    "end": 48.9145,
+    "text": "For the flunixin, meat withdrawal is four days and milk is thirty-six hours."
+  },
+  {
+    "speaker": "client",
+    "start": 49.5145,
+    "end": 52.3765,
+    "text": "We've had three other cases in that pen this month."
+  },
+  {
+    "speaker": "dvm",
+    "start": 52.9765,
+    "end": 59.351562,
+    "text": "Then let's look at the bedding and post-dip in the fresh pen. Send me the culture results and we'll talk about the herd plan."
+  }
+]

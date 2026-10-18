@@ -1,0 +1,50 @@
+[
+  {
+    "speaker": "dvm",
+    "start": 0.0,
+    "end": 5.068,
+    "text": "Hi there. So this is Pepper's recheck for the ear infection. How has she been doing?"
+  },
+  {
+    "speaker": "client",
+    "start": 5.568,
+    "end": 11.330937,
+    "text": "Much better. She stopped shaking her head after about four days, and we finished all the drops yesterday."
+  },
+  {
+    "speaker": "dvm",
+    "start": 11.830937,
+    "end": 20.066,
+    "text": "Great. Let me take a look. Her weight today is twelve point six kilos, the same as last time. Temperature is thirty-eight point five."
+  },
+  {
+    "speaker": "dvm",
+    "start": 20.566,
+    "end": 26.811687,
+    "text": "The left ear canal looks clean now. No redness, no discharge, and she isn't painful when I handle it."
+  },
+  {
+    "speaker": "client",
+    "start": 27.311687,
+    "end": 30.164,
+    "text": "That's a relief. Do we need to keep cleaning it?"
+  },
+  {
+    "speaker": "dvm",
+    "start": 30.664,
+    "end": 39.712875,
+    "text": "Yes, clean both ears once a week with the ear cleaner, especially after swimming. The otitis has resolved, so no more medication for now."
+  },
+  {
+    "speaker": "dvm",
+    "start": 40.212875,
+    "end": 47.677376,
+    "text": "If the head shaking comes back, call us and we'll have a look sooner. Otherwise we'll see her at her annual exam in March."
+  },
+  {
+    "speaker": "client",
+    "start": 48.177376,
+    "end": 49.876686,
+    "text": "Perfect, thank you so much."
+  }
+]

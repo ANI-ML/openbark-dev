@@ -1,0 +1,110 @@
+{
+  "audio": "packages/eval/fixtures/audio/feline-vomiting-paced.wav",
+  "audio_secs": 576.2783813476562,
+  "devices": [
+    {
+      "backend": "CUDA",
+      "description": "NVIDIA GeForce RTX 4080",
+      "memory_total_bytes": 17170956288,
+      "name": "CUDA0"
+    },
+    {
+      "backend": "CPU",
+      "description": "12th Gen Intel(R) Core(TM) i7-12700KF",
+      "memory_total_bytes": 68523753472,
+      "name": "CPU"
+    }
+  ],
+  "faithfulness": {
+    "citation_mismatches": [
+      {
+        "cited": [
+          35
+        ],
+        "found_in": [
+          28,
+          31,
+          50
+        ],
+        "number": "4",
+        "path": "/objective/vitals/body_condition_score"
+      },
+      {
+        "cited": [
+          35
+        ],
+        "found_in": [
+          19,
+          20,
+          28,
+          33
+        ],
+        "number": "9",
+        "path": "/objective/vitals/body_condition_score"
+      },
+      {
+        "cited": [
+          35
+        ],
+        "found_in": [
+          27
+        ],
+        "number": "6",
+        "path": "/objective/vitals/hydration"
+      },
+      {
+        "cited": [
+          38
+        ],
+        "found_in": [
+          14,
+          31,
+          44
+        ],
+        "number": "1",
+        "path": "/objective/vitals/pain_score"
+      },
+      {
+        "cited": [
+          38
+        ],
+        "found_in": [
+          28,
+          31,
+          50
+        ],
+        "number": "4",
+        "path": "/objective/vitals/pain_score"
+      }
+    ],
+    "invalid_evidence": [],
+    "numbers_checked": 8,
+    "passed": true,
+    "statements_checked": 55,
+    "unsupported_numbers": []
+  },
+  "llm": "gemma-4-E4B_q4_0-it",
+  "llm_load_ms": 2969,
+  "note": {
+    "completion_tokens": 1435,
+    "hit_max_tokens": false,
+    "prompt_tokens": 2590,
+    "time_to_first_token_ms": 635,
+    "tokens_per_second": 57.92298711403653,
+    "total_ms": 25409
+  },
+  "peak_rss_mb": 3433,
+  "stt": "parakeet-tdt-0.6b-v3-int8",
+  "template": "soap@0.1.0",
+  "transcribe": {
+    "asr_ms": 43451,
+    "audio_secs": 576.2783813476562,
+    "diarization_ms": 40895,
+    "rtf": 0.08025288581848145,
+    "segments": 57,
+    "speakers": 2,
+    "total_ms": 46248,
+    "vad_ms": 2796
+  },
+  "wall_ms": 76801
+}

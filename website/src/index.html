@@ -1,0 +1,162 @@
+<section class="hero">
+  <div class="wrap hero-split">
+    <div class="hero-copy reveal">
+      <h1>Your consult, written up while you finish the exam.</h1>
+      <p class="hero-lede">{{PRODUCT}} records the visit, transcribes it and drafts the medical record with open models on your clinic's own computer. Every line links back to what was said, so you can check it before you sign.</p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" id="hero-download" href="#download">Download</a>
+        <a class="link-more" href="features.html">See every feature</a>
+      </div>
+      <p class="hero-meta" id="hero-meta">Free and Apache-2.0. Windows, macOS and Linux, tested on Windows so far. Pre-alpha: use it alongside your usual records.</p>
+    </div>
+
+    <figure class="demo reveal" data-ui aria-label="How the evidence link works">
+      <div class="demo-bar">
+        <span><span class="rec-dot" aria-hidden="true"></span><strong>Pepper</strong>, recheck, ear infection</span>
+        <span class="mono">00:50</span>
+      </div>
+      <div class="demo-split">
+        <div class="demo-pane">
+          <p class="demo-label">Transcript</p>
+          <ol class="tx" id="tx">
+            <li data-id="1"><span class="who">S1</span><span>So this is Pepper's recheck for the ear infection. How has she been doing?</span></li>
+            <li data-id="2"><span class="who">S2</span><span>She stopped shaking her head after about four days, and we finished the drops yesterday.</span></li>
+            <li data-id="3"><span class="who">S1</span><span>Her weight today is 12.6 kilos, the same as last time. Temperature is 38.5.</span></li>
+            <li data-id="4"><span class="who">S1</span><span>The left ear canal looks clean now. No redness, no discharge, and she isn't painful when I handle it.</span></li>
+            <li data-id="5"><span class="who">S1</span><span>Keep cleaning both ears once a week, especially after swimming. No more medication for now.</span></li>
+            <li data-id="6"><span class="who">S1</span><span>Call us if the head shaking comes back. Otherwise we'll see her at her annual exam in March.</span></li>
+          </ol>
+        </div>
+        <div class="demo-pane note">
+          <p class="demo-label">Draft note, recheck</p>
+          <h4>History</h4>
+          <ul>
+            <li><button type="button" data-ev="2" aria-pressed="false">Head shaking stopped after about 4 days; drops finished yesterday</button></li>
+          </ul>
+          <h4>Exam</h4>
+          <ul>
+            <li><button type="button" data-ev="3" aria-pressed="false">Weight <span class="num">12.6 kg</span>, unchanged. Temperature <span class="num">38.5 °C</span></button></li>
+            <li><button type="button" data-ev="4" aria-pressed="false">Left ear canal clean; no erythema, no discharge, not painful on palpation</button></li>
+          </ul>
+          <h4>Plan</h4>
+          <ul>
+            <li><button type="button" data-ev="5" aria-pressed="false">Clean both ears weekly, especially after swimming. No further medication</button></li>
+            <li><button type="button" data-ev="6" aria-pressed="false">Recheck if head shaking returns; annual exam in March</button></li>
+          </ul>
+        </div>
+      </div>
+      <figcaption class="demo-foot">Rest on a line of the note, or tap it, and the sentence it came from lights up.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="band band-gray" aria-labelledby="why">
+  <div class="wrap">
+    <div class="band-head reveal">
+      <h2 id="why">Quick to draft, careful enough to sign.</h2>
+      <p>Three things decide whether a scribe belongs in a clinic: whether you can check it, whether the data stays put, and whether it knows a herd from a hamster.</p>
+    </div>
+    <div class="bento">
+      <article class="tile tile-lead reveal">
+        <svg class="tile-icon" viewBox="0 0 256 256" aria-hidden="true"><path fill="currentColor" d="M173.66 98.34a8 8 0 0 1 0 11.32l-56 56a8 8 0 0 1-11.32 0l-24-24a8 8 0 0 1 11.32-11.32L112 148.69l50.34-50.35a8 8 0 0 1 11.32 0ZM232 128A104 104 0 1 1 128 24a104.11 104.11 0 0 1 104 104Zm-16 0a88 88 0 1 0-88 88 88.1 88.1 0 0 0 88-88Z"/></svg>
+        <h3>Checkable, line by line</h3>
+        <p>A draft is only useful if you can trust it, so every statement shows where it came from.</p>
+        <div class="flag-demo" data-ui aria-label="Example of a flagged number">
+          <p class="flag-line">Weight <span class="num">12.8 kg</span>, unchanged</p>
+          <p class="flag-note"><svg viewBox="0 0 256 256" aria-hidden="true"><path fill="currentColor" d="M236.8 188.09 149.35 36.22a24.76 24.76 0 0 0-42.7 0L19.2 188.09a23.51 23.51 0 0 0 0 23.72A24.35 24.35 0 0 0 40.55 224h174.9a24.35 24.35 0 0 0 21.33-12.19 23.51 23.51 0 0 0 .02-23.72ZM120 104a8 8 0 0 1 16 0v40a8 8 0 0 1-16 0Zm8 88a12 12 0 1 1 12-12 12 12 0 0 1-12 12Z"/></svg>12.8 kg isn't in the transcript. Check it before you sign.</p>
+        </div>
+        <ul>
+          <li>Every line links to the moment in the recording it came from, and many mismatched links are flagged.</li>
+          <li>Numbers that aren't in the transcript are flagged before you can sign.</li>
+          <li>Optional: a second speech model re-listens to lines with numbers and likely drug names, and flags what it hears differently.</li>
+        </ul>
+      </article>
+      <article class="tile reveal">
+        <svg class="tile-icon" viewBox="0 0 256 256" aria-hidden="true"><path fill="currentColor" d="M208 80h-32V56a48 48 0 0 0-96 0v24H48a16 16 0 0 0-16 16v112a16 16 0 0 0 16 16h160a16 16 0 0 0 16-16V96a16 16 0 0 0-16-16ZM96 56a32 32 0 0 1 64 0v24H96Zm112 152H48V96h160Zm-68-56a12 12 0 1 1-12-12 12 12 0 0 1 12 12Z"/></svg>
+        <h3>Private by design</h3>
+        <p>Recording, transcription and drafting all happen on the computer in your clinic.</p>
+        <ul>
+          <li>Recordings, transcripts and notes are encrypted on disk, with a recovery key you keep.</li>
+          <li>No telemetry, no analytics, no cloud fallback. Every network call it can make is listed in its documentation.</li>
+          <li>Keep visits on a backed-up drive of your choosing.</li>
+        </ul>
+      </article>
+      <article class="tile reveal">
+        <svg class="tile-icon" viewBox="0 0 256 256" aria-hidden="true"><path fill="currentColor" d="M212 80a28 28 0 1 0 28 28 28 28 0 0 0-28-28Zm0 40a12 12 0 1 1 12-12 12 12 0 0 1-12 12ZM72 108a28 28 0 1 0-28 28 28 28 0 0 0 28-28Zm-28 12a12 12 0 1 1 12-12 12 12 0 0 1-12 12Zm48-32a28 28 0 1 0-28-28 28 28 0 0 0 28 28Zm0-40a12 12 0 1 1-12 12 12 12 0 0 1 12-12Zm72 40a28 28 0 1 0-28-28 28 28 0 0 0 28 28Zm0-40a12 12 0 1 1-12 12 12 12 0 0 1 12-12Zm23.12 100.86a35.3 35.3 0 0 1-16.87-21.14 44 44 0 0 0-84.5 0A35.25 35.25 0 0 1 69 148.82 40 40 0 0 0 88 224a39.48 39.48 0 0 0 15.52-3.13 64.09 64.09 0 0 1 48.87 0 40 40 0 0 0 34.73-72Z"/></svg>
+        <h3>Built for every species</h3>
+        <p>Dogs and cats, horses, herds, birds and exotics, with headings that fit each one.</p>
+        <ul>
+          <li>{{TEMPLATES}} templates out of the box: new consults, rechecks, phone calls, dental, surgery, rounds and more.</li>
+          <li>Multi-pet visits get a separate note for each animal.</li>
+          <li>Notes in English, French, Spanish, German, Portuguese, Italian or Dutch, and the app in five of them.</li>
+        </ul>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section class="band" aria-labelledby="numbers">
+  <div class="wrap split-head">
+    <div class="band-head band-head-left reveal">
+      <h2 id="numbers">What the evaluation shows so far.</h2>
+      <p>Scored on synthetic consults with known facts. Real-clinic validation comes with the beta.</p>
+    </div>
+    <div class="stats" id="stats">{{STATS}}</div>
+  </div>
+</section>
+
+<section class="band band-gray" aria-labelledby="models">
+  <div class="wrap">
+    <div class="band-head band-head-left reveal">
+      <h2 id="models">Open models, on hardware you already own.</h2>
+      <p>No subscription to a model provider and no account. The models download once, then {{PRODUCT}} works offline. A graphics card makes it much faster. Timings so far come from one desktop with an NVIDIA graphics card; laptop and Mac timings are still to come.</p>
+    </div>
+    <ul class="model-list">
+      <li class="model reveal"><p class="role">Writes the note</p><h3>Gemma 4</h3><p>Google's open model, run by llama.cpp on your graphics card or processor. E4B for most computers, 12B where there's room.</p></li>
+      <li class="model reveal"><p class="role">Transcribes</p><h3>Parakeet TDT 0.6B v3</h3><p>NVIDIA's open speech model, for English and 24 other European languages. Separate open models (Silero VAD, pyannote and WeSpeaker) detect speech and label speakers as you talk.</p></li>
+      <li class="model reveal"><p class="role">Checks the numbers</p><h3>Whisper large-v3-turbo</h3><p>OpenAI's open model, an optional download, listens again to lines with numbers or likely drug names, and flags what it hears differently.</p></li>
+    </ul>
+  </div>
+</section>
+
+<section class="band" id="download" aria-labelledby="download-h">
+  <div class="wrap">
+    <div class="band-head band-head-left reveal">
+      <h2 id="download-h">Install it like any other app.</h2>
+      <p>No administrator rights needed on Windows or Linux; on a Mac, a standard account may be asked for an administrator password to use the Applications folder. Uninstalling keeps your visits unless you choose otherwise.</p>
+    </div>
+    <div class="downloads" id="downloads">
+      <div class="dl reveal" data-os="windows">
+        <h3><svg viewBox="0 0 256 256" aria-hidden="true"><path fill="currentColor" d="M104 144v51.64a8 8 0 0 1-9.43 7.87l-56-10.19A8 8 0 0 1 32 185.45V144a8 8 0 0 1 8-8h56a8 8 0 0 1 8 8Zm-2.87-89.78a8 8 0 0 0-6.56-1.73l-56 10.18A8 8 0 0 0 32 70.55V112a8 8 0 0 0 8 8h56a8 8 0 0 0 8-8V60.36a8 8 0 0 0-2.87-6.14ZM216 136h-80a8 8 0 0 0-8 8v57.45a8 8 0 0 0 6.57 7.88l80 14.54A7.61 7.61 0 0 0 216 224a8 8 0 0 0 8-8v-72a8 8 0 0 0-8-8Zm5.13-102.14a8 8 0 0 0-6.56-1.73l-80 14.55a8 8 0 0 0-6.57 7.87V112a8 8 0 0 0 8 8h80a8 8 0 0 0 8-8V40a8 8 0 0 0-2.87-6.14Z"/></svg>Windows</h3>
+        <p class="req">Windows 10 or 11, 64-bit. 16 GB of memory recommended.</p>
+        <div class="files" data-files="windows"></div>
+      </div>
+      <div class="dl reveal" data-os="mac">
+        <h3><svg viewBox="0 0 256 256" aria-hidden="true"><path fill="currentColor" d="M223.3 169.59a8.07 8.07 0 0 0-2.8-3.4C203.53 154.53 200 134.64 200 120c0-17.67 13.47-33.06 21.5-40.67a8 8 0 0 0 0-11.62C208.82 55.74 187.82 48 168 48a72.2 72.2 0 0 0-40 12.13 71.56 71.56 0 0 0-90.71 9.09A74.63 74.63 0 0 0 16 123.4a127.06 127.06 0 0 0 40.14 89.73A39.8 39.8 0 0 0 83.59 224h87.68a39.84 39.84 0 0 0 29.12-12.57 125 125 0 0 0 17.82-24.6c1.27-2.27 2.18-4.08 2.8-5.39a8 8 0 0 0 2.29-11.85ZM160 12a8 8 0 0 1 8-8 40 40 0 0 1 40 40 8 8 0 0 1-16 0 24 24 0 0 0-24-24 8 8 0 0 1-8-8Z"/></svg>macOS</h3>
+        <p class="req">macOS 13 or later, Apple silicon. 16 GB recommended, 24 GB for the larger model.</p>
+        <div class="files" data-files="mac"></div>
+      </div>
+      <div class="dl reveal" data-os="linux">
+        <h3><svg viewBox="0 0 256 256" aria-hidden="true"><path fill="currentColor" d="M229 214.25A8 8 0 0 1 217.76 213C216.39 211.27 184 169.86 184 88a56 56 0 0 0-112 0c0 81.86-32.37 123.27-33.75 125a8 8 0 0 1-12.51-10c.15-.2 7.69-9.9 15.13-28.74C47.77 156.8 56 127.64 56 88a72 72 0 0 1 144 0c0 39.64 8.23 68.8 15.13 86.28 7.48 18.94 15.06 28.64 15.14 28.74a8 8 0 0 1-1.27 11.23ZM100 88a12 12 0 1 0 12 12 12 12 0 0 0-12-12Zm68 12a12 12 0 1 0-12 12 12 12 0 0 0 12-12Zm-68.42 35.78a8 8 0 0 0-7.16 14.31l32 16a8 8 0 0 0 7.16 0l32-16a8 8 0 0 0-7.16-14.31L128 150.06Z"/></svg>Linux</h3>
+        <p class="req">Ubuntu, Debian, Fedora and other recent 64-bit (x86-64) distributions, as a .deb, .rpm or AppImage. Not yet tested on Linux.</p>
+        <div class="files" data-files="linux"></div>
+      </div>
+      <div class="dl reveal" data-os="ios">
+        <h3><svg viewBox="0 0 256 256" aria-hidden="true"><path fill="currentColor" d="M176 16H80a24 24 0 0 0-24 24v176a24 24 0 0 0 24 24h96a24 24 0 0 0 24-24V40a24 24 0 0 0-24-24Zm8 200a8 8 0 0 1-8 8H80a8 8 0 0 1-8-8V40a8 8 0 0 1 8-8h96a8 8 0 0 1 8 8ZM140 60a12 12 0 1 1-12-12 12 12 0 0 1 12 12Z"/></svg>iPhone</h3>
+        <p class="req">Planned: an iPhone app for recording in the exam room. It has not been built yet.</p>
+        <div class="files" data-files="ios"></div>
+      </div>
+    </div>
+    <div class="release-line" id="release-line"></div>
+  </div>
+</section>
+
+<section class="band band-gray" aria-labelledby="who">
+  <div class="wrap maker reveal">
+    <h2 id="who">Made by a veterinarian, for veterinary teams.</h2>
+    <div class="maker-body">
+      <p>{{PRODUCT}} was created by <strong>Dr. Christopher Pinard</strong> and <strong>ANI.ML Health Inc.</strong> as an open-source tool for the profession, built together with Claude, Anthropic's AI.</p>
+      <p><a class="link-more" href="features.html#built-together">How it was built</a></p>
+    </div>
+  </div>
+</section>

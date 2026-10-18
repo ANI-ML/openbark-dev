@@ -1,0 +1,74 @@
+[
+  {
+    "speaker": "dvm",
+    "start": 0.0,
+    "end": 6.9835625,
+    "text": "Hi. This is Max's third chemo treatment for his multicentric lymphoma. How has he been since last week?"
+  },
+  {
+    "speaker": "client",
+    "start": 7.5835624,
+    "end": 12.690312,
+    "text": "Pretty good. He was a bit tired for a day, and had soft stool once, but he ate normally."
+  },
+  {
+    "speaker": "dvm",
+    "start": 13.290313,
+    "end": 14.43825,
+    "text": "No vomiting?"
+  },
+  {
+    "speaker": "client",
+    "start": 15.03825,
+    "end": 16.324562,
+    "text": "No vomiting at all."
+  },
+  {
+    "speaker": "dvm",
+    "start": 16.924562,
+    "end": 24.217438,
+    "text": "He weighs thirty point two kilos, so his body surface area is about one square metre. Temperature thirty-eight point four."
+  },
+  {
+    "speaker": "dvm",
+    "start": 24.817438,
+    "end": 31.552313,
+    "text": "His lymph nodes are much smaller. The left mandibular node measures about one and a half centimetres, down from four."
+  },
+  {
+    "speaker": "dvm",
+    "start": 32.152313,
+    "end": 36.30819,
+    "text": "Bloodwork is fine to treat. Neutrophils are three point one."
+  },
+  {
+    "speaker": "dvm",
+    "start": 36.908188,
+    "end": 41.76019,
+    "text": "So he's in partial remission. That's grade one diarrhoea, which is mild."
+  },
+  {
+    "speaker": "dvm",
+    "start": 42.360188,
+    "end": 47.980186,
+    "text": "Today he gets vincristine, point seven milligrams per square metre IV, as a slow push."
+  },
+  {
+    "speaker": "dvm",
+    "start": 48.58019,
+    "end": 54.58031,
+    "text": "He goes home with prednisone, twenty milligrams by mouth once a day, and maropitant if he gets nauseous."
+  },
+  {
+    "speaker": "client",
+    "start": 55.180313,
+    "end": 58.113,
+    "text": "He's still playing ball every day, so I think he's happy."
+  },
+  {
+    "speaker": "dvm",
+    "start": 58.713,
+    "end": 63.233875,
+    "text": "That's great to hear. Next treatment is in one week, with bloodwork before."
+  }
+]

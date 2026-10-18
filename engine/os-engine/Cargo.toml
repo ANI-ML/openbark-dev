@@ -1,0 +1,36 @@
+[package]
+name = "os-engine"
+description = "OpenBark scribe pipeline: transcribe, generate notes, check faithfulness, render"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+os-asr.workspace = true
+os-diar.workspace = true
+os-llm.workspace = true
+os-models.workspace = true
+jsonschema.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml_ng.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+sha2.workspace = true
+hex.workspace = true
+dirs.workspace = true
+tracing.workspace = true
+# Encryption at rest (ADR-0008): XChaCha20-Poly1305, random nonces.
+chacha20poly1305 = "=0.11.0"
+getrandom = "=0.4.3"
+base64 = "=0.23.1"
+
+[target.'cfg(any(windows, target_os = "macos", target_os = "linux"))'.dependencies]
+keepawake.workspace = true
+# The data key lives in the OS keychain (Credential Manager, Keychain, Secret Service).
+keyring = "=4.2.0"
+
+[dev-dependencies]
+tempfile.workspace = true

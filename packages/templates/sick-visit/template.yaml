@@ -1,0 +1,80 @@
+# OpenBark template: sick visit / problem-oriented consult (general practice).
+id: sick-visit
+version: 0.1.0
+name: New consult
+description: "A new problem or a new patient: history, exam, problem list and plan."
+icon: stethoscope
+language: en
+
+instructions: |
+  Write the medical record for this sick-patient consultation, organised by problem.
+  Use concise clinical veterinary English as a veterinarian would chart it.
+  The transcript is from a recording; speakers are labelled by number, not role. Infer roles from context,
+  but never put words in a speaker's mouth.
+
+rules:
+  - Differentials only if the veterinarian voiced them.
+  - "Everything given or prescribed is a medication, including injections and fluids given in the clinic."
+  - Record diagnostics the client declined or deferred, and what was said about them.
+
+sections:
+  - id: patient
+    title: Patient
+    presence: optional
+    kind: fields
+    fields:
+      - { key: name, label: Name }
+      - { key: species, label: Species }
+      - { key: breed, label: Breed }
+      - { key: age, label: Age }
+      - { key: sex, label: Sex }
+  - title: Presenting complaint
+    kind: statements
+    presence: required
+  - title: History of present illness
+    examples:
+      - "Start with onset and duration"
+      - "Keep the client's description of vomit or stool colour"
+    kind: statements
+    instruction: Onset, duration, progression, appetite, drinking, vomiting, diarrhoea, urination, energy, exposure.
+  - title: Relevant past history and medications
+    kind: statements
+  - title: Vitals
+    kind: fields
+    fields:
+      - { key: weight, label: Weight }
+      - { key: temperature, label: Temperature }
+      - { key: heart_rate, label: HR }
+      - { key: respiratory_rate, label: RR }
+      - { key: mucous_membranes, label: MM }
+      - { key: capillary_refill_time, label: CRT }
+      - { key: hydration, label: Hydration }
+      - { key: pain_score, label: Pain score }
+  - title: Physical exam
+    kind: statements
+  - title: Problem list
+    examples:
+      - "Number the problems in order of priority as the vet said them"
+    kind: statements
+    presence: required
+  - title: Differentials
+    kind: statements
+  - title: Diagnostics
+    examples:
+      - "Separate tests run today from tests declined"
+      - "Record the cost concern if the client deferred tests"
+    kind: statements
+    instruction: Tests run, recommended, declined or deferred, with results as said.
+  - title: Treatment given in clinic
+    kind: medications
+  - title: Medications to go home
+    examples:
+      - "Give the tablet strength and number of tablets per dose"
+    kind: medications
+  - title: Client communication
+    examples:
+      - "Record the exact warning signs the vet gave"
+    kind: statements
+    instruction: Prognosis, costs discussed, consent and warnings given.
+  - title: Follow-up
+    kind: statements

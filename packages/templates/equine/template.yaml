@@ -1,0 +1,77 @@
+# OpenBark template: equine visit (field or clinic).
+id: equine
+version: 0.1.0
+name: Equine visit
+description: Ambulatory or clinic equine exam, including lameness and colic findings.
+icon: horse
+language: en
+
+instructions: |
+  Write the medical record for this equine visit.
+  Use concise clinical veterinary English as an equine veterinarian would chart it.
+  The transcript is from a recording; speakers are labelled by number, not role. Infer roles from context,
+  but never put words in a speaker's mouth.
+
+rules:
+  - "Record a lameness grade only if it was said, with the scale if said (e.g. AAEP 2/5)."
+  - "Record flexion and nerve block results limb by limb exactly as said."
+  - "Record drug withdrawal times or competition rules only as the veterinarian stated them."
+
+sections:
+  - id: patient
+    title: Patient
+    presence: optional
+    kind: fields
+    fields:
+      - { key: name, label: Name }
+      - { key: breed, label: Breed }
+      - { key: age, label: Age }
+      - { key: sex, label: Sex }
+      - { key: use, label: Use }
+  - title: Presenting complaint
+    kind: statements
+    presence: required
+  - title: History
+    kind: statements
+    instruction: Onset, management, feeding, turnout, work, deworming, vaccination, farrier, previous problems.
+  - title: Vitals
+    examples:
+      - "Include gut sounds for all four quadrants if said"
+    kind: fields
+    fields:
+      - { key: weight, label: Weight }
+      - { key: temperature, label: Temperature }
+      - { key: heart_rate, label: HR }
+      - { key: respiratory_rate, label: RR }
+      - { key: mucous_membranes, label: MM }
+      - { key: capillary_refill_time, label: CRT }
+      - { key: gut_sounds, label: Gut sounds }
+      - { key: digital_pulses, label: Digital pulses }
+  - title: Physical exam
+    kind: statements
+  - title: Lameness exam
+    examples:
+      - "Give the AAEP grade per limb"
+      - "Record each flexion test result as positive or negative with the limb"
+      - "List nerve blocks in order with the response"
+    kind: statements
+    instruction: Gait at walk and trot, grade, flexion tests, hoof testers, nerve blocks, by limb.
+  - title: Diagnostics
+    kind: statements
+    instruction: Rectal exam, nasogastric intubation, ultrasound, radiographs, bloodwork and results.
+  - title: Assessment
+    kind: statements
+    presence: required
+  - title: Treatment given
+    kind: medications
+  - title: Medications to continue
+    examples:
+      - "Include the competition withdrawal time if the vet gave one"
+    kind: medications
+  - title: Management advice
+    examples:
+      - "Give the box-rest and hand-walking schedule in weeks"
+    kind: statements
+    instruction: Rest, turnout, feeding, shoeing and return to work.
+  - title: Follow-up
+    kind: statements

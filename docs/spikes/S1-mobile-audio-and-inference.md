@@ -45,6 +45,11 @@ A small Tauri plugin named `os-audio-session`, the only native code in the spike
   - Permissions: `FOREGROUND_SERVICE_MICROPHONE`, `RECORD_AUDIO` and `POST_NOTIFICATIONS`.
   - A wake lock held only while recording.
 
+**Keep awake (product requirement, 2026-10-17).** The phone must not sleep or suspend from the start of a recording until processing is complete.
+- **iOS:** the audio background mode keeps capture alive. While the recorder screen is visible, set `UIApplication.shared.isIdleTimerDisabled = true`. Wrap post-recording processing in `beginBackgroundTask` and resume it when the app returns to the foreground.
+- **Android:** the foreground service (`microphone` type, then `dataSync` or `shortService` for processing), a `PARTIAL_WAKE_LOCK` held until the note is done, and `FLAG_KEEP_SCREEN_ON` while the recorder is visible.
+- **Pass criterion A5:** a 15-minute recording plus note generation completes with the screen locked for the whole run, and the device never reaches doze or app suspension. Verified with `adb shell dumpsys deviceidle` and the iOS console.
+
 ### 3. LLM
 
 - `llama-cpp-2 =0.1.160` with Gemma 4 E2B QAT Q4_0 GGUF (3.35 GB).

@@ -1,0 +1,64 @@
+# OpenBark template: recheck / progress visit.
+id: recheck
+version: 0.1.0
+name: Recheck
+description: "Follow-up on a known problem: response to treatment, today's findings, plan changes."
+icon: arrows-clockwise
+language: en
+
+instructions: |
+  Write the medical record for this recheck visit on a known problem.
+  Use concise clinical veterinary English as a veterinarian would chart it.
+  The transcript is from a recording; speakers are labelled by number, not role. Infer roles from context,
+  but never put words in a speaker's mouth.
+
+rules:
+  - "Compare with the previous visit only using what was said in this recording."
+  - "Medication changes (started, stopped, dose changed) are medications, with dose, route, frequency and duration as said."
+
+sections:
+  - id: patient
+    title: Patient
+    presence: optional
+    kind: fields
+    fields:
+      - { key: name, label: Name }
+      - { key: species, label: Species }
+      - { key: breed, label: Breed }
+      - { key: age, label: Age }
+      - { key: sex, label: Sex }
+  - title: Problem being rechecked
+    kind: statements
+    presence: required
+  - title: Progress since last visit
+    examples:
+      - "Quote how the owner rates the improvement"
+      - "Note any missed doses"
+    kind: statements
+    instruction: How the patient has done at home, as the client described it, and compliance with treatment.
+  - title: Vitals
+    kind: fields
+    fields:
+      - { key: weight, label: Weight }
+      - { key: temperature, label: Temperature }
+      - { key: heart_rate, label: HR }
+      - { key: respiratory_rate, label: RR }
+  - title: Findings today
+    kind: statements
+  - title: Results
+    kind: statements
+    instruction: Test results reviewed or run today, with values as said.
+  - title: Assessment
+    examples:
+      - "Start with improved, unchanged or worse"
+    kind: statements
+    presence: required
+    instruction: Improved, unchanged or worse, as the veterinarian judged it.
+  - title: Medication changes
+    examples:
+      - "Show the old and new dose for each change"
+    kind: medications
+  - title: Plan
+    kind: statements
+  - title: Next recheck
+    kind: statements

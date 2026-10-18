@@ -1,0 +1,90 @@
+# OpenBark template: wellness / preventive care visit (general practice).
+id: wellness
+version: 0.1.0
+name: Annual exam
+description: Annual or puppy/kitten preventive-care exam, vaccines and parasite control.
+icon: calendar-check
+language: en
+
+instructions: |
+  Write the medical record for this preventive-care (wellness) visit.
+  Use concise clinical veterinary English as a veterinarian would chart it.
+  The transcript is from a recording; speakers are labelled by number, not role. Infer roles from context,
+  but never put words in a speaker's mouth.
+
+rules:
+  - "Vaccines and parasite preventives given or prescribed are medications: record product, dose, route and site as said."
+  - "Record vaccines or preventives the client declined or deferred, and why if said."
+  - "Record a body system as normal only if the veterinarian said so."
+
+sections:
+  - id: patient
+    title: Patient
+    presence: optional
+    kind: fields
+    fields:
+      - { key: name, label: Name }
+      - { key: species, label: Species }
+      - { key: breed, label: Breed }
+      - { key: age, label: Age }
+      - { key: sex, label: Sex }
+  - title: Reason for visit
+    kind: statements
+    presence: required
+  - title: History
+    kind: statements
+    instruction: Diet, appetite, energy, behaviour, travel, other pets, and any concerns the client raised.
+  - title: Current preventives and medications
+    kind: statements
+  - title: Vitals
+    kind: fields
+    fields:
+      - { key: weight, label: Weight }
+      - { key: temperature, label: Temperature }
+      - { key: heart_rate, label: HR }
+      - { key: respiratory_rate, label: RR }
+      - { key: body_condition_score, label: BCS }
+  - title: Physical exam
+    examples:
+      - "Group findings by body system"
+      - "Only list systems the vet actually commented on"
+    kind: statements
+    instruction: Findings by body system, as the veterinarian stated them.
+  - title: Assessment
+    kind: statements
+    presence: required
+    instruction: Overall health and any problems found.
+  - title: Vaccines given
+    examples:
+      - "List each vaccine with its site, e.g. right hind SC"
+      - "Include the lot number when it was read out"
+      - "Note vaccines declined and why"
+    kind: medications
+  - title: Parasite control
+    examples:
+      - "Name the product and weight band dispensed"
+      - "Note which months it covers if said"
+    kind: medications
+    instruction: Flea, tick, heartworm and deworming products given or prescribed.
+  - title: Screening tests
+    kind: statements
+    instruction: Heartworm, fecal, bloodwork or other tests run, offered or declined.
+  - title: Heartworm and tick-borne disease testing
+    when: { species: [canine] }
+    kind: statements
+    instruction: Heartworm and tick-borne disease test results, offered or declined, as said.
+  - title: FeLV and FIV status
+    when: { species: [feline] }
+    kind: statements
+    instruction: Feline leukaemia and immunodeficiency virus test results or vaccination status, as said.
+  - title: Advice given
+    examples:
+      - "Keep dental-care advice as its own line"
+      - "Include the weight-loss target if one was given"
+    kind: statements
+    instruction: Nutrition, dental care, weight, behaviour, spay/neuter and other counselling.
+  - title: Next due
+    examples:
+      - "Give each due date as said, e.g. rabies due in 3 years"
+    kind: statements
+    instruction: Vaccines, tests and the next visit, with dates or intervals as said.

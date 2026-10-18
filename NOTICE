@@ -1,5 +1,6 @@
-OpenBark
-Copyright 2026 ANIML and OpenBark contributors
+OpenBark, an open-source veterinary scribe
+Copyright 2026 ANI.ML Health Inc. and OpenBark contributors
+Created by Dr. Christopher Pinard and ANI.ML Health Inc.
 
 This product is licensed under the Apache License, Version 2.0 (see LICENSE).
 
@@ -8,12 +9,27 @@ repository. When a model is offered in the app's catalog, its license and any
 required attribution are shown before download. Attributions required by
 models in the default catalog:
 
-- Parakeet TDT 0.6B v3, by NVIDIA, licensed under CC-BY-4.0.
-  https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3
-
 - Gemma 4 models, by Google, licensed under Apache-2.0.
   "Gemma" is a trademark of Google LLC. OpenBark is not affiliated with or
   endorsed by Google.
 
-Further attributions (speaker-embedding models, VAD, third-party libraries)
-are added here when those components are adopted.
+- Parakeet TDT 0.6B v3, by NVIDIA, licensed under CC-BY-4.0.
+  https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3
+  ONNX export by the k2-fsa/sherpa-onnx project.
+
+- Whisper large-v3-turbo, by OpenAI, licensed under MIT.
+  ONNX export by the k2-fsa/sherpa-onnx project.
+
+- Silero VAD, by the Silero Team, licensed under MIT.
+
+- pyannote/segmentation-3.0, by CNRS (Herve Bredin), licensed under MIT.
+  ONNX export by the k2-fsa/sherpa-onnx project.
+
+- WeSpeaker VoxCeleb ResNet34-LM, by the WeNet community, licensed under
+  CC-BY-4.0.
+
+The optional GPU speech pack (Windows, NVIDIA) is downloaded on the user's
+request and is not distributed here: ONNX Runtime (MIT, by Microsoft, in the
+CUDA build published by k2-fsa/sherpa-onnx) and NVIDIA's CUDA runtime, cuBLAS
+and cuDNN libraries, which are NVIDIA's software under NVIDIA's license and
+are fetched from NVIDIA's own packages after the user accepts that license.

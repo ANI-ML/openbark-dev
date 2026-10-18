@@ -1,0 +1,72 @@
+# OpenBark template: exotic animal consult (avian, reptile, small mammal).
+id: exotics
+version: 0.1.0
+name: Exotics consult
+description: Avian, reptile and small-mammal consult with husbandry history in full.
+icon: bird
+language: en
+
+instructions: |
+  Write the medical record for this exotic-animal consultation (bird, reptile, amphibian or small mammal).
+  Use concise clinical veterinary English as an exotics veterinarian would chart it.
+  The transcript is from a recording; speakers are labelled by number, not role. Infer roles from context,
+  but never put words in a speaker's mouth.
+
+rules:
+  - "Husbandry details (enclosure, temperatures, humidity, UVB, substrate, diet, supplements) are recorded exactly as the client said them."
+  - "Weights are often in grams: copy the unit as said."
+  - "Never assume the species, sex or age from the name."
+
+sections:
+  - id: patient
+    title: Patient
+    presence: optional
+    kind: fields
+    fields:
+      - { key: name, label: Name }
+      - { key: species, label: Species }
+      - { key: age, label: Age }
+      - { key: sex, label: Sex }
+  - title: Presenting complaint
+    kind: statements
+    presence: required
+  - title: History
+    kind: statements
+  - title: Husbandry
+    examples:
+      - "List basking and cool-end temperatures separately"
+      - "Include the UVB bulb type and age if said"
+    kind: statements
+    instruction: Enclosure, heating and temperature gradient, humidity, lighting and UVB, substrate, cage mates, hygiene.
+  - title: Diet
+    examples:
+      - "Note the calcium and vitamin supplement schedule"
+    kind: statements
+    instruction: Foods, supplements, feeding frequency, water, and appetite.
+  - title: Vitals
+    examples:
+      - "Give weight in grams"
+    kind: fields
+    fields:
+      - { key: weight, label: Weight }
+      - { key: temperature, label: Temperature }
+      - { key: heart_rate, label: HR }
+      - { key: respiratory_rate, label: RR }
+      - { key: body_condition_score, label: BCS }
+  - title: Physical exam
+    kind: statements
+  - title: Diagnostics
+    kind: statements
+  - title: Assessment
+    kind: statements
+    presence: required
+  - title: Treatment given in clinic
+    kind: medications
+  - title: Medications to go home
+    kind: medications
+  - title: Husbandry changes advised
+    examples:
+      - "One change per line, with the target value"
+    kind: statements
+  - title: Follow-up
+    kind: statements

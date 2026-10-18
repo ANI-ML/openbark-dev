@@ -1,0 +1,266 @@
+[
+  {
+    "speaker": "dvm",
+    "start": 0.0,
+    "end": 5.45925,
+    "text": "Hi, come on in. I'm Doctor Laurent. And this must be Mochi. What's been going on with her?"
+  },
+  {
+    "speaker": "client",
+    "start": 6.15925,
+    "end": 12.4965,
+    "text": "Hi. So she started throwing up on Monday, and it's Thursday now. It's been at least once a day, sometimes twice."
+  },
+  {
+    "speaker": "dvm",
+    "start": 13.1965,
+    "end": 18.272625,
+    "text": "Okay. Three days of vomiting. What does it look like? Is it food, liquid, hair?"
+  },
+  {
+    "speaker": "client",
+    "start": 18.972626,
+    "end": 25.732124,
+    "text": "The first couple of times it was her food, mostly undigested. Since yesterday it's more like yellow foam, a bit of liquid."
+  },
+  {
+    "speaker": "dvm",
+    "start": 26.432125,
+    "end": 27.835625,
+    "text": "And is she still eating?"
+  },
+  {
+    "speaker": "client",
+    "start": 28.535625,
+    "end": 35.37819,
+    "text": "Barely. She'll lick the gravy off her wet food and walk away. She's usually a really good eater, so that's what worried me."
+  },
+  {
+    "speaker": "dvm",
+    "start": 36.078186,
+    "end": 43.38575,
+    "text": "Has she been drinking normally? Any changes in the litter box, like diarrhea, constipation, or bigger clumps of urine?"
+  },
+  {
+    "speaker": "client",
+    "start": 44.08575,
+    "end": 50.94444,
+    "text": "Her stool was a bit soft on Tuesday, but otherwise the same. I haven't noticed her drinking more. If anything, maybe less."
+  },
+  {
+    "speaker": "dvm",
+    "start": 51.644436,
+    "end": 54.196125,
+    "text": "Is she hiding, or less active than usual?"
+  },
+  {
+    "speaker": "client",
+    "start": 54.896126,
+    "end": 57.7905,
+    "text": "Yeah, she's been sleeping under the bed, which she never does."
+  },
+  {
+    "speaker": "dvm",
+    "start": 58.4905,
+    "end": 65.442184,
+    "text": "Okay. Any chance she got into something? Plants, string, hair ties, anything like that? Has she been outside?"
+  },
+  {
+    "speaker": "client",
+    "start": 66.14219,
+    "end": 72.7845,
+    "text": "She's indoor only. She does play with hair ties, and I found one chewed up last week. I don't know if she swallowed any of it."
+  },
+  {
+    "speaker": "dvm",
+    "start": 73.4845,
+    "end": 78.35438,
+    "text": "That's good to know, thank you. Any changes to her food, or anything new in the house?"
+  },
+  {
+    "speaker": "client",
+    "start": 79.054375,
+    "end": 82.07787,
+    "text": "No, same food for years. The salmon pate."
+  },
+  {
+    "speaker": "dvm",
+    "start": 82.77788,
+    "end": 85.57175,
+    "text": "Is she on any medications or supplements?"
+  },
+  {
+    "speaker": "client",
+    "start": 86.27175,
+    "end": 89.43987,
+    "text": "Just a fish oil supplement in her food. Nothing else."
+  },
+  {
+    "speaker": "dvm",
+    "start": 90.13988,
+    "end": 92.77663,
+    "text": "And she's nine now, is that right? Spayed?"
+  },
+  {
+    "speaker": "client",
+    "start": 93.47662,
+    "end": 96.1145,
+    "text": "Yes, nine in June, and yes, she's spayed."
+  },
+  {
+    "speaker": "dvm",
+    "start": 96.8145,
+    "end": 109.179436,
+    "text": "Alright. Let's weigh her first. She's four point one kilos today. In March she was four point six, so she's lost about half a kilo, which is more than ten percent of her body weight for a cat her size."
+  },
+  {
+    "speaker": "client",
+    "start": 109.87944,
+    "end": 111.554184,
+    "text": "Oh no, I had no idea."
+  },
+  {
+    "speaker": "dvm",
+    "start": 112.25419,
+    "end": 123.859436,
+    "text": "That's not something you'd see at home. Let me examine her now. Her temperature is thirty-nine point one, which is the upper end of normal. Heart rate is two hundred, and respiratory rate is thirty-two."
+  },
+  {
+    "speaker": "dvm",
+    "start": 124.55944,
+    "end": 135.42331,
+    "text": "Her gums are pink but a little tacky, and her capillary refill time is under two seconds. Her skin tent is a bit slow, so I'd estimate she's about six percent dehydrated."
+  },
+  {
+    "speaker": "dvm",
+    "start": 136.1233,
+    "end": 141.65944,
+    "text": "I'd put her body condition at four out of nine. She's lost some muscle over her back and hips."
+  },
+  {
+    "speaker": "dvm",
+    "start": 142.35944,
+    "end": 152.17456,
+    "text": "Listening to her heart, I don't hear a murmur, and her lungs sound clear. I can't feel an enlarged thyroid gland, but at her age we still want to check her thyroid level."
+  },
+  {
+    "speaker": "dvm",
+    "start": 152.87456,
+    "end": 168.49356,
+    "text": "On her belly, she's tense and a bit uncomfortable when I press up front, just behind her ribs. I'd call that mild discomfort, a pain score of one out of four. I don't feel any obvious mass or any thickened intestines, and her bladder is a normal size."
+  },
+  {
+    "speaker": "client",
+    "start": 169.19356,
+    "end": 171.14656,
+    "text": "Is that bad? The discomfort?"
+  },
+  {
+    "speaker": "dvm",
+    "start": 171.84656,
+    "end": 197.79225,
+    "text": "It tells us something is irritated. There are a few possibilities. The most common would be gastritis or dietary upset. Given the hair ties, I am worried about a foreign body, like a piece of string or elastic in her intestines. In a nine year old cat with weight loss, I also want to rule out pancreatitis, kidney disease, hyperthyroidism, and inflammatory bowel disease or intestinal lymphoma."
+  },
+  {
+    "speaker": "client",
+    "start": 198.49225,
+    "end": 200.35056,
+    "text": "Okay. What would you recommend?"
+  },
+  {
+    "speaker": "dvm",
+    "start": 201.05057,
+    "end": 213.24457,
+    "text": "I'd recommend bloodwork today: a complete blood count, a chemistry panel with electrolytes, and a thyroid level, plus a urinalysis. I'd also really like abdominal x-rays to look for a foreign body."
+  },
+  {
+    "speaker": "client",
+    "start": 213.94456,
+    "end": 217.14569,
+    "text": "How much would all of that be? Money's a bit tight this month."
+  },
+  {
+    "speaker": "dvm",
+    "start": 217.84569,
+    "end": 226.85294,
+    "text": "Understood. The bloodwork and urinalysis together are about three hundred and twenty dollars, and the x-rays would add about two hundred and fifty."
+  },
+  {
+    "speaker": "client",
+    "start": 227.55293,
+    "end": 230.6545,
+    "text": "Can we do the bloodwork today and hold off on the x-rays?"
+  },
+  {
+    "speaker": "dvm",
+    "start": 231.3545,
+    "end": 245.15675,
+    "text": "We can. I'll note that we discussed the x-rays and that you'd like to wait. If she vomits more than twice in a day, stops eating completely, or seems painful, the x-rays become much more important, and you should bring her straight back."
+  },
+  {
+    "speaker": "client",
+    "start": 245.85675,
+    "end": 246.86888,
+    "text": "That makes sense."
+  },
+  {
+    "speaker": "dvm",
+    "start": 247.56888,
+    "end": 261.896,
+    "text": "For treatment today, I'll give her an anti-nausea injection, maropitant, at one milligram per kilo under the skin. I'll also give her one hundred milliliters of lactated Ringer's fluids under the skin to help with the dehydration."
+  },
+  {
+    "speaker": "dvm",
+    "start": 262.596,
+    "end": 274.1065,
+    "text": "I'm going to send home mirtazapine ointment to help her appetite. You put a one and a half inch line on the inside of her ear flap once a day, for up to fourteen days. Wear gloves when you apply it."
+  },
+  {
+    "speaker": "client",
+    "start": 274.8065,
+    "end": 276.942,
+    "text": "Okay, inside the ear, once a day."
+  },
+  {
+    "speaker": "dvm",
+    "start": 277.642,
+    "end": 289.36288,
+    "text": "Exactly. For food, switch to a bland gastrointestinal diet. We'll send you home with the prescription wet food. Feed small amounts, about a tablespoon, every three to four hours to start."
+  },
+  {
+    "speaker": "dvm",
+    "start": 290.06287,
+    "end": 297.189,
+    "text": "Please don't give her the fish oil until her stomach settles. And put away anything she could chew, like hair ties and string."
+  },
+  {
+    "speaker": "client",
+    "start": 297.889,
+    "end": 298.95505,
+    "text": "I'll do that tonight."
+  },
+  {
+    "speaker": "dvm",
+    "start": 299.65506,
+    "end": 307.66406,
+    "text": "I'll call you tomorrow afternoon with the bloodwork results. I want to recheck her in three days, on Sunday, or sooner if she gets worse."
+  },
+  {
+    "speaker": "dvm",
+    "start": 308.36407,
+    "end": 319.8723,
+    "text": "If she vomits more than twice in a day, stops eating entirely, strains in the litter box, or seems weak or painful, come back right away, or go to the emergency hospital if we're closed."
+  },
+  {
+    "speaker": "client",
+    "start": 320.57233,
+    "end": 324.3307,
+    "text": "Okay. Thank you, Doctor Laurent. I feel better having a plan."
+  },
+  {
+    "speaker": "dvm",
+    "start": 325.0307,
+    "end": 330.9298,
+    "text": "Of course. The technician will draw her blood now, and then we'll give the injection and the fluids."
+  }
+]

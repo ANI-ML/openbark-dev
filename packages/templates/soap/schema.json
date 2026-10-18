@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openbark.dev/templates/soap/0.1.0/schema.json",
+  "title": "SOAP note (OpenBark template soap@0.1.0)",
+  "description": "Structured core of a veterinary SOAP note. Every statement cites transcript segment ids as evidence. Empty arrays and null fields mean 'not discussed'; the renderer prints them that way.",
+  "type": "object",
+  "properties": {
+    "patient": {
+      "type": "object",
+      "properties": {
+        "name": { "$ref": "#/$defs/field" },
+        "species": { "$ref": "#/$defs/field" },
+        "breed": { "$ref": "#/$defs/field" },
+        "age": { "$ref": "#/$defs/field" },
+        "sex": { "$ref": "#/$defs/field" }
+      },
+      "required": ["name", "species", "breed", "age", "sex"],
+      "additionalProperties": false
+    },
+    "subjective": {
+      "type": "object",
+      "properties": {
+        "chief_complaint": { "$ref": "#/$defs/statements" },
+        "history": { "$ref": "#/$defs/statements" },
+        "current_medications_and_diet": { "$ref": "#/$defs/statements" }
+      },
+      "required": ["chief_complaint", "history", "current_medications_and_diet"],
+      "additionalProperties": false
+    },
+    "objective": {
+      "type": "object",
+      "properties": {
+        "vitals": {
+          "type": "object",
+          "properties": {
+            "weight": { "$ref": "#/$defs/field" },
+            "temperature": { "$ref": "#/$defs/field" },
+            "heart_rate": { "$ref": "#/$defs/field" },
+            "respiratory_rate": { "$ref": "#/$defs/field" },
+            "mucous_membranes": { "$ref": "#/$defs/field" },
+            "capillary_refill_time": { "$ref": "#/$defs/field" },
+            "hydration": { "$ref": "#/$defs/field" },
+            "body_condition_score": { "$ref": "#/$defs/field" },
+            "pain_score": { "$ref": "#/$defs/field" }
+          },
+          "required": ["weight", "temperature", "heart_rate", "respiratory_rate", "mucous_membranes", "capillary_refill_time", "hydration", "body_condition_score", "pain_score"],
+          "additionalProperties": false
+        },
+        "physical_exam": { "$ref": "#/$defs/statements" },
+        "diagnostic_results": { "$ref": "#/$defs/statements" }
+      },
+      "required": ["vitals", "physical_exam", "diagnostic_results"],
+      "additionalProperties": false
+    },
+    "assessment": {
+      "type": "object",
+      "properties": {
+        "problems": { "$ref": "#/$defs/statements" },
+        "differentials": { "$ref": "#/$defs/statements" }
+      },
+      "required": ["problems", "differentials"],
+      "additionalProperties": false
+    },
+    "plan": {
+      "type": "object",
+      "properties": {
+        "diagnostics": { "$ref": "#/$defs/statements" },
+        "medications": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/medication" }
+        },
+        "procedures_and_treatments": { "$ref": "#/$defs/statements" },
+        "client_communication": { "$ref": "#/$defs/statements" },
+        "follow_up": { "$ref": "#/$defs/statements" }
+      },
+      "required": ["diagnostics", "medications", "procedures_and_treatments", "client_communication", "follow_up"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["patient", "subjective", "objective", "assessment", "plan"],
+  "additionalProperties": false,
+  "$defs": {
+    "evidence": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 0 },
+      "minItems": 1
+    },
+    "field": {
+      "anyOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "properties": {
+            "value": { "anyOf": [{ "type": "number" }, { "type": "string" }] },
+            "unit": { "anyOf": [{ "type": "null" }, { "type": "string" }] },
+            "evidence": { "$ref": "#/$defs/evidence" }
+          },
+          "required": ["value", "unit", "evidence"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "statement": {
+      "type": "object",
+      "properties": {
+        "text": { "type": "string" },
+        "evidence": { "$ref": "#/$defs/evidence" }
+      },
+      "required": ["text", "evidence"],
+      "additionalProperties": false
+    },
+    "statements": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/statement" }
+    },
+    "medication": {
+      "type": "object",
+      "properties": {
+        "drug": { "type": "string" },
+        "dose": { "anyOf": [{ "type": "null" }, { "type": "string" }] },
+        "route": { "anyOf": [{ "type": "null" }, { "type": "string" }] },
+        "frequency": { "anyOf": [{ "type": "null" }, { "type": "string" }] },
+        "duration": { "anyOf": [{ "type": "null" }, { "type": "string" }] },
+        "evidence": { "$ref": "#/$defs/evidence" }
+      },
+      "required": ["drug", "dose", "route", "frequency", "duration", "evidence"],
+      "additionalProperties": false
+    }
+  }
+}

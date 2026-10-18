@@ -1,0 +1,31 @@
+# Synthetic consult: written for OpenBark's test suite; not a real patient.
+id: production-animal
+title: Dairy cow with mastitis, farm call
+species: bovine
+template: production-animal
+speakers:
+  dvm: bm_lewis
+  client: am_michael
+pause_secs: 0.6
+lines:
+  - [client, "It's cow four one seven in the fresh pen. She calved ten days ago and her milk dropped off this morning. Her front left quarter is hard."]
+  - [dvm, "Temperature is forty point one. Heart rate ninety, resp rate thirty-six. Rumen contractions one per minute, a bit slow."]
+  - [dvm, "Left front quarter is hot, swollen and firm. The milk is watery with clots. The other three quarters look normal."]
+  - [dvm, "I'll take a milk sample from that quarter for culture."]
+  - [dvm, "Ceftiofur, intramammary, one tube in the affected quarter once a day for five days."]
+  - [dvm, "Plus flunixin, two point two milligrams per kilo IV, today only."]
+  - [dvm, "Milk withdrawal for the ceftiofur is three days after the last tube. Meat withdrawal is two days."]
+  - [dvm, "For the flunixin, meat withdrawal is four days and milk is thirty-six hours."]
+  - [client, "We've had three other cases in that pen this month."]
+  - [dvm, "Then let's look at the bedding and post-dip in the fresh pen. Send me the culture results and we'll talk about the herd plan."]
+
+expected:
+  vitals:
+    temperature: "40.1"
+    heart_rate: "90"
+    respiratory_rate: "36"
+  medications:
+    - { drug: ceftiofur, duration: "5" }
+    - { drug: flunixin, dose: "2.2" }
+  must_mention: ["417", culture, withdrawal, "36 hours", bedding]
+  must_not_mention: [penicillin]

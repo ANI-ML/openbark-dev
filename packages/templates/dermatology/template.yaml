@@ -1,0 +1,70 @@
+# OpenBark template: dermatology consult.
+id: dermatology
+version: 0.1.0
+name: Dermatology consult
+description: "Skin and ear workup: pruritus history, lesion distribution, cytology, plan."
+icon: hand
+language: en
+
+instructions: |
+  Write the medical record for this dermatology consultation.
+  Use concise clinical veterinary English as a veterinary dermatologist would chart it.
+  The transcript is from a recording; speakers are labelled by number, not role. Infer roles from context,
+  but never put words in a speaker's mouth.
+
+rules:
+  - "Record a pruritus score only if one was said, on the scale that was said."
+  - "Describe lesions with their type and location exactly as the veterinarian described them."
+  - "Shampoos, ear cleaners, topicals and diets prescribed are medications or plan items with the frequency and duration as said."
+
+sections:
+  - id: patient
+    title: Patient
+    presence: optional
+    kind: fields
+    fields:
+      - { key: name, label: Name }
+      - { key: species, label: Species }
+      - { key: breed, label: Breed }
+      - { key: age, label: Age }
+      - { key: sex, label: Sex }
+  - title: Presenting complaint
+    kind: statements
+    presence: required
+  - title: Dermatological history
+    kind: statements
+    instruction: Onset, seasonality, pruritus, previous treatments and response, diet, parasite control, in-contact animals.
+  - title: Pruritus score
+    kind: fields
+    fields:
+      - { key: pruritus_score, label: Pruritus score }
+  - title: Lesions and distribution
+    examples:
+      - "Describe lesions by body region: face, ears, paws, ventrum"
+      - "Use the lesion terms the vet used (papules, collarettes, alopecia)"
+    kind: statements
+  - title: Ears
+    examples:
+      - "Record left and right ears separately"
+    kind: statements
+  - title: Other exam findings
+    kind: statements
+  - title: Diagnostics
+    examples:
+      - "Give cytology counts per field as said, e.g. cocci 3+"
+    kind: statements
+    instruction: Skin scrapes, tape or ear cytology, trichogram, culture, biopsy, allergy testing, and results as said.
+  - title: Assessment
+    kind: statements
+    presence: required
+  - title: Differentials
+    kind: statements
+  - title: Medications
+    kind: medications
+  - title: Topical and environmental plan
+    examples:
+      - "List the bathing frequency and contact time"
+    kind: statements
+    instruction: Bathing, ear cleaning, diet trial, flea control for in-contact animals.
+  - title: Follow-up
+    kind: statements

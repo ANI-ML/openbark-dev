@@ -1,0 +1,32 @@
+# Synthetic consult: written for OpenBark's test suite; not a real patient.
+id: oncology
+title: Lymphoma chemotherapy visit
+species: canine
+template: oncology
+speakers:
+  dvm: bm_george
+  client: af_bella
+pause_secs: 0.6
+lines:
+  - [dvm, "Hi. This is Max's third chemo treatment for his multicentric lymphoma. How has he been since last week?"]
+  - [client, "Pretty good. He was a bit tired for a day, and had soft stool once, but he ate normally."]
+  - [dvm, "No vomiting?"]
+  - [client, "No vomiting at all."]
+  - [dvm, "He weighs thirty point two kilos, so his body surface area is about one square metre. Temperature thirty-eight point four."]
+  - [dvm, "His lymph nodes are much smaller. The left mandibular node measures about one and a half centimetres, down from four."]
+  - [dvm, "Bloodwork is fine to treat. Neutrophils are three point one."]
+  - [dvm, "So he's in partial remission. That's grade one diarrhoea, which is mild."]
+  - [dvm, "Today he gets vincristine, point seven milligrams per square metre IV, as a slow push."]
+  - [dvm, "He goes home with prednisone, twenty milligrams by mouth once a day, and maropitant if he gets nauseous."]
+  - [client, "He's still playing ball every day, so I think he's happy."]
+  - [dvm, "That's great to hear. Next treatment is in one week, with bloodwork before."]
+
+expected:
+  vitals:
+    weight: "30.2"
+    temperature: "38.4"
+  medications:
+    - { drug: vincristine, dose: "0.7" }
+    - { drug: prednisone, dose: "20" }
+  must_mention: [lymphoma, partial remission, "1.5", neutrophil, "one week"]
+  must_not_mention: [complete remission, doxorubicin]
