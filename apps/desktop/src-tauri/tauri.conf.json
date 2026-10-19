@@ -33,12 +33,12 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "publisher": "ANI-ML",
-    "copyright": "Copyright 2026 ANI-ML. Apache-2.0.",
+    "publisher": "ANI.ML Health Inc.",
+    "copyright": "Copyright 2026 ANI.ML Health Inc., Toronto, Ontario, Canada. Licensed under the Apache License 2.0.",
     "category": "Medical",
     "shortDescription": "A veterinary scribe that stays on this computer",
     "longDescription": "OpenBark records the consult and drafts the note. The audio, transcript and records never leave this computer.",
-    "homepage": "https://github.com/ANI-ML/openbark",
+    "homepage": "https://www.openbark.io",
     "licenseFile": "../../../LICENSE",
     "icon": [
       "icons/32x32.png",

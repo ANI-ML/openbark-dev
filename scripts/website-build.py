@@ -161,6 +161,7 @@ FOOTER = f"""<footer class="site-foot">
         <a href="https://www.apache.org/licenses/LICENSE-2.0">Licence: Apache-2.0</a>{SOURCE_FOOT}
       </nav>
     </div>
+    <p class="foot-legal">&copy; 2026 ANI.ML Health Inc., Toronto, Ontario, Canada.</p>
   </div>
 </footer>
 """

@@ -1,6 +1,8 @@
 [package]
 name = "openbark-desktop"
 description = "OpenBark desktop app (Tauri 2)"
+# The Linux .deb Maintainer field (tauri-bundler reads package.authors).
+authors = ["ANI.ML Health Inc. <we.care@animl.health>"]
 version.workspace = true
 edition.workspace = true
 license.workspace = true

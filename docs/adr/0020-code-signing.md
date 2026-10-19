@@ -203,7 +203,7 @@ The install guide and the website say this plainly, including that a SmartScreen
   - The Apple Distribution certificate: believed yearly.
   - The OpenPGP key: extend within 3 years.
 - Build-time network hosts are added to docs/network.md:
-  - Windows: `login.microsoftonline.com`, `eus.codesigning.azure.net`, `timestamp.acs.microsoft.com` and `www.nuget.org`;
+  - Windows: `login.microsoftonline.com`, `eus.codesigning.azure.net`, `timestamp.acs.microsoft.com` and `api.nuget.org`;
   - macOS: Apple's timestamp and notary services (`timestamp.apple.com` and `appstoreconnect.apple.com`, believed).
 
   The app gains no run-time hosts. Windows and macOS may check certificates or notarization online on their own. That is the operating system, not OpenBark, and network.md says so.
@@ -236,3 +236,35 @@ The install guide and the website say this plainly, including that a SmartScreen
 | GitHub artifact attestations | Need GitHub Enterprise Cloud for a private repository |
 | Keyless cosign | Works from a private repo, but writes the workflow identity, including the private repo's name, to the public Rekor log. The OpenPGP signature does the job without that |
 | Not signing | Every Windows release starts with zero reputation and Unknown publisher, Smart App Control can block it, and macOS needs Open Anyway. Clinics' IT may refuse to install it |
+
+## Implementation notes (2026-10-18)
+
+The release pipeline is built on branch `ci/signing`, before any certificate exists. The owner decided that 0.1.1 ships unsigned. Signing switches itself on per platform when the secrets appear. The runbook's "CI changes" section marks each item and gives the secret-to-platform table.
+
+- **When signing runs.** Only for a pushed `v*` tag (decision 7), and per platform only when all of that platform's secrets are set. With none set, the platform builds unsigned exactly as before (macOS ad-hoc) and the log carries a notice. With only some set, the job fails and names the missing ones. `scripts/ci/signing-plan.sh` makes that decision from true/false flags. The secret values reach only the steps that sign.
+- **Manual runs never publish.** `draft-release` and `public-draft` require `github.event_name == 'push'` as well as a `v*` ref, so a `workflow_dispatch` on a tag can't create a release either. The installers job takes the `release` environment only for a tag push. The first manual run confirmed that an empty environment name means no environment.
+- **Windows** follows decision 2: `tauri build --no-bundle`, then `azure/login` (OIDC), then `tauri bundle` with a CI-only `signCommand` overlay (signtool plus the Artifact Signing dlib, client 1.0.128 checked by SHA-256). Tauri 2.12.3's bundler source confirms that the overlay signs the app's .exe, the four DLLs in `bundle.resources`, the NSIS plugins, `uninstall.exe` (`!uninstfinalize`) and the installer. The job then installs the setup silently and checks every installed .exe and .dll for a valid, timestamped signature from ANI.ML Health Inc.
+- **macOS** follows decision 3, with two additions:
+  - the workflow compiles in its own step before the signing keychain and the notarization key exist, then `macos-dmg.sh --bundle-only` bundles, signs and notarizes. The key is imported non-extractable (`-x`), and create-dmg runs from a pinned commit checked by SHA-256, without the notarization variables;
+  - in signed builds the uninstaller gets a compiled launcher and an Apple Events entitlement, so under the hardened runtime it can still ask OpenBark to quit.
+
+  The app keeps a single entitlement, the microphone (`com.apple.security.device.audio-input`). llama.cpp's Metal shaders compile through Metal's compiler service, so no JIT exception is needed.
+- **Linux** (decision 4 changed): the `.rpm` is signed with `rpmsign` after the build instead of through Tauri's undocumented `TAURI_SIGNING_RPM_KEY`. `SHA256SUMS.txt.asc` and `openbark-release-key.asc` (exported in CI from the imported key) go on the public release.
+- **Publisher metadata** now reads ANI.ML Health Inc. (Toronto, Ontario, Canada) in `tauri.conf.json` (publisher, copyright), the setup file's CompanyName, the `.deb` Maintainer, NOTICE and the website footer.
+- **Tested without accounts.** The `Signing self-test` workflow runs the same scripts with throwaway credentials on macOS (self-signed certificate, no notarization), Windows (self-signed certificate through the same `signCommand` path) and Linux (a fresh OpenPGP key). The workflow files pass actionlint 1.7.12 with shellcheck 0.11.0.
+- **Dry runs (2026-10-19), both green.** A manual release run on `ci/signing` (actions run 39246618797) built all five installers unsigned, macOS ad-hoc, and skipped both publishing jobs. The self-test (runs 39246612725 and 39248661339) signed and verified on all three platforms. It confirmed the publisher on Windows (CompanyName and LegalCopyright on the setup file and the app, Publisher in Apps & features) and the copyright and microphone entitlement on macOS. On macOS the app holds one Mach-O file, because sherpa-onnx and ONNX Runtime are linked statically. Two fixes came out of the first attempt:
+  - Tauri read an empty `APPLE_SIGNING_IDENTITY` as the identity `""`, so `macos-dmg.sh` now unsets the signing variables when it isn't signing.
+  - Removing a trusted certificate from a runner's System keychain waits for an authorization prompt, so the self-test leaves it on the single-use runner. Jobs and cleanup steps now have time limits.
+- **Review fixes, dry runs green again (2026-10-19).** A review of the branch found:
+  - **The self-test saved a build cache under the release's key.** Tauri had signed the four DLLs in `target/release` in place with the throwaway certificate, so the dry run above shipped them inside its unsigned setup file. The self-test now only restores caches. Unsigned Windows builds install the setup on the runner and fail if any file carries a signature from anyone but ANI.ML Health Inc. Every build deletes `target/release/bundle` after the cache restore, because a cache holding an older version's installer would break the one-file checks on the next tag. The bad cache was deleted.
+  - **macOS compiled while the key was reachable.** The keychain and the `.p8` existed during `tauri build`, and the key could be exported. Fixed with a separate compile step, `macos-dmg.sh --bundle-only` and a non-extractable import.
+  - **Pins.** create-dmg was fetched by a movable tag, and most actions were pinned by tag. Both are now pinned by commit and hash (docs/versions.md).
+  - **The self-test printed its throwaway .p12 in the log**, from a step output. It is now built in the same step as the keychain. The logs of runs 39191530344, 39246612725 and 39248661339 still hold that certificate (valid for 2 days, trusted nowhere) and are to be deleted.
+
+  Re-run after the fixes: release run 39253792398 (all three installers, unsigned; the Windows guard found every file unsigned) and self-test run 39253780425 (all jobs green; the guard refused the throwaway signatures; no cache saved; no certificate in the log).
+- **Not verifiable until the accounts exist:**
+  - Microsoft's service itself: OIDC sign-in, the role assignment, the dlib's token use and the certificate subject;
+  - Apple notarization and stapling, and whether the API key's Developer role is enough;
+  - Gatekeeper's verdict on a real Mac, including how macOS asks the uninstaller for Apple Events and App Management;
+  - SmartScreen reputation;
+  - installing over a beta now that the publisher has changed.

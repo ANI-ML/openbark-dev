@@ -35,8 +35,25 @@ Transcription, note generation and everything else run with the network unplugge
 | B3 | `github.com/k2-fsa/sherpa-onnx/releases`, plus its redirect hosts | `sherpa-onnx-sys` build script downloads the prebuilt sherpa-onnx library for the target (spike S2) | CI caches the archive and sets `SHERPA_ONNX_ARCHIVE_DIR` so builds don't fetch it each time. The version is pinned to 1.13.8. |
 | B4 | `static.rust-lang.org` | Rust toolchain (rustup) | Pinned by `rust-toolchain.toml` |
 | B5 | `github.com/tauri-apps/binary-releases`, `github.com/tauri-apps/nsis-tauri-utils` | `tauri build --bundles nsis` downloads NSIS 3.13 and `nsis_tauri_utils.dll` 0.5.3 on first use, and checks their hashes | Cached afterwards |
-| B6 | `github.com/create-dmg/create-dmg` (tag archive) | `scripts/macos-dmg.sh` downloads create-dmg 1.3.0 to lay out the macOS disk image | Pinned by tag in the script |
+| B6 | `github.com/create-dmg/create-dmg` (commit archive), plus its redirect host `codeload.github.com` | `scripts/macos-dmg.sh` downloads create-dmg 1.3.0 to lay out the macOS disk image | Pinned by commit in the script, and each file that runs is checked against its SHA-256 (docs/versions.md) |
 | B7 | `api.github.com` | The daily **Download stats** workflow reads the public release list of ANI-ML/openbark-releases (download counts per installer) and commits a snapshot to the private `stats` branch | CI only. Counts come from GitHub's own per-file totals; nothing is collected from the app or from website visitors |
+
+### CI and release signing (ADR-0020)
+
+Contacted only by the release workflow on a pushed `v*` tag, and only for a platform whose signing secrets are set (`scripts/ci/signing-plan.sh`). Manual runs and local builds contact none of these. The self-test workflow (`signing-selftest.yml`) contacts only the timestamp servers, with throwaway certificates. What leaves the runner is a file digest, a sign-in token or the finished installer for Apple's notary service, never anything about a clinic.
+
+| # | Host(s) | Purpose | Notes |
+|---|---|---|---|
+| C1 | `login.microsoftonline.com` | Windows: `azure/login` exchanges GitHub's OIDC token for an Azure token (no stored Azure secret) | Federated credential limited to `repo:ANI-ML/openbark:environment:release` |
+| C2 | `eus.codesigning.azure.net` (the `AZURE_SIGNING_ENDPOINT` variable) | Windows: Microsoft Artifact Signing signs each file's SHA-256 digest. The files themselves never leave the runner | East US; there is no Canadian region |
+| C3 | `timestamp.acs.microsoft.com` | Windows: RFC 3161 timestamp on every signature (Artifact Signing certificates last three days, so a timestamp is required) | Also used by the self-test's throwaway certificate |
+| C4 | `api.nuget.org` | Windows: downloads `Microsoft.ArtifactSigning.Client` 1.0.128, checked by SHA-256 in `scripts/ci/windows-signing.ps1` | Pinned version and hash |
+| C5 | `timestamp.apple.com` | macOS: `codesign` adds Apple's secure timestamp to Developer ID signatures | Also contacted by the self-test |
+| C6 | `appstoreconnect.apple.com` (notarytool's API; believed) | macOS: Tauri and `scripts/macos-dmg.sh` upload the app, the uninstaller and the disk image for notarization, then wait for the result | Uses the App Store Connect team key. Stapling fetches the ticket from Apple's CloudKit service (host to confirm on the first signed run) |
+
+Linux and checksum signing (OpenPGP) is offline: the key is used on the runner and nothing is contacted.
+
+Users' computers: OpenBark itself never calls a signing or certificate service. Windows and macOS may check a signature, a certificate's revocation or notarization online on their own when the app is installed or first opened. That is the operating system, not OpenBark, and it happens with or without signing.
 
 ## Planned (not built yet)
 
