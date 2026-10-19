@@ -34,7 +34,7 @@ If an MLX model can't run, the browser says why: the engine isn't downloaded yet
 
 On an Intel Mac, or a Mac with macOS 13, the card explains what MLX needs. GGUF models work on every Mac. Windows and Linux use GGUF models only.
 
-If the card says the engine **didn't pass its check**, choose **Try again**. GGUF models keep working either way.
+After OpenBark or macOS updates, the engine checks itself again the next time an MLX model writes a note, which takes a few seconds more that once. If the card says the engine **didn't pass its check**, choose **Try again**. GGUF models keep working either way.
 
 ## Gated models and your Hugging Face token
 
@@ -44,7 +44,9 @@ Some publishers ask you to request access before you download their models ("gat
 2. Choose **Get a token** and create a token on Hugging Face. A Read token is enough.
 3. Paste it into **Hugging Face token** and choose **Save token**. OpenBark checks it with Hugging Face once and shows whose it is.
 
-The token is kept in this computer's keychain (or, without one, encrypted on this computer, or only until OpenBark closes). It's never shown again, and it's sent only to huggingface.co and only for gated models. To change or remove it, use the **Hugging Face token** link at the bottom of the Hugging Face browser. If a server sets the token (`OPENBARK_HF_TOKEN`), the app says **Set by the server**.
+If a gated repository holds no GGUF or MLX files (many original releases hold only safetensors), OpenBark says there's nothing it can run there instead of asking for access, and lists **GGUF builds of this model** when there are any.
+
+The token is kept in this computer's keychain (or, without one, encrypted on this computer, or only until OpenBark closes). It's never shown again, and it's sent only to huggingface.co and only for gated models. To change or remove it, use the **Hugging Face token** link at the bottom of the Hugging Face browser. If a server sets the token (`OPENBARK_HF_TOKEN`), the app says **Set by the server**. OpenBark never uses an `HF_TOKEN` you set for other Hugging Face tools.
 
 ## Adding a model from this computer
 
@@ -53,9 +55,9 @@ Choose **Add from this computer** on the Models screen.
 - In the desktop app, choose **Choose a .gguf file**, or on a Mac, **Choose an MLX folder**. For a model in parts, choose any part: OpenBark brings the others from the same folder.
 - In the browser version, type the full path of the file or folder on the computer running OpenBark, and choose **Check**.
 
-OpenBark shows the name, size and files before anything changes. Then choose how to add it:
+OpenBark shows the name, size and files before anything changes. A folder from the Hugging Face cache works too. A file in the folder that is a link to somewhere outside it is refused, with its name. Then choose how to add it:
 
-- **Copy into OpenBark's models folder (recommended).** The model keeps working if the original moves. On the same drive, OpenBark links it instead, so it takes no extra space.
+- **Copy into OpenBark's models folder (recommended).** The model keeps working if the original moves. On the same drive, OpenBark links it instead, so it takes no extra space (and removing it later frees none: the original keeps the space).
 - **Use it where it is, don't copy.** Useful for a large model another app already keeps. OpenBark never changes or deletes the file. If it moves, the row says **Missing**: add it again.
 
 Choose **Add**. Added models show **This computer** as their publisher. Adding a model makes no network calls. When a team is set up, only a veterinarian can add or remove models, or change the token.

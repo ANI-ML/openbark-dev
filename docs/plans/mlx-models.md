@@ -55,11 +55,12 @@ Nothing else in these files changes until the integrator. Track B's `os-llm` nee
 | Variable | Read by | Meaning |
 |---|---|---|
 | `OPENBARK_ENGINES_DIR` | B (`mlx_pack::engines_dir`) | Where engine packs are unpacked. Default `<local data>/OpenBark/engines` (the same `dirs::data_local_dir()/OpenBark` base as `locations.rs::app_dir`) |
-| `OPENBARK_MLX_DEV=1` | B (`mlx_pack::support`) | Linux x86_64 only: offer MLX on the CPU with the Linux lock ("test mode"). Never set in releases |
+| `OPENBARK_MLX_DEV=1` | B (`mlx_pack::support`) | Linux x86_64 only: offer MLX on the CPU with the Linux lock ("test mode"). Honoured only by debug builds and builds with the `mlx-test-mode` feature (`cargo build -p os-cli --features mlx-test-mode`); release builds for clinics ignore it |
 | `OPENBARK_MLX_DEVICE=cpu` | B (worker spawn) | Force MLX's CPU device (macOS CI runners without usable Metal) |
 | `OPENBARK_MLX_SANDBOX=0` | B (worker spawn) | macOS: don't wrap the worker in `sandbox-exec` (support only) |
-| `OPENBARK_HF_TOKEN`, then `HF_TOKEN` | A (`secrets::hf_token`) | A Hugging Face token set by whoever runs the server. Overrides a saved one; the UI says "Set by the server" |
-| `OPENBARK_MLX_TEST_PYTHON`, `OPENBARK_MLX_TEST_MODEL` | B (tests only) | Python of an unpacked pack, and an MLX model folder, for the real-worker tests. Unset: those tests print "skipped" and pass |
+| `OPENBARK_HF_TOKEN` | A (`secrets::hf_token`) | A Hugging Face token set by whoever runs the server. Overrides a saved one; the UI says "Set by the server". The generic `HF_TOKEN` is never read (review fix) |
+| `OPENBARK_HF_TOKEN_FILE` | A (`secrets`) | Demo, test and scratch runs: keep the token only in this file (vault-encrypted, else memory); the keychain and the data folder's `hf-token.obk` are never read, written or deleted |
+| `OPENBARK_MLX_TEST_PYTHON`, `OPENBARK_MLX_TEST_MODEL` | B (tests only) | Python of an unpacked pack, and an MLX model folder, for the real-worker tests. Unset: those tests print "skipped" and pass, unless `OPENBARK_MLX_TEST_REQUIRED=1` (CI's MLX job), which makes them fail |
 
 ## Contracts
 
@@ -388,7 +389,7 @@ pub const HF_TOKEN_ACCOUNT: &str = "huggingface-token";   // keychain service "O
 #[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug)] #[serde(rename_all = "snake_case")]
 pub enum TokenSource { Server, Keychain, VaultFile, Session }
 
-pub fn hf_token() -> Option<(String, TokenSource)>;  // env OPENBARK_HF_TOKEN, then HF_TOKEN (Server); keychain; vault file; session
+pub fn hf_token() -> Option<(String, TokenSource)>;  // env OPENBARK_HF_TOKEN (Server); keychain; vault file; session
 pub fn set_hf_token(token: &str) -> std::io::Result<TokenSource>; // keychain, else vault file `<local data>/OpenBark/hf-token.obk` when vault::enabled(), else session memory
 pub fn clear_hf_token() -> std::io::Result<()>;     // all three stores
 pub fn plausible_token(token: &str) -> bool;         // 8..=256 printable ASCII, no whitespace
@@ -876,6 +877,12 @@ All `AppError`, `DownloadError`, `HubError`, `ImportError` and `RemoveError` tex
 - 2026-10-19, track B, tests only: new variable `OPENBARK_MLX_TEST_SCHEMAS` (a folder of `*.json`) adds schemas to the golden llguidance test in `engine/os-llm/tests/mlx_worker.rs`. os-llm can't build os-engine's generated schemas itself; the integrator should add an os-engine test or example that writes every built-in template's schema, `edit::editable_schema` for each, and the from-example draft schema to a folder for it (checked by hand on 2026-10-19: all 41 plus `soap/schema.json` compile with no errors).
 - 2026-10-19, track B, contract 9 (protocol addition): while it reads the prompt the worker sends `{"id":n,"event":"progress","prompt_done":k,"prompt_total":N}` (mlx-lm's prompt progress, in steps of 64 tokens on the CPU and 512 on Metal), and a cancel stops it between steps. Measured in WSL: MLX's CPU device reads only about 4 to 5 prompt tokens a second (859 tokens took 202 s), so without these messages the 120 s silence rule would stop every real-length draft in test mode. `MlxBackend` treats them like any message (they reset the silence timer). The worker also samples like the built-in engine (greedy at temperature 0, else top-k 40, top-p 0.95, temperature).
 
+- 2026-10-19, review fixes, contract 6: `Removal` gains `shared_bytes` (bytes deleted whose data another name still holds, so nothing freed for them); contract 10: `ModelRow` gains `shared_bytes`, and `disk_bytes` counts only data with no other name.
+- 2026-10-19, review fixes, contract 5: `ImportError::Link(name)` ("{0} is a link to a file outside the folder you chose, so OpenBark won't add it."); links are resolved before copying or hashing.
+- 2026-10-19, review fixes, contracts 10 and 11: `inspect_import(path, by)`, with the `Need::Models` check; the Tauri command and the route take `by`.
+- 2026-10-19, review fixes, contract 9: the `load` request carries `max_context`, enforced by the worker.
+- 2026-10-19, review fixes, contract 7: `hf_token()` reads only `OPENBARK_HF_TOKEN`; `OPENBARK_HF_TOKEN_FILE` redirects the store for scratch runs.
+
 ## Integration (2026-10-19)
 
 Every contract change above is accepted as written. How the integrator resolved them, and what it decided beyond the contracts:
@@ -893,6 +900,26 @@ Every contract change above is accepted as written. How the integrator resolved 
   - `hub_repo` and `hub_add` fetch without a token first and read the saved token only for a gated repo whose files are hidden; `download_model` reads it only for an entry marked `gated`. Nothing else reads the keychain.
   - `remove_gpu` deletes the GPU recognisers' listed files (`remove::remove_files`) instead of their whole folders.
   - The command line's `models rm` applies only the speech-model guards (it has no per-device note model); `openbark mlx status` prints the support, lock, folders and check as JSON.
-  - The Linux CI job caches the unpacked pack keyed by the Linux lock file (the downloads themselves are deleted by `unpack`); on a cache miss the whole download-and-unpack path runs. The macOS job installs the real pack every time and is allowed to fail (runner Metal is outside our control).
+  - The Linux CI job installs the pack through OpenBark's own verified downloader on every run (it first cached the unpacked pack, which skipped the SHA-256 checks; the review fix removed that cache). The macOS job installs the real pack every time and is allowed to fail (runner Metal is outside our control).
   - UI fixes found by the end-to-end run: a sheet's tables no longer shrink when an MLX repo also lists GGUF alternatives (`.sheet-body > * { flex-shrink: 0 }`), and copy progress from **Add from this computer** no longer leaves a stuck progress bar on the catalog row.
 - **Not verified here (no Mac):** Metal, `sandbox-exec` around the real worker, and the macOS pack's code signing on a fresh machine. The `mlx-macos` CI job is there to prove them.
+
+## Review fixes (2026-10-19)
+
+Nineteen verified review findings, fixed before release 0.1.1:
+
+- **An update no longer breaks MLX drafting.** The pack check is keyed by app version and macOS version, so after an update no result matched and drafting said "Download the MLX engine" until the Models screen re-ran the check. `open_mlx` now runs the check itself when the result is missing (local, a few seconds), and a failed check has its own message pointing to **Try again**.
+- **Copying a folder of links copies the real files.** The Hugging Face cache's snapshots are links into `blobs`; hard-linking them copied the links (dangling, or leading out of the store, and then impossible to remove). Links are resolved first; a link must lead inside the chosen folder or, for a cache snapshot, the repo's `blobs`; any other is refused (`ImportError::Link`).
+- **Freed space is honest.** A file whose data has another name (a hard-linked copy) frees nothing: `ModelRow.shared_bytes` and `Removal.shared_bytes` count it, `disk_bytes` and `freed_bytes` don't, and the dialog and toast say so. Windows reads link counts with `GetFileInformationByHandle` (`windows-sys`, already in `Cargo.lock`).
+- **MLX only where MLX runs.** `hub_add` with `@mlx`, `download_model` of an MLX entry and the command line's `add-hf ... @mlx` and `pull` refuse where MLX can't run; the **In use** list disables MLX models until the engine is installed; the MLX folder button needs a Mac that runs MLX.
+- **The token is the clinic's own.** Only `OPENBARK_HF_TOKEN` is read (never `HF_TOKEN`), and `OPENBARK_HF_TOKEN_FILE` keeps scratch runs away from the keychain.
+- **Looking at a path needs a veterinarian** with a team: `inspect_import` takes `by` (contract 11: `inspect_import {path, by}`, `POST /api/models/import/inspect` `{path, by}`).
+- **The worker enforces `max_context`.** `load` carries it (`{"op":"load","path":...,"max_context":32768}`), and the worker refuses past `min(model's context, max_context)` with `context_overflow`, as llama.cpp does.
+- **Link chains in the pack** are followed as the OS would, and refused if they lead out (`mlx_pack.rs` and the lock script); a failed unpack leaves no half-made folder.
+- **Test mode is built in only where asked:** `OPENBARK_MLX_DEV` works in debug builds and with the `mlx-test-mode` feature, never in clinic releases.
+- **The status call never waits for a model load:** `GET /api/mlx` runs off the async runtime and reads a hint when the slot's lock is held; `remove_model` takes the slot before the download list.
+- **Helper-file names are matched by whole words**, so `...-lorablated-...`, `Explora-7B` and a `Floral-v1` folder are models again.
+- **A newer revision waits for the old files to go**: adding a model again at another revision while files (or a stopped download) from the old one are on disk is refused with what to do; a `.part` longer than its file is fetched again.
+- **A gated repo with nothing to run says so** (no token prompt) and lists GGUF builds of it; a slow list of GGUF builds for a repo no longer open is dropped.
+- **The socket guard's docs say what it covers**, and it now also covers `sendto`, `sendmsg`, `bind` and `listen`; the offline environment, the sandbox on macOS and the empty environment remain the real protections.
+- **Licence wording matches the pins**, CI re-verifies the pack on every run, and CI's MLX job runs the real-worker tests with `OPENBARK_MLX_TEST_REQUIRED=1`.

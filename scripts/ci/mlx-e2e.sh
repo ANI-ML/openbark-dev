@@ -8,14 +8,22 @@
 #
 # Usage: scripts/ci/mlx-e2e.sh path/to/openbark [scratch folder]
 #
+# The binary must honour test mode: a debug build, or a release built with
+# `cargo build --release -p os-cli --features mlx-test-mode`.
+#
 # Everything goes in the scratch folder (models, engines, visits, keys,
-# folder choices): never this computer's own OpenBark folders.
+# folder choices, the Hugging Face token store): never this computer's own
+# OpenBark folders or keychain. The pack is downloaded and checked against
+# the lock's SHA-256s on every run (nothing unpacked is reused).
 # Optional:
-#   MLX_PACK_CACHE=<dir>          keep a copy of the unpacked pack there, keyed
-#                                 by its lock id (CI cache); reused when present
 #   OPENBARK_GOLDEN_SCHEMAS=<dir> also compile every schema in <dir> in
 #                                 llguidance (from `cargo run -p os-engine
 #                                 --example write_schemas -- <dir>`)
+#   MLX_WORKER_TESTS=1            also run os-llm's real-worker tests
+#                                 (streaming, cancel, schemas, max_context,
+#                                 the socket guard) on this pack and model,
+#                                 with OPENBARK_MLX_TEST_REQUIRED=1 so none
+#                                 can pass by skipping. Needs cargo.
 set -euo pipefail
 
 bin="$(realpath "${1:?usage: mlx-e2e.sh path/to/openbark [scratch]}")"
@@ -36,6 +44,8 @@ export OPENBARK_TEMPLATES_DIR="$scratch/templates"
 export OPENBARK_USERS_FILE="$scratch/users.json"
 export OPENBARK_LOCATIONS_FILE="$scratch/locations.json"
 export OPENBARK_KEY_FILE="$scratch/data.key"
+# The token store too: never this computer's keychain or data folder.
+export OPENBARK_HF_TOKEN_FILE="$scratch/hf-token.obk"
 # A throwaway data key, never this computer's own.
 export OPENBARK_DATA_KEY="${OPENBARK_DATA_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}"
 export OPENBARK_LOG="${OPENBARK_LOG:-info}"
@@ -68,15 +78,9 @@ run_offline() {
 
 step "MLX status (expect test mode)"
 "$bin" mlx status | tee "$out/status-before.json"
-[[ "$(json "$out/status-before.json" 'd["support"]')" == "test_mode" ]] || { echo "MLX isn't in test mode"; exit 1; }
-lock_id="$(json "$out/status-before.json" 'd["lock_id"]')"
+[[ "$(json "$out/status-before.json" 'd["support"]')" == "test_mode" ]] || {
+  echo "MLX isn't in test mode (a release binary needs --features mlx-test-mode)"; exit 1; }
 pack_dir="$(json "$out/status-before.json" 'd["pack_dir"]')"
-
-if [[ -n "${MLX_PACK_CACHE:-}" && -f "$MLX_PACK_CACHE/$lock_id/manifest.json" ]]; then
-  step "Reusing the cached pack for lock $lock_id"
-  mkdir -p "$(dirname "$pack_dir")"
-  cp -a "$MLX_PACK_CACHE/$lock_id" "$pack_dir"
-fi
 
 step "mlx install (download through OpenBark, unpack, check)"
 "$bin" mlx install > "$out/install.json"
@@ -123,6 +127,19 @@ if bad:
 EOF
 fi
 
+if [[ "${MLX_WORKER_TESTS:-}" == "1" ]]; then
+  step "Real-worker tests on this pack and model (none may skip)"
+  (
+    cd "$repo_root"
+    export OPENBARK_MLX_TEST_PYTHON="$pack_dir/python/bin/python3"
+    export OPENBARK_MLX_TEST_MODEL="$model_dir"
+    export OPENBARK_MLX_TEST_REQUIRED=1
+    if [[ -n "${OPENBARK_GOLDEN_SCHEMAS:-}" ]]; then export OPENBARK_MLX_TEST_SCHEMAS="$OPENBARK_GOLDEN_SCHEMAS"; fi
+    cargo test --release -p os-llm --test mlx_worker -- --test-threads=1 2>&1 | tee "$out/worker-tests.log"
+  )
+  grep -q "skipped:" "$out/worker-tests.log" && { echo "a real-worker test skipped"; exit 1; }
+fi
+
 step "Draft a note from the fixture with NO network (unshare -rn)"
 fixture="$repo_root/scripts/ci/fixtures/mlx-smoke.jsonl"
 run_offline bash -c '
@@ -152,12 +169,6 @@ freed="$(json "$out/rm.json" 'd["freed_bytes"]')"
 [[ ! -e "$model_dir" ]] || { echo "$model_dir is still there"; exit 1; }
 [[ ! -e "$OPENBARK_MODELS_DIR/hf_mlx-community" ]] || { echo "empty folders were left behind"; exit 1; }
 "$bin" models list | grep -F "$model_id" | grep -q -- ' -$' || { echo "the row should stay, not installed"; exit 1; }
-
-if [[ -n "${MLX_PACK_CACHE:-}" && ! -f "$MLX_PACK_CACHE/$lock_id/manifest.json" ]]; then
-  step "Saving the pack to the cache for lock $lock_id"
-  mkdir -p "$MLX_PACK_CACHE"
-  cp -a "$pack_dir" "$MLX_PACK_CACHE/$lock_id"
-fi
 
 step "mlx remove: the pack goes, the space freed matches"
 expected="$(tree_bytes "$pack_dir")"
