@@ -738,6 +738,7 @@
   "Not downloaded": "Non téléchargé",
   "Not enough space: this needs {need} bytes and {available} are free.": "Pas assez d'espace : il faut {need} octets et {available} sont libres.",
   "Not entered": "Non saisi",
+  "Not found": "Introuvable",
   "Not installed: the Models screen can add it": "Non installée : l'écran Modèles d'IA permet de l'ajouter",
   "Not recorded": "Non enregistré",
   "Not recording": "Pas d'enregistrement en cours",

@@ -365,7 +365,7 @@ function CatalogRow({
           {p ? (
             <StatusDot tone="warn">{t("Downloading")}</StatusDot>
           ) : r.missing ? (
-            <StatusDot tone="danger">{t("Missing")}</StatusDot>
+            <StatusDot tone="danger">{t("Not found")}</StatusDot>
           ) : r.installed ? (
             <StatusDot tone="ok">{t("Ready")}</StatusDot>
           ) : r.slot === "llm" ? (

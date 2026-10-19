@@ -195,7 +195,7 @@ describe("Models catalog", () => {
     expect(within(copied).queryByText("Used where it is")).toBeNull();
     expect(within(copied).getByRole("button", { name: "Remove" })).toBeTruthy();
     const missing = rowOf("phi-4");
-    expect(within(missing).getByText("Missing")).toBeTruthy();
+    expect(within(missing).getByText("Not found")).toBeTruthy();
     expect(within(missing).queryByRole("button", { name: /Download/ })).toBeNull();
   });
 

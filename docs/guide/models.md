@@ -58,7 +58,7 @@ Choose **Add from this computer** on the Models screen.
 OpenBark shows the name, size and files before anything changes. A folder from the Hugging Face cache works too. A file in the folder that is a link to somewhere outside it is refused, with its name. Then choose how to add it:
 
 - **Copy into OpenBark's models folder (recommended).** The model keeps working if the original moves. On the same drive, OpenBark links it instead, so it takes no extra space (and removing it later frees none: the original keeps the space).
-- **Use it where it is, don't copy.** Useful for a large model another app already keeps. OpenBark never changes or deletes the file. If it moves, the row says **Missing**: add it again.
+- **Use it where it is, don't copy.** Useful for a large model another app already keeps. OpenBark never changes or deletes the file. If it moves, the row says **Not found**: add it again.
 
 Choose **Add**. Added models show **This computer** as their publisher. Adding a model makes no network calls. When a team is set up, only a veterinarian can add or remove models, or change the token.
 
