@@ -113,6 +113,10 @@ Save. The key lives only in Supabase. Then check Authentication > Rate Limits: *
 4. Sign out, sign in again (this time the Magic Link template sends the code).
 5. Delete the account with a throwaway address: the page signs out and says the account was deleted, and Authentication > Users no longer lists it.
 
+### 7. Show Sign in on the site (engineering)
+
+Until this point the portal page exists but nothing links to it. Once step 6 works, set `PORTAL_LINKED = True` in `scripts/website-build.py`, rebuild (`python scripts/website-build.py`), run the website e2e and push. The header and footer then show Sign in on every page.
+
 ## How it is protected
 
 - **Row level security** on `profiles`: a signed-in person can read, create, change and delete only the row whose `id` is their own user id. Visitors who aren't signed in get nothing. The timestamps are the database's to set, and a row's `id` can't be changed.

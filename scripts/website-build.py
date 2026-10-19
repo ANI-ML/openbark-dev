@@ -32,6 +32,11 @@ PRODUCT = "OpenBark"
 # set it to "https://github.com/ANI-ML/openbark", rebuild, and re-render
 # website/public/og-image.png (SOURCE_PUBLIC=1 node e2e/brand-images.mjs --og).
 SOURCE_URL = None
+# The account portal (portal.html) is always built. Its Sign in links in the
+# header and footer appear only once Supabase is set up (supabase/README.md):
+# until then a Sign in that can't send a code would be the first thing a
+# visitor tries. Set to True, rebuild, and the website e2e checks the links.
+PORTAL_LINKED = False
 OPEN = "free, open-source" if SOURCE_URL else "free"
 TAGLINE = "Open-source veterinary scribe" if SOURCE_URL else "Free veterinary scribe"
 CREDIT = "Built by the ANI.ML Health team."
@@ -147,6 +152,12 @@ def switch(text):
 
 def header(page):
     cur = lambda p: ' aria-current="page"' if p == page else ""
+    # The portal page itself always shows the account link, so it can say Account once signed in.
+    account = (
+        f'      <a class="nav-account" href="portal.html"{cur("portal")}>{ACCOUNT_ICON}<span data-account-label="Account">Sign in</span></a>\n'
+        if PORTAL_LINKED or page == "portal"
+        else ""
+    )
     return f"""<a class="skip" href="#main">Skip to content</a>
 <header class="site-head">
   <div class="wrap">
@@ -155,13 +166,14 @@ def header(page):
       <a href="features.html"{cur("features")}>Features</a>
       <a href="history.html"{cur("history")}>Version history</a>
       <a href="index.html#contact">Contact</a>
-{SOURCE_NAV}      <a class="nav-account" href="portal.html"{cur("portal")}>{ACCOUNT_ICON}<span data-account-label="Account">Sign in</span></a>
-      <a class="btn btn-primary" href="index.html#download">Get {e(PRODUCT)}</a>
+{SOURCE_NAV}{account}      <a class="btn btn-primary" href="index.html#download">Get {e(PRODUCT)}</a>
     </nav>
   </div>
 </header>
 """
 
+
+FOOT_ACCOUNT = '        <a href="portal.html" data-account-label="Your account">Sign in</a>\n' if PORTAL_LINKED else ""
 
 FOOTER = f"""<footer class="site-foot">
   <div class="wrap">
@@ -173,8 +185,7 @@ FOOTER = f"""<footer class="site-foot">
         <a href="features.html">Features</a>
         <a href="history.html">Version history</a>
         <a href="index.html#download">Download</a>
-        <a href="portal.html" data-account-label="Your account">Sign in</a>
-        <a href="mailto:{CONTACT}">{CONTACT}</a>
+{FOOT_ACCOUNT}        <a href="mailto:{CONTACT}">{CONTACT}</a>
         <a href="{COFFEE}" rel="noopener">Buy us a coffee</a>
         <a href="features.html#privacy">Privacy</a>
         <a href="https://www.apache.org/licenses/LICENSE-2.0">Licence: Apache-2.0</a>{SOURCE_FOOT}

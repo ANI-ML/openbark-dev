@@ -9,6 +9,8 @@ import { mkdirSync, readFileSync } from "node:fs";
 import { chromium } from "@playwright/test";
 
 const base = process.env.SITE_URL ?? "http://localhost:8099";
+// Sign in links appear only once the portal is switched on (PORTAL_LINKED in scripts/website-build.py).
+const portalLinked = /^PORTAL_LINKED = True/m.test(readFileSync(new URL("../../../scripts/website-build.py", import.meta.url), "utf8"));
 const out = process.env.OUT_DIR ?? "../../target/website";
 mkdirSync(out, { recursive: true });
 const problems = [];
@@ -102,7 +104,7 @@ for (const v of [
     await page.screenshot({ path: `${out}/${v.name}-${p.replace(".html", "")}.png` });
     // Brand guide checks: the lockup links home, the favicon is the brand one,
     // primary buttons are ink (not accent), and nothing is glass or gradient.
-    const brand = await page.evaluate(() => {
+    const brand = await page.evaluate(({ linked, onPortal }) => {
       const issues = [];
       const home = document.querySelector('.site-head a.brand[href="index.html"] svg.lockup');
       if (!home) issues.push("no lockup linking home");
@@ -144,19 +146,23 @@ for (const v of [
       if (document.querySelector(".evidence:not(details .evidence)")) issues.push("evidence shown outside How we know");
       if (document.querySelector("details.how[open]")) issues.push("How we know open by default");
       // The account link: in the header on every page and every width (an icon on
-      // phones), and in the footer.
+      // phones), and in the footer. Until the portal is switched on, only the
+      // portal page itself has it, and no other page links to the portal.
       const acct = document.querySelector('.site-nav a.nav-account[href="portal.html"]');
-      if (!acct) issues.push("no Sign in link in the header");
+      if (!linked) {
+        if (!onPortal && document.querySelector('a[href="portal.html"]')) issues.push("links to the portal before it is switched on");
+        if (onPortal && !acct) issues.push("no account link in the portal page header");
+      } else if (!acct) issues.push("no Sign in link in the header");
       else {
         const r = acct.getBoundingClientRect();
         if (r.width < 24 || r.height < 24 || r.right > innerWidth) issues.push(`header Sign in link hidden or clipped (${Math.round(r.width)}x${Math.round(r.height)} at ${Math.round(r.left)})`);
         if (acct.textContent.trim() !== "Sign in") issues.push(`header account link says "${acct.textContent.trim()}"`);
       }
-      if (!document.querySelector('.site-foot a[href="portal.html"]')) issues.push("no Sign in link in the footer");
+      if (linked && !document.querySelector('.site-foot a[href="portal.html"]')) issues.push("no Sign in link in the footer");
       // The CSP let everything through.
       if (window.__csp?.length) issues.push(`CSP violations: ${window.__csp.join("; ")}`);
       return issues;
-    });
+    }, { linked: portalLinked, onPortal: p === "portal.html" });
     for (const b of brand) problems.push(`${v.name} ${p}: ${b}`);
     await page.screenshot({ path: `${out}/${v.name}-${p.replace(".html", "")}-full.png`, fullPage: true });
   }
