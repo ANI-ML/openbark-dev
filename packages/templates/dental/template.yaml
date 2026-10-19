@@ -1,6 +1,6 @@
 # OpenBark template: dental procedure (COHAT) record.
 id: dental
-version: 0.1.0
+version: 0.1.1
 name: Dental procedure
 description: Oral exam under anaesthesia, findings by tooth, treatment and home care.
 icon: tooth
@@ -13,9 +13,10 @@ instructions: |
   The transcript is from a recording; speakers are labelled by number, not role. Infer roles from context,
   but never put words in a speaker's mouth.
 
+fixed_rules:
+  - "Record a periodontal stage, mobility grade or pocket depth only if it was said."
 rules:
   - "Each tooth finding is one statement naming the tooth exactly as said, with the finding (missing, fractured, mobility grade, pocket depth, periodontal stage, resorption, other)."
-  - "Record a periodontal stage, mobility grade or pocket depth only if it was said."
   - "Nerve blocks and anaesthetic drugs are medications: drug, dose, route and site as said."
 
 sections:

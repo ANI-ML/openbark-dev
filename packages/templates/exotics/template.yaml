@@ -1,6 +1,6 @@
 # OpenBark template: exotic animal consult (avian, reptile, small mammal).
 id: exotics
-version: 0.1.0
+version: 0.1.1
 name: Exotics consult
 description: Avian, reptile and small-mammal consult with husbandry history in full.
 icon: bird
@@ -12,10 +12,11 @@ instructions: |
   The transcript is from a recording; speakers are labelled by number, not role. Infer roles from context,
   but never put words in a speaker's mouth.
 
-rules:
-  - "Husbandry details (enclosure, temperatures, humidity, UVB, substrate, diet, supplements) are recorded exactly as the client said them."
+fixed_rules:
   - "Weights are often in grams: copy the unit as said."
   - "Never assume the species, sex or age from the name."
+rules:
+  - "Husbandry details (enclosure, temperatures, humidity, UVB, substrate, diet, supplements) are recorded exactly as the client said them."
 
 sections:
   - id: patient

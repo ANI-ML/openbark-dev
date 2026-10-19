@@ -26,10 +26,25 @@
 //! - `POST /api/sessions/{id}/edit`         `{heading, value, by}`: the vet's own version of a heading
 //! - `POST /api/sessions/{id}/addenda`      `{text, by}`: signed addition to a signed note
 //! - `POST /api/sessions/{id}/pdf`          `{clinic: {name, lines}, page, document?}` → application/pdf
-//! - `GET  /api/templates`, `POST /api/templates` (save), `POST /api/templates/preview`
+//! - Templates (ADR-0024; reads take `by` in the query, writes in the body; an
+//!   admin's PIN travels only in a body, as `approver: {id, pin}`):
+//!   `GET /api/templates?by=`, `GET /api/templates/{id}?by=`,
+//!   `POST /api/templates/preview` `{template, by}`,
+//!   `POST /api/templates` `{template, by, base_version?, base_layer?, hospital?, approver?}` (save),
+//!   `GET /api/templates/{id}/compare?by=&with=base|original`,
+//!   `POST /api/templates/{id}/reset` `{by}` and `/reset/undo` `{by, undo}`,
+//!   `POST /api/templates/{id}/keep` `{by, fingerprint, approver?}`,
+//!   `POST /api/templates/{id}/share` `{by, mode: replace|add, name?, approver}`,
+//!   `POST /api/templates/{id}/team/reset` `{by, approver}`,
+//!   `DELETE /api/templates/{id}?by=` or `POST /api/templates/{id}/delete` `{by, approver?}`,
+//!   `POST /api/templates/{id}/standards` `{heading, text, by, scope?, approver?}`,
+//!   `DELETE /api/templates/{id}/standards/{sid}?by=` or `POST .../{sid}/remove` `{by, approver?}`,
+//!   `POST /api/templates/{id}/standards/{sid}/mute` `{by, muted}`,
+//!   `GET /api/sessions/{id}/template?pet=` (the latest draft's template, read-only)
 //! - `POST /api/templates/from-example`   `{llm, text}`: a proposed template, not saved
-//! - `GET|DELETE /api/templates/{id}`
-//! - `POST /api/templates/{id}/standards` `{heading, text, by}`, `DELETE /api/templates/{id}/standards/{sid}`
+//! - `GET|POST /api/team/settings` (`{by, templates: personal|hospital, approver}`),
+//!   `POST /api/team/notice/dismiss` `{by}`, `POST /api/users/{uid}/admin` `{by, admin, approver}`,
+//!   `GET /api/users/{uid}/profile?by=` (what a member keeps, before removing them)
 //! - `GET  /api/live` (WebSocket)           browser microphone: binary f32 PCM frames
 //!   (16 kHz mono); text "stop" ends it; the reply is the saved encounter
 //! - `POST /api/record/start|stop`          record from this machine's microphone
@@ -55,11 +70,12 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{delete, get, post};
 use os_app::{
-    App, AppError, AudioBlock, ConsentMethod, ConsentRule, DeleteRequest, Events, Patient, PdfRequest,
-    RecordingConsent, RecordingSource, RefineRequest,
+    App, AppError, Approver, AudioBlock, ConsentMethod, ConsentRule, DeleteRequest, Events, Patient,
+    PdfRequest, RecordingConsent, RecordingSource, RefineRequest, SaveTemplateRequest, ShareMode,
+    TemplateMode,
 };
 use os_engine::Segment;
-use os_engine::template::Template;
+use os_engine::template::{Scope, Template};
 use os_engine::users::Role;
 use os_models::ModelStore;
 use serde::{Deserialize, Serialize};
@@ -204,8 +220,22 @@ fn router(state: St, ui_dir: &std::path::Path, port: u16) -> Router {
         .route("/api/templates/preview", post(preview_template))
         .route("/api/templates/from-example", post(template_from_example))
         .route("/api/templates/{id}", get(template).delete(delete_template))
+        .route("/api/templates/{id}/delete", post(delete_template_approved))
+        .route("/api/templates/{id}/compare", get(compare_template))
+        .route("/api/templates/{id}/reset", post(reset_template))
+        .route("/api/templates/{id}/reset/undo", post(undo_reset_template))
+        .route("/api/templates/{id}/keep", post(keep_template))
+        .route("/api/templates/{id}/share", post(share_template))
+        .route("/api/templates/{id}/team/reset", post(reset_team_template))
         .route("/api/templates/{id}/standards", post(add_standard))
         .route("/api/templates/{id}/standards/{sid}", delete(remove_standard))
+        .route("/api/templates/{id}/standards/{sid}/remove", post(remove_standard_approved))
+        .route("/api/templates/{id}/standards/{sid}/mute", post(mute_standard))
+        .route("/api/sessions/{id}/template", get(run_template_view))
+        .route("/api/team/settings", get(team_settings).post(set_team_settings))
+        .route("/api/team/notice/dismiss", post(dismiss_setup_notice))
+        .route("/api/users/{uid}/admin", post(set_user_admin))
+        .route("/api/users/{uid}/profile", get(profile_summary))
         .route("/api/live", get(live))
         .route("/api/record/start", post(record_start))
         .route("/api/record/stop", post(record_stop))
@@ -872,30 +902,228 @@ async fn add_addendum(
     blocking(move || s.app().add_addendum(&id, &req.text, &req.by, req.pet.as_deref())).await
 }
 
-async fn list_templates(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || Ok(s.app().list_templates())).await
+async fn list_templates(
+    State(s): State<St>,
+    Query(q): Query<ByQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().list_templates(q.by.as_deref())).await
 }
 
-async fn template(State(s): State<St>, UrlPath(id): UrlPath<String>) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app().template(&id)).await
+async fn template(
+    State(s): State<St>,
+    UrlPath(id): UrlPath<String>,
+    Query(q): Query<ByQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().template(&id, q.by.as_deref())).await
+}
+
+#[derive(Deserialize)]
+struct PreviewBody {
+    template: Template,
+    #[serde(default)]
+    by: Option<String>,
 }
 
 async fn preview_template(
     State(s): State<St>,
-    Json(t): Json<Template>,
+    Json(req): Json<PreviewBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app().preview_template(t)).await
+    blocking(move || s.app().preview_template(req.template, req.by.as_deref())).await
 }
 
-async fn save_template(State(s): State<St>, Json(t): Json<Template>) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app().save_template(t)).await
+/// `{template, by, ...}`; the bare template the app sent before ADR-0024 is
+/// refused in plain words.
+async fn save_template(
+    State(s): State<St>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<impl IntoResponse, ApiError> {
+    if body.get("template").is_none() {
+        return Err(ApiError(StatusCode::BAD_REQUEST, "Send {template, by}.".into()));
+    }
+    let req: SaveTemplateRequest =
+        serde_json::from_value(body).map_err(|e| ApiError(StatusCode::BAD_REQUEST, e.to_string()))?;
+    blocking(move || s.app().save_template(req)).await
+}
+
+/// `by` and, for the hospital's templates, an admin's approval. No `Debug`:
+/// it carries a PIN.
+#[derive(Deserialize)]
+struct ApprovedBody {
+    #[serde(default)]
+    by: Option<String>,
+    #[serde(default)]
+    approver: Option<Approver>,
 }
 
 async fn delete_template(
     State(s): State<St>,
     UrlPath(id): UrlPath<String>,
+    Query(q): Query<ByQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app().delete_template(&id)).await
+    blocking(move || s.app().delete_template(&id, q.by.as_deref(), None).map(|()| serde_json::json!({})))
+        .await
+}
+
+async fn delete_template_approved(
+    State(s): State<St>,
+    UrlPath(id): UrlPath<String>,
+    Json(req): Json<ApprovedBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || {
+        s.app().delete_template(&id, req.by.as_deref(), req.approver.as_ref()).map(|()| serde_json::json!({}))
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+struct CompareQuery {
+    #[serde(default)]
+    by: Option<String>,
+    #[serde(default = "original")]
+    with: String,
+}
+
+fn original() -> String {
+    "original".into()
+}
+
+async fn compare_template(
+    State(s): State<St>,
+    UrlPath(id): UrlPath<String>,
+    Query(q): Query<CompareQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().compare_template(&id, q.by.as_deref(), &q.with)).await
+}
+
+async fn reset_template(
+    State(s): State<St>,
+    UrlPath(id): UrlPath<String>,
+    Json(req): Json<ByBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().reset_template(&id, req.by.as_deref())).await
+}
+
+#[derive(Deserialize)]
+struct UndoBody {
+    #[serde(default)]
+    by: Option<String>,
+    undo: String,
+}
+
+async fn undo_reset_template(
+    State(s): State<St>,
+    UrlPath(id): UrlPath<String>,
+    Json(req): Json<UndoBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().undo_reset_template(&id, req.by.as_deref(), &req.undo)).await
+}
+
+#[derive(Deserialize)]
+struct KeepBody {
+    #[serde(default)]
+    by: Option<String>,
+    fingerprint: String,
+    #[serde(default)]
+    approver: Option<Approver>,
+}
+
+async fn keep_template(
+    State(s): State<St>,
+    UrlPath(id): UrlPath<String>,
+    Json(req): Json<KeepBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().keep_template(&id, req.by.as_deref(), &req.fingerprint, req.approver.as_ref()))
+        .await
+}
+
+#[derive(Deserialize)]
+struct ShareBody {
+    #[serde(default)]
+    by: Option<String>,
+    mode: ShareMode,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    approver: Option<Approver>,
+}
+
+async fn share_template(
+    State(s): State<St>,
+    UrlPath(id): UrlPath<String>,
+    Json(req): Json<ShareBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || {
+        s.app().share_template(&id, req.by.as_deref(), req.mode, req.name.as_deref(), req.approver.as_ref())
+    })
+    .await
+}
+
+async fn reset_team_template(
+    State(s): State<St>,
+    UrlPath(id): UrlPath<String>,
+    Json(req): Json<ApprovedBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().reset_team_template(&id, req.by.as_deref(), req.approver.as_ref())).await
+}
+
+async fn run_template_view(
+    State(s): State<St>,
+    UrlPath(id): UrlPath<String>,
+    Query(q): Query<PetQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().run_template_view(&id, q.pet.as_deref())).await
+}
+
+async fn team_settings(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || Ok(s.app().team_settings())).await
+}
+
+#[derive(Deserialize)]
+struct TeamSettingsBody {
+    #[serde(default)]
+    by: Option<String>,
+    templates: TemplateMode,
+    #[serde(default)]
+    approver: Option<Approver>,
+}
+
+async fn set_team_settings(
+    State(s): State<St>,
+    Json(req): Json<TeamSettingsBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().set_template_mode(req.templates, req.by.as_deref(), req.approver.as_ref())).await
+}
+
+async fn dismiss_setup_notice(
+    State(s): State<St>,
+    Json(req): Json<ByBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().dismiss_setup_notice(req.by.as_deref())).await
+}
+
+#[derive(Deserialize)]
+struct AdminBody {
+    #[serde(default)]
+    by: Option<String>,
+    admin: bool,
+    #[serde(default)]
+    approver: Option<Approver>,
+}
+
+async fn set_user_admin(
+    State(s): State<St>,
+    UrlPath(uid): UrlPath<String>,
+    Json(req): Json<AdminBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().set_user_admin(&uid, req.admin, req.by.as_deref(), req.approver.as_ref())).await
+}
+
+async fn profile_summary(
+    State(s): State<St>,
+    UrlPath(uid): UrlPath<String>,
+    Query(q): Query<ByQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().profile_summary(&uid, q.by.as_deref())).await
 }
 
 #[derive(Deserialize)]
@@ -911,6 +1139,7 @@ async fn template_from_example(
     blocking(move || s.app().template_from_example(&req.llm, &req.text)).await
 }
 
+/// No `Debug`: it may carry an admin's PIN.
 #[derive(Deserialize)]
 struct NewStandard {
     #[serde(default)]
@@ -918,6 +1147,10 @@ struct NewStandard {
     text: String,
     #[serde(default)]
     by: Option<String>,
+    #[serde(default)]
+    scope: Option<Scope>,
+    #[serde(default)]
+    approver: Option<Approver>,
 }
 
 async fn add_standard(
@@ -925,14 +1158,48 @@ async fn add_standard(
     UrlPath(id): UrlPath<String>,
     Json(req): Json<NewStandard>,
 ) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app().add_standard(&id, &req.heading, &req.text, req.by.as_deref())).await
+    blocking(move || {
+        s.app().add_standard(
+            &id,
+            &req.heading,
+            &req.text,
+            req.by.as_deref(),
+            req.scope,
+            req.approver.as_ref(),
+        )
+    })
+    .await
 }
 
 async fn remove_standard(
     State(s): State<St>,
     UrlPath((id, sid)): UrlPath<(String, String)>,
+    Query(q): Query<ByQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app().remove_standard(&id, &sid)).await
+    blocking(move || s.app().remove_standard(&id, &sid, q.by.as_deref(), None)).await
+}
+
+async fn remove_standard_approved(
+    State(s): State<St>,
+    UrlPath((id, sid)): UrlPath<(String, String)>,
+    Json(req): Json<ApprovedBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().remove_standard(&id, &sid, req.by.as_deref(), req.approver.as_ref())).await
+}
+
+#[derive(Deserialize)]
+struct MuteBody {
+    #[serde(default)]
+    by: Option<String>,
+    muted: bool,
+}
+
+async fn mute_standard(
+    State(s): State<St>,
+    UrlPath((id, sid)): UrlPath<(String, String)>,
+    Json(req): Json<MuteBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().mute_standard(&id, &sid, req.by.as_deref(), req.muted)).await
 }
 
 #[derive(Deserialize)]
@@ -1411,5 +1678,98 @@ mod tests {
             assert_eq!(status, StatusCode::BAD_REQUEST, "{by} saw Deleted visits");
         }
         still_there();
+    }
+
+    // ---- templates (ADR-0024), on the real router ---------------------------------
+
+    /// A server whose App has its own templates folder and team file.
+    fn template_server() -> Server {
+        test_env();
+        let tmp = tempfile::tempdir().unwrap();
+        let mut app = App::new(ModelStore::new(tmp.path().join("models")), tmp.path().join("sessions"));
+        app.users = UserStore::new(tmp.path().join("users.json"));
+        app.templates = os_engine::TemplateStore::new(tmp.path().join("templates"));
+        let app = Arc::new(app);
+        let (tx, _) = broadcast::channel(16);
+        let state: St = Arc::new(Shared { app: RwLock::new(app.clone()), events: Arc::new(Broadcaster(tx)) });
+        Server { router: router(state, &tmp.path().join("ui"), PORT), app, _tmp: tmp }
+    }
+
+    fn soap_json(plan: &str) -> serde_json::Value {
+        let mut t = os_engine::LoadedTemplate::builtin("soap").unwrap().template;
+        t.sections.iter_mut().find(|s| s.id == "plan").unwrap().instruction = Some(plan.into());
+        serde_json::to_value(t).unwrap()
+    }
+
+    #[tokio::test]
+    async fn every_template_write_needs_the_openbark_header() {
+        let srv = template_server();
+        let body = serde_json::json!({ "by": "x" });
+        let posts = [
+            "/api/templates",
+            "/api/templates/preview",
+            "/api/templates/soap/delete",
+            "/api/templates/soap/reset",
+            "/api/templates/soap/reset/undo",
+            "/api/templates/soap/keep",
+            "/api/templates/soap/share",
+            "/api/templates/soap/team/reset",
+            "/api/templates/soap/standards",
+            "/api/templates/soap/standards/s1/remove",
+            "/api/templates/soap/standards/s1/mute",
+            "/api/team/settings",
+            "/api/team/notice/dismiss",
+            "/api/users/u1/admin",
+        ];
+        for uri in posts {
+            let (status, _) = call(&srv.router, "POST", uri, Some(body.clone()), false).await;
+            assert_eq!(status, StatusCode::FORBIDDEN, "{uri}");
+        }
+        for uri in ["/api/templates/soap?by=x", "/api/templates/soap/standards/s1?by=x"] {
+            let (status, _) = call(&srv.router, "DELETE", uri, None, false).await;
+            assert_eq!(status, StatusCode::FORBIDDEN, "{uri}");
+        }
+    }
+
+    #[tokio::test]
+    async fn templates_resolve_for_the_person_asking_and_pins_come_from_the_body_only() {
+        let srv = template_server();
+        let dvm = srv.app.users.add("Dr Rivera", os_engine::users::Role::Dvm, "2468").unwrap();
+        let rvt = srv.app.users.add("Sam", os_engine::users::Role::Rvt, "1357").unwrap();
+        // The body the app sent before ADR-0024 is refused in plain words.
+        let (status, err) = call(&srv.router, "POST", "/api/templates", Some(soap_json("x")), true).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(err["error"], "Send {template, by}.");
+        // The technician saves their version.
+        let body = serde_json::json!({ "template": soap_json("Tech plan."), "by": rvt.id });
+        let (status, saved) = call(&srv.router, "POST", "/api/templates", Some(body), true).await;
+        assert_eq!(status, StatusCode::OK, "{saved}");
+        assert_eq!(saved["layer"], "personal");
+        let layer_for = |list: &serde_json::Value| {
+            list.as_array().unwrap().iter().find(|t| t["id"] == "soap").unwrap()["layer"].clone()
+        };
+        let (_, theirs) =
+            call(&srv.router, "GET", &format!("/api/templates?by={}", rvt.id), None, false).await;
+        assert_eq!(layer_for(&theirs), "personal");
+        let (_, vets) = call(&srv.router, "GET", &format!("/api/templates?by={}", dvm.id), None, false).await;
+        assert_eq!(layer_for(&vets), "builtin");
+        let (_, view) =
+            call(&srv.router, "GET", &format!("/api/templates/soap?by={}", dvm.id), None, false).await;
+        assert!(!view["prompt"].as_str().unwrap().contains("Tech plan."));
+        // Sharing with the admin's PIN in the URL and none in the body is refused.
+        let uri = format!("/api/templates/soap/share?pin=2468&approver.id={}&approver.pin=2468", dvm.id);
+        let body = serde_json::json!({ "by": rvt.id, "mode": "replace" });
+        let (status, err) = call(&srv.router, "POST", &uri, Some(body), true).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            err["error"],
+            "Changing the hospital's templates needs an admin. Ask one to approve with their PIN."
+        );
+        // In the body, it shares.
+        let body = serde_json::json!({ "by": rvt.id, "mode": "replace", "approver": { "id": dvm.id, "pin": "2468" } });
+        let (status, shared) = call(&srv.router, "POST", "/api/templates/soap/share", Some(body), true).await;
+        assert_eq!(status, StatusCode::OK, "{shared}");
+        assert_eq!(shared["layer"], "team");
+        assert_eq!(shared["origin"]["approved_by"]["name"], "Dr Rivera");
     }
 }

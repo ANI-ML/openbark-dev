@@ -1,6 +1,6 @@
 # OpenBark template: results discussion (lab, imaging or pathology results).
 id: results
-version: 0.1.0
+version: 0.1.1
 name: Results
 description: Results reviewed or given to the client, what they mean, and what changes.
 icon: flask
@@ -13,9 +13,10 @@ instructions: |
   The transcript is from a recording; speakers are labelled by number, not role. Infer roles from context,
   but never put words in a speaker's mouth.
 
-rules:
+fixed_rules:
   - "Copy every result exactly as said, with its unit, and the reference range or flag (high, low) only if said."
   - "Record an interpretation or diagnosis only in the veterinarian's words."
+rules:
   - "Results still pending are recorded as pending, with when they are expected if said."
 
 sections:

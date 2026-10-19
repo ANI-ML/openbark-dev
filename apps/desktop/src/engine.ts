@@ -256,6 +256,8 @@ export interface Status {
   team: boolean;
   /** "macos", "windows" or "linux": the Mac shows MLX-optimized models. */
   platform: string;
+  /** Working alone, each person's own templates, or the hospital's (ADR-0024). */
+  templates?: TemplatesMode;
 }
 
 export type Fit = "fits" | "tight" | "wont_fit";
@@ -343,6 +345,131 @@ export interface Standard {
   text: string;
   added_at: string;
   added_by?: string | null;
+  /** "team" (everyone, the default) or "personal" (only the person who saved it). */
+  scope?: Scope;
+}
+
+export type Scope = "team" | "personal";
+
+/** Where a template comes from (ADR-0024): shipped, the hospital's (team), or one person's own. */
+export type Layer = "builtin" | "team" | "personal";
+
+/** How templates work here: working alone, each person's own, or shared by the hospital. */
+export type TemplatesMode = "alone" | "personal" | "hospital";
+
+export interface BasedOn {
+  layer: Layer;
+  id: string;
+  version: string;
+  fingerprint: string;
+}
+
+/** Which version drafted a note, kept with the template and every run. */
+export interface Origin {
+  layer: Layer;
+  owner?: Who | null;
+  version: string;
+  fingerprint: string;
+  based_on?: BasedOn | null;
+  seen_original?: string | null;
+  saved_by?: Who | null;
+  approved_by?: Who | null;
+  saved_at?: string | null;
+  object_id?: string | null;
+}
+
+export interface OriginalInfo {
+  layer: Layer;
+  id: string;
+  name: string;
+  version: string;
+  fingerprint: string;
+}
+
+export type OriginalChange = "newer_builtin" | "team_changed" | "team_reset" | "team_deleted" | "no_longer_builtin";
+
+export interface OriginalChanged {
+  reason: OriginalChange;
+  name: string;
+  version: string;
+  fingerprint: string;
+}
+
+export type LintReason =
+  | "unsaid_findings"
+  | "unsaid_numbers"
+  | "unsaid_doses"
+  | "removes_not_discussed"
+  | "inventing"
+  | "evidence";
+
+/** A request that conflicts with the rules that always apply (a warning, never a block). */
+export interface LintWarning {
+  /** "instructions", "rules/2" or "headings/plan/medications". */
+  path: string;
+  text: string;
+  reason: LintReason;
+}
+
+/** The "Always applied" panel. */
+export interface AlwaysApplied {
+  core: { text: string; summary: string }[];
+  fixed: string[];
+  checks: string[];
+}
+
+/** What the person looking may do with a template. */
+export interface TemplateCan {
+  edit: boolean;
+  save_to: Layer | null;
+  save_needs_pin: boolean;
+  save_for_hospital: boolean;
+  reset: boolean;
+  share: boolean;
+  reset_team: boolean;
+  delete: boolean;
+  delete_needs_pin: boolean;
+  keep: boolean;
+  keep_needs_pin: boolean;
+  duplicate: boolean;
+  change_document: boolean;
+  standards_personal: boolean;
+  standards_team_needs_pin: boolean;
+  admin: boolean;
+}
+
+export type HeadingChange =
+  | { kind: "added" }
+  | { kind: "removed" }
+  | { kind: "renamed"; from: string; to: string }
+  | { kind: "moved"; from: number; to: number }
+  | { kind: "kind_changed"; from: string; to: string }
+  | { kind: "instruction_changed"; from: string | null; to: string | null }
+  | { kind: "measurements_changed"; added: string[]; removed: string[]; renamed: [string, string][] }
+  | { kind: "show_changed"; from: string[]; to: string[] }
+  | { kind: "examples_changed"; added: string[]; removed: string[] };
+
+/** A structured comparison of two templates (ADR-0024 section 9). */
+export interface TemplateDiff {
+  headings: { path: string; title: string; changes: HeadingChange[] }[];
+  note: { field: string; from: unknown; to: unknown }[];
+}
+
+/** An admin's approval: their id and PIN, sent in a request body only. */
+export interface Approver {
+  id: string;
+  pin: string;
+}
+
+export interface TeamSettingsView {
+  templates: "personal" | "hospital";
+  setup_notice: boolean;
+}
+
+export interface ProfileSummary {
+  versions: number;
+  own_templates: number;
+  standards: number;
 }
 
 export interface Template {
@@ -358,9 +485,12 @@ export interface Template {
   detail?: "concise" | "standard" | "thorough";
   language?: string;
   instructions?: string;
+  /** Safety rules from the built-in: shown, never edited (ADR-0024). */
+  fixed_rules?: string[];
   rules?: string[];
   sections: TemplateSection[];
   standards?: Standard[];
+  origin?: Origin | null;
 }
 
 export interface TemplateSummary {
@@ -373,6 +503,13 @@ export interface TemplateSummary {
   icon?: string;
   headings: number;
   standards: number;
+  /** The layer this person gets. */
+  layer?: Layer;
+  /** It changes an original (a built-in or the hospital's template). */
+  edited?: boolean;
+  /** Built in or the hospital's, as opposed to a template only this person uses. */
+  shared?: boolean;
+  original_changed?: OriginalChanged | null;
 }
 
 export interface TemplateView {
@@ -380,6 +517,25 @@ export interface TemplateView {
   builtin: boolean;
   /** The system prompt drafts with this template start from. */
   prompt: string;
+  layer: Layer;
+  origin?: Origin | null;
+  original?: OriginalInfo | null;
+  original_changed?: OriginalChanged | null;
+  has_base?: boolean;
+  /** The hospital has its own version of this built-in. */
+  team_version?: boolean;
+  can: TemplateCan;
+  always_applied: AlwaysApplied;
+  lint: LintWarning[];
+  not_used?: Standard[];
+  muted?: string[];
+  mode: TemplatesMode;
+}
+
+/** A reset, and the token its Undo sends. */
+export interface ResetView {
+  view: TemplateView;
+  undo: string;
 }
 
 export interface Refinement {
@@ -407,6 +563,8 @@ export interface User {
   id: string;
   name: string;
   role: Role;
+  /** Changes the hospital's templates and the templates setting, with their PIN. */
+  admin?: boolean;
 }
 
 /** Who did something, as stored on a revision. */
@@ -654,31 +812,120 @@ export const openSession = (id: string, pet?: string | null) =>
   isDesktop
     ? invoke<SessionView>("open_session", { id, pet: pet ?? null })
     : api<SessionView>(`/api/sessions/${enc(id)}${pet ? `?pet=${enc(pet)}` : ""}`);
+/** `?by=` for reads: the person using the app (ADR-0024: everyone gets their own version). */
+const byQuery = () => (actor ? `?by=${enc(actor)}` : "");
+
 export const listTemplates = () =>
-  isDesktop ? invoke<TemplateSummary[]>("list_templates") : api<TemplateSummary[]>("/api/templates");
+  isDesktop
+    ? invoke<TemplateSummary[]>("list_templates", { by: actor })
+    : api<TemplateSummary[]>(`/api/templates${byQuery()}`);
 export const template = (id: string) =>
-  isDesktop ? invoke<TemplateView>("template", { id }) : api<TemplateView>(`/api/templates/${enc(id)}`);
+  isDesktop
+    ? invoke<TemplateView>("template", { id, by: actor })
+    : api<TemplateView>(`/api/templates/${enc(id)}${byQuery()}`);
 export const previewTemplate = (t: Template) =>
   isDesktop
-    ? invoke<TemplateView>("preview_template", { template: t })
-    : api<TemplateView>("/api/templates/preview", post(t));
+    ? invoke<TemplateView>("preview_template", { template: t, by: actor })
+    : api<TemplateView>("/api/templates/preview", post({ template: t, by: actor }));
 /** A template proposed from an example note (not saved; M2 item 5). */
 export const templateFromExample = (llm: string, text: string) =>
   isDesktop
     ? invoke<TemplateView>("template_from_example", { llm, text })
     : api<TemplateView>("/api/templates/from-example", post({ llm, text }));
-export const saveTemplate = (t: Template) =>
-  isDesktop ? invoke<TemplateView>("save_template", { template: t }) : api<TemplateView>("/api/templates", post(t));
-export const deleteTemplate = (id: string) =>
-  isDesktop ? invoke<void>("delete_template", { id }) : api<void>(`/api/templates/${enc(id)}`, { method: "DELETE" });
-export const addStandard = (id: string, heading: string, text: string, by: string | null) =>
+export interface SaveTemplate {
+  template: Template;
+  /** The version and layer the editor started from: a different one is refused. */
+  base_version?: string | null;
+  base_layer?: Layer | null;
+  /** Save to the hospital's templates (an admin, with their PIN). */
+  hospital?: boolean;
+  approver?: Approver | null;
+}
+export const saveTemplate = (req: SaveTemplate) => {
+  const request = { ...req, by: actor };
+  return isDesktop
+    ? invoke<TemplateView>("save_template", { request })
+    : api<TemplateView>("/api/templates", post(request));
+};
+/** "What changed in the original" (`base`) or "Yours and the original" (`original`). */
+export const compareTemplate = (id: string, withWhat: "base" | "original") =>
   isDesktop
-    ? invoke<Standard>("add_standard", { id, heading, text, by })
-    : api<Standard>(`/api/templates/${enc(id)}/standards`, post({ heading, text, by }));
-export const removeStandard = (id: string, sid: string) =>
+    ? invoke<TemplateDiff>("compare_template", { id, by: actor, with: withWhat })
+    : api<TemplateDiff>(`/api/templates/${enc(id)}/compare?by=${enc(actor ?? "")}&with=${withWhat}`);
+export const resetTemplate = (id: string) =>
   isDesktop
-    ? invoke<TemplateView>("remove_standard", { id, sid })
-    : api<TemplateView>(`/api/templates/${enc(id)}/standards/${enc(sid)}`, { method: "DELETE" });
+    ? invoke<ResetView>("reset_template", { id, by: actor })
+    : api<ResetView>(`/api/templates/${enc(id)}/reset`, post({ by: actor }));
+export const undoResetTemplate = (id: string, undo: string) =>
+  isDesktop
+    ? invoke<TemplateView>("undo_reset_template", { id, by: actor, undo })
+    : api<TemplateView>(`/api/templates/${enc(id)}/reset/undo`, post({ by: actor, undo }));
+export const keepTemplate = (id: string, fingerprint: string, approver?: Approver | null) =>
+  isDesktop
+    ? invoke<TemplateView>("keep_template", { id, by: actor, fingerprint, approver: approver ?? null })
+    : api<TemplateView>(`/api/templates/${enc(id)}/keep`, post({ by: actor, fingerprint, approver: approver ?? null }));
+export const shareTemplate = (id: string, mode: "replace" | "add", name: string | null, approver: Approver | null) =>
+  isDesktop
+    ? invoke<TemplateView>("share_template", { id, by: actor, mode, name, approver })
+    : api<TemplateView>(`/api/templates/${enc(id)}/share`, post({ by: actor, mode, name, approver }));
+export const resetTeamTemplate = (id: string, approver: Approver | null) =>
+  isDesktop
+    ? invoke<ResetView>("reset_team_template", { id, by: actor, approver })
+    : api<ResetView>(`/api/templates/${enc(id)}/team/reset`, post({ by: actor, approver }));
+export const deleteTemplate = (id: string, approver?: Approver | null) =>
+  isDesktop
+    ? invoke<void>("delete_template", { id, by: actor, approver: approver ?? null })
+    : api<void>(`/api/templates/${enc(id)}/delete`, post({ by: actor, approver: approver ?? null }));
+export const addStandard = (
+  id: string,
+  heading: string,
+  text: string,
+  by: string | null,
+  scope?: Scope,
+  approver?: Approver | null,
+) =>
+  isDesktop
+    ? invoke<Standard>("add_standard", { id, heading, text, by, scope: scope ?? null, approver: approver ?? null })
+    : api<Standard>(
+        `/api/templates/${enc(id)}/standards`,
+        post({ heading, text, by, scope: scope ?? null, approver: approver ?? null }),
+      );
+export const removeStandard = (id: string, sid: string, approver?: Approver | null) =>
+  isDesktop
+    ? invoke<TemplateView>("remove_standard", { id, sid, by: actor, approver: approver ?? null })
+    : api<TemplateView>(
+        `/api/templates/${enc(id)}/standards/${enc(sid)}/remove`,
+        post({ by: actor, approver: approver ?? null }),
+      );
+/** Turn one of the hospital's standards off (or on) for yourself. */
+export const muteStandard = (id: string, sid: string, muted: boolean) =>
+  isDesktop
+    ? invoke<TemplateView>("mute_standard", { id, sid, by: actor, muted })
+    : api<TemplateView>(`/api/templates/${enc(id)}/standards/${enc(sid)}/mute`, post({ by: actor, muted }));
+/** The template a visit's latest draft was written with (read-only). */
+export const runTemplateView = (id: string, pet?: string | null) =>
+  isDesktop
+    ? invoke<TemplateView>("run_template_view", { id, pet: pet ?? null })
+    : api<TemplateView>(`/api/sessions/${enc(id)}/template${pet ? `?pet=${enc(pet)}` : ""}`);
+export const teamSettings = () =>
+  isDesktop ? invoke<TeamSettingsView>("team_settings") : api<TeamSettingsView>("/api/team/settings");
+export const setTeamSettings = (templates: "personal" | "hospital", approver: Approver | null) =>
+  isDesktop
+    ? invoke<TeamSettingsView>("set_team_settings", { templates, by: actor, approver })
+    : api<TeamSettingsView>("/api/team/settings", post({ by: actor, templates, approver }));
+export const dismissSetupNotice = () =>
+  isDesktop
+    ? invoke<TeamSettingsView>("dismiss_setup_notice", { by: actor })
+    : api<TeamSettingsView>("/api/team/notice/dismiss", post({ by: actor }));
+export const setUserAdmin = (uid: string, admin: boolean, approver: Approver | null) =>
+  isDesktop
+    ? invoke<User>("set_user_admin", { uid, admin, by: actor, approver })
+    : api<User>(`/api/users/${enc(uid)}/admin`, post({ by: actor, admin, approver }));
+/** What a team member keeps in their profile, before removing them. */
+export const profileSummary = (uid: string) =>
+  isDesktop
+    ? invoke<ProfileSummary>("profile_summary", { uid, by: actor })
+    : api<ProfileSummary>(`/api/users/${enc(uid)}/profile?by=${enc(actor ?? "")}`);
 export interface RefineRequest {
   llm: string;
   heading: string;
@@ -689,6 +936,10 @@ export interface RefineRequest {
   language?: string | null;
   /** The animal, in a multi-pet visit. */
   pet?: string | null;
+  /** Save the standard for yourself or for everyone (ADR-0024). */
+  standard_scope?: Scope | null;
+  /** For everyone, in a team: an admin's PIN. */
+  approver?: Approver | null;
 }
 /** Redraft one heading of the latest draft; saved as a new draft. */
 export const refineNote = (id: string, request: RefineRequest) =>
@@ -698,7 +949,7 @@ export const refineNote = (id: string, request: RefineRequest) =>
 /** Draft with a template; `language` is the note language ("fr"…), English when absent. */
 export const generateNote = (id: string, llm: string, tpl: string, language?: string | null, pet?: string | null) =>
   isDesktop
-    ? invoke<{ markdown: string; run: NoteRun }>("generate_note", {
+    ? invoke<{ markdown: string; run: NoteRun; notice?: string | null }>("generate_note", {
         id,
         llm,
         template: tpl,
@@ -706,7 +957,7 @@ export const generateNote = (id: string, llm: string, tpl: string, language?: st
         pet: pet ?? null,
         by: actor,
       })
-    : api<{ markdown: string; run: NoteRun }>(
+    : api<{ markdown: string; run: NoteRun; notice?: string | null }>(
         `/api/sessions/${enc(id)}/notes`,
         post({ llm, template: tpl, language: language ?? null, pet: pet ?? null, by: actor }),
       );

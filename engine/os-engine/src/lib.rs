@@ -12,6 +12,7 @@ pub mod awake;
 pub mod crosscheck;
 pub mod edit;
 pub mod faithfulness;
+pub mod fingerprints;
 pub mod from_example;
 pub mod live;
 pub mod models;
@@ -22,6 +23,8 @@ pub mod pdf;
 pub mod render;
 pub mod session;
 pub mod template;
+pub mod template_diff;
+pub mod template_lint;
 pub mod template_store;
 pub mod transcribe;
 pub mod transcript;
@@ -71,7 +74,7 @@ pub enum EngineError {
     Model(String),
     #[error("{0}")]
     Session(String),
-    #[error("template: {0}")]
+    #[error("{0}")]
     Template(String),
     #[error("model output is not valid JSON: {0}")]
     BadJson(String),

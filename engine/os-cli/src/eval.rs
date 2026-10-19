@@ -91,6 +91,10 @@ struct Score {
     /// Multi-pet visits: another animal's value found in this animal's note.
     contaminated: Vec<String>,
     note_secs: f64,
+    /// The template that drafted it, "soap@0.1.1", and its fingerprint, so a
+    /// run can be traced to the exact template text (ADR-0024 step 12).
+    template: String,
+    fingerprint: String,
 }
 
 struct Quiet;
@@ -379,6 +383,9 @@ pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
         } else {
             score_pets(&llm, &template, &transcript, &script, &args.llm)?
         };
+        let mut s = s;
+        s.template = template.label();
+        s.fingerprint = os_engine::template::fingerprint(&template.template);
         println!(
             "{:<18} {:>4}/{:<4} {:>9} {:>10} {:>8.1}  {}",
             s.fixture,
@@ -389,6 +396,7 @@ pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
             s.note_secs,
             s.misses.join("; ")
         );
+        println!("    template: {} ({})", s.template, &s.fingerprint[..12]);
         for number in &s.invented {
             println!("    invented: {number}");
         }

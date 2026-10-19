@@ -1,6 +1,6 @@
 # ADR-0006: Team templates are headings; the schema is generated; re-prompts can become standards
 
-- Status: accepted
+- Status: accepted; amended by ADR-0024 (built-ins can be changed, per person; template safety rules are fixed rules)
 - Date: 2026-10-17
 - Deciders: product owner (asked for "full customization of templates for veterinary teams that the model will fit based on heading", and "a layer that allows users to re-prompt the model for certain details and have that as a standard"), engineering
 

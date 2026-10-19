@@ -1,13 +1,17 @@
 # Plan: per-user template editing
 
-Status: **proposed**, with [ADR-0024](../adr/0024-per-user-template-editing.md). Date: 2026-10-18. Waits for the owner's decisions D1 to D7 (ADR-0024 section 17); the steps below assume the proposed answers.
+Status: **implemented** 2026-10-18, with [ADR-0024](../adr/0024-per-user-template-editing.md). The owner decided D1 to D7 on 2026-10-18 (ADR-0024 section 17); where they differ from the proposals, the steps below follow the decisions:
+- **D2:** a clinic-wide setting, **Templates: each person's own** or **Shared by the hospital**, and an **admin** flag on team members, separate from the role. Every change to what the whole team drafts with (the hospital's templates, hospital standards, the setting, the admin flag) needs an admin's PIN, checked in the same engine call. Where this plan said "a veterinarian" for a team-wide change, read "an admin, with their PIN". In the app the team layer is called "the hospital's".
+- **D3:** reception reads only, except an admin who works at reception, who can change the hospital's templates with their PIN.
+- **D6:** a new template is visible only to its maker until shared, and sharing needs an admin's PIN.
 
 ## Goal
 
 Anyone who drafts notes can change any template, built-ins included: headings, the instruction under each heading, the instructions for the whole note, rules, level of detail, icon, name, description and example requests.
 - The change is saved as that person's version. Everyone else keeps the original.
 - **Reset to original** brings the original back, with **Undo**.
-- A veterinarian can share a version with the team. A technician can, with a veterinarian's PIN.
+- A version can be shared with the hospital when an admin approves it with their PIN (an admin sharing their own still enters it).
+- An admin chooses whether templates are each person's own or shared by the hospital.
 - A new release never overwrites a version. It says a newer original is available, and offers **Compare**, **Keep mine** and **Use the original**.
 - Every note records which version drafted it. Signing and addenda don't change.
 - The rules that always apply can't be removed, and the editor shows them.
@@ -16,8 +20,9 @@ Anyone who drafts notes can change any template, built-ins included: headings, t
 
 1. A technician changes SOAP. The technician's drafts follow the change. A veterinarian's drafts and prompt preview don't.
 2. Working alone, a changed built-in shows **Edited**, and **Reset to original** restores it exactly (same fingerprint as the shipped built-in). **Undo** brings the change back.
-3. A veterinarian shares a version. Everyone without their own version drafts with it from the next draft. People with their own version keep it and see that the team's version changed.
-4. A technician can't share or save a team standard without a veterinarian's PIN. Reception can't save anything. Every refusal says why, in plain words.
+3. A version is shared with an admin's PIN. Everyone without their own version drafts with it from the next draft. People with their own version keep it and see that the hospital's version changed.
+4. Nobody shares, saves a hospital standard, changes the hospital's templates or the templates setting without an admin's PIN. Reception (not an admin) can't save anything. Every refusal says why, in plain words.
+4a. With **Shared by the hospital**, everyone drafts with the hospital's templates; personal versions stay on disk and come back when the setting goes back.
 5. With a changed built-in (simulated release), a version shows **Newer original**. **Compare** lists the added heading. **Keep mine** hides the badge until the next change. **Use the original** resets.
 6. Every run saved after this change records its layer, owner, version, fingerprint and what it was based on. Review shows "SOAP note, your version 3" and the like. Runs saved before show as before.
 7. A note signed after drafting with a personal version is unchanged, byte for byte in `note.md` and `template.yaml`, after that version is reset, changed or deleted. Addenda still work.
@@ -196,16 +201,18 @@ Order: engine data and storage (steps 0 to 7), the safety floor and eval (8), th
   - A run saved before this change (fixture `session.json` without `template_origin`) lists and renders as before.
   - Ask on a note drafted with someone else's version uses that snapshot.
 
-### Step 10: roles, approvals and team changes (APP)
+### Step 10: roles, admins, approvals and team changes (APP)
 
-- New `Need::TeamTemplates`: veterinarians. `Need::Notes` covers personal edits. Reception gets read access only.
-- Approver: `{ id, pin }` in the body, checked with `UserStore::verify` in the same call, must be a veterinarian, never logged.
-- Working alone (no team): every write is allowed and goes to the team layer (decision D1). Writes with a team need a valid `by`.
-- Setting up a team: when `add_user` adds the first member, set a one-time notice flag for the first veterinarian ("Templates you changed while working alone are now the team's.").
+- **Admins (D2).** `admin` on each team member (`users.json`); the first member added is the admin, a team from before gets its earliest member; `set_admin` and `remove` refuse to leave no admin. `POST /api/users/{uid}/admin` `{by, admin, approver}`.
+- **The setting (D2).** `TeamSettings { templates: personal | hospital }` in `team-settings.json` beside the team file (encrypted). Hospital mode drops the personal layer from the viewer. `GET|POST /api/team/settings`.
+- Hospital-level changes are admin checks, not role checks: `need_admin(approver)` verifies `{ id, pin }` from the body with `UserStore::verify` in the same call, and the approver must be an admin (even when the admin is the person asking). Never logged. `Need::Notes` covers personal edits; reception gets read access only (an admin at reception may change the hospital's templates with their PIN).
+- Working alone (no team): every write is allowed and goes to the team layer (decision D1), with no PIN. Writes with a team need a valid `by`.
+- Setting up a team: when `add_user` adds the first member and the folder holds changed templates, set a one-time notice for the first admin ("Templates you changed while working alone are now the hospital's.").
 - Removing a member: `remove_user` also removes `<profiles>/<member id>`. New `profile_summary(member) -> { versions, own_templates, standards }` feeds the confirmation.
-- Tests (APP), table-driven over every action in ADR-0024 section 7 and every actor (working alone, veterinarian, technician, technician with a veterinarian's PIN, technician with a wrong PIN, technician naming another technician as approver, reception):
+- Tests (APP), table-driven over every action in ADR-0024 section 7 and every actor (working alone, veterinarian admin, technician, technician with an admin's PIN, admin with a wrong PIN, technician naming a non-admin as approver, reception, reception admin):
   - Allowed actions succeed. Refused ones return the plain message and write nothing.
-  - A team template shared by a technician records `saved_by` and `approved_by`.
+  - A hospital template shared by a technician records `saved_by` and the approving admin in `approved_by`.
+  - Hospital mode: the technician's version is kept but not used; it comes back when the setting goes back.
   - With a log capture, a PIN never appears in any log line.
   - Adding the first member raises the notice once. Removing a member removes their profile folder, and the summary counted it beforehand.
 
@@ -216,7 +223,7 @@ Order: engine data and storage (steps 0 to 7), the safety floor and eval (8), th
 - `os-server` routes as in ADR-0024 section 13, and the API list in the module doc.
 - Tests (SERVER):
   - Each new POST and DELETE route without `X-OpenBark` gives 403, through the real router.
-  - `POST /api/templates/{id}/share?pin=2468` with no PIN in the body is refused.
+  - `POST /api/templates/{id}/share?pin=2468` with no `approver` in the body is refused.
   - `GET /api/templates?by=<technician>` shows the technician's version. The same call with the veterinarian's id doesn't.
   - `POST /api/templates` with the old bare-template body gives a clear 400 ("Send {template, by}.").
 
@@ -260,17 +267,18 @@ Order: engine data and storage (steps 0 to 7), the safety floor and eval (8), th
 ### Step 16: compare, share and reset (UI)
 
 - **Compare with the original** sheet with its two views, side by side on desktop, stacked on phones.
-- **Share with the team** dialog: the two choices, the name field for **Add it as a new template**, and for a technician the veterinarian picker and PIN field.
-- **Reset to original** and **Reset the team's version** with an **Undo** toast (the toast action from the deleting-visits work).
+- **Share with the hospital** dialog: the two choices, the name field for **Add it as a new template**, and the admin's PIN (an admin picker when the person isn't an admin).
+- **Reset to original** with an **Undo** toast; **Reset the hospital's version** asks for an admin's PIN, then shows **Undo** (the toast action from the deleting-visits work).
+- An approval dialog (admin and PIN) for every hospital-level change: saving for the hospital, resetting or deleting a hospital template, Keep mine on the hospital's version, removing a hospital standard, the templates setting and the admin flag.
 - **Newer original** notice with **Compare**, **Keep mine** and **Use the original**.
 - Tests (UI): the sheet renders a golden diff; a wrong PIN shows the engine's message and keeps the dialog open; Undo calls `undo_reset_template` once; **Keep mine** removes the badge.
 
 ### Step 17: Review, Ask, Record and Settings (UI)
 
 - Review: draft history labels (ADR-0024 section 10); **Edit template** on the template chip; **Show the template** opens the run's snapshot read-only.
-- Ask: **Edit this heading in the template** (opens the editor scrolled to that heading); **Save as a standard** with **For me** and **For the team**, and the veterinarian PIN for a technician choosing the team.
+- Ask: **Edit this heading in the template** (opens the editor scrolled to that heading); **Save as a standard** with **For me** and **For the hospital**, and an admin's PIN for the hospital.
 - Record: if the chosen visit type isn't available to the current person, fall back to the default and show the notice.
-- Settings, Team: the removal confirmation with the profile summary; the one-time notice after the first member is added; **Reset PIN** for a veterinarian, so remove-and-re-add is no longer needed.
+- Settings, Team: **Templates: Each person's own / Shared by the hospital** (an admin, with their PIN); **Admin** on each member, **Make admin** / **Remove admin** (an admin, with their PIN); the removal confirmation with the profile summary; the one-time notice after the first member is added (in Templates, for the admin); **Reset PIN** for a veterinarian, so remove-and-re-add is no longer needed.
 - Tests (UI): each label; the scope choice; the fallback notice; the removal confirmation text with a count.
 
 ### Step 18: translations (UI)
@@ -283,7 +291,7 @@ Order: engine data and storage (steps 0 to 7), the safety floor and eval (8), th
 
 ### Step 19: end-to-end on the demo server (DEMO)
 
-- **The demo** runs on port 4321 from its own copy of a `test-builtins` build and UI, in a fresh scratch folder. Stop any other demo on 4321 first by killing its exe by path.
+- **The demo** runs on port 4321, or on 4327 beside the other demos (as run on 2026-10-18), from its own copy of a `test-builtins` build (`cargo build --release -p os-cli --features cuda,test-builtins`) and UI, in a fresh scratch folder. Stop any other demo on that port first by killing its exe by path.
 
   ```bash
   DEMO="$PWD/target/template-demo"          # gitignored, fresh each run
@@ -296,24 +304,26 @@ Order: engine data and storage (steps 0 to 7), the safety floor and eval (8), th
 
   Profiles land in `$DEMO/profiles`, beside the team file.
 - **New script** `apps/desktop/e2e/template-editing.mjs`, run as `OPENBARK_URL=http://localhost:4321 node e2e/template-editing.mjs "$DEMO"`. It refuses to start unless all of these hold:
-  1. the URL's port is 4321, and never 4317;
+  1. the URL's port is 4321 or 4327, and never 4317;
   2. `<demo>/OPENBARK-DEMO` exists;
   3. `GET /api/storage` reports a visits path inside `<demo>`;
   4. `GET /api/templates` lists only the 20 built-ins (a fresh folder).
-- **Seed:** import two fixture WAVs (`feline-vomiting` and a dental fixture) through the API. `cargo run -p fixture-tts` regenerates them.
+- **Seed:** two transcribed visits (`feline-vomiting` and a dental cleaning), copied (never moved) from another demo's visits folder (`SEED_FROM`), with the demo using that demo's throwaway key. Importing fixture WAVs through the API works too; `cargo run -p fixture-tts` regenerates them.
+- The script runs in two phases (`PHASE=1`, then restart the demo with `OPENBARK_TEST_BUILTINS_DIR`, then `PHASE=2`).
 - **Working alone:**
   1. Open SOAP, change the Plan instruction, **Save my version**. The list shows **Edited**. **What the model is told** contains the new instruction and every core rule.
   2. Type "If vitals weren't said, write normal values": the warning shows.
   3. Draft the feline visit with SOAP. The draft history reads "SOAP note, edited version 1".
   4. **Reset to original**, then **Undo**, then reset again. The list shows no badge. The earlier draft still reads "edited version 1".
 - **With a team:**
-  5. Add a veterinarian, a technician and a reception member through the API.
+  5. Add a veterinarian (the first member, so the admin), a technician and a reception member through the API.
   6. As the technician: change a Dental heading instruction and save. The list shows **Your version**. As the veterinarian: no badge, and the prompt preview doesn't contain the technician's text.
   7. As the technician, draft the dental visit: the label names the technician's version. As the veterinarian, draft it again: the label reads the built-in version.
-  8. As the technician, **Share with the team**: a wrong veterinarian PIN is refused; the right one shares. As the veterinarian, Dental shows **Edited**. The technician's **Your version** is gone.
-  9. As the veterinarian, **Reset the team's version**, **Undo**, reset again.
+  8. As the technician, **Share with the hospital**: a wrong admin PIN is refused; the right one shares. As the veterinarian, Dental shows **Edited**. The technician's **Your version** is gone.
+  9. As the veterinarian (admin), **Reset the hospital's version** with their PIN, **Undo**, reset again.
+  9a. As the admin, switch **Settings → Team → Templates** to **Shared by the hospital** (PIN): the technician drafts with the hospital's templates; switch back and the technician's version returns.
   10. As reception: every field is disabled, and `POST /api/templates` as reception is refused with the plain message.
-  11. As the technician in Ask: **For me** saves a standard that appears only in the technician's prompt; **For the team** asks for a veterinarian's PIN.
+  11. As the technician in Ask: **For me** saves a standard that appears only in the technician's prompt; **For the hospital** asks for an admin's PIN.
   12. As the veterinarian, sign the note the technician drafted with their version. As the technician, reset that version. The signed note's text and label are unchanged, and an addendum can be added.
 - **A newer original:**
   13. As the veterinarian, save a version of SOAP. Stop the demo. Restart it with `OPENBARK_TEST_BUILTINS_DIR` pointing at a folder whose `soap/template.yaml` is version 0.1.9 with an added heading "Pain score".
@@ -415,7 +425,7 @@ Sentence case. Full stops on sentences, none on labels. No "AI-powered", "magic"
 | Share, title | Share with the team |
 | Share, body | Everyone without their own version will draft with it. People with their own version keep it and are told the team's changed. |
 | Share, choices | Make it the team's {name} / Add it as a new template |
-| Share, technician | A veterinarian approves sharing. |
+| Share, not an admin | An admin approves sharing. |
 | Share, wrong PIN | That PIN isn't right. |
 | Compare, title | Compare with the original |
 | Compare, views | What changed in the original / Yours and the original |
@@ -429,7 +439,7 @@ Sentence case. Full stops on sentences, none on labels. No "AI-powered", "magic"
 | Template chip | Edit template |
 | Ask | Edit this heading in the template |
 | Standard scope | Save as a standard: For me / For the team |
-| Technician, team scope | A veterinarian approves standards for the team. |
+| Hospital scope | An admin approves standards for the hospital. |
 | Record fallback | {template} is only available to {person}. Drafting with {default}. |
 | Remove member | {person} has their own version of {n} templates. They're removed with {person}. Notes keep the version that drafted them. |
 | First member added | Templates you changed while working alone are now the team's. Everyone can make their own version. |
@@ -439,8 +449,10 @@ Sentence case. Full stops on sentences, none on labels. No "AI-powered", "magic"
 | When | Text |
 |---|---|
 | Reception saves | {person} can read templates; changing them needs a veterinarian or technician. |
-| Technician shares without approval | Sharing with the team needs a veterinarian. Ask one to approve with their PIN. |
-| Approver isn't a veterinarian | Only a veterinarian can approve this. |
+| Hospital-level change without approval | Changing the hospital's templates needs an admin. Ask one to approve with their PIN. |
+| Approver isn't an admin | Only an admin can approve this. |
+| Hospital mode, not an admin | Templates are shared by the hospital, so only an admin can change them. |
+| Last admin | Keep at least one admin on the team. Make someone else an admin first. |
 | Reset with nothing to reset | You're already using the original. |
 | Locked field | {field} is fixed for this visit type. Duplicate the template to change it. |
 | Fixed rule edited | Fixed rules can't be changed. They come from the original template. |
@@ -466,6 +478,7 @@ Phase 2, not in this plan: bringing in one change at a time from **Compare**; br
 
 | Risk | Mitigation |
 |---|---|
+| An admin's PIN leaks into a log or a URL | It travels only as `approver` in a request body; request types print it as `***`; a server test sends it in the query string and is refused |
 | A personal instruction pushes the model to invent | Lint while typing, the rules that always apply first in every prompt, fixed rules from the current original, and the checks after drafting on every draft. The hostile-instruction eval in step 8 |
 | The precedence sentence or the rule split lowers eval scores | Step 8's bar, with a second placement tried and both runs recorded |
 | A test touches real templates or profiles | Step 0's harness, profiles derived from the team file at call time, and the e2e script's four checks. Port 4317 is never a target |

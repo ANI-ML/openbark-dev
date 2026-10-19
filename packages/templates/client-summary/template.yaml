@@ -2,7 +2,7 @@
 # A client document: it can be drafted after the note is signed, and it
 # follows the veterinarian's note where that differs from the transcript.
 id: client-summary
-version: 0.1.0
+version: 0.1.1
 name: Client summary
 description: A short plain-language summary of the visit for the pet owner.
 icon: chat-text
@@ -15,9 +15,10 @@ instructions: |
   Address the owner as "you" and use the pet's name when it was said.
   Keep it brief: the owner should be able to read it in a minute.
 
-rules:
+fixed_rules:
   - "Include only what was said or decided in this visit."
   - "Medications: the dose, how to give it, how often and for how long exactly as said, or null if not said."
+rules:
   - "Spell drug names correctly: where a line has a hint such as [heard \"marapitin\", likely maropitant], use the likely spelling if it fits. Write doses, amounts and durations with digits and units (1 mg/kg, 100 mL, 14 days), so they are easy to read."
 
 sections:

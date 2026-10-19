@@ -1,6 +1,6 @@
 # OpenBark template: emergency / triage record.
 id: emergency
-version: 0.1.0
+version: 0.1.1
 name: Emergency and triage
 description: ER presentation with triage, stabilisation, treatments with times, and disposition.
 icon: siren
@@ -12,11 +12,12 @@ instructions: |
   The transcript is from a recording; speakers are labelled by number, not role. Infer roles from context,
   but never put words in a speaker's mouth.
 
-rules:
+fixed_rules:
   - "Record the time of each treatment or event only if it was said."
-  - "Every drug, fluid bolus, oxygen or blood product given is a medication: drug, dose or volume, route and time as said."
   - "Record the triage category only if someone stated it."
   - "Record resuscitation (CPR) wishes only as the client stated them."
+rules:
+  - "Every drug, fluid bolus, oxygen or blood product given is a medication: drug, dose or volume, route and time as said."
 
 sections:
   - id: patient

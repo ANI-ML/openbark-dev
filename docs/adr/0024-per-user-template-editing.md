@@ -1,6 +1,6 @@
 # ADR-0024: Per-user template editing
 
-- Status: accepted (owner decisions 2026-10-18; see section 17)
+- Status: accepted (owner decisions 2026-10-18; see section 17); implemented 2026-10-18 (see "Implementation notes" at the end)
 - Date: 2026-10-18
 - Deciders: product owner (asked on 2026-10-18: "There are plenty of templates, but as a user, I can't seem to edit them. Please allow me to edit them, the prompt, etc. Per user of course."), engineering
 - Relations:
@@ -466,3 +466,18 @@ The original proposals follow for the record.
 | Let people edit the core rules or the schema | Would let a template loosen faithfulness and drop evidence links, which ADR-0006 exists to prevent |
 | Block instructions that conflict with the rules | Pattern lists can't be complete, and false blocks would frustrate. Warning while typing, rules first in the prompt, and checks after drafting are layered instead |
 | Store example notes with templates | Real notes carry patient and client details into files that are shared and synced, and a model shown an example tends to copy its facts (D4) |
+
+## Implementation notes (2026-10-18)
+
+How the owner's decisions were built, where the text above leaves room:
+
+- **Words.** In a team the app calls the team layer "the hospital's" (D2's wording): "Share with the hospital", "the hospital's version 4", the **Hospital** badge. The engine still calls it the team layer.
+- **The setting** lives in `team-settings.json` beside the team file, encrypted like it (`TemplateMode`: `personal` by default, or `hospital`). In hospital mode the personal layer is left out of resolution, listing and standards; nothing is deleted.
+- **Admins.** `admin` is stored on each team member (`users.json`). A team from before this change gets its earliest member as admin. The first member added is the admin; setting or removing the flag, and removing a member, refuse to leave no admin.
+- **Every hospital-level change takes `approver: {id, pin}`** in the request body, verified with `UserStore::verify` in the same call, and the approver must be an admin, even when the admin is the person asking. Working alone nothing needs a PIN. Approvers are written by hand into `Debug` so a PIN can't reach a log.
+- **Admins in "each person's own" mode** can also **Save for the hospital** straight from the editor (with their PIN); saving the hospital's version from their own version retires their version, as sharing does. Reception admins (D3) save to the hospital's templates only.
+- **Conflicts** compare both the version and the layer the editor started from (`base_version`, `base_layer`), so "version 1" of a personal version and "version 1" of the hospital's can't be mistaken for each other.
+- **Undo** tokens for resets are kept in the running program for 30 minutes, single-use and tied to the person who reset, so Undo of a hospital reset doesn't ask for the PIN again.
+- **Delete with a PIN** uses `POST /api/templates/{id}/delete` (and `.../standards/{sid}/remove`), since a PIN can't travel in a DELETE's query string; the plain `DELETE` routes remain for changes that need no PIN.
+- **The eval (D5)**: results in docs/eval/M2.md, "Template editing (ADR-0024 D5)".
+

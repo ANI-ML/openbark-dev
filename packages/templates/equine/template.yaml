@@ -1,6 +1,6 @@
 # OpenBark template: equine visit (field or clinic).
 id: equine
-version: 0.1.0
+version: 0.1.1
 name: Equine visit
 description: Ambulatory or clinic equine exam, including lameness and colic findings.
 icon: horse
@@ -12,10 +12,11 @@ instructions: |
   The transcript is from a recording; speakers are labelled by number, not role. Infer roles from context,
   but never put words in a speaker's mouth.
 
-rules:
+fixed_rules:
   - "Record a lameness grade only if it was said, with the scale if said (e.g. AAEP 2/5)."
-  - "Record flexion and nerve block results limb by limb exactly as said."
   - "Record drug withdrawal times or competition rules only as the veterinarian stated them."
+rules:
+  - "Record flexion and nerve block results limb by limb exactly as said."
 
 sections:
   - id: patient

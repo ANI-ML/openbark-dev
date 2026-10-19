@@ -1,6 +1,6 @@
 # OpenBark template: production animal / herd visit (bovine, small ruminant, swine).
 id: production-animal
-version: 0.1.0
+version: 0.1.1
 name: Production animal visit
 description: Individual or herd visit for cattle, sheep, goats or pigs, with withdrawal times.
 icon: cow
@@ -12,10 +12,11 @@ instructions: |
   The transcript is from a recording; speakers are labelled by number, not role. Infer roles from context,
   but never put words in a speaker's mouth.
 
-rules:
-  - "Identify animals by ear tag, name or group exactly as said."
+fixed_rules:
   - "Every drug used must keep its dose, route and the meat and milk withdrawal times exactly as said; leave a withdrawal time null if it was not said. Never supply one."
   - "Record group size, number affected and number dead only as said."
+rules:
+  - "Identify animals by ear tag, name or group exactly as said."
 
 sections:
   - title: Animals seen

@@ -1,5 +1,5 @@
-import { Button, MarkMono, StatusDot } from "@openbark/ui";
-import { Copy, FileDown, FolderOpen, RotateCw, Signature, Trash2 } from "lucide-react";
+import { Button, MarkMono, Sheet, StatusDot } from "@openbark/ui";
+import { Copy, FileDown, FolderOpen, RotateCw, Signature, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DeleteRecordingDialog } from "../components/DeleteRecordingDialog";
 import { DeleteVisitMenu } from "../components/DeleteVisitMenu";
@@ -17,6 +17,7 @@ import { fmtTime, useApp } from "../context";
 import { copyToClipboard, formatNote } from "../copyFormats";
 import * as engine from "../engine";
 import { templateName, useT } from "../i18n";
+import { draftLabel } from "../templateLabels";
 
 /**
  * Review: slim top bar, transcript | note split 5:7 on desktop
@@ -70,6 +71,8 @@ export function Review({
   /** Deleting the visit (ADR-0022), and the recording dialog. */
   const [deleting, setDeleting] = useState(false);
   const [askRecording, setAskRecording] = useState(false);
+  /** "Show the template": the latest draft's template, read-only. */
+  const [shownTemplate, setShownTemplate] = useState<engine.TemplateView | null>(null);
 
   /** In a multi-pet visit, the animal whose note is shown (M2 item 2). */
   const [pet, setPet] = useState<string | null>(initialPet ?? null);
@@ -138,8 +141,9 @@ export function Review({
     void loadDraftTemplate(chosen);
     tracker.start();
     try {
-      await engine.generateNote(id, app.settings.llm, chosen, app.settings.noteLanguage, pet);
+      const done = await engine.generateNote(id, app.settings.llm, chosen, app.settings.noteLanguage, pet);
       await load();
+      if (done.notice) app.toast(t(done.notice));
       app.announce(t("Draft ready"));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -227,7 +231,12 @@ export function Review({
     }
   }
 
-  async function refine(heading: string, request: string, saveAsStandard: boolean) {
+  async function refine(
+    heading: string,
+    request: string,
+    saveAsStandard: boolean,
+    choice?: { scope: engine.Scope; approver: engine.Approver | null },
+  ) {
     if (!template) return;
     setError(null);
     setRefining(true);
@@ -241,6 +250,8 @@ export function Review({
         by: app.actor.trim() || null,
         language: app.settings.noteLanguage,
         pet,
+        standard_scope: choice?.scope ?? null,
+        approver: choice?.approver ?? null,
       });
       await load();
       setAsking(null);
@@ -699,6 +710,30 @@ export function Review({
           {noteBoard && <div className="draft-board-wrap">{noteBoard}</div>}
           {run && template ? (
             <div className={generating ? "note-under-redraft" : undefined} aria-busy={generating || undefined}>
+              {(() => {
+                const label = draftLabel(t, template, app.user?.id ?? null, app.status?.templates ?? "alone");
+                return (
+                  <div className="draft-origin">
+                    {label && <span className="small muted">{t("Drafted with {label}", { label })}</span>}
+                    <span className="draft-origin-actions">
+                      <Button
+                        variant="ghost"
+                        size="compact"
+                        onClick={() => app.navigate({ screen: "templates", open: template.id })}
+                      >
+                        {t("Edit template")}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="compact"
+                        onClick={() => engine.runTemplateView(id, pet).then(setShownTemplate, (e) => setError(String(e?.message ?? e)))}
+                      >
+                        {t("Show the template")}
+                      </Button>
+                    </span>
+                  </div>
+                );
+              })()}
               {(hardFails > 0 || softFlags > 0 || disputed > 0) && (
                 <p className="ob-notice note-summary" data-tone={hardFails ? "danger" : undefined}>
                   {hardFails > 0 &&
@@ -757,7 +792,17 @@ export function Review({
                       templateName={templateName(t, template.name)}
                       examples={headingExamples(current?.template ?? template, heading)}
                       standards={(current?.template.standards ?? []).filter((s) => s.heading === heading)}
-                      canSave={current != null}
+                      canSave={current != null && (current.can.standards_personal || current.mode !== "personal" || current.can.standards_team_needs_pin)}
+                      scopes={
+                        (app.status?.templates ?? "alone") === "alone"
+                          ? undefined
+                          : {
+                              personal: app.status?.templates === "personal",
+                              teamNeedsPin: true,
+                              me: app.user,
+                            }
+                      }
+                      onEditHeading={() => app.navigate({ screen: "templates", open: template.id, heading })}
                       busy={refining}
                       board={
                         <DraftBoard
@@ -768,7 +813,7 @@ export function Review({
                           lines={lines}
                         />
                       }
-                      onSubmit={(request, save) => void refine(heading, request, save)}
+                      onSubmit={(request, save, choice) => void refine(heading, request, save, choice)}
                       onCancel={() => setAsking(null)}
                     />
                   )
@@ -889,6 +934,26 @@ export function Review({
           )}
         </section>
       </div>
+      {shownTemplate && (
+        <Sheet label={t("The template this draft was written with")} onClose={() => setShownTemplate(null)}>
+          {(close) => (
+            <>
+              <header className="sheet-head">
+                <h2>{draftLabel(t, shownTemplate.template, app.user?.id ?? null, app.status?.templates ?? "alone") ?? templateName(t, shownTemplate.template.name)}</h2>
+                <button type="button" className="icon-btn" aria-label={t("Close")} onClick={close}>
+                  <X size={20} aria-hidden />
+                </button>
+              </header>
+              <div className="sheet-body">
+                <p className="small muted">
+                  {t("Exactly what the model was told when this draft was written. Changing the template later doesn't change this note.")}
+                </p>
+                <pre className="prompt">{shownTemplate.prompt}</pre>
+              </div>
+            </>
+          )}
+        </Sheet>
+      )}
       {askRecording && view && (
         <DeleteRecordingDialog
           signed={signedVisit}

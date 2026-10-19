@@ -109,16 +109,17 @@ export interface Ctx {
   actor: string;
   /** The acting person's name, for messages. */
   actorName: string;
-  /** What the person using the app may do. */
-  can: { notes: boolean; sign: boolean; team: boolean };
+  /** What the person using the app may do. `admin`: changes the hospital's templates, with their PIN. */
+  can: { notes: boolean; sign: boolean; team: boolean; admin: boolean };
 }
 
 /** Permissions for a role; single-user (no role) may do everything. */
-export function permissions(role: Role | null | undefined) {
+export function permissions(role: Role | null | undefined, admin = false) {
   return {
     notes: !role || role === "dvm" || role === "rvt",
     sign: !role || role === "dvm",
     team: !role || role === "dvm",
+    admin: !role || admin,
   };
 }
 

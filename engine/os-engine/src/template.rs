@@ -251,6 +251,23 @@ pub struct Section {
     pub parts: Vec<Part>,
 }
 
+/// Who a standard applies to (ADR-0024 section 8).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Scope {
+    /// Everyone drafting with the template (the default, so existing files load unchanged).
+    #[default]
+    Team,
+    /// Only the person who saved it.
+    Personal,
+}
+
+impl Scope {
+    pub fn is_team(&self) -> bool {
+        *self == Scope::Team
+    }
+}
+
 /// A request a veterinarian saved while re-prompting a heading, applied to
 /// every later draft with this template.
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -262,6 +279,58 @@ pub struct Standard {
     pub added_at: DateTime<Local>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub added_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Scope::is_team")]
+    pub scope: Scope,
+}
+
+/// Which layer a template comes from (ADR-0024 section 2): shipped with
+/// OpenBark, the team's (the templates folder, shown as the hospital's in a
+/// team), or one person's own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Layer {
+    Builtin,
+    Team,
+    Personal,
+}
+
+/// The template a version was made from, as it was at that moment.
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct BasedOn {
+    pub layer: Layer,
+    pub id: String,
+    pub version: String,
+    pub fingerprint: String,
+}
+
+/// Where a template came from (ADR-0024 section 10). Kept in every version
+/// and in every run's snapshot, so a note says exactly which version drafted it.
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct Origin {
+    pub layer: Layer,
+    /// Whose version it is (personal versions only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<crate::users::Who>,
+    pub version: String,
+    /// Of exactly this template ([`fingerprint`]).
+    #[serde(default)]
+    pub fingerprint: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub based_on: Option<BasedOn>,
+    /// "Keep mine": the original's fingerprint its owner has seen, so the
+    /// "Newer original" notice stays away until the original changes again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seen_original: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub saved_by: Option<crate::users::Who>,
+    /// The admin whose PIN approved a change to the hospital's templates.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approved_by: Option<crate::users::Who>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub saved_at: Option<DateTime<Local>>,
+    /// Ready for sync (ADR-0017): one id per saved version.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub object_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -289,13 +358,39 @@ pub struct Template {
     pub language: String,
     #[serde(default = "default_instructions")]
     pub instructions: String,
-    /// Rules on top of [`CORE_RULES`], which every template gets.
+    /// Safety rules of a built-in template, which every version of it keeps
+    /// (ADR-0024 section 4.2). They can't be edited or removed, and drafting
+    /// takes them from the current built-in.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fixed_rules: Vec<String>,
+    /// The template's own rules, on top of [`CORE_RULES`] and `fixed_rules`.
     #[serde(default)]
     pub rules: Vec<String>,
     pub sections: Vec<Section>,
     /// Saved re-prompts (stored beside the template, merged in on load).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub standards: Vec<Standard>,
+    /// Which layer and version this is, and what it was based on (ADR-0024).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<Origin>,
+}
+
+/// A template's fingerprint: SHA-256 of its canonical JSON without `id`,
+/// `version`, `origin` and `standards` (ADR-0024 section 9). Two templates
+/// with the same fingerprint draft with the same words. Field order is the
+/// struct order (serde_json keeps insertion order).
+pub fn fingerprint(t: &Template) -> String {
+    use sha2::{Digest, Sha256};
+    let v = serde_json::to_value(t).expect("template serialises");
+    // Filtered into a new map: removing keys in place may reorder the rest.
+    let kept: serde_json::Map<String, Value> = match v {
+        Value::Object(map) => map
+            .into_iter()
+            .filter(|(k, _)| !matches!(k.as_str(), "id" | "version" | "origin" | "standards"))
+            .collect(),
+        _ => serde_json::Map::new(),
+    };
+    hex::encode(Sha256::digest(Value::Object(kept).to_string().as_bytes()))
 }
 
 fn default_language() -> String {
@@ -324,6 +419,26 @@ pub const CORE_RULES: &[&str] = &[
     "Lines may end with speech-recognition hints such as [heard \"marapitin\", likely maropitant]. Use the likely spelling for a drug or term only when it fits what was said; otherwise keep the words as heard. Never add a drug because of a hint alone.",
     "Every statement and field must cite the transcript segment ids it comes from in \"evidence\".",
     "Keep each statement to one clinical fact or action.",
+];
+
+/// Each core rule in plain words, in the same order, for the "Always
+/// applied" panel (translated in the app). A new core rule needs a summary.
+pub const CORE_RULE_SUMMARIES: &[&str] = &[
+    "Only what was said. No findings, diagnoses, vitals, doses or plans that weren't said.",
+    "Anything not discussed shows as not discussed. Never \"normal\" unless it was said.",
+    "Numbers are copied exactly as said, with their units.",
+    "Patient details only if someone said them. The species is never guessed.",
+    "Every fact points to the line where it was said.",
+    "Speech-recognition hints never add a drug on their own.",
+    "Every line links to the recording.",
+    "One clinical fact or action per line.",
+];
+
+/// The checks after drafting, one sentence each, shown with the rules that always apply.
+pub const CHECKS_AFTER_DRAFTING: &[&str] = &[
+    "After drafting, every number and every line is checked against the recording.",
+    "A number that isn't in the recording blocks signing until it's resolved.",
+    "A note stays a draft until a veterinarian signs it.",
 ];
 
 /// Limits that keep a template's prompt and grammar a sensible size.
@@ -670,8 +785,12 @@ fn normalize(t: &mut Template) -> Result<(), EngineError> {
         return Err(bad(format!("'{}' can't be an icon name (use a-z, 0-9 and -).", t.icon)));
     }
     check_text("The instructions", &t.instructions)?;
-    t.rules.retain(|r| !r.trim().is_empty());
-    for r in &t.rules {
+    for r in t.rules.iter_mut().chain(t.fixed_rules.iter_mut()) {
+        *r = r.trim().to_string();
+    }
+    t.rules.retain(|r| !r.is_empty());
+    t.fixed_rules.retain(|r| !r.is_empty());
+    for r in t.rules.iter().chain(t.fixed_rules.iter()) {
         check_text("A rule", r)?;
     }
     if t.sections.is_empty() {
@@ -889,9 +1008,10 @@ mod tests {
     fn builtin_soap_loads() {
         let t = LoadedTemplate::builtin("soap").unwrap();
         assert_eq!(t.template.id, "soap");
-        assert_eq!(t.label(), "soap@0.1.0");
+        assert_eq!(t.label(), "soap@0.1.1");
         assert!(t.template.sections.iter().any(|s| s.id == "plan"));
-        assert!(t.template.rules.iter().any(|r| r.contains("Differentials")));
+        assert!(t.template.fixed_rules.iter().any(|r| r.contains("Differentials")));
+        assert!(t.template.rules.iter().any(|r| r.contains("declined or deferred")));
     }
 
     #[test]
@@ -1026,6 +1146,7 @@ sections:
             text: "List fluids with rate and volume".into(),
             added_at: Local::now(),
             added_by: Some("Dr Patel".into()),
+            scope: Scope::Personal,
         });
         let back = LoadedTemplate::from_yaml(&t.to_yaml()).unwrap();
         assert_eq!(back.template.standards, t.template.standards);

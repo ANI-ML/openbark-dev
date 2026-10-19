@@ -1,6 +1,7 @@
 import { Button } from "@openbark/ui";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import type { Standard } from "../engine";
+import type { Approver, Scope, Standard, User } from "../engine";
+import * as engine from "../engine";
 import { useT } from "../i18n";
 
 export interface RefinePanelProps {
@@ -16,7 +17,15 @@ export interface RefinePanelProps {
   busy: boolean;
   /** The drafting board shown while the heading is redrafted. */
   board: ReactNode;
-  onSubmit: (request: string, saveAsStandard: boolean) => void;
+  /**
+   * In a team (ADR-0024): who a saved standard is for. `personal` false when
+   * templates are shared by the hospital; a standard for everyone needs an
+   * admin's PIN. Absent working alone, where every standard is everyone's.
+   */
+  scopes?: { personal: boolean; teamNeedsPin: boolean; me?: User | null };
+  /** "Edit this heading in the template": opens the editor at this heading. */
+  onEditHeading?: () => void;
+  onSubmit: (request: string, saveAsStandard: boolean, choice?: { scope: Scope; approver: Approver | null }) => void;
   onCancel: () => void;
 }
 
@@ -41,12 +50,27 @@ export function RefinePanel({
   canSave,
   busy,
   board,
+  scopes,
+  onEditHeading,
   onSubmit,
   onCancel,
 }: RefinePanelProps) {
   const t = useT();
   const [request, setRequest] = useState("");
   const [save, setSave] = useState(false);
+  const [scope, setScope] = useState<Scope>(scopes?.personal === false ? "team" : "personal");
+  const [admins, setAdmins] = useState<User[]>([]);
+  const [admin, setAdmin] = useState(scopes?.me?.admin ? scopes.me.id : "");
+  const [pin, setPin] = useState("");
+  const needsPin = Boolean(scopes && save && scope === "team" && scopes.teamNeedsPin);
+  useEffect(() => {
+    if (!needsPin || scopes?.me?.admin) return;
+    engine.listUsers().then((u) => setAdmins(u.filter((x) => x.admin)), () => {});
+  }, [needsPin, scopes?.me?.admin]);
+  const submit = (text: string, keep: boolean) => {
+    if (!scopes) return onSubmit(text, keep);
+    onSubmit(text, keep, { scope, approver: keep && needsPin ? { id: admin, pin } : null });
+  };
   const box = useRef<HTMLTextAreaElement>(null);
   const id = `ask-${title.replace(/\W+/g, "-").toLowerCase()}`;
 
@@ -66,7 +90,7 @@ export function RefinePanel({
       aria-label={t("Ask for changes to {heading}", { heading: title })}
       onSubmit={(e) => {
         e.preventDefault();
-        if (request.trim()) onSubmit(request.trim(), save && !alreadyStandard);
+        if (request.trim()) submit(request.trim(), save && !alreadyStandard);
       }}
       onKeyDown={(e) => e.key === "Escape" && !busy && onCancel()}
     >
@@ -89,7 +113,7 @@ export function RefinePanel({
         onKeyDown={(e) => {
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && request.trim()) {
             e.preventDefault();
-            onSubmit(request.trim(), save && !alreadyStandard);
+            submit(request.trim(), save && !alreadyStandard);
           }
         }}
       />
@@ -142,20 +166,68 @@ export function RefinePanel({
           <span>
             {alreadyStandard
               ? t("Already a standard in {template}.", { template: templateName })
-              : t("Save as a standard: every {template} draft follows it under this heading.", {
-                  template: templateName,
-                })}
+              : scopes
+                ? t("Save as a standard: later {template} drafts follow it under this heading.", { template: templateName })
+                : t("Save as a standard: every {template} draft follows it under this heading.", {
+                    template: templateName,
+                  })}
           </span>
         </label>
+      )}
+      {canSave && scopes && save && !alreadyStandard && (
+        <fieldset className="ask-scope">
+          <legend className="sr-only">{t("Who the standard is for")}</legend>
+          {scopes.personal && (
+            <label className="check small">
+              <input type="radio" name="standard-scope" checked={scope === "personal"} onChange={() => setScope("personal")} />
+              <span>{t("For me")}</span>
+            </label>
+          )}
+          <label className="check small">
+            <input type="radio" name="standard-scope" checked={scope === "team"} onChange={() => setScope("team")} />
+            <span>{t("For the hospital")}</span>
+          </label>
+          {needsPin && (
+            <div className="ask-approve">
+              <span className="small muted">{t("An admin approves standards for the hospital.")}</span>
+              {!scopes.me?.admin && (
+                <select className="ob-select" aria-label={t("Admin approving")} value={admin} onChange={(e) => setAdmin(e.target.value)}>
+                  <option value="">{t("Choose an admin")}</option>
+                  {admins.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <input
+                className="ob-input mono"
+                type="password"
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={8}
+                aria-label={t("Admin's PIN")}
+                placeholder={t("Admin's PIN")}
+                value={pin}
+                onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
+              />
+            </div>
+          )}
+        </fieldset>
       )}
       <p className="small faint">
         {t(
           "The request steers the model; it isn't evidence. Anything not said in the recording stays out, and numbers are checked again.",
         )}
       </p>
+      {onEditHeading && (
+        <button type="button" className="link small ask-edit-heading" onClick={onEditHeading}>
+          {t("Edit this heading in the template")}
+        </button>
+      )}
       {busy && board}
       <div className="ask-actions">
-        <Button type="submit" variant="primary" disabled={busy || !request.trim()}>
+        <Button type="submit" variant="primary" disabled={busy || !request.trim() || (needsPin && (!admin || pin.length < 4))}>
           {busy ? t("Redrafting") : t("Redraft {heading}", { heading: title.split(" > ").pop() ?? "" })}
         </Button>
         <Button variant="ghost" onClick={onCancel} disabled={busy}>

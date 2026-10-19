@@ -14,6 +14,7 @@ Everything a clinic needs to install OpenBark and use it day to day.
 - Patients, with each animal's visits in one place.
 - Much faster on NVIDIA graphics cards: transcription and drafting both run on the card, with an optional speed pack for transcription.
 - Clear progress for transcription and drafting, and Reprocess to redraft a visit with a different template.
+- Change any template, built-ins included, as your own version; a hospital-wide templates setting; admins approve hospital changes with their PIN.
 - The new OpenBark brand across the app and the website, with downloads, this version history and a way to contact the team.
 
 ### Milestone 2: Specialties and help
