@@ -198,7 +198,7 @@ function Check-Unsigned {
   Test-NoForeignSignature $setup
   $files = @(Install-Silently $setup)
   foreach ($f in $files) { Test-NoForeignSignature $f.FullName }
-  Write-Host "None of the $($files.Count) installed program files or the installer carries a signature from anyone but $Publisher."
+  Write-Host "Signed by no one but $Publisher (or unsigned): the installer and all $($files.Count) installed program files"
 }
 
 switch ($Mode) {
