@@ -56,6 +56,8 @@ jobs:
               target/release/bundle/appimage/*.AppImage
     name: Installer (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
+    # A stuck step (a keychain or authorization prompt) must not hold a runner for 6 hours.
+    timeout-minutes: 180
     # The signing secrets live in the `release` environment, which accepts
     # only v* tags. Manual runs use no environment, so they never see them.
     environment: ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) && 'release' || '' }}
@@ -228,6 +230,7 @@ jobs:
           bash scripts/ci/macos-verify.sh "$1" --notarized
       - name: Remove the keychain and key (macOS)
         if: always() && matrix.name == 'macos' && steps.plan.outputs.sign == 'true'
+        timeout-minutes: 5
         run: |
           bash scripts/ci/macos-keychain.sh cleanup
           rm -rf "$RUNNER_TEMP/private_keys"

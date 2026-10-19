@@ -27,6 +27,7 @@ jobs:
   plan:
     name: Signing plan rules
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Unsigned without secrets, signed with all, stop when half set
@@ -55,6 +56,7 @@ jobs:
         # 22.04 builds the Linux installers; 24.04 signs the checksums.
         os: [ubuntu-22.04, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y rpm
@@ -104,6 +106,7 @@ jobs:
   macos:
     name: macOS (self-signed, not notarized)
     runs-on: macos-15
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -175,14 +178,25 @@ jobs:
           got="$("$t/MacOS/uninstall" one "two words")"
           echo "$got"
           [ "$got" = "ran with: one two words" ] || { echo "launcher didn't pass its arguments through"; exit 1; }
-      - name: Remove the keychain and certificate
+      - name: Remove the keychain (shared script)
         if: always()
+        timeout-minutes: 5
+        run: bash scripts/ci/macos-keychain.sh cleanup
+      # `security remove-trusted-cert` waits for an authorization dialog that
+      # never appears on a runner, so delete the certificate itself (its trust
+      # setting goes with it) and bound every call.
+      - name: Remove the throwaway certificate
+        if: always()
+        timeout-minutes: 5
         run: |
-          bash scripts/ci/macos-keychain.sh cleanup
+          bounded() { perl -e 'alarm shift; exec @ARGV or die "exec: $!"' "$@"; }
           if [ -f "$RUNNER_TEMP/selfcert/cert.pem" ]; then
-            sudo security remove-trusted-cert -d "$RUNNER_TEMP/selfcert/cert.pem" || true
+            sha1="$(/usr/bin/openssl x509 -in "$RUNNER_TEMP/selfcert/cert.pem" -noout -fingerprint -sha1 | sed 's/.*=//; s/://g')"
+            bounded 60 sudo security delete-certificate -Z "$sha1" -t /Library/Keychains/System.keychain \
+              || echo "::warning::Couldn't delete the throwaway certificate; the runner is discarded after the job anyway."
           fi
           rm -rf "$RUNNER_TEMP/selfcert"
+          echo "Throwaway certificate removed."
       - uses: actions/upload-artifact@v4
         with:
           name: selftest-macos-dmg
@@ -192,6 +206,7 @@ jobs:
   windows:
     name: Windows (self-signed through signCommand)
     runs-on: windows-latest
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

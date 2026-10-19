@@ -39,6 +39,12 @@ SIGN_ID="${APPLE_SIGNING_IDENTITY:-}"
 SIGNING=0
 if [ -n "$SIGN_ID" ] && [ "$SIGN_ID" != "-" ]; then
   SIGNING=1
+else
+  # Tauri treats a set-but-empty APPLE_SIGNING_IDENTITY as the identity ""
+  # instead of the committed "-" (the release workflow sets it empty when
+  # not signing), and would try to notarize with any APPLE_API_* present.
+  unset APPLE_SIGNING_IDENTITY APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_PATH \
+    APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD
 fi
 if [ "$SIGNING" = 1 ] && [ "$NOTARIZE" = 1 ]; then
   for v in APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_PATH; do
