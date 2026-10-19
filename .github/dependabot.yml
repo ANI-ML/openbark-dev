@@ -26,6 +26,15 @@ updates:
         # requests of their own, so each bump is checked separately by CI's
         # symbol check and the evaluation.
         exclude-patterns: ["llama-cpp*", "sherpa-onnx*"]
+    ignore:
+      # These unpack the optional GPU speech pack (gpu_pack.rs). Major bumps are
+      # tested by hand on an NVIDIA machine first, then updated manually.
+      - dependency-name: zip
+        update-types: ["version-update:semver-major"]
+      - dependency-name: bzip2
+        update-types: ["version-update:semver-major"]
+      - dependency-name: tar
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: npm # pnpm workspace: pnpm-lock.yaml and the catalog in pnpm-workspace.yaml
     directory: /
@@ -46,6 +55,10 @@ updates:
       # (pnpm-workspace.yaml).
       - dependency-name: jsdom
         versions: [">=30"]
+      # TypeScript 7 (the native compiler) has no programmatic API yet; stay on
+      # ~6.0 until 7.1 (docs/versions.md).
+      - dependency-name: typescript
+        versions: [">=7"]
 
   - package-ecosystem: github-actions
     directory: /
