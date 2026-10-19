@@ -29,10 +29,10 @@ cargo build --release -p os-cli --features metal     # first build ≈ 10–15 m
 scripts/bench.sh            # pulls models (~13 GB), runs E4B and 12B, saves JSON
 ```
 
-Each run prints a one-line summary: audio length, speech-to-text time, LLM speed, total wall time, and whether the faithfulness check passed. The results land in `docs/perf/results/<your-mac>-<date>/`. To send them back, commit them on a branch:
+Each run prints a one-line summary: audio length, speech-to-text time, LLM speed, total wall time, and whether the faithfulness check passed. The results land in `docs/perf/results/<label>-<date>/` (set `BENCH_NAME` first, for example `BENCH_NAME=m3-pro-36gb`). To send them back, commit them on a branch:
 
 ```bash
-git switch -c perf/$(hostname -s) && git add docs/perf/results && git commit -m "perf: M0 bench on $(sysctl -n machdep.cpu.brand_string)" && git push -u origin HEAD
+git switch -c "perf/$BENCH_NAME" && git add docs/perf/results && git commit -m "perf: M0 bench on $(sysctl -n machdep.cpu.brand_string)" && git push -u origin HEAD
 ```
 
 Or just paste the summary lines into the chat.

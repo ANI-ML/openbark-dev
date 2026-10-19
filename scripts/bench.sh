@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Benchmark the full pipeline on this machine and save the results under
-# docs/perf/results/<host>-<date>/ (acceptance test M0-3).
+# docs/perf/results/<hardware label>-<date>/ (acceptance test M0-3).
 #
 # Usage:  scripts/bench.sh [llm-id ...]      (default: gemma-4-e4b-it-q4_0 gemma-4-12b-it-q4_0)
 # Needs:  target/release/openbark (built with --features metal on Mac, cuda on NVIDIA)
@@ -27,8 +27,10 @@ for id in silero-vad parakeet-tdt-0.6b-v3-int8 pyannote-segmentation-3.0 wespeak
   "$bin" models pull "$id"
 done
 
-host=$(hostname | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-\n' '-')
-out="docs/perf/results/${host}-$(date +%Y%m%d)"
+# Results are named for the hardware, never the computer's name (it can identify
+# a person). Set BENCH_NAME, e.g. BENCH_NAME=m3-pro-36gb, or get a generic label.
+label=$(printf '%s' "${BENCH_NAME:-$(uname -s)-$(uname -m)}" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-')
+out="docs/perf/results/${label}-$(date +%Y%m%d)"
 mkdir -p "$out"
 "$bin" probe > "$out/probe.json"
 
