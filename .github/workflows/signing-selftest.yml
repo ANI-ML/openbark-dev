@@ -182,21 +182,17 @@ jobs:
         if: always()
         timeout-minutes: 5
         run: bash scripts/ci/macos-keychain.sh cleanup
-      # `security remove-trusted-cert` waits for an authorization dialog that
-      # never appears on a runner, so delete the certificate itself (its trust
-      # setting goes with it) and bound every call.
-      - name: Remove the throwaway certificate
+      # Removing the certificate's trust from the System keychain
+      # (`security remove-trusted-cert` or `delete-certificate`, even with
+      # sudo) waits for an authorization dialog that never appears on a
+      # runner: it held the first run for 6 hours. GitHub discards the hosted
+      # runner after the job, so only the files are removed here.
+      - name: Remove the throwaway certificate files
         if: always()
         timeout-minutes: 5
         run: |
-          bounded() { perl -e 'alarm shift; exec @ARGV or die "exec: $!"' "$@"; }
-          if [ -f "$RUNNER_TEMP/selfcert/cert.pem" ]; then
-            sha1="$(/usr/bin/openssl x509 -in "$RUNNER_TEMP/selfcert/cert.pem" -noout -fingerprint -sha1 | sed 's/.*=//; s/://g')"
-            bounded 60 sudo security delete-certificate -Z "$sha1" -t /Library/Keychains/System.keychain \
-              || echo "::warning::Couldn't delete the throwaway certificate; the runner is discarded after the job anyway."
-          fi
           rm -rf "$RUNNER_TEMP/selfcert"
-          echo "Throwaway certificate removed."
+          echo "Throwaway certificate files removed. Its System keychain trust entry goes with this single-use runner."
       - uses: actions/upload-artifact@v4
         with:
           name: selftest-macos-dmg

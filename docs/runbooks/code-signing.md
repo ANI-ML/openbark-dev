@@ -497,7 +497,7 @@ Which secrets turn on which platform:
 | macOS | secrets `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_API_KEY`, `APPLE_API_ISSUER`, `APPLE_API_PRIVATE_KEY` | variable `APPLE_TEAM_ID` (not read by CI, kept for the iPhone work) |
 | Linux `.rpm` and `SHA256SUMS.txt.asc` | secret `OPENBARK_RELEASE_GPG_KEY` | secret `OPENBARK_RELEASE_GPG_PASSPHRASE` (needed if the key has one); variable `OPENBARK_RELEASE_GPG_FINGERPRINT` (checked against the key when set) |
 
-The shared code lives in `scripts/ci/`: `signing-plan.sh`, `windows-signing.ps1`, `macos-keychain.sh`, `macos-verify.sh` and `gpg-sign.sh`, plus `scripts/macos-dmg.sh`. The **Signing self-test** workflow (`.github/workflows/signing-selftest.yml`, manual only, no secrets) runs the same scripts with throwaway credentials: a self-signed certificate on macOS and Windows, and a fresh OpenPGP key on Linux. It skips notarization and Microsoft's service, which need the real accounts.
+The shared code lives in `scripts/ci/`: `signing-plan.sh`, `windows-signing.ps1`, `macos-keychain.sh`, `macos-verify.sh` and `gpg-sign.sh`, plus `scripts/macos-dmg.sh`. The **Signing self-test** workflow (`.github/workflows/signing-selftest.yml`, manual only, no secrets) runs the same scripts with throwaway credentials: a self-signed certificate on macOS and Windows, and a fresh OpenPGP key on Linux. It skips notarization and Microsoft's service, which need the real accounts. The first green dry runs (2026-10-19) are listed in ADR-0020's implementation notes.
 
 ### `.github/workflows/release.yml`
 
