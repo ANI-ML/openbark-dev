@@ -1,0 +1,32 @@
+[package]
+name = "os-connect"
+description = "The clinic's own Twilio account for OpenBark: credentials, Voice access tokens, REST setup and TwiML Bin text (ADR-0023)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# The vault (ADR-0008) seals connections.bin under the local data key. No
+# cycle: os-engine never depends on os-connect.
+os-engine.workspace = true
+# Allowed an HTTP client by scripts/ci/check-network.sh (ADR-0023, docs/network.md R9).
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+dirs.workspace = true
+sha2.workspace = true
+# HS256 for Twilio access tokens. Already in Cargo.lock (via hkdf), and on
+# digest 0.11 like sha2 0.11.1 (docs/versions.md).
+hmac = "=0.13.0"
+base64 = "=0.23.1"
+
+[target.'cfg(any(windows, target_os = "macos", target_os = "linux"))'.dependencies]
+# The API key secret lives in the OS keychain, as the data key does (ADR-0008).
+keyring = "=4.2.0"
+
+[dev-dependencies]
+tempfile.workspace = true
+tracing-subscriber.workspace = true

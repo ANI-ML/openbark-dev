@@ -141,7 +141,7 @@ The incoming Bin (one `<Client>` per computer, up to ten):
 <Response>
   <Dial timeout="25" answerOnBridge="true">
     <Client>
-      <Identity>openbark-front-desk</Identity>
+      <Identity>openbark_front_desk</Identity>
       <Parameter name="parent" value="{{CallSid}}"/>
     </Client>
   </Dial>
@@ -149,7 +149,7 @@ The incoming Bin (one `<Client>` per computer, up to ten):
 </Response>
 ```
 
-Neither Bin has a `record` attribute, so Twilio records nothing. Identities are computer names the clinic picks ("front-desk"), never people's names. If step 1 of the plan shows that one shared identity rings every computer, the incoming Bin becomes a single `<Client>` and stops needing edits when a computer is added.
+Neither Bin has a `record` attribute, so Twilio records nothing. Identities are computer names the clinic picks ("front-desk"), never people's names. Twilio allows only letters, digits and underscores in a client identity, so OpenBark adds the `openbark_` prefix and turns dashes into underscores ("front-desk" becomes `openbark_front_desk`). If step 1 of the plan shows that one shared identity rings every computer, the incoming Bin becomes a single `<Client>` and stops needing edits when a computer is added.
 
 ### 4. The phone window and the CSP exception
 

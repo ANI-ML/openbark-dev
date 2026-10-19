@@ -3871,6 +3871,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "os-connect"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "dirs",
+ "hmac 0.13.0",
+ "keyring",
+ "os-engine",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "os-diar"
 version = "0.1.0"
 dependencies = [
