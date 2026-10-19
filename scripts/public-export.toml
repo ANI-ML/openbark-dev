@@ -1990,13 +1990,6 @@ reason = "Owner errand, in a comment."
 # below. The live site is switched separately in the private repo.
 
 [[scrub]]
-id = "site-source-url"
-files = ["scripts/website-build.py"]
-find = "# The source repository. Until ANI-ML/openbark is public, leave this as None:\n# the site then calls OpenBark free (not open source), says the code isn't\n# public yet, and shows no Source code links. Once the repository is public,\n# set it to \"https://github.com/ANI-ML/openbark\", rebuild, and re-render\n# website/public/og-image.png (SOURCE_PUBLIC=1 node e2e/brand-images.mjs --og).\nSOURCE_URL = None\n"
-replace = "# The source repository, linked from the header, footer and landing page.\n# After changing it, rebuild and re-render website/public/og-image.png\n# (SOURCE_PUBLIC=1 node e2e/brand-images.mjs --og).\nSOURCE_URL = \"https://github.com/ANI-ML/openbark\"\n"
-reason = "The public copy is the public source, so the site it generates links to it instead of saying the code isn't public. Change the URL here if the public repo gets another name."
-
-[[scrub]]
 id = "site-preview-comment"
 files = ["scripts/website-build.py"]
 find = "the Artifact viewer adds the document wrapper."
@@ -2036,13 +2029,6 @@ files = ["website/content/features.json"]
 find = "The graphics card was shared with a game,"
 replace = "The graphics card was shared with another program,"
 reason = "Personal software use on the owner's machine."
-
-[[scrub]]
-id = "features-source-public"
-files = ["website/content/features.json"]
-find = "\"benefit\": \"Anyone will be able to read, check and build the code.\",\n          \"detail\": \"The source will be public on GitHub under the Apache-2.0 licence, so any clinic or developer can inspect it, build it and improve it.\",\n          \"evidence\": \"LICENSE; website/README.md\",\n          \"status\": \"coming\""
-replace = "\"benefit\": \"Anyone can read, check and build the code.\",\n          \"detail\": \"The source is public on GitHub under the Apache-2.0 licence, so any clinic or developer can inspect it, build it and improve it.\",\n          \"evidence\": \"LICENSE; this repository\",\n          \"status\": \"shipped\""
-reason = "In the public copy the source is public."
 
 [[scrub]]
 id = "features-agent-review"
