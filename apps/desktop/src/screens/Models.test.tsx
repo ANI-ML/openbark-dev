@@ -147,7 +147,7 @@ function ctx(platform = "macos"): Ctx {
     setUser: vi.fn(),
     actor: "Sam",
     actorName: "Sam",
-    can: { notes: true, sign: true, team: true },
+    can: { notes: true, sign: true, team: true, admin: true },
   };
 }
 

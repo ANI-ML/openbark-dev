@@ -306,7 +306,7 @@ export type Fit = "fits" | "tight" | "wont_fit";
 export type Slot = "llm" | "stt" | "vad" | "diarization" | "speaker_embedding";
 
 /** Where a model came from (ADR-0025). */
-export type Origin = "builtin" | "hub" | "local_copy" | "local_in_place";
+export type ModelOrigin = "builtin" | "hub" | "local_copy" | "local_in_place";
 /**
  * What Remove does for a row: delete its files (the row stays), delete a copy
  * and drop the row, only forget it (used where it is), or nothing at all
@@ -336,7 +336,7 @@ export interface ModelRow {
   shared_bytes: number;
   /** Bytes of a download that stopped part-way. */
   partial_bytes: number;
-  origin: Origin;
+  origin: ModelOrigin;
   /** Note models only: which engine runs it. */
   engine: "llama" | "mlx" | null;
   /** Number of files (split GGUFs and MLX folders have several). */
