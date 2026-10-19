@@ -31,7 +31,7 @@ PRODUCT = "OpenBark"
 # public yet, and shows no Source code links. Once the repository is public,
 # set it to "https://github.com/ANI-ML/openbark", rebuild, and re-render
 # website/public/og-image.png (SOURCE_PUBLIC=1 node e2e/brand-images.mjs --og).
-SOURCE_URL = None
+SOURCE_URL = "https://github.com/ANI-ML/openbark"
 # The account portal (portal.html) is always built. Its Sign in links in the
 # header and footer appear only once Supabase is set up (supabase/README.md):
 # until then a Sign in that can't send a code would be the first thing a
