@@ -264,7 +264,7 @@ const JSON_FORMATS: &str = r#"JSON formats:
 
 /// The tooth line of the JSON formats, only for templates with a chart. Its
 /// example is not taken from any eval fixture.
-const TOOTH_FORMAT: &str = r#"- a tooth finding is {"tooth": "407", "text": "3 mm of gingival recession", "finding": "gingival_recession", "detail": null, "grade": null, "mm": 3, "planned": false, "evidence": [12]}
+const TOOTH_FORMAT: &str = r#"- a tooth finding is {"tooth": "407", "text": "3 mm of gingival recession", "finding": "gingival_recession", "grade": null, "detail": null, "mm": 3, "planned": false, "evidence": [12]}
 "#;
 
 /// The drafting budget for a template with a tooth chart: a finding costs
@@ -293,7 +293,7 @@ fn json_formats(template: &LoadedTemplate) -> String {
 /// every finding; this guide and the shape flag keep them together.
 pub fn tooth_findings_guide() -> String {
     let chart = crate::dental::chart();
-    let mut plain: Vec<&str> = Vec::new();
+    let mut plain: Vec<String> = Vec::new();
     let mut lines: Vec<String> = Vec::new();
     for f in &chart.findings {
         let mut parts: Vec<String> = Vec::new();
@@ -315,7 +315,8 @@ pub fn tooth_findings_guide() -> String {
                             .join(if d.cues.len() > 1 { " or " } else { ", " })
                     })
                     .collect();
-                if said.is_empty() { d.id.clone() } else { format!("{} ({})", d.id, said.join(" + ")) }
+                let name = crate::dental::draft_name(&d.id);
+                if said.is_empty() { name.to_string() } else { format!("{name} ({})", said.join(" + ")) }
             })
             .collect();
         if !details.is_empty() {
@@ -348,10 +349,17 @@ pub fn tooth_findings_guide() -> String {
         if f.text_required {
             parts.push("text says what was found".into());
         }
+        let name = crate::dental::draft_name(&f.id);
         if parts.is_empty() {
-            plain.push(f.id.as_str());
+            // The words that signal it: "normal (normal, fine, healthy)".
+            let said: Vec<&str> = f.cues.iter().take(3).map(String::as_str).collect();
+            plain.push(if said.is_empty() {
+                name.to_string()
+            } else {
+                format!("{name} ({})", said.join(", "))
+            });
         } else {
-            lines.push(format!("- {}: {}\n", f.id, parts.join("; ")));
+            lines.push(format!("- {name}: {}\n", parts.join("; ")));
         }
     }
     format!(
@@ -373,7 +381,7 @@ pub const CHART_RULES: &[&str] = &[
     "Tooth chart: a range or group (\"101 to 103\", \"all the lower incisors\") becomes one item per tooth, only when every tooth in it is clear.",
     "Tooth chart: grade and mm only when said. detail is null when the type wasn't said: \"fractured\" alone is never a guessed complicated fracture.",
     "Tooth chart: planned is true for a plan or a possibility (\"may need to come out\", \"we'll extract it at the recheck\"). A treatment planned and then done in the same recording is charted once, as done.",
-    "Tooth chart: never chart a finding said to be absent (\"no resorption on 307\", \"404 is not fractured\", \"doesn't need to come out\"), and never give a tooth what was said about another tooth in the same line.",
+    "Tooth chart: never chart a finding said to be absent (\"no resorption on 307\", \"404 is not fractured\", \"doesn't need to come out\"), and never give a tooth what was said about another tooth in the same line. Missing (\"not present\") and unerupted (\"hasn't erupted\") are findings, not absent ones.",
     "Tooth chart: if a number and a name disagree (\"108, upper left fourth premolar\"), chart the number as said and keep both in text.",
     "Tooth chart: a line that names teeth ends with [teeth: ...], the Triadan numbers read from that line (by number, name, range or group). Go through every such line, exams and treatments alike, and chart what it says about each of those teeth. The list is not evidence of a finding, and never write it in text.",
 ];
@@ -611,6 +619,16 @@ fn user_message(transcript: &Transcript, context: Option<&str>) -> String {
     )
 }
 
+/// The schema the drafting grammar follows: the template's, with tooth
+/// findings in their drafting names ([`crate::dental::DRAFT_NAMES`]).
+pub fn drafting_schema_text(template: &LoadedTemplate) -> String {
+    if template.chart().is_some() {
+        crate::dental::drafting_schema(&template.schema).to_string()
+    } else {
+        template.schema_text.clone()
+    }
+}
+
 /// System and user messages for a template + transcript.
 pub fn build_messages(
     template: &LoadedTemplate,
@@ -644,7 +662,12 @@ pub fn build_refine_messages(
     let user = format!(
         "{}\n\nCurrent draft of \"{title}\" (may be incomplete or wrong):\n{}\n\nThe veterinarian asks: {}",
         user_message(&hinted, context),
-        serde_json::to_string(current).unwrap_or_default(),
+        serde_json::to_string(&{
+            let mut current = current.clone();
+            crate::dental::rename_for_drafting(&mut current, true);
+            current
+        })
+        .unwrap_or_default(),
         request.trim()
     );
     vec![ChatMessage::system(system), ChatMessage::user(user)]
@@ -695,13 +718,14 @@ pub fn generate_note(
         max_tokens: max_tokens_for(template, options.max_tokens),
         temperature: options.temperature,
         seed: options.seed,
-        json_schema: Some(template.schema_text.clone()),
+        json_schema: Some(drafting_schema_text(template)),
     };
     let output = llm.generate(&request, on_token)?;
     let mut note: Value = serde_json::from_str(output.text.trim()).map_err(|e| {
         let hint = if output.stats.hit_max_tokens { " (output hit max_tokens)" } else { "" };
         EngineError::BadJson(format!("{e}{hint}"))
     })?;
+    crate::dental::rename_for_drafting(&mut note, false);
     // A runaway repeat ("404 normal" seventeen times) becomes one item.
     crate::dental::merge_repeats(&mut note);
     validate(template, &note)?;
@@ -778,13 +802,14 @@ pub fn refine_note(
         max_tokens: max_tokens_for(template, options.max_tokens),
         temperature: options.temperature,
         seed: options.seed,
-        json_schema: Some(schema.to_string()),
+        json_schema: Some(crate::dental::drafting_schema(&schema).to_string()),
     };
     let output = llm.generate(&generate, on_token)?;
     let mut redrafted: Value = serde_json::from_str(output.text.trim()).map_err(|e| {
         let hint = if output.stats.hit_max_tokens { " (output hit max_tokens)" } else { "" };
         EngineError::BadJson(format!("{e}{hint}"))
     })?;
+    crate::dental::rename_for_drafting(&mut redrafted, false);
     crate::dental::merge_repeats(&mut redrafted);
     let mut note = note.clone();
     match part {
@@ -834,6 +859,7 @@ pub fn validate(template: &LoadedTemplate, note: &Value) -> Result<(), EngineErr
 mod tests {
     use super::*;
     use crate::transcript::Segment;
+    use serde_json::json;
 
     #[test]
     fn prompt_contains_rules_parts_and_transcript() {
@@ -993,6 +1019,93 @@ mod tests {
             "{system}"
         );
         assert!(system.contains("- charting: Teeth extracted (null if not stated)\n"));
+    }
+
+    /// Answers every request with one canned draft, and keeps the requests.
+    struct Canned {
+        text: String,
+        requests: std::sync::Mutex<Vec<GenerateRequest>>,
+    }
+
+    impl LlmBackend for Canned {
+        fn capabilities(&self) -> os_llm::LlmCapabilities {
+            os_llm::LlmCapabilities {
+                backend: "canned",
+                model_name: "canned".into(),
+                context_length: 32768,
+                streaming: true,
+                json_schema_constrained: true,
+                audio_input: false,
+            }
+        }
+
+        fn generate(
+            &self,
+            request: &GenerateRequest,
+            on_token: &mut dyn FnMut(&str) -> bool,
+        ) -> Result<os_llm::GenerateOutput, os_llm::LlmError> {
+            self.requests.lock().unwrap().push(request.clone());
+            on_token(&self.text);
+            Ok(os_llm::GenerateOutput { text: self.text.clone(), stats: Default::default() })
+        }
+    }
+
+    /// The model drafts with names no other id starts ("resorption_stage",
+    /// "sectioned_closed"); the saved draft holds the finding table's ids,
+    /// and the template's own schema is unchanged.
+    #[test]
+    fn a_chart_is_drafted_with_drafting_names_and_saved_with_ids() {
+        let template = LoadedTemplate::builtin("dental").unwrap().for_species(Some("cat"));
+        let mut note = serde_json::Map::new();
+        for (key, node) in template.schema["properties"].as_object().unwrap() {
+            let empty = match node.get("properties").and_then(Value::as_object) {
+                Some(fields) => Value::Object(fields.keys().map(|k| (k.clone(), Value::Null)).collect()),
+                None => json!([]),
+            };
+            note.insert(key.clone(), empty);
+        }
+        note.insert(
+            "dental_chart".into(),
+            json!([
+                {"tooth": "307", "text": "stage 4b", "finding": "resorption_stage", "grade": 4, "detail": "crown_worse", "mm": null, "planned": false, "evidence": [0]},
+                {"tooth": "307", "text": "type 2", "finding": "resorption_type", "grade": 2, "detail": null, "mm": null, "planned": false, "evidence": [1]},
+                {"tooth": "309", "text": "sectioned and extracted", "finding": "extraction", "grade": null, "detail": "sectioned_closed", "mm": null, "planned": false, "evidence": [2]}
+            ]),
+        );
+        let llm = Canned { text: Value::Object(note).to_string(), requests: Default::default() };
+        let seg = |id: u32, text: &str| Segment {
+            id,
+            start: id as f32,
+            end: id as f32 + 1.0,
+            speaker: Some(0),
+            text: text.into(),
+            hints: Vec::new(),
+            check: None,
+        };
+        let t = Transcript {
+            segments: vec![
+                seg(0, "Three oh seven has tooth resorption, stage four b."),
+                seg(1, "On the radiograph, three oh seven is type two."),
+                seg(2, "Three oh nine is sectioned and extracted."),
+            ],
+        };
+        let result = generate_note(&llm, &template, &t, &NoteOptions::default(), &mut |_| true).unwrap();
+        let chart = result.note["dental_chart"].as_array().unwrap();
+        assert_eq!(chart[0]["finding"], "resorption");
+        assert_eq!(chart[1]["finding"], "resorption_type");
+        assert_eq!(chart[2]["detail"], "closed_sectioned");
+        let requests = llm.requests.lock().unwrap();
+        let schema = requests[0].json_schema.as_deref().unwrap();
+        assert!(schema.contains("\"resorption_stage\"") && !schema.contains("\"resorption\""), "{schema}");
+        assert!(schema.contains("\"sectioned_closed\"") && !schema.contains("\"closed_sectioned\""));
+        assert!(requests[0].messages[0].content.contains("- resorption_stage: grade = the stage 1-5"));
+        assert!(
+            template.schema_text.contains("\"resorption\"")
+                && !template.schema_text.contains("resorption_stage")
+        );
+        // Templates without a chart draft with their own schema.
+        let soap = LoadedTemplate::builtin("soap").unwrap();
+        assert_eq!(drafting_schema_text(&soap), soap.schema_text);
     }
 
     #[test]
