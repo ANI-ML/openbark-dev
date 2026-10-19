@@ -42,7 +42,12 @@ pub fn editable_schema(template: &LoadedTemplate) -> Value {
         if let Some(evidence) = defs.get_mut("evidence").and_then(Value::as_object_mut) {
             evidence.remove("minItems");
         }
-        for pointer in ["/statement/properties", "/medication/properties", "/field/anyOf/1/properties"] {
+        for pointer in [
+            "/statement/properties",
+            "/medication/properties",
+            "/field/anyOf/1/properties",
+            "/tooth_finding/properties",
+        ] {
             if let Some(props) = defs.pointer_mut(pointer).and_then(Value::as_object_mut) {
                 props.insert("entered_by".into(), json!({ "type": "string" }));
             }
@@ -102,6 +107,36 @@ fn mark(old: &Value, new: &mut Value, by: &str, path: &str, changed: &mut Vec<St
     }
 }
 
+/// A hand edit of a tooth chart (ADR-0021 decision 8): every changed or
+/// added item must fit its finding and use a tooth of the dentition, or the
+/// edit is refused with a plain message. The model's own items, unchanged,
+/// are never refused here; the faithfulness pass flags them instead. The
+/// saved array is ordered by tooth, then by the finding table's order.
+fn check_chart_edit(
+    before: &Value,
+    value: Value,
+    dentition: Option<crate::dental::Dentition>,
+) -> Result<Value, EngineError> {
+    let Value::Array(mut items) = value else {
+        return Err(EngineError::SchemaViolation("A tooth chart is a list of findings.".into()));
+    };
+    let old = before.as_array().map(Vec::as_slice).unwrap_or_default();
+    for item in items.iter().filter(|i| !old.contains(i)) {
+        let tooth = item["tooth"].as_str().unwrap_or_default();
+        if let Some(misfit) = crate::dental::tooth_misfit(tooth, dentition) {
+            return Err(EngineError::Template(misfit.to_string()));
+        }
+        crate::dental::fits(item).map_err(|m| EngineError::Template(format!("{tooth}: {m}")))?;
+    }
+    let order = |item: &Value| {
+        let finding = item["finding"].as_str().unwrap_or_default();
+        let rank = crate::dental::chart().findings.iter().position(|f| f.id == finding).unwrap_or(usize::MAX);
+        (crate::dental::triadan_order(item["tooth"].as_str().unwrap_or_default()), rank)
+    };
+    items.sort_by_key(order);
+    Ok(Value::Array(items))
+}
+
 /// Replace one heading of `note` with the vet's version.
 pub fn apply_edit(
     template: &LoadedTemplate,
@@ -125,6 +160,11 @@ pub fn apply_edit(
         None => note[sec].clone(),
     };
     let mut value = value;
+    if let Some((chart, dentition)) = template.chart()
+        && chart == heading
+    {
+        value = check_chart_edit(&before, value, dentition)?;
+    }
     let mut changed = Vec::new();
     mark(&before, &mut value, by, &format!("/{heading}"), &mut changed);
     let kept = items(&value).len() - changed.len();
@@ -231,5 +271,68 @@ mod tests {
         assert!(apply_edit(&soap, &transcript(), &note(), "plan/follow_up", json!([]), " ", "m").is_err());
         // The model's schema still demands evidence; the editable one doesn't.
         assert_eq!(soap.schema["$defs"]["evidence"]["minItems"], 1);
+    }
+
+    fn dental_note(t: &LoadedTemplate) -> Value {
+        let mut n = crate::template::empty_note(&t.template);
+        n["dental_chart"] = json!([
+            {"tooth": "309", "text": "309 fractured", "finding": "fracture", "detail": null, "grade": null,
+             "mm": null, "planned": false, "evidence": [0]},
+            {"tooth": "104", "text": "104 normal", "finding": "normal", "detail": null, "grade": null,
+             "mm": null, "planned": false, "evidence": [1]}
+        ]);
+        n
+    }
+
+    fn dental_transcript() -> Transcript {
+        let seg = |id, text: &str| crate::transcript::Segment {
+            id,
+            start: 0.0,
+            end: 1.0,
+            speaker: Some(0),
+            text: text.into(),
+            hints: Vec::new(),
+            check: None,
+        };
+        Transcript {
+            segments: vec![
+                seg(0, "Three oh nine is fractured."),
+                seg(1, "The upper right canine is normal."),
+            ],
+        }
+    }
+
+    #[test]
+    fn chart_edits_are_the_vets_own_and_must_fit_the_finding_table() {
+        let dental = LoadedTemplate::builtin("dental").unwrap().for_species(Some("cat"));
+        let note = dental_note(&dental);
+        let old = note["dental_chart"].as_array().unwrap().clone();
+        // Change 309's fracture type, keep 104, add 209 missing.
+        let mut changed = old[0].clone();
+        changed["detail"] = json!("complicated_crown");
+        let added = json!({"tooth": "209", "text": "Missing", "finding": "missing", "detail": null,
+            "grade": null, "mm": null, "planned": false, "evidence": []});
+        let value = json!([added, old[1].clone(), changed]);
+        let r =
+            apply_edit(&dental, &dental_transcript(), &note, "dental_chart", value, "Dr Patel", "m").unwrap();
+        let chart = r.note["dental_chart"].as_array().unwrap();
+        // Ordered by tooth.
+        let teeth: Vec<&str> = chart.iter().map(|i| i["tooth"].as_str().unwrap()).collect();
+        assert_eq!(teeth, ["104", "209", "309"]);
+        assert!(chart[0].get("entered_by").is_none(), "unchanged items keep their link");
+        assert_eq!(chart[1]["entered_by"], "Dr Patel");
+        assert_eq!(chart[2]["entered_by"], "Dr Patel");
+        assert!(r.faithfulness.passed, "{:?}", r.faithfulness);
+        assert_eq!(r.edit.as_ref().unwrap().removed, 1, "the old 309 item was replaced");
+
+        // A tooth a cat doesn't have, and a grade outside the table, are refused.
+        let bad_tooth = json!([{"tooth": "105", "text": "Missing", "finding": "missing", "detail": null,
+            "grade": null, "mm": null, "planned": false, "evidence": []}]);
+        let err = apply_edit(&dental, &dental_transcript(), &note, "dental_chart", bad_tooth, "Dr P", "m");
+        assert!(err.unwrap_err().to_string().contains("105 isn't a cat's tooth"));
+        let bad_grade = json!([{"tooth": "309", "text": "Mobility 4", "finding": "mobility", "detail": null,
+            "grade": 4, "mm": null, "planned": false, "evidence": []}]);
+        let err = apply_edit(&dental, &dental_transcript(), &note, "dental_chart", bad_grade, "Dr P", "m");
+        assert!(err.unwrap_err().to_string().contains("from 0 to 3"));
     }
 }

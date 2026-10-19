@@ -15,7 +15,7 @@ Review shows the transcript and recording on the left, and the draft note on the
 
 ## Ask for changes
 
-Hover a heading and choose **Ask**. Built-in templates suggest requests made for that heading, such as "Use the Triadan number for every tooth" under a dental note's findings; choose one or write your own. Say what should change, for example "List every fluid with its volume and rate", then choose **Redraft**. Only that heading is redrafted, from the recording; the rest of the note stays as it was. The request guides the model but isn't evidence: anything not said stays out, and the numbers are checked again.
+Hover a heading and choose **Ask**. Built-in templates suggest requests made for that heading, such as "Chart every tooth that was named, by its Triadan number" under a dental note's chart; choose one or write your own. Say what should change, for example "List every fluid with its volume and rate", then choose **Redraft**. Only that heading is redrafted, from the recording; the rest of the note stays as it was. The request guides the model but isn't evidence: anything not said stays out, and the numbers are checked again.
 
 Tick **Save as a standard** to make the request part of the template. Later drafts with that template then follow it under that heading. With a team, choose **For me** (only your drafts) or **For the hospital** (everyone's drafts, approved with an admin's PIN). Standards are listed, and can be removed, in **Templates**. **Edit this heading in the template** opens the template at that heading.
 
@@ -24,6 +24,22 @@ Above the note, Review says which version of the template drafted it, such as "D
 ## Edit it yourself
 
 Choose **Edit** on a heading to type your own version: change, reorder, remove or add lines, medications or measurements. The edit is saved as a new draft, and earlier drafts are kept. Lines you change or add are marked "Edited by" with your name. They're your statements, so a dose you correct doesn't block signing.
+
+## The dental chart
+
+A visit drafted with the **Dental procedure** template, for a dog or a cat, has a **Dental chart**: the teeth seen from the front, in modified Triadan numbers, with the patient's right on your left. Under it, one line per tooth lists what was found, with its AVDC code ("Complicated crown fracture (T/FX/CCF)"), then a legend of the codes used.
+
+- **Only teeth that were mentioned are charted.** A blank tooth wasn't talked about in the recording. It doesn't mean normal, and the legend says so on screen and on paper. A tooth is "Normal" only if someone said it was, and "Missing" only if someone said it was missing.
+- **Rest on a tooth, or on a finding in the list,** to light the transcript lines it came from. Click a finding to play that moment, as for any other line. On a phone, tap it.
+- **A red callout under a tooth** means its number isn't anywhere in the recording: the draft may have invented it. Correct it before signing; you can't sign until it's resolved.
+- **An amber underline** asks for a second look: the tooth was said as a number and as a name that don't agree ("108, upper left fourth premolar": 108 is the upper right), the line it cites doesn't mention the finding, the details don't fit together, or a finding is listed twice. OpenBark charts the number as said and never picks one for you.
+- **To edit, click a tooth.** The chart editor opens with that tooth selected and lists its findings, each with the sentence it came from. Choose **Change** or the remove button, or **Add finding** and pick what was found; only the details that fit that finding are offered (a fracture type, a stage, millimetres, an extraction technique, "Planned, not done yet"). **Ctrl** (or **Cmd**) and click selects several teeth, and **Mark missing** or **Mark normal** marks every selected tooth that has no findings yet. With the keyboard: Tab to the chart, move with the arrow keys, Enter selects a tooth and Space adds it to the selection. **Save changes** saves a new draft; what you add or change is marked "Edited by" with your name, and the earlier draft is kept.
+- **Dog or cat?** If no species was entered, the chart can't know which teeth the animal has, so it lists the findings without a diagram. The editor asks **Dog or cat?** before it saves, and refuses teeth that animal doesn't have.
+- **Deciduous teeth** (500 to 800) show when one was charted, or with **Deciduous teeth** in the editor.
+- **Once signed,** the chart is read-only: clicking a tooth only highlights its lines. Corrections go in an addendum.
+- The chart is in **Copy note**, in a heading's **Copy** (as words, one line per tooth), and in the PDF, drawn in greys with the same legend.
+
+Tooth names are read in English. In a consultation in another language, a tooth said only by name ("the upper left canine") shows a red callout until you correct it.
 
 ## Visits with more than one animal
 

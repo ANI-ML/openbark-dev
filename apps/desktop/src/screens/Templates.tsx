@@ -423,6 +423,7 @@ const KINDS: { value: Kind; label: string }[] = [
   { value: "text", label: "Text box" },
   { value: "fields", label: "Measurements" },
   { value: "medications", label: "Medications" },
+  { value: "teeth", label: "Tooth chart" },
   { value: "parts", label: "Subheadings" },
 ];
 
@@ -1660,6 +1661,7 @@ const KIND_HINT: Record<ContentKind, string> = {
   statements: "Bullet points, each linked to where it was said",
   fields: "",
   medications: "Drug, dose, route, frequency, duration",
+  teeth: "Teeth by Triadan number, for dogs and cats. Filled from what was said; teeth not mentioned stay blank.",
 };
 
 /** The note's shape: every heading, with what the model will put there. */

@@ -1,0 +1,225 @@
+{
+  "about": "Dog and cat dentitions in the modified Triadan system (AVDC), the drawing order of each chart row, schematic tooth outlines and the finding table (ADR-0021). Read by the engine (include_str!) and by the app. Quadrants: 100 right maxilla, 200 left maxilla, 300 left mandible, 400 right mandible; 500-800 the same for deciduous teeth. Rows run from the patient's right (viewer's left) to the patient's left. Shapes are drawn crown at the top in a 20 x 40 box, using only absolute M, L, C and Z; upper teeth are flipped so their crowns point down to the bite line, lower teeth are drawn as stored.",
+  "teeth": [
+    {"id":"101","jaw":"upper","side":"right","deciduous":false,"type":"incisor","ordinal":1,"shape":"incisor","dentitions":["canine","feline"]},
+    {"id":"102","jaw":"upper","side":"right","deciduous":false,"type":"incisor","ordinal":2,"shape":"incisor","dentitions":["canine","feline"]},
+    {"id":"103","jaw":"upper","side":"right","deciduous":false,"type":"incisor","ordinal":3,"shape":"incisor","dentitions":["canine","feline"]},
+    {"id":"104","jaw":"upper","side":"right","deciduous":false,"type":"canine","ordinal":1,"shape":"canine","dentitions":["canine","feline"]},
+    {"id":"105","jaw":"upper","side":"right","deciduous":false,"type":"premolar","ordinal":1,"shape":"premolar","dentitions":["canine"]},
+    {"id":"106","jaw":"upper","side":"right","deciduous":false,"type":"premolar","ordinal":2,"shape":"premolar","dentitions":["canine","feline"]},
+    {"id":"107","jaw":"upper","side":"right","deciduous":false,"type":"premolar","ordinal":3,"shape":"premolar","dentitions":["canine","feline"]},
+    {"id":"108","jaw":"upper","side":"right","deciduous":false,"type":"premolar","ordinal":4,"shape":"carnassial","dentitions":["canine","feline"]},
+    {"id":"109","jaw":"upper","side":"right","deciduous":false,"type":"molar","ordinal":1,"shape":"molar","dentitions":["canine","feline"]},
+    {"id":"110","jaw":"upper","side":"right","deciduous":false,"type":"molar","ordinal":2,"shape":"molar","dentitions":["canine"]},
+    {"id":"201","jaw":"upper","side":"left","deciduous":false,"type":"incisor","ordinal":1,"shape":"incisor","dentitions":["canine","feline"]},
+    {"id":"202","jaw":"upper","side":"left","deciduous":false,"type":"incisor","ordinal":2,"shape":"incisor","dentitions":["canine","feline"]},
+    {"id":"203","jaw":"upper","side":"left","deciduous":false,"type":"incisor","ordinal":3,"shape":"incisor","dentitions":["canine","feline"]},
+    {"id":"204","jaw":"upper","side":"left","deciduous":false,"type":"canine","ordinal":1,"shape":"canine","dentitions":["canine","feline"]},
+    {"id":"205","jaw":"upper","side":"left","deciduous":false,"type":"premolar","ordinal":1,"shape":"premolar","dentitions":["canine"]},
+    {"id":"206","jaw":"upper","side":"left","deciduous":false,"type":"premolar","ordinal":2,"shape":"premolar","dentitions":["canine","feline"]},
+    {"id":"207","jaw":"upper","side":"left","deciduous":false,"type":"premolar","ordinal":3,"shape":"premolar","dentitions":["canine","feline"]},
+    {"id":"208","jaw":"upper","side":"left","deciduous":false,"type":"premolar","ordinal":4,"shape":"carnassial","dentitions":["canine","feline"]},
+    {"id":"209","jaw":"upper","side":"left","deciduous":false,"type":"molar","ordinal":1,"shape":"molar","dentitions":["canine","feline"]},
+    {"id":"210","jaw":"upper","side":"left","deciduous":false,"type":"molar","ordinal":2,"shape":"molar","dentitions":["canine"]},
+    {"id":"301","jaw":"lower","side":"left","deciduous":false,"type":"incisor","ordinal":1,"shape":"incisor","dentitions":["canine","feline"]},
+    {"id":"302","jaw":"lower","side":"left","deciduous":false,"type":"incisor","ordinal":2,"shape":"incisor","dentitions":["canine","feline"]},
+    {"id":"303","jaw":"lower","side":"left","deciduous":false,"type":"incisor","ordinal":3,"shape":"incisor","dentitions":["canine","feline"]},
+    {"id":"304","jaw":"lower","side":"left","deciduous":false,"type":"canine","ordinal":1,"shape":"canine","dentitions":["canine","feline"]},
+    {"id":"305","jaw":"lower","side":"left","deciduous":false,"type":"premolar","ordinal":1,"shape":"premolar","dentitions":["canine"]},
+    {"id":"306","jaw":"lower","side":"left","deciduous":false,"type":"premolar","ordinal":2,"shape":"premolar","dentitions":["canine"]},
+    {"id":"307","jaw":"lower","side":"left","deciduous":false,"type":"premolar","ordinal":3,"shape":"premolar","dentitions":["canine","feline"]},
+    {"id":"308","jaw":"lower","side":"left","deciduous":false,"type":"premolar","ordinal":4,"shape":"premolar","dentitions":["canine","feline"]},
+    {"id":"309","jaw":"lower","side":"left","deciduous":false,"type":"molar","ordinal":1,"shape":"carnassial","dentitions":["canine","feline"]},
+    {"id":"310","jaw":"lower","side":"left","deciduous":false,"type":"molar","ordinal":2,"shape":"molar","dentitions":["canine"]},
+    {"id":"311","jaw":"lower","side":"left","deciduous":false,"type":"molar","ordinal":3,"shape":"molar","dentitions":["canine"]},
+    {"id":"401","jaw":"lower","side":"right","deciduous":false,"type":"incisor","ordinal":1,"shape":"incisor","dentitions":["canine","feline"]},
+    {"id":"402","jaw":"lower","side":"right","deciduous":false,"type":"incisor","ordinal":2,"shape":"incisor","dentitions":["canine","feline"]},
+    {"id":"403","jaw":"lower","side":"right","deciduous":false,"type":"incisor","ordinal":3,"shape":"incisor","dentitions":["canine","feline"]},
+    {"id":"404","jaw":"lower","side":"right","deciduous":false,"type":"canine","ordinal":1,"shape":"canine","dentitions":["canine","feline"]},
+    {"id":"405","jaw":"lower","side":"right","deciduous":false,"type":"premolar","ordinal":1,"shape":"premolar","dentitions":["canine"]},
+    {"id":"406","jaw":"lower","side":"right","deciduous":false,"type":"premolar","ordinal":2,"shape":"premolar","dentitions":["canine"]},
+    {"id":"407","jaw":"lower","side":"right","deciduous":false,"type":"premolar","ordinal":3,"shape":"premolar","dentitions":["canine","feline"]},
+    {"id":"408","jaw":"lower","side":"right","deciduous":false,"type":"premolar","ordinal":4,"shape":"premolar","dentitions":["canine","feline"]},
+    {"id":"409","jaw":"lower","side":"right","deciduous":false,"type":"molar","ordinal":1,"shape":"carnassial","dentitions":["canine","feline"]},
+    {"id":"410","jaw":"lower","side":"right","deciduous":false,"type":"molar","ordinal":2,"shape":"molar","dentitions":["canine"]},
+    {"id":"411","jaw":"lower","side":"right","deciduous":false,"type":"molar","ordinal":3,"shape":"molar","dentitions":["canine"]},
+    {"id":"501","jaw":"upper","side":"right","deciduous":true,"type":"incisor","ordinal":1,"shape":"incisor","dentitions":["canine","feline"]},
+    {"id":"502","jaw":"upper","side":"right","deciduous":true,"type":"incisor","ordinal":2,"shape":"incisor","dentitions":["canine","feline"]},
+    {"id":"503","jaw":"upper","side":"right","deciduous":true,"type":"incisor","ordinal":3,"shape":"incisor","dentitions":["canine","feline"]},
+    {"id":"504","jaw":"upper","side":"right","deciduous":true,"type":"canine","ordinal":1,"shape":"canine","dentitions":["canine","feline"]},
+    {"id":"506","jaw":"upper","side":"right","deciduous":true,"type":"premolar","ordinal":2,"shape":"premolar","dentitions":["canine","feline"]},
+    {"id":"507","jaw":"upper","side":"right","deciduous":true,"type":"premolar","ordinal":3,"shape":"premolar","dentitions":["canine","feline"]},
+    {"id":"508","jaw":"upper","side":"right","deciduous":true,"type":"premolar","ordinal":4,"shape":"premolar","dentitions":["canine","feline"]},
+    {"id":"601","jaw":"upper","side":"left","deciduous":true,"type":"incisor","ordinal":1,"shape":"incisor","dentitions":["canine","feline"]},
+    {"id":"602","jaw":"upper","side":"left","deciduous":true,"type":"incisor","ordinal":2,"shape":"incisor","dentitions":["canine","feline"]},
+    {"id":"603","jaw":"upper","side":"left","deciduous":true,"type":"incisor","ordinal":3,"shape":"incisor","dentitions":["canine","feline"]},
+    {"id":"604","jaw":"upper","side":"left","deciduous":true,"type":"canine","ordinal":1,"shape":"canine","dentitions":["canine","feline"]},
+    {"id":"606","jaw":"upper","side":"left","deciduous":true,"type":"premolar","ordinal":2,"shape":"premolar","dentitions":["canine","feline"]},
+    {"id":"607","jaw":"upper","side":"left","deciduous":true,"type":"premolar","ordinal":3,"shape":"premolar","dentitions":["canine","feline"]},
+    {"id":"608","jaw":"upper","side":"left","deciduous":true,"type":"premolar","ordinal":4,"shape":"premolar","dentitions":["canine","feline"]},
+    {"id":"701","jaw":"lower","side":"left","deciduous":true,"type":"incisor","ordinal":1,"shape":"incisor","dentitions":["canine","feline"]},
+    {"id":"702","jaw":"lower","side":"left","deciduous":true,"type":"incisor","ordinal":2,"shape":"incisor","dentitions":["canine","feline"]},
+    {"id":"703","jaw":"lower","side":"left","deciduous":true,"type":"incisor","ordinal":3,"shape":"incisor","dentitions":["canine","feline"]},
+    {"id":"704","jaw":"lower","side":"left","deciduous":true,"type":"canine","ordinal":1,"shape":"canine","dentitions":["canine","feline"]},
+    {"id":"706","jaw":"lower","side":"left","deciduous":true,"type":"premolar","ordinal":2,"shape":"premolar","dentitions":["canine"]},
+    {"id":"707","jaw":"lower","side":"left","deciduous":true,"type":"premolar","ordinal":3,"shape":"premolar","dentitions":["canine","feline"]},
+    {"id":"708","jaw":"lower","side":"left","deciduous":true,"type":"premolar","ordinal":4,"shape":"premolar","dentitions":["canine","feline"]},
+    {"id":"801","jaw":"lower","side":"right","deciduous":true,"type":"incisor","ordinal":1,"shape":"incisor","dentitions":["canine","feline"]},
+    {"id":"802","jaw":"lower","side":"right","deciduous":true,"type":"incisor","ordinal":2,"shape":"incisor","dentitions":["canine","feline"]},
+    {"id":"803","jaw":"lower","side":"right","deciduous":true,"type":"incisor","ordinal":3,"shape":"incisor","dentitions":["canine","feline"]},
+    {"id":"804","jaw":"lower","side":"right","deciduous":true,"type":"canine","ordinal":1,"shape":"canine","dentitions":["canine","feline"]},
+    {"id":"806","jaw":"lower","side":"right","deciduous":true,"type":"premolar","ordinal":2,"shape":"premolar","dentitions":["canine"]},
+    {"id":"807","jaw":"lower","side":"right","deciduous":true,"type":"premolar","ordinal":3,"shape":"premolar","dentitions":["canine","feline"]},
+    {"id":"808","jaw":"lower","side":"right","deciduous":true,"type":"premolar","ordinal":4,"shape":"premolar","dentitions":["canine","feline"]}
+  ],
+  "rows": {
+    "canine": {
+      "upper": ["110","109","108","107","106","105","104","103","102","101","201","202","203","204","205","206","207","208","209","210"],
+      "lower": ["411","410","409","408","407","406","405","404","403","402","401","301","302","303","304","305","306","307","308","309","310","311"],
+      "upper_deciduous": ["508","507","506","504","503","502","501","601","602","603","604","606","607","608"],
+      "lower_deciduous": ["808","807","806","804","803","802","801","701","702","703","704","706","707","708"]
+    },
+    "feline": {
+      "upper": ["109","108","107","106","104","103","102","101","201","202","203","204","206","207","208","209"],
+      "lower": ["409","408","407","404","403","402","401","301","302","303","304","307","308","309"],
+      "upper_deciduous": ["508","507","506","504","503","502","501","601","602","603","604","606","607","608"],
+      "lower_deciduous": ["808","807","804","803","802","801","701","702","703","704","707","708"]
+    }
+  },
+  "geometry": {"slot":32,"tooth":[20,40],"neck":17,"crown_mid":8},
+  "shapes": {
+    "incisor": "M 7 2 C 8 0 12 0 13 2 L 14 17 C 13 26 12 33 10 39 C 8 33 7 26 6 17 Z",
+    "canine": "M 10 0 C 13 5 15 11 15 17 C 15 26 13 33 10 40 C 7 33 5 26 5 17 C 5 11 7 5 10 0 Z",
+    "premolar": "M 3 15 L 7 7 L 10 2 L 13 7 L 17 15 L 17 18 L 15 38 L 12 23 L 8 23 L 5 38 L 3 18 Z",
+    "carnassial": "M 1 15 L 4 8 L 7 10 L 11 1 L 14 9 L 17 7 L 19 15 L 19 18 L 17 38 L 13 23 L 7 23 L 3 38 L 1 18 Z",
+    "molar": "M 2 9 C 2 5 5 4 7 7 C 8 4 12 4 13 7 C 15 4 18 5 18 9 L 18 18 L 16 36 L 12 23 L 8 23 L 4 36 L 2 18 Z"
+  },
+  "findings": [
+    {
+      "id":"normal","group":"presence","label":"Normal","words":"Normal","words_grade":null,"words_mm":null,"code":null,"code_grade":null,"code_detail":null,"legend":null,"grade":null,"mm":"none","plannable":false,"text_required":false,"glyph":"none",
+      "details": [],
+      "cues": ["normal","fine","healthy","good","unremarkable","intact"]
+    },
+    {
+      "id":"missing","group":"presence","label":"Missing","words":"Missing","words_grade":null,"words_mm":null,"code":null,"code_grade":null,"code_detail":null,"legend":null,"grade":null,"mm":"none","plannable":false,"text_required":false,"glyph":"circle",
+      "details": [],
+      "cues": ["missing","absent","not present","gone"]
+    },
+    {
+      "id":"fracture","group":"fracture","label":"Fracture","words":"Fracture","words_grade":null,"words_mm":null,"code":"T/FX","code_grade":null,"code_detail":"T/FX/{code}","legend":null,"grade":null,"mm":"none","plannable":false,"text_required":false,"glyph":"zigzag",
+      "details": [
+        {"id":"enamel_infraction","words":"Enamel infraction","code":"EI","with_grade":null,"cues":[["infraction","craze","crazing","crack","cracked"]]},
+        {"id":"enamel_fracture","words":"Enamel fracture","code":"EF","with_grade":null,"cues":[["enamel"]]},
+        {"id":"uncomplicated_crown","words":"Uncomplicated crown fracture","code":"UCF","with_grade":null,"cues":[["uncomplicated","no pulp","not exposed","dentin","dentine"]]},
+        {"id":"complicated_crown","words":"Complicated crown fracture","code":"CCF","with_grade":null,"cues":[["complicated","pulp","exposed","exposure"]]},
+        {"id":"uncomplicated_crown_root","words":"Uncomplicated crown-root fracture","code":"UCRF","with_grade":null,"cues":[["uncomplicated","no pulp","not exposed"],["root"]]},
+        {"id":"complicated_crown_root","words":"Complicated crown-root fracture","code":"CCRF","with_grade":null,"cues":[["complicated","pulp","exposed","exposure"],["root"]]},
+        {"id":"root","words":"Root fracture","code":"RF","with_grade":null,"cues":[["root"]]}
+      ],
+      "cues": ["fracture","fractured","broken","slab","chip","chipped","cracked"]
+    },
+    {
+      "id":"periodontal_stage","group":"periodontal","label":"Periodontal stage","words":"Periodontal disease","words_grade":"Periodontal disease stage {n}","words_mm":null,"code":null,"code_grade":"PD{grade}","code_detail":null,"legend":"PD0-PD4: periodontal disease stage (AVDC)","grade":{"min":0,"max":4,"required":false},"mm":"none","plannable":false,"text_required":false,"glyph":"dot",
+      "details": [],
+      "cues": ["stage","periodontal","periodontitis","periodontal disease"]
+    },
+    {
+      "id":"mobility","group":"periodontal","label":"Mobility","words":"Mobility","words_grade":"Mobility {n}","words_mm":null,"code":null,"code_grade":"M{grade}","code_detail":null,"legend":"M0-M3: tooth mobility index (AVDC). Grades as said.","grade":{"min":0,"max":3,"required":false},"mm":"none","plannable":false,"text_required":false,"glyph":"dot",
+      "details": [],
+      "cues": ["mobile","mobility","loose","wobbly"]
+    },
+    {
+      "id":"furcation","group":"periodontal","label":"Furcation","words":"Furcation","words_grade":"Furcation {n}","words_mm":null,"code":null,"code_grade":"F{grade}","code_detail":null,"legend":"F1-F3: furcation index (AVDC)","grade":{"min":1,"max":3,"required":false},"mm":"none","plannable":false,"text_required":false,"glyph":"dot",
+      "details": [],
+      "cues": ["furcation","furcal"]
+    },
+    {
+      "id":"probing_depth","group":"periodontal","label":"Probing depth","words":"Probing depth","words_grade":null,"words_mm":"Probing depth {mm} mm","code":null,"code_grade":null,"code_detail":null,"legend":"Probing depth is in millimetres.","grade":null,"mm":"required","plannable":false,"text_required":false,"glyph":"dot",
+      "details": [],
+      "cues": ["pocket","probing","probe","probed","depth"]
+    },
+    {
+      "id":"gingival_recession","group":"periodontal","label":"Gingival recession","words":"Gingival recession","words_grade":null,"words_mm":"Gingival recession {mm} mm","code":"GR","code_grade":null,"code_detail":null,"legend":null,"grade":null,"mm":"optional","plannable":false,"text_required":false,"glyph":"dot",
+      "details": [],
+      "cues": ["recession","receded","receding"]
+    },
+    {
+      "id":"resorption","group":"resorption","label":"Tooth resorption stage","words":"Tooth resorption","words_grade":"Tooth resorption stage {stage}","words_mm":null,"code":"TR","code_grade":"TR{grade}{sub}","code_detail":null,"legend":"TR1-TR5: tooth resorption stage (AVDC). T1-T3: resorption type.","grade":{"min":1,"max":5,"required":false},"mm":"none","plannable":false,"text_required":false,"glyph":"notch",
+      "details": [
+        {"id":"crown_and_root_equal","words":"Crown and root equally affected","code":"a","with_grade":4,"cues":[]},
+        {"id":"crown_worse","words":"Crown more affected than root","code":"b","with_grade":4,"cues":[]},
+        {"id":"root_worse","words":"Root more affected than crown","code":"c","with_grade":4,"cues":[]}
+      ],
+      "cues": ["resorption","resorptive","forl","lesion","resorbed","resorbing"]
+    },
+    {
+      "id":"resorption_type","group":"resorption","label":"Resorption type","words":"Resorption type","words_grade":"Resorption type {n}","words_mm":null,"code":null,"code_grade":"T{grade}","code_detail":null,"legend":"TR1-TR5: tooth resorption stage (AVDC). T1-T3: resorption type.","grade":{"min":1,"max":3,"required":true},"mm":"none","plannable":false,"text_required":false,"glyph":"notch",
+      "details": [],
+      "cues": ["type","replacement","inflammatory"]
+    },
+    {
+      "id":"persistent_deciduous","group":"development","label":"Persistent deciduous","words":"Persistent deciduous tooth","words_grade":null,"words_mm":null,"code":"DT/P","code_grade":null,"code_detail":null,"legend":null,"grade":null,"mm":"none","plannable":false,"text_required":false,"glyph":"dot",
+      "details": [],
+      "cues": ["persistent","retained","baby","deciduous","still there"]
+    },
+    {
+      "id":"unerupted","group":"development","label":"Unerupted","words":"Unerupted","words_grade":null,"words_mm":null,"code":"T/U","code_grade":null,"code_detail":null,"legend":null,"grade":null,"mm":"none","plannable":false,"text_required":false,"glyph":"dot",
+      "details": [],
+      "cues": ["unerupted","not erupted","has not erupted","not yet erupted","yet to erupt"]
+    },
+    {
+      "id":"retained_root","group":"development","label":"Retained root","words":"Retained root","words_grade":null,"words_mm":null,"code":"RTR","code_grade":null,"code_detail":null,"legend":null,"grade":null,"mm":"none","plannable":false,"text_required":false,"glyph":"dot",
+      "details": [],
+      "cues": ["root","roots","root tip"]
+    },
+    {
+      "id":"caries","group":"condition","label":"Caries","words":"Caries","words_grade":null,"words_mm":null,"code":"CA","code_grade":null,"code_detail":null,"legend":null,"grade":null,"mm":"none","plannable":false,"text_required":false,"glyph":"dot",
+      "details": [],
+      "cues": ["caries","carious","cavity","decay"]
+    },
+    {
+      "id":"wear","group":"condition","label":"Wear","words":"Wear","words_grade":null,"words_mm":null,"code":null,"code_grade":null,"code_detail":"{code}","legend":null,"grade":null,"mm":"none","plannable":false,"text_required":false,"glyph":"dot",
+      "details": [
+        {"id":"abrasion","words":"Abrasion","code":"AB","with_grade":null,"cues":[["abrasion","abraded","chewing","cage","ball"]]},
+        {"id":"attrition","words":"Attrition","code":"AT","with_grade":null,"cues":[["attrition","contact","occlusal"]]}
+      ],
+      "cues": ["wear","worn","abrasion","attrition"]
+    },
+    {
+      "id":"discoloured","group":"condition","label":"Discoloured","words":"Discoloured","words_grade":null,"words_mm":null,"code":null,"code_grade":null,"code_detail":null,"legend":null,"grade":null,"mm":"none","plannable":false,"text_required":false,"glyph":"dot",
+      "details": [],
+      "cues": ["discolored","discoloured","discoloration","discolouration","grey","gray","pink","purple","dark"]
+    },
+    {
+      "id":"malposition","group":"condition","label":"Malpositioned","words":"Malpositioned","words_grade":null,"words_mm":null,"code":null,"code_grade":null,"code_detail":"MAL1/{code}","legend":null,"grade":null,"mm":"none","plannable":false,"text_required":false,"glyph":"dot",
+      "details": [
+        {"id":"buccoversion","words":"Buccoversion","code":"BV","with_grade":null,"cues":[["buccoversion","buccal","buccally"]]},
+        {"id":"distoversion","words":"Distoversion","code":"DV","with_grade":null,"cues":[["distoversion","distal","distally"]]},
+        {"id":"labioversion","words":"Labioversion","code":"LABV","with_grade":null,"cues":[["labioversion","labial","labially"]]},
+        {"id":"linguoversion","words":"Linguoversion","code":"LV","with_grade":null,"cues":[["linguoversion","lingual","lingually","base narrow"]]},
+        {"id":"mesioversion","words":"Mesioversion","code":"MV","with_grade":null,"cues":[["mesioversion","mesial","mesially","lance"]]},
+        {"id":"palatoversion","words":"Palatoversion","code":"PV","with_grade":null,"cues":[["palatoversion","palatal","palatally"]]}
+      ],
+      "cues": ["malpositioned","malposition","rotated","crowded","version","buccoversion","distoversion","labioversion","linguoversion","mesioversion","palatoversion","base narrow"]
+    },
+    {
+      "id":"extraction","group":"treatment","label":"Extraction","words":"Extraction","words_grade":null,"words_mm":null,"code":null,"code_grade":null,"code_detail":"{code}","legend":null,"grade":null,"mm":"none","plannable":true,"text_required":false,"glyph":"x",
+      "details": [
+        {"id":"closed","words":"Closed extraction","code":"X","with_grade":null,"cues":[["simple","closed","no sectioning","without sectioning"]]},
+        {"id":"closed_sectioned","words":"Closed extraction, sectioned","code":"XS","with_grade":null,"cues":[["section","sectioned","sectioning","split"]]},
+        {"id":"open","words":"Open extraction","code":"XSS","with_grade":null,"cues":[["surgical","surgically","flap","open"]]}
+      ],
+      "cues": ["extract","extracting","extracted","extraction","out","remove","removed","removal","pull","pulled"]
+    },
+    {
+      "id":"crown_amputation","group":"treatment","label":"Crown amputation","words":"Crown amputation","words_grade":null,"words_mm":null,"code":"CR/A","code_grade":null,"code_detail":null,"legend":null,"grade":null,"mm":"none","plannable":true,"text_required":false,"glyph":"neck",
+      "details": [],
+      "cues": ["amputation","amputate","amputated","amputating"]
+    },
+    {
+      "id":"other","group":"other","label":"Other","words":"Other","words_grade":null,"words_mm":null,"code":null,"code_grade":null,"code_detail":null,"legend":null,"grade":null,"mm":"optional","plannable":true,"text_required":true,"glyph":"dot",
+      "details": [],
+      "cues": []
+    }
+  ]
+}

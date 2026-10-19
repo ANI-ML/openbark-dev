@@ -1,0 +1,39 @@
+# Synthetic consult: written for OpenBark's test suite; not a real patient.
+# Young dog dental chart fixture (ADR-0021, plan step 15): persistent
+# deciduous canines charted in the 500-800 quadrants, a deciduous tooth said
+# only by name ("the baby lower left canine" is 704), and an unerupted tooth.
+#
+# expected.chart: one fact per item; see dental-chart.yaml for how items match.
+id: dental-young-dog
+title: Young dog with persistent deciduous teeth, charted
+species: canine
+template: dental
+speakers:
+  dvm: bf_emma
+pause_secs: 0.6
+lines:
+  - [dvm, "Coco is a seven month old female Yorkshire terrier, in for her spay, and I'm checking her teeth."]
+  - [dvm, "She has persistent deciduous upper canines, five oh four and six oh four, beside the adult canines."]
+  - [dvm, "The adult upper canines, one oh four and two oh four, are fully erupted and look normal."]
+  - [dvm, "The baby lower left canine is still there too."]
+  - [dvm, "Extracting five oh four, six oh four and seven oh four, closed, no sectioning."]
+  - [dvm, "Three oh four hasn't erupted yet. We'll radiograph it at the recheck."]
+  - [dvm, "Recheck in four weeks."]
+
+expected:
+  must_mention: ["504", "604", "704", "four weeks"]
+  chart:
+    - { tooth: "504", finding: persistent_deciduous }
+    - { tooth: "604", finding: persistent_deciduous }
+    # Said only by name: "the baby lower left canine".
+    - { tooth: "704", finding: persistent_deciduous }
+    - { tooth: "504", finding: extraction, detail: closed, planned: false }
+    - { tooth: "604", finding: extraction, detail: closed, planned: false }
+    - { tooth: "704", finding: extraction, detail: closed, planned: false }
+    - { tooth: "104", finding: normal }
+    - { tooth: "204", finding: normal }
+    - { tooth: "304", finding: unerupted }
+  chart_flags: []
+  chart_not_allowed:
+    - { finding: normal, except: ["104", "204"] }
+    - { finding: missing }

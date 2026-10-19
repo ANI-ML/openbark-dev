@@ -280,3 +280,32 @@ Signing is unchanged. A hard fail (a tooth not said anywhere) blocks it, like an
 | Structured chart addenda after signing | Useful later. v1 addenda stay free text, as for every heading |
 | Equine, rabbit and rodent dentitions now | Different numbering and anatomy. The chart is gated to dogs and cats in v1 |
 | A six-site probing grid by voice | Too much to dictate reliably in v1. One probing depth per item, with the site kept in `text` |
+
+## Implementation notes (2026-10-19)
+
+Built on branch `feat/dental-chart`, on top of template editing (ADR-0024). The status stays proposed until the owner approves.
+
+What shipped as decided:
+- `PartKind::Teeth`, the `dentition` on the chart heading, `$defs/tooth_finding` only for templates with a chart (every other built-in's schema and prompt are byte-identical; SOAP's prompt file is unchanged), `for_species` setting the dentition, and `LoadedTemplate::with_dentition` for the edit command.
+- `packages/dental/chart.json`, read by `engine/os-engine/src/dental.rs` and `apps/desktop/src/dental.ts`: tooth lists, rows, five outlines, the finding table with AVDC codes and cue words.
+- The tooth reader (numbers, spoken numbers, names, ranges, groups), the tooth check in the faithfulness pass (hard fail for a tooth said nowhere; citation mismatch; soft `tooth_flags`: name conflict, cue missing, shape, duplicate) and the chart rules in drafting and re-prompting.
+- Dental template 0.2.0: "Dental chart" (`kind: teeth`, dogs and cats) and "Whole-mouth findings"; the wrong-side example corrected. Fingerprints rewritten with `openbark templates fingerprints --write`.
+- The app: `DentalChart` (diagram, per-tooth list with evidence links, legend) and `DentalChartEditor` (click, Ctrl or Cmd-click, keyboard, Mark missing or normal, Add finding with only the valid controls, the dog-or-cat choice). The plan called them `ToothChart` and `ChartEditor`. Edits go through the existing edit command, with `dentition` on the Tauri command and `POST /api/sessions/{id}/edit`; the earlier draft is kept; signed charts are read-only.
+- Markdown, Copy note, a heading's Copy (words, never the diagram's numbers) and the PDF (`pdf.rs` path operator, greys, the same legend, translated words in the five PDF languages).
+- Template from an example note proposes a `teeth` heading (at most one; a second becomes bullet points).
+
+Added during the build, beyond the decision:
+- **Tooth hints in the prompt.** For a template with a chart, each transcript line that names teeth gets `[teeth: …]` with the Triadan numbers the tooth reader finds in it, limited to the dentition, and a chart rule says to go through every such line and never to copy the list into `text`. Only the prompt sees them; the saved transcript is unchanged; templates without a chart are untouched. It took chart recall on Gemma 4 E4B from 50% to 79%, with no invented tooth (docs/eval/M2.md). It works because the model then numbers names and groups the same way the faithfulness pass checks them.
+- **A finding table in the prompt.** The JSON formats of a chart template list what each finding takes (its `detail` values with the words that signal them, `grade` range, `mm`, `planned`), generated from `chart.json`, since the grammar allows every detail on every finding.
+- **The word check skips charted findings** except `other`. A charted finding prints its words from the finding table, and the cue-word check is its word check ("the lower incisors come out" supports an extraction, which the generic word check flagged).
+- `os_llm::grammar_for_schema` exposes the grammar conversion, and a test converts the dental schema for a dog, a cat and no species.
+- An os-app test covers the dog-or-cat choice: written into the new run's snapshot, a different second choice refused, a tooth the animal doesn't have refused.
+- Eval keys: `chart`, `chart_flags`, `chart_not_allowed` (with `except`), and `cites` in an expected item (a word its cited line must hold).
+- `apps/desktop/e2e/dental-chart.mjs`: imports the three new fixtures on a scratch demo, drafts them, and checks the chart in desktop light and dark and at 360 px (light and dark), the evidence link, editing by click and keyboard, the cat's teeth, the dog-or-cat question, the signed read-only chart and the PDF.
+
+Not done yet, or different from the plan:
+- Chart recall on Gemma 4 E4B is 79% against the plan's 90% target (12B: 88%). Invented teeth, invented normals and invented numbers are 0. Misses are blank teeth or missing findings, mostly in the cat consult.
+- The property-order trial (`text` after `finding`) wasn't run.
+- No schema snapshot files (`schema.canine.json`, `schema.feline.json`); the tests check the tooth enum counts and that other templates have no tooth definition instead.
+- Dental shots are taken by the new e2e script, not by `screenshots.mjs`, and the PDF page isn't rendered to PNG.
+- Tooth names are read in English only. French, Spanish, German and Portuguese name tables, and a native-speaking vet's review of every chart translation (app and PDF), are still to do.

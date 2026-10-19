@@ -14,7 +14,7 @@ MONITORING
 HR: 140-160   SpO2: 98%   MAP: 70-85   Temp nadir: 36.9
 
 DENTAL CHART
-307: resorptive lesion type 1, stage 3
+307: resorptive lesion type 2, stage 3
 309: missing
 404: gingival recession 2 mm
 Periodontal stage overall: 2

@@ -1,0 +1,74 @@
+[
+  {
+    "speaker": "dvm",
+    "start": 0.0,
+    "end": 5.0405,
+    "text": "This is Pepper, a twelve year old neutered male domestic shorthair, here for his dental."
+  },
+  {
+    "speaker": "tech",
+    "start": 5.6405,
+    "end": 11.71025,
+    "text": "He's four point eight kilos. Buprenorphine and alfaxalone, and he's on isoflurane."
+  },
+  {
+    "speaker": "dvm",
+    "start": 12.31025,
+    "end": 16.3375,
+    "text": "Left caudal mandibular block, point two mils of bupivacaine."
+  },
+  {
+    "speaker": "dvm",
+    "start": 16.9375,
+    "end": 20.170376,
+    "text": "Three oh seven has tooth resorption, stage four b."
+  },
+  {
+    "speaker": "dvm",
+    "start": 20.770374,
+    "end": 25.012625,
+    "text": "On the radiograph, three oh seven is type two, replacement resorption."
+  },
+  {
+    "speaker": "dvm",
+    "start": 25.612625,
+    "end": 29.323063,
+    "text": "Four oh eight has a stage two resorptive lesion, type one."
+  },
+  {
+    "speaker": "dvm",
+    "start": 29.923063,
+    "end": 33.613564,
+    "text": "Two oh six is missing, and the upper left canine looks healthy."
+  },
+  {
+    "speaker": "dvm",
+    "start": 34.213562,
+    "end": 37.53544,
+    "text": "One oh nine has two millimetres of gingival recession."
+  },
+  {
+    "speaker": "dvm",
+    "start": 38.135437,
+    "end": 41.528873,
+    "text": "No other resorptive lesions on the full-mouth films."
+  },
+  {
+    "speaker": "dvm",
+    "start": 42.128876,
+    "end": 48.198376,
+    "text": "Three oh seven gets a crown amputation, since it's type two. Four oh eight is extracted surgically."
+  },
+  {
+    "speaker": "dvm",
+    "start": 48.798374,
+    "end": 55.904373,
+    "text": "Buprenorphine at home, point zero two milligrams per kilo in the mouth every eight hours for three days."
+  },
+  {
+    "speaker": "dvm",
+    "start": 56.504375,
+    "end": 58.004063,
+    "text": "Recheck in two weeks."
+  }
+]

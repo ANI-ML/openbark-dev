@@ -311,9 +311,10 @@ async fn edit_note(
     value: serde_json::Value,
     by: String,
     pet: Option<String>,
+    dentition: Option<String>,
 ) -> Result<os_app::NoteResponse, String> {
     let app = app.inner().clone();
-    work(move || app.edit_note(&id, &heading, value, &by, pet.as_deref())).await
+    work(move || app.edit_note(&id, &heading, value, &by, pet.as_deref(), dentition.as_deref())).await
 }
 
 #[tauri::command]

@@ -1,0 +1,82 @@
+# Synthetic consult: written for OpenBark's test suite; not a real patient.
+# Dental chart fixture (ADR-0021, plan step 15): a range, a tooth said only by
+# name, a group, a fracture with no type said, a plan, whole-mouth statements
+# that must stay off the teeth, and "no tooth resorption".
+#
+# expected.chart: one fact per item. An item matches when `tooth` and
+# `finding` match and every other key given here matches; a key written as
+# null must be null in the note (`detail: null` means no type was guessed).
+# expected.chart_not_allowed: findings that must not be charted, except on
+# the teeth listed. Any charted tooth not in expected.chart is an invented tooth.
+id: dental-chart
+title: Canine dental under anaesthesia, charted by number, name, range and group
+species: canine
+template: dental
+speakers:
+  dvm: af_sarah
+  tech: am_adam
+pause_secs: 0.6
+lines:
+  - [dvm, "This is Juno, a nine year old spayed Labrador, in for her dental under anaesthesia."]
+  - [tech, "She weighs thirty-one kilos. Premed was methadone and dexmedetomidine, propofol to induce, and she's on isoflurane."]
+  - [dvm, "Charting now. One oh one through one oh three are missing."]
+  - [dvm, "The upper right canine is normal."]
+  - [dvm, "Two oh eight has a slab fracture with pulp exposure."]
+  - [dvm, "Two oh four has an uncomplicated crown fracture."]
+  - [dvm, "Three oh four is fractured as well. I can't tell how deep yet."]
+  - [dvm, "Three oh nine has stage three periodontal disease, a seven millimetre pocket, grade two mobility and a class two furcation."]
+  - [dvm, "All the lower incisors are mobile, grade three."]
+  - [dvm, "Overall I'd call her stage two across the mouth, with heavy calculus."]
+  - [dvm, "Radiographs show no tooth resorption."]
+  - [dvm, "Extracting two oh eight surgically with a flap. Three oh nine is a simple extraction."]
+  - [dvm, "The lower incisors come out closed, no sectioning."]
+  - [dvm, "Three oh four may need to come out. We'll radiograph it again at the recheck."]
+  - [tech, "Scaling and polishing done."]
+  - [dvm, "She goes home on carprofen, seventy-five milligrams by mouth twice a day for five days. Soft food for two weeks."]
+  - [dvm, "Recheck in ten days."]
+
+expected:
+  vitals:
+    weight: "31"
+  medications:
+    - { drug: carprofen, dose: "75", duration: "5" }
+  must_mention: ["208", "304", "309", "two weeks", "ten days"]
+  must_not_mention: [stage 4, resorption present]
+  chart:
+    # 101 to 103: a range.
+    - { tooth: "101", finding: missing }
+    - { tooth: "102", finding: missing }
+    - { tooth: "103", finding: missing }
+    # Said only by name: "the upper right canine".
+    - { tooth: "104", finding: normal }
+    - { tooth: "208", finding: fracture, detail: complicated_crown }
+    - { tooth: "208", finding: extraction, detail: open, planned: false }
+    - { tooth: "204", finding: fracture, detail: uncomplicated_crown }
+    # "Fractured as well. I can't tell how deep yet": no type.
+    - { tooth: "304", finding: fracture, detail: null }
+    - { tooth: "304", finding: extraction, detail: null, planned: true }
+    - { tooth: "309", finding: periodontal_stage, grade: 3 }
+    - { tooth: "309", finding: probing_depth, mm: 7 }
+    - { tooth: "309", finding: mobility, grade: 2 }
+    - { tooth: "309", finding: furcation, grade: 2 }
+    - { tooth: "309", finding: extraction, detail: closed, planned: false }
+    # "All the lower incisors": a group, mobility and a closed extraction each.
+    - { tooth: "301", finding: mobility, grade: 3 }
+    - { tooth: "302", finding: mobility, grade: 3 }
+    - { tooth: "303", finding: mobility, grade: 3 }
+    - { tooth: "401", finding: mobility, grade: 3 }
+    - { tooth: "402", finding: mobility, grade: 3 }
+    - { tooth: "403", finding: mobility, grade: 3 }
+    - { tooth: "301", finding: extraction, detail: closed, planned: false }
+    - { tooth: "302", finding: extraction, detail: closed, planned: false }
+    - { tooth: "303", finding: extraction, detail: closed, planned: false }
+    - { tooth: "401", finding: extraction, detail: closed, planned: false }
+    - { tooth: "402", finding: extraction, detail: closed, planned: false }
+    - { tooth: "403", finding: extraction, detail: closed, planned: false }
+  chart_flags: []
+  chart_not_allowed:
+    # "No tooth resorption" and "stage two across the mouth" are whole-mouth findings.
+    - { finding: resorption }
+    - { finding: resorption_type }
+    - { finding: periodontal_stage, except: ["309"] }
+    - { finding: normal, except: ["104"] }

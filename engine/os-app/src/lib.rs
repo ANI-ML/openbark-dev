@@ -18,7 +18,7 @@ pub use os_engine::live::{Progress, Stage};
 use os_engine::patients::{PatientRecord, PatientStore};
 pub use os_engine::session::AudioDeleted;
 use os_engine::session::{self, Addendum, Consent, PatientInfo, Session};
-use os_engine::template::{Scope, Template};
+use os_engine::template::{LoadedTemplate, Scope, Template};
 use os_engine::trash::{self, DeletedInfo, Recovered, Trash};
 use os_engine::users::{Role, User, UserStore, Who};
 use os_engine::{NoteOptions, Segment, TemplateStore, TranscribeStats, Transcript};
@@ -1455,6 +1455,12 @@ impl App {
 
     /// Save a veterinarian's own version of one heading as a new draft.
     /// Changed items are marked as entered by them; the earlier draft is kept.
+    ///
+    /// `dentition` ("canine" or "feline"): the animal the vet chose in the
+    /// chart editor when the chart had none (ADR-0021 decision 4). It is
+    /// written into the new run's template snapshot, so later edits, re-prompts
+    /// and the PDF draw the same mouth.
+    #[allow(clippy::too_many_arguments)]
     pub fn edit_note(
         &self,
         id: &str,
@@ -1462,6 +1468,7 @@ impl App {
         value: serde_json::Value,
         by: &str,
         pet: Option<&str>,
+        dentition: Option<&str>,
     ) -> Result<NoteResponse> {
         let _work = self.begin_work()?;
         let who = self
@@ -1475,7 +1482,10 @@ impl App {
             ));
         }
         let (run, note) = s.latest_note()?;
-        let template = s.run_template(&run)?;
+        let mut template = s.run_template(&run)?;
+        if let Some(chosen) = dentition.map(str::trim).filter(|d| !d.is_empty()) {
+            template = Self::with_chosen_dentition(&template, heading, chosen, &value)?;
+        }
         let transcript = s.load_transcript()?;
         let mut result =
             os_engine::edit::apply_edit(&template, &transcript, &note, heading, value, &who.name, &run.llm)?;
@@ -1490,6 +1500,41 @@ impl App {
             run: serde_json::to_value(&result)?,
             notice: None,
         })
+    }
+
+    /// The run's template with the chart's dentition the vet chose. Refused
+    /// when the heading isn't the chart, when it already has another
+    /// dentition, or when a charted tooth isn't in the chosen animal's mouth.
+    fn with_chosen_dentition(
+        template: &LoadedTemplate,
+        heading: &str,
+        chosen: &str,
+        value: &serde_json::Value,
+    ) -> Result<LoadedTemplate> {
+        use os_engine::dental::{Dentition, tooth_misfit};
+        let d = os_engine::template::species_key(chosen)
+            .and_then(Dentition::from_species_key)
+            .ok_or_else(|| AppError(format!("A tooth chart is for a dog or a cat, not \"{chosen}\".")))?;
+        match template.chart() {
+            Some((path, _)) if path == heading => {}
+            _ => return Err(AppError(format!("'{heading}' isn't a tooth chart."))),
+        }
+        let refused: Vec<String> = value
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|i| i["tooth"].as_str())
+            .filter(|t| tooth_misfit(t, Some(d)).is_some())
+            .map(String::from)
+            .collect();
+        if !refused.is_empty() {
+            return Err(AppError(format!(
+                "{} aren't in a {}'s mouth. Remove them or choose another animal.",
+                refused.join(", "),
+                d.animal()
+            )));
+        }
+        Ok(template.with_dentition(heading, d)?)
     }
 
     /// Add a signed addendum to a signed note.

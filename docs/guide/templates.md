@@ -52,6 +52,7 @@ Review says which version drafted each note, for example "Drafted with SOAP note
    - **Text box** for a paragraph, such as a surgical report (every sentence still linked to the recording);
    - **Measurements** for named values with units, such as weight or teeth extracted;
    - **Medications** for drug, dose, route, frequency and duration;
+   - **Tooth chart** for teeth by Triadan number, for dogs and cats: filled from what was said, and teeth not mentioned stay blank (one per template; see [The dental chart](review.md#the-dental-chart));
    - **Subheadings**, each holding one of the above.
 4. Add an instruction where it helps, in plain words, such as "Injections and fluids given during the visit." Not sure what to write? Choose one of the **Examples** under the heading; they suit what the heading is for, like Triadan numbers for teeth or lameness grades by limb. **Examples by kind of practice**, under the whole-note rules, adds a rule for an emergency, feline-only, equine, exotics, farm, shelter or referral practice.
 5. If a heading only applies to some animals, choose who it's for under **Show**, such as "only for cats". It's left out of notes for other species, and kept when no species was entered.
@@ -62,4 +63,4 @@ Every template follows OpenBark's core rules, and you can't remove them: only wh
 
 ## Standards
 
-When reviewing a note, **Ask** shows example requests made for that heading of that template (for the dental template, "One tooth per line, in numerical order"). Choose one, or write your own. **Ask** with **Save as a standard** adds your request to the template for that heading: with a team, **For me** (only your drafts) or **For the hospital** (everyone's, with an admin's PIN). Standards appear under their heading in the template, with who added them and when, and can be removed there.
+When reviewing a note, **Ask** shows example requests made for that heading of that template (for the dental template's chart, "Split ranges such as 101 to 103 into one item per tooth"). Choose one, or write your own. **Ask** with **Save as a standard** adds your request to the template for that heading: with a team, **For me** (only your drafts) or **For the hospital** (everyone's, with an admin's PIN). Standards appear under their heading in the template, with who added them and when, and can be removed there.

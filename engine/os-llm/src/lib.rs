@@ -94,6 +94,13 @@ pub fn devices() -> Vec<ComputeDevice> {
         .collect()
 }
 
+/// The llama.cpp grammar a JSON Schema constrains drafting to, as the
+/// llama.cpp backend builds it. Lets callers check that a template's schema
+/// converts (the tooth chart's enums, for example) without loading a model.
+pub fn grammar_for_schema(schema: &str) -> Result<String, LlmError> {
+    llama_cpp_2::json_schema_to_grammar(schema).map_err(|e| LlmError::Grammar(e.to_string()))
+}
+
 /// A text-generation backend.
 pub trait LlmBackend: Send + Sync {
     fn capabilities(&self) -> LlmCapabilities;

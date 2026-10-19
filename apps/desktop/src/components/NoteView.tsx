@@ -1,6 +1,10 @@
 import { Copy, MessageSquareText, Pencil } from "lucide-react";
+import { useState } from "react";
+import { headingLines } from "../copyFormats";
+import { asItems, useLowerInner, type Dentition } from "../dental";
 import type { ContentKind, Faithfulness, NoteRun, Template, TemplateField, TemplatePart } from "../engine";
 import { useT } from "../i18n";
+import { DentalChart } from "./DentalChart";
 
 /**
  * The structured note with the evidence link:
@@ -17,6 +21,10 @@ import { useT } from "../i18n";
  *
  * With `onAsk`, every heading and subheading has an Ask action that opens
  * `renderAsk(heading)` beneath it (the re-prompt panel).
+ *
+ * A tooth chart heading (ADR-0021) draws the chart: clicking a tooth in an
+ * unsigned draft opens the chart editor with that tooth selected; once signed,
+ * it only selects the tooth and lights its transcript lines.
  */
 export interface NoteViewProps {
   template: Template;
@@ -28,8 +36,8 @@ export interface NoteViewProps {
   onAsk?: (heading: string) => void;
   /** The re-prompt panel for the heading being asked about, else null. */
   renderAsk?: (heading: string) => React.ReactNode;
-  /** Edit a heading by hand. Absent once signed. */
-  onEdit?: (heading: string) => void;
+  /** Edit a heading by hand (`tooth`: a tooth clicked on a chart). Absent once signed. */
+  onEdit?: (heading: string, opts?: { tooth?: string }) => void;
   /** The editor for the heading being edited (shown in place of its content), else null. */
   renderEdit?: (heading: string) => React.ReactNode;
 }
@@ -73,7 +81,10 @@ function get(obj: unknown, key: string): unknown {
 
 export function NoteView({ template, run, onEvidence, onPlay, onCopySection, onAsk, renderAsk, onEdit, renderEdit }: NoteViewProps) {
   const t = useT();
+  const lowerInner = useLowerInner();
   const { hard, soft } = flagsFor(run.faithfulness, t);
+  // Signed charts: the tooth last clicked, highlighted with its lines.
+  const [pickedTooth, setPickedTooth] = useState<string | null>(null);
 
   const statement = (s: Statement, path: string, content: React.ReactNode) => {
     const ev = Array.isArray(s.evidence) ? s.evidence : [];
@@ -200,14 +211,39 @@ export function NoteView({ template, run, onEvidence, onPlay, onCopySection, onA
     );
   };
 
-  const content = (kind: ContentKind, defs: TemplateField[] | undefined, value: unknown, path: string) =>
+  const teeth = (value: unknown, path: string, dentition: Dentition | null) => {
+    const heading = path.slice(1);
+    const evidenceOf = (id: string) => [...new Set(asItems(value).filter((i) => i.tooth === id).flatMap((i) => i.evidence ?? []))];
+    return (
+      <DentalChart
+        dentition={dentition}
+        items={value}
+        faithfulness={run.faithfulness}
+        path={path}
+        onEvidence={onEvidence}
+        onPlay={onPlay}
+        selected={pickedTooth ? [pickedTooth] : []}
+        onToothActivate={(id) => {
+          if (onEdit) return onEdit(heading, { tooth: id });
+          setPickedTooth((p) => (p === id ? null : id));
+          onEvidence(evidenceOf(id));
+        }}
+      />
+    );
+  };
+
+  const content = (kind: ContentKind, defs: TemplateField[] | undefined, value: unknown, path: string, dentition: Dentition | null = null) =>
     kind === "statements"
       ? statements(value, path)
       : kind === "text"
         ? paragraph(value, path)
         : kind === "fields"
-        ? fields(defs ?? [], value, path)
-        : medications(value, path);
+          ? fields(defs ?? [], value, path)
+          : kind === "teeth"
+            ? teeth(value, path, dentition)
+            : kind === "medications"
+              ? medications(value, path)
+              : <p className="not-discussed">{t("This heading can't be shown in this version of OpenBark.")}</p>;
 
   const refined = run.refinement?.heading;
   const askButton = (heading: string, title: string) =>
@@ -261,12 +297,12 @@ export function NoteView({ template, run, onEvidence, onPlay, onCopySection, onA
     ));
 
   /** The heading's content in transcript type, or its editor (accent gutter bar until saved). */
-  const body = (heading: string, kind: ContentKind, defs: TemplateField[] | undefined, value: unknown) => {
+  const body = (heading: string, kind: ContentKind, defs: TemplateField[] | undefined, value: unknown, dentition: Dentition | null = null) => {
     const editor = renderEdit?.(heading);
     return editor ? (
       <div className="note-editing">{editor}</div>
     ) : (
-      <div className="note-body transcript-type">{content(kind, defs, value, `/${heading}`)}</div>
+      <div className="note-body transcript-type">{content(kind, defs, value, `/${heading}`, dentition)}</div>
     );
   };
 
@@ -282,12 +318,22 @@ export function NoteView({ template, run, onEvidence, onPlay, onCopySection, onA
         </div>
         {refinedNote(heading)}
         {renderAsk?.(heading)}
-        {body(heading, p.kind, p.fields, value)}
+        {body(heading, p.kind, p.fields, value, p.dentition ?? null)}
       </div>
     );
   };
 
   const sectionText = (id: string) => {
+    // A chart copies as words, never the diagram's tooth numbers.
+    const sec = template.sections.find((s) => s.id === id);
+    if (sec?.kind === "teeth" || sec?.parts?.some((p) => p.kind === "teeth")) {
+      const value = run.note[id];
+      const blocks = sec.kind
+        ? [headingLines(sec.kind, sec.fields, value, false, t, lowerInner)]
+        : (sec.parts ?? []).map((p) => [p.label, ...headingLines(p.kind, p.fields, (value as Record<string, unknown> | undefined)?.[p.key], false, t, lowerInner)]);
+      const text = blocks.map((l) => l.join("\n")).join("\n\n").trim();
+      return text || t("Not discussed");
+    }
     const el = document.getElementById(`note-${id}`);
     return el?.innerText.trim() ?? "";
   };
@@ -316,7 +362,7 @@ export function NoteView({ template, run, onEvidence, onPlay, onCopySection, onA
             {refinedNote(sec.id)}
             {renderAsk?.(sec.id)}
             {sec.kind
-              ? body(sec.id, sec.kind, sec.fields, value)
+              ? body(sec.id, sec.kind, sec.fields, value, sec.dentition ?? null)
               : (sec.parts ?? []).map((p) => part(p, value, sec.id))}
           </section>
         );

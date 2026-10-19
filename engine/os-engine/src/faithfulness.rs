@@ -62,6 +62,12 @@ pub struct FaithfulnessReport {
     /// alignment, M2): flagged for checking, never a hard fail.
     #[serde(default)]
     pub unsupported_statements: Vec<crate::align::UnsupportedStatement>,
+    /// Soft flags on charted teeth (ADR-0021 decision 7): a number and a name
+    /// that mean different teeth, a finding with no word for it in the cited
+    /// lines, fields that don't fit the finding, a finding listed twice. A
+    /// tooth said nowhere is a hard fail in `unsupported_numbers` instead.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tooth_flags: Vec<crate::dental::ToothFlag>,
     /// No invalid evidence and no unsupported numbers (vet-entered items aside).
     pub passed: bool,
 }
@@ -77,6 +83,7 @@ impl FaithfulnessReport {
             .chain(self.disputed_numbers.iter().map(|d| d.path.clone()))
             .chain(self.unverified_values.iter().cloned())
             .chain(self.unsupported_statements.iter().map(|s| s.path.clone()))
+            .chain(self.tooth_flags.iter().map(|f| f.path.clone()))
             .collect()
     }
 }
@@ -177,6 +184,15 @@ fn align_walk(
                 if vet || invalid.contains(&path) {
                     return;
                 }
+                // A charted tooth prints its finding's words, not its `text`,
+                // and the cue-word check (`dental::check_item`) is its word
+                // check ("come out" is an extraction). Only `other`, which
+                // prints the words as said, is also aligned.
+                if crate::dental::is_tooth_item(map)
+                    && map.get("finding").and_then(Value::as_str) != Some("other")
+                {
+                    return;
+                }
                 let cited: Vec<u32> = evidence.iter().filter_map(|v| v.as_u64()).map(|v| v as u32).collect();
                 if let Some(text) = claim_text(map, &path)
                     && let Some(flag) = aligner.check(&path, &text, &cited)
@@ -212,6 +228,10 @@ fn walk(value: &Value, path: String, transcript: &Transcript, report: &mut Faith
         Value::Array(items) => {
             for (i, v) in items.iter().enumerate() {
                 walk(v, format!("{path}/{i}"), transcript, report);
+            }
+            // A tooth chart: the same finding twice on one tooth.
+            if items.iter().any(|v| v.as_object().is_some_and(crate::dental::is_tooth_item)) {
+                report.tooth_flags.extend(crate::dental::duplicates(items, &path));
             }
         }
         _ => {}
@@ -271,11 +291,30 @@ fn check_statement(
     if cited.is_empty() || cited.iter().any(|id| transcript.get(*id).is_none()) {
         report.invalid_evidence.push(path.to_string());
     }
-    let supported: HashSet<String> = cited
+    let mut supported: HashSet<String> = cited
         .iter()
         .filter_map(|id| transcript.get(*id))
         .flat_map(|s| extract_numbers(&normalize_spoken(&s.text)))
         .collect();
+    // A charted tooth (ADR-0021 decision 7): the tooth check replaces the
+    // number check for the `tooth` key, and a tooth said by name, range or
+    // group in the cited lines supports its number in `text` too.
+    let tooth_item = crate::dental::is_tooth_item(map);
+    if tooth_item {
+        let teeth = crate::dental::check_item(map, path, transcript);
+        report.numbers_checked += teeth.checked;
+        report.unsupported_numbers.extend(teeth.unsupported);
+        report.citation_mismatches.extend(teeth.mismatches);
+        report.disputed_numbers.extend(teeth.disputed);
+        report.tooth_flags.extend(teeth.flags);
+        supported.extend(
+            cited
+                .iter()
+                .filter_map(|id| transcript.get(*id))
+                .flat_map(|s| crate::dental::teeth_in(&s.text))
+                .flat_map(|m| m.teeth),
+        );
+    }
     if path.starts_with("/patient/")
         && let Some(Value::String(value)) = map.get("value")
     {
@@ -290,7 +329,7 @@ fn check_statement(
         }
     }
     for (key, v) in map {
-        if key == "evidence" || key == "entered_by" {
+        if key == "evidence" || key == "entered_by" || (tooth_item && key == "tooth") {
             continue;
         }
         let text = match v {
@@ -320,7 +359,11 @@ fn check_statement(
                     let found_in: Vec<u32> = transcript
                         .segments
                         .iter()
-                        .filter(|s| extract_numbers(&normalize_spoken(&s.text)).contains(&number))
+                        .filter(|s| {
+                            extract_numbers(&normalize_spoken(&s.text)).contains(&number)
+                                || (tooth_item
+                                    && crate::dental::teeth_in(&s.text).iter().any(|m| m.covers(&number)))
+                        })
                         .map(|s| s.id)
                         .collect();
                     let entry =
@@ -469,6 +512,131 @@ mod tests {
             json!({"treatment": [{"drug": "Fluids under the skin", "dose": "100 mL", "evidence": [0]}]});
         assert!(!check(&discharge, &transcript()).passed);
         assert!(check_with(&discharge, &transcript(), &numbers).passed);
+    }
+
+    fn dental_transcript() -> Transcript {
+        let seg = |id, text: &str| Segment {
+            id,
+            start: 0.0,
+            end: 1.0,
+            speaker: Some(0),
+            text: text.into(),
+            hints: Vec::new(),
+            check: None,
+        };
+        Transcript {
+            segments: vec![
+                seg(0, "One oh one through one oh three are missing."),
+                seg(1, "The upper right canine is normal."),
+                seg(2, "Three oh nine has stage three periodontal disease, a seven millimetre pocket."),
+                seg(3, "One oh eight, upper left fourth premolar, has a slab fracture."),
+                seg(4, "Overall I'd call her stage two across the mouth."),
+            ],
+        }
+    }
+
+    fn tooth(id: &str, finding: &str, grade: Option<u8>, mm: Option<f64>, evidence: &[u32]) -> Value {
+        json!({"tooth": id, "text": format!("{id} {finding}"), "finding": finding, "detail": null,
+               "grade": grade, "mm": mm, "planned": false, "evidence": evidence})
+    }
+
+    /// ADR-0021 decision 7 through the faithfulness pass: teeth said by name or
+    /// range pass, numbers in `text` that are those teeth pass, grades and
+    /// millimetres go through the number check.
+    #[test]
+    fn charted_teeth_said_by_number_name_or_range_pass() {
+        let note = json!({"dental_chart": [
+            tooth("102", "missing", None, None, &[0]),
+            tooth("104", "normal", None, None, &[1]),
+            tooth("309", "periodontal_stage", Some(3), None, &[2]),
+            tooth("309", "probing_depth", None, Some(7.0), &[2]),
+        ]});
+        let r = check(&note, &dental_transcript());
+        assert!(r.passed, "{r:?}");
+        assert!(r.unsupported_numbers.is_empty() && r.citation_mismatches.is_empty(), "{r:?}");
+        assert!(r.tooth_flags.is_empty(), "{:?}", r.tooth_flags);
+    }
+
+    #[test]
+    fn an_invented_tooth_blocks_signing_and_a_wrong_line_is_a_mismatch() {
+        let note = json!({"dental_chart": [
+            tooth("105", "missing", None, None, &[1]),
+            tooth("309", "periodontal_stage", Some(3), None, &[0]),
+        ]});
+        let r = check(&note, &dental_transcript());
+        assert!(!r.passed, "a tooth said nowhere is a hard fail");
+        assert!(
+            r.unsupported_numbers.iter().any(|u| u.path == "/dental_chart/0" && u.number == "105"),
+            "{r:?}"
+        );
+        assert!(
+            r.citation_mismatches.iter().any(|u| u.path == "/dental_chart/1" && u.number == "309"),
+            "{r:?}"
+        );
+        // An invented stage is an unsupported number, as for any number.
+        let invented = json!({"dental_chart": [tooth("309", "probing_depth", None, Some(9.0), &[2])]});
+        let r = check(&invented, &dental_transcript());
+        assert!(r.unsupported_numbers.iter().any(|u| u.number == "9"), "{r:?}");
+    }
+
+    #[test]
+    fn soft_tooth_flags_name_conflicts_missing_cues_and_duplicates() {
+        let note = json!({"dental_chart": [
+            tooth("108", "fracture", None, None, &[3]),
+            tooth("104", "missing", None, None, &[1]),
+            tooth("104", "missing", None, None, &[1]),
+        ]});
+        let r = check(&note, &dental_transcript());
+        assert!(r.passed, "soft flags never block signing: {r:?}");
+        let kinds: Vec<(String, crate::dental::ToothFlagKind)> =
+            r.tooth_flags.iter().map(|f| (f.path.clone(), f.kind)).collect();
+        use crate::dental::ToothFlagKind::*;
+        assert!(kinds.contains(&("/dental_chart/0".into(), NameConflict)), "{kinds:?}");
+        assert_eq!(
+            r.tooth_flags.iter().find(|f| f.kind == NameConflict).unwrap().other.as_deref(),
+            Some("208")
+        );
+        assert!(kinds.contains(&("/dental_chart/1".into(), CueMissing)), "{kinds:?}");
+        assert!(kinds.contains(&("/dental_chart/2".into(), Duplicate)), "{kinds:?}");
+        assert!(r.flagged_paths().contains("/dental_chart/0"));
+        // As the recogniser wrote it in the eval fixture: digits, an ordinal, a misspelling.
+        let mut t = dental_transcript();
+        t.segments[3].text =
+            "Alright charting. 108 Upper Left 4th Primolar has a slab fracture with pulp exposure.".into();
+        let r = check(&json!({"dental_chart": [tooth("108", "fracture", None, None, &[3])]}), &t);
+        assert_eq!(
+            r.tooth_flags.iter().find(|f| f.kind == NameConflict).and_then(|f| f.other.as_deref()),
+            Some("208")
+        );
+        // Old reports without the list still serialise without it.
+        let plain = check(&json!({"a": []}), &dental_transcript());
+        assert!(serde_json::to_value(&plain).unwrap().get("tooth_flags").is_none());
+    }
+
+    /// "The lower incisors come out" charted as extraction: the cue check
+    /// passes ("out"), so the word check doesn't also flag "extraction". An
+    /// `other` finding prints its words as said, so they are still aligned.
+    #[test]
+    fn charted_findings_use_the_cue_check_not_the_word_check() {
+        let mut t = dental_transcript();
+        t.segments.push(Segment {
+            id: 5,
+            start: 0.0,
+            end: 1.0,
+            speaker: Some(0),
+            text: "The lower incisors come out closed, no sectioning.".into(),
+            hints: Vec::new(),
+            check: None,
+        });
+        let mut out = tooth("301", "extraction", None, None, &[5]);
+        out["text"] = json!("extraction");
+        out["detail"] = json!("closed");
+        let mut other = tooth("301", "other", None, None, &[5]);
+        other["text"] = json!("gold crown placed");
+        let r = check_opts(&json!({"dental_chart": [out, other]}), &t, &HashSet::new(), true);
+        let flagged: Vec<&str> = r.unsupported_statements.iter().map(|s| s.path.as_str()).collect();
+        assert_eq!(flagged, ["/dental_chart/1"], "{r:?}");
+        assert!(r.tooth_flags.iter().all(|f| f.path != "/dental_chart/0"), "{:?}", r.tooth_flags);
     }
 
     #[test]

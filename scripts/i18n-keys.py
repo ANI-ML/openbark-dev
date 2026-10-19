@@ -127,8 +127,40 @@ def help_topics() -> set[str]:
     return out
 
 
+CHART = os.path.join(os.path.dirname(__file__), "..", "packages", "dental", "chart.json")
+
+
+def dental_chart() -> set[str]:
+    """The tooth chart's words (ADR-0021), rendered with t() from packages/dental/chart.json
+    (finding labels, words and legend lines, detail words) and src/dental.ts (tooth names),
+    plus the chart editor's GROUPS, DETAIL_LABEL and GRADE_LABEL and the builder's kind."""
+    with io.open(CHART, encoding="utf-8") as f:
+        chart = json.load(f)
+    out = set()
+    for finding in chart["findings"]:
+        for key in ("label", "words", "words_grade", "words_mm", "legend"):
+            if finding.get(key):
+                out.add(finding[key])
+        for detail in finding["details"]:
+            out.add(detail["words"])
+    for side in ("right", "left"):
+        for jaw in ("maxillary", "mandibular"):
+            out.add(f"{side} {jaw} {{tooth}}")
+    out |= {
+        "deciduous {tooth}", "canine",
+        "first incisor", "second incisor", "third incisor",
+        "first premolar", "second premolar", "third premolar", "fourth premolar",
+        "first molar", "second molar", "third molar",
+        "Normal or missing", "Fracture", "Periodontal", "Resorption", "Eruption", "Tooth condition", "Treatment", "Other",
+        "Type", "Version", "Technique", "Stage", "Grade",
+        "Tooth chart", "Teeth by Triadan number, for dogs and cats. Filled from what was said; teeth not mentioned stay blank.",
+        "A template can have one tooth chart.",
+    }
+    return out
+
+
 def main() -> None:
-    keys = set(INDIRECT) | help_topics() | model_guide()
+    keys = set(INDIRECT) | help_topics() | model_guide() | dental_chart()
     for folder, _, files in os.walk(ROOT):
         for name in files:
             if not name.endswith((".ts", ".tsx")) or ".test." in name:

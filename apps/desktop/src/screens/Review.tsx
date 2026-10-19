@@ -9,6 +9,8 @@ import { PatientFields } from "../components/PatientFields";
 import { DocumentSheet } from "../components/DocumentSheet";
 import { DraftBoard, useDraftTracker } from "../components/DraftProgress";
 import { HeadingEditor } from "../components/HeadingEditor";
+import { DentalChartEditor } from "../components/DentalChartEditor";
+import { useLowerInner, type Dentition } from "../dental";
 import { RefinePanel } from "../components/RefinePanel";
 import { headingExamples } from "../promptExamples";
 import { speciesName } from "../species";
@@ -39,6 +41,7 @@ export function Review({
 }) {
   const app = useApp();
   const t = useT();
+  const lowerInner = useLowerInner();
   const [view, setView] = useState<engine.SessionView | null>(null);
   const [templates, setTemplates] = useState<engine.TemplateSummary[]>([]);
   const [picked, setPicked] = useState<string | null>(draftTemplate ?? null);
@@ -46,6 +49,8 @@ export function Review({
   const [current, setCurrent] = useState<engine.TemplateView | null>(null);
   const [asking, setAsking] = useState<string | null>(null);
   const [editingHeading, setEditingHeading] = useState<string | null>(null);
+  /** The tooth clicked to open the chart editor (ADR-0021 §8). */
+  const [editingTeeth, setEditingTeeth] = useState<string[]>([]);
   const [savingEdit, setSavingEdit] = useState(false);
   const [addendum, setAddendum] = useState<string | null>(null);
   /** The client document open in the sheet, and the one being drafted. */
@@ -196,7 +201,7 @@ export function Review({
     }
   }
 
-  async function saveEdit(heading: string, value: unknown) {
+  async function saveEdit(heading: string, value: unknown, dentition?: Dentition | null) {
     if (!template) return;
     if (!app.actorName.trim()) {
       setError(t("Add your name in Settings, then save your edits."));
@@ -205,7 +210,7 @@ export function Review({
     setError(null);
     setSavingEdit(true);
     try {
-      await engine.editNote(id, heading, value, app.actor, pet);
+      await engine.editNote(id, heading, value, app.actor, pet, dentition);
       await load();
       setEditingHeading(null);
       app.toast(t("{heading} saved", { heading: engine.headingTitle(template, heading) }));
@@ -330,6 +335,8 @@ export function Review({
           )
         : [],
       notDiscussed: t("Not discussed"),
+      t,
+      lowerInner,
     });
     await copy(out.text, what, out.html);
   }
@@ -762,9 +769,11 @@ export function Review({
                 onEdit={
                   signed || generating || refining || !app.can.notes
                     ? undefined
-                    : (heading) => {
+                    : (heading, opts) => {
                         setAsking(null);
-                        setEditingHeading((h) => (h === heading ? null : heading));
+                        setEditingTeeth(opts?.tooth ? [opts.tooth] : []);
+                        // A tooth click opens the chart editor; the Edit button toggles it.
+                        setEditingHeading((h) => (h === heading && !opts?.tooth ? null : heading));
                       }
                 }
                 renderEdit={(heading) => {
@@ -773,6 +782,22 @@ export function Review({
                   if (!def) return null;
                   const [sec, part] = heading.split("/");
                   const sectionValue = run.note[sec ?? ""] as Record<string, unknown> | undefined;
+                  if (def.kind === "teeth")
+                    return (
+                      <DentalChartEditor
+                        key={editingTeeth.join(",")}
+                        title={engine.headingTitle(template, heading)}
+                        dentition={def.dentition ?? null}
+                        value={part ? sectionValue?.[part] : sectionValue}
+                        busy={savingEdit}
+                        initialSelection={editingTeeth}
+                        onSave={(items, dentition) => void saveEdit(heading, items, dentition)}
+                        onCancel={() => setEditingHeading(null)}
+                        onPlay={playIds}
+                        onEvidence={(ids) => setLit(new Set(ids ?? []))}
+                        lineText={(n) => segments.find((s) => s.id === n)?.text}
+                      />
+                    );
                   return (
                     <HeadingEditor
                       title={engine.headingTitle(template, heading)}
@@ -1010,13 +1035,13 @@ export function Review({
 function headingDef(
   t: engine.Template,
   heading: string,
-): { kind: engine.ContentKind; fields?: engine.TemplateField[] } | null {
+): { kind: engine.ContentKind; fields?: engine.TemplateField[]; dentition?: Dentition | null } | null {
   const [sec, part] = heading.split("/");
   const s = t.sections.find((x) => x.id === sec);
   if (!s) return null;
-  if (!part) return s.kind ? { kind: s.kind, fields: s.fields } : null;
+  if (!part) return s.kind ? { kind: s.kind, fields: s.fields, dentition: s.dentition } : null;
   const p = s.parts?.find((x) => x.key === part);
-  return p ? { kind: p.kind, fields: p.fields } : null;
+  return p ? { kind: p.kind, fields: p.fields, dentition: p.dentition } : null;
 }
 
 /** "gemma-4-E4B_q4_0-it" reads "gemma-4-e4b" on the chip; the full id is its tooltip. */

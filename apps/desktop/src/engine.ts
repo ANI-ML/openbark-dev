@@ -56,6 +56,8 @@ export interface Faithfulness {
   /** Items a veterinarian wrote or edited by hand (listed, not checked). */
   vet_entered?: string[];
   invalid_evidence: string[];
+  /** Soft flags on charted teeth (ADR-0021): name conflict, cue missing, shape, duplicate. */
+  tooth_flags?: { path: string; tooth: string; kind: "name_conflict" | "cue_missing" | "shape" | "duplicate"; other?: string; expected?: string[] }[];
 }
 
 export interface NoteRun {
@@ -299,7 +301,8 @@ export interface HubRepoView {
 
 /** What goes under a heading: bullet points, named measurements, or medications. */
 /** "text" is a text box: cited sentences shown as a paragraph. */
-export type ContentKind = "statements" | "fields" | "medications" | "text";
+/** "teeth" is a tooth chart for dogs and cats (ADR-0021): one item per finding on one tooth. */
+export type ContentKind = "statements" | "fields" | "medications" | "text" | "teeth";
 
 export interface TemplateField {
   /** JSON key; the engine derives it from the label when empty. */
@@ -322,6 +325,8 @@ export interface TemplatePart {
   /** Shown only for these species ("show when species is feline"). */
   when?: TemplateCondition | null;
   fields?: TemplateField[];
+  /** A tooth chart's dentition, set from the species or chosen when editing. */
+  dentition?: "canine" | "feline" | null;
 }
 
 export interface TemplateSection {
@@ -335,6 +340,8 @@ export interface TemplateSection {
   when?: TemplateCondition | null;
   fields?: TemplateField[];
   parts?: TemplatePart[];
+  /** A tooth chart's dentition, set from the species or chosen when editing. */
+  dentition?: "canine" | "feline" | null;
 }
 
 /** A re-prompt saved against a heading, applied to every later draft. */
@@ -1005,13 +1012,16 @@ export const updatePatient = (id: string, patient: Patient) =>
   isDesktop
     ? invoke<SessionView>("update_patient", { id, patient })
     : api<SessionView>(`/api/sessions/${enc(id)}/patient`, post(patient));
-/** Save the vet's own version of one heading as a new draft. */
-export const editNote = (id: string, heading: string, value: unknown, by: string, pet?: string | null) =>
+/**
+ * Save the vet's own version of one heading as a new draft. `dentition`: the
+ * animal chosen in the tooth chart editor when the chart had none.
+ */
+export const editNote = (id: string, heading: string, value: unknown, by: string, pet?: string | null, dentition?: "canine" | "feline" | null) =>
   isDesktop
-    ? invoke<{ markdown: string; run: NoteRun }>("edit_note", { id, heading, value, by, pet: pet ?? null })
+    ? invoke<{ markdown: string; run: NoteRun }>("edit_note", { id, heading, value, by, pet: pet ?? null, dentition: dentition ?? null })
     : api<{ markdown: string; run: NoteRun }>(
         `/api/sessions/${enc(id)}/edit`,
-        post({ heading, value, by, pet: pet ?? null }),
+        post({ heading, value, by, pet: pet ?? null, dentition: dentition ?? null }),
       );
 export const addAddendum = (id: string, text: string, by: string, pet?: string | null) =>
   isDesktop

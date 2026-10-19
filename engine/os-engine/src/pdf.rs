@@ -5,10 +5,17 @@
 //! A small writer on the PDF standard fonts (Helvetica, WinAnsi encoding):
 //! no font files, no dependencies, identical output on every platform.
 //! Citations are left out; the signed record reads as a clean document.
+//!
+//! Tooth charts (ADR-0021 §9) are drawn with a path operator (move, line,
+//! curve, close, stroke, fill, dash) from the outlines in
+//! `packages/dental/chart.json`, the same data the app draws from.
+
+use std::collections::HashMap;
 
 use serde::Deserialize;
 use serde_json::Value;
 
+use crate::dental::{self, Dentition, Glyph, LegendLine, PathCmd};
 use crate::render::field_text;
 use crate::template::{FieldDef, LoadedTemplate, PartKind};
 
@@ -55,7 +62,324 @@ pub struct Labels {
     pub draft_client: &'static str,
     /// "Page {i} of {n}".
     pub page: &'static str,
+    /// The tooth chart's words (finding words, captions, legend).
+    pub dental: &'static DentalWords,
 }
+
+/// The tooth chart's words on a PDF, by their English text (which is also the
+/// app's translation key). A word without an entry prints in English; AVDC
+/// codes are never translated. Every translation is listed for review by a
+/// native-speaking vet before release (ADR-0021 §11).
+#[derive(Debug)]
+pub struct DentalWords {
+    /// Lowercase the first letter of words inside a line ("Planned: open
+    /// extraction"; "fracture; open extraction"). Not in German.
+    pub lower_inner: bool,
+    pub words: &'static [(&'static str, &'static str)],
+}
+
+impl DentalWords {
+    pub fn tr(&self, english: &str) -> String {
+        self.words.iter().find(|(k, _)| *k == english).map_or(english, |(_, v)| v).to_string()
+    }
+}
+
+/// The chart's fixed words on a PDF; the finding words and legend lines come
+/// from `chart.json`.
+pub const DENTAL_FIXED_WORDS: &[&str] = &[
+    "Planned: {finding}",
+    "Patient's right",
+    "Patient's left",
+    "Blank: not charted in this recording. It doesn't mean normal.",
+    "Right and left are the patient's.",
+    "Dentition not recorded.",
+];
+
+const DENTAL_EN: DentalWords = DentalWords { lower_inner: true, words: &[] };
+
+const DENTAL_FR: DentalWords = DentalWords {
+    lower_inner: true,
+    words: &[
+        ("Normal", "Normale"),
+        ("Missing", "Absente"),
+        ("Fracture", "Fracture"),
+        ("Enamel infraction", "Infraction de l'émail"),
+        ("Enamel fracture", "Fracture de l'émail"),
+        ("Uncomplicated crown fracture", "Fracture coronaire non compliquée"),
+        ("Complicated crown fracture", "Fracture coronaire compliquée"),
+        ("Uncomplicated crown-root fracture", "Fracture corono-radiculaire non compliquée"),
+        ("Complicated crown-root fracture", "Fracture corono-radiculaire compliquée"),
+        ("Root fracture", "Fracture radiculaire"),
+        ("Periodontal disease", "Maladie parodontale"),
+        ("Periodontal disease stage {n}", "Maladie parodontale stade {n}"),
+        ("Mobility", "Mobilité"),
+        ("Mobility {n}", "Mobilité {n}"),
+        ("Furcation", "Furcation"),
+        ("Furcation {n}", "Furcation {n}"),
+        ("Probing depth", "Profondeur de sondage"),
+        ("Probing depth {mm} mm", "Profondeur de sondage {mm} mm"),
+        ("Gingival recession", "Récession gingivale"),
+        ("Gingival recession {mm} mm", "Récession gingivale {mm} mm"),
+        ("Tooth resorption", "Résorption dentaire"),
+        ("Tooth resorption stage {stage}", "Résorption dentaire stade {stage}"),
+        ("Resorption type", "Type de résorption"),
+        ("Resorption type {n}", "Résorption de type {n}"),
+        ("Persistent deciduous tooth", "Dent déciduale persistante"),
+        ("Unerupted", "Non éruptée"),
+        ("Retained root", "Racine résiduelle"),
+        ("Caries", "Carie"),
+        ("Wear", "Usure"),
+        ("Abrasion", "Abrasion"),
+        ("Attrition", "Attrition"),
+        ("Discoloured", "Dyschromique"),
+        ("Malpositioned", "Malposition"),
+        ("Buccoversion", "Buccoversion"),
+        ("Distoversion", "Distoversion"),
+        ("Labioversion", "Labioversion"),
+        ("Linguoversion", "Linguoversion"),
+        ("Mesioversion", "Mésioversion"),
+        ("Palatoversion", "Palatoversion"),
+        ("Extraction", "Extraction"),
+        ("Closed extraction", "Extraction fermée"),
+        ("Closed extraction, sectioned", "Extraction fermée, avec section"),
+        ("Open extraction", "Extraction ouverte"),
+        ("Crown amputation", "Amputation coronaire"),
+        ("Other", "Autre"),
+        ("PD0-PD4: periodontal disease stage (AVDC)", "PD0-PD4 : stade de maladie parodontale (AVDC)"),
+        (
+            "M0-M3: tooth mobility index (AVDC). Grades as said.",
+            "M0-M3 : indice de mobilité dentaire (AVDC). Grades tels que dits.",
+        ),
+        ("F1-F3: furcation index (AVDC)", "F1-F3 : indice de furcation (AVDC)"),
+        (
+            "TR1-TR5: tooth resorption stage (AVDC). T1-T3: resorption type.",
+            "TR1-TR5 : stade de résorption dentaire (AVDC). T1-T3 : type de résorption.",
+        ),
+        ("Probing depth is in millimetres.", "La profondeur de sondage est en millimètres."),
+        ("Planned: {finding}", "Prévu : {finding}"),
+        ("Patient's right", "Droite du patient"),
+        ("Patient's left", "Gauche du patient"),
+        (
+            "Blank: not charted in this recording. It doesn't mean normal.",
+            "Vide : non noté dans cet enregistrement. Cela ne veut pas dire normal.",
+        ),
+        ("Right and left are the patient's.", "Droite et gauche sont celles du patient."),
+        ("Dentition not recorded.", "Denture non indiquée."),
+    ],
+};
+
+const DENTAL_ES: DentalWords = DentalWords {
+    lower_inner: true,
+    words: &[
+        ("Normal", "Normal"),
+        ("Missing", "Ausente"),
+        ("Fracture", "Fractura"),
+        ("Enamel infraction", "Infracción del esmalte"),
+        ("Enamel fracture", "Fractura del esmalte"),
+        ("Uncomplicated crown fracture", "Fractura coronal no complicada"),
+        ("Complicated crown fracture", "Fractura coronal complicada"),
+        ("Uncomplicated crown-root fracture", "Fractura corono-radicular no complicada"),
+        ("Complicated crown-root fracture", "Fractura corono-radicular complicada"),
+        ("Root fracture", "Fractura radicular"),
+        ("Periodontal disease", "Enfermedad periodontal"),
+        ("Periodontal disease stage {n}", "Enfermedad periodontal estadio {n}"),
+        ("Mobility", "Movilidad"),
+        ("Mobility {n}", "Movilidad {n}"),
+        ("Furcation", "Furcación"),
+        ("Furcation {n}", "Furcación {n}"),
+        ("Probing depth", "Profundidad de sondaje"),
+        ("Probing depth {mm} mm", "Profundidad de sondaje {mm} mm"),
+        ("Gingival recession", "Recesión gingival"),
+        ("Gingival recession {mm} mm", "Recesión gingival {mm} mm"),
+        ("Tooth resorption", "Reabsorción dentaria"),
+        ("Tooth resorption stage {stage}", "Reabsorción dentaria estadio {stage}"),
+        ("Resorption type", "Tipo de reabsorción"),
+        ("Resorption type {n}", "Reabsorción tipo {n}"),
+        ("Persistent deciduous tooth", "Diente deciduo persistente"),
+        ("Unerupted", "No erupcionado"),
+        ("Retained root", "Raíz retenida"),
+        ("Caries", "Caries"),
+        ("Wear", "Desgaste"),
+        ("Abrasion", "Abrasión"),
+        ("Attrition", "Atrición"),
+        ("Discoloured", "Con cambio de color"),
+        ("Malpositioned", "Malposición"),
+        ("Buccoversion", "Bucoversión"),
+        ("Distoversion", "Distoversión"),
+        ("Labioversion", "Labioversión"),
+        ("Linguoversion", "Linguoversión"),
+        ("Mesioversion", "Mesioversión"),
+        ("Palatoversion", "Palatoversión"),
+        ("Extraction", "Extracción"),
+        ("Closed extraction", "Extracción cerrada"),
+        ("Closed extraction, sectioned", "Extracción cerrada, con odontosección"),
+        ("Open extraction", "Extracción abierta"),
+        ("Crown amputation", "Amputación coronal"),
+        ("Other", "Otro"),
+        ("PD0-PD4: periodontal disease stage (AVDC)", "PD0-PD4: estadio de enfermedad periodontal (AVDC)"),
+        (
+            "M0-M3: tooth mobility index (AVDC). Grades as said.",
+            "M0-M3: índice de movilidad dentaria (AVDC). Grados tal como se dijeron.",
+        ),
+        ("F1-F3: furcation index (AVDC)", "F1-F3: índice de furcación (AVDC)"),
+        (
+            "TR1-TR5: tooth resorption stage (AVDC). T1-T3: resorption type.",
+            "TR1-TR5: estadio de reabsorción dentaria (AVDC). T1-T3: tipo de reabsorción.",
+        ),
+        ("Probing depth is in millimetres.", "La profundidad de sondaje está en milímetros."),
+        ("Planned: {finding}", "Previsto: {finding}"),
+        ("Patient's right", "Derecha del paciente"),
+        ("Patient's left", "Izquierda del paciente"),
+        (
+            "Blank: not charted in this recording. It doesn't mean normal.",
+            "En blanco: no anotado en esta grabación. No significa normal.",
+        ),
+        ("Right and left are the patient's.", "Derecha e izquierda son las del paciente."),
+        ("Dentition not recorded.", "Dentición no indicada."),
+    ],
+};
+
+const DENTAL_DE: DentalWords = DentalWords {
+    lower_inner: false,
+    words: &[
+        ("Normal", "Normal"),
+        ("Missing", "Fehlend"),
+        ("Fracture", "Fraktur"),
+        ("Enamel infraction", "Schmelzinfraktion"),
+        ("Enamel fracture", "Schmelzfraktur"),
+        ("Uncomplicated crown fracture", "Unkomplizierte Kronenfraktur"),
+        ("Complicated crown fracture", "Komplizierte Kronenfraktur"),
+        ("Uncomplicated crown-root fracture", "Unkomplizierte Kronen-Wurzel-Fraktur"),
+        ("Complicated crown-root fracture", "Komplizierte Kronen-Wurzel-Fraktur"),
+        ("Root fracture", "Wurzelfraktur"),
+        ("Periodontal disease", "Parodontalerkrankung"),
+        ("Periodontal disease stage {n}", "Parodontalerkrankung Stadium {n}"),
+        ("Mobility", "Beweglichkeit"),
+        ("Mobility {n}", "Beweglichkeit {n}"),
+        ("Furcation", "Furkation"),
+        ("Furcation {n}", "Furkation {n}"),
+        ("Probing depth", "Sondierungstiefe"),
+        ("Probing depth {mm} mm", "Sondierungstiefe {mm} mm"),
+        ("Gingival recession", "Gingivarezession"),
+        ("Gingival recession {mm} mm", "Gingivarezession {mm} mm"),
+        ("Tooth resorption", "Zahnresorption"),
+        ("Tooth resorption stage {stage}", "Zahnresorption Stadium {stage}"),
+        ("Resorption type", "Resorptionstyp"),
+        ("Resorption type {n}", "Resorption Typ {n}"),
+        ("Persistent deciduous tooth", "Persistierender Milchzahn"),
+        ("Unerupted", "Nicht durchgebrochen"),
+        ("Retained root", "Wurzelrest"),
+        ("Caries", "Karies"),
+        ("Wear", "Abnutzung"),
+        ("Abrasion", "Abrasion"),
+        ("Attrition", "Attrition"),
+        ("Discoloured", "Verfärbt"),
+        ("Malpositioned", "Fehlstellung"),
+        ("Buccoversion", "Bukkoversion"),
+        ("Distoversion", "Distoversion"),
+        ("Labioversion", "Labioversion"),
+        ("Linguoversion", "Linguoversion"),
+        ("Mesioversion", "Mesioversion"),
+        ("Palatoversion", "Palatoversion"),
+        ("Extraction", "Extraktion"),
+        ("Closed extraction", "Geschlossene Extraktion"),
+        ("Closed extraction, sectioned", "Geschlossene Extraktion, separiert"),
+        ("Open extraction", "Offene Extraktion"),
+        ("Crown amputation", "Kronenamputation"),
+        ("Other", "Sonstiges"),
+        ("PD0-PD4: periodontal disease stage (AVDC)", "PD0-PD4: Stadium der Parodontalerkrankung (AVDC)"),
+        (
+            "M0-M3: tooth mobility index (AVDC). Grades as said.",
+            "M0-M3: Index der Zahnbeweglichkeit (AVDC). Grade wie gesagt.",
+        ),
+        ("F1-F3: furcation index (AVDC)", "F1-F3: Furkationsindex (AVDC)"),
+        (
+            "TR1-TR5: tooth resorption stage (AVDC). T1-T3: resorption type.",
+            "TR1-TR5: Stadium der Zahnresorption (AVDC). T1-T3: Resorptionstyp.",
+        ),
+        ("Probing depth is in millimetres.", "Die Sondierungstiefe ist in Millimetern angegeben."),
+        ("Planned: {finding}", "Geplant: {finding}"),
+        ("Patient's right", "Rechts (Patient)"),
+        ("Patient's left", "Links (Patient)"),
+        (
+            "Blank: not charted in this recording. It doesn't mean normal.",
+            "Leer: in dieser Aufnahme nicht erfasst. Das bedeutet nicht normal.",
+        ),
+        ("Right and left are the patient's.", "Rechts und links beziehen sich auf den Patienten."),
+        ("Dentition not recorded.", "Gebiss nicht angegeben."),
+    ],
+};
+
+const DENTAL_PT: DentalWords = DentalWords {
+    lower_inner: true,
+    words: &[
+        ("Normal", "Normal"),
+        ("Missing", "Ausente"),
+        ("Fracture", "Fratura"),
+        ("Enamel infraction", "Infração do esmalte"),
+        ("Enamel fracture", "Fratura do esmalte"),
+        ("Uncomplicated crown fracture", "Fratura coronária não complicada"),
+        ("Complicated crown fracture", "Fratura coronária complicada"),
+        ("Uncomplicated crown-root fracture", "Fratura corono-radicular não complicada"),
+        ("Complicated crown-root fracture", "Fratura corono-radicular complicada"),
+        ("Root fracture", "Fratura radicular"),
+        ("Periodontal disease", "Doença periodontal"),
+        ("Periodontal disease stage {n}", "Doença periodontal estádio {n}"),
+        ("Mobility", "Mobilidade"),
+        ("Mobility {n}", "Mobilidade {n}"),
+        ("Furcation", "Furca"),
+        ("Furcation {n}", "Furca {n}"),
+        ("Probing depth", "Profundidade de sondagem"),
+        ("Probing depth {mm} mm", "Profundidade de sondagem {mm} mm"),
+        ("Gingival recession", "Recessão gengival"),
+        ("Gingival recession {mm} mm", "Recessão gengival {mm} mm"),
+        ("Tooth resorption", "Reabsorção dentária"),
+        ("Tooth resorption stage {stage}", "Reabsorção dentária estádio {stage}"),
+        ("Resorption type", "Tipo de reabsorção"),
+        ("Resorption type {n}", "Reabsorção tipo {n}"),
+        ("Persistent deciduous tooth", "Dente decíduo persistente"),
+        ("Unerupted", "Não erupcionado"),
+        ("Retained root", "Raiz retida"),
+        ("Caries", "Cárie"),
+        ("Wear", "Desgaste"),
+        ("Abrasion", "Abrasão"),
+        ("Attrition", "Atrição"),
+        ("Discoloured", "Com alteração de cor"),
+        ("Malpositioned", "Má posição"),
+        ("Buccoversion", "Bucoversão"),
+        ("Distoversion", "Distoversão"),
+        ("Labioversion", "Labioversão"),
+        ("Linguoversion", "Linguoversão"),
+        ("Mesioversion", "Mesioversão"),
+        ("Palatoversion", "Palatoversão"),
+        ("Extraction", "Extração"),
+        ("Closed extraction", "Extração fechada"),
+        ("Closed extraction, sectioned", "Extração fechada, com secção"),
+        ("Open extraction", "Extração aberta"),
+        ("Crown amputation", "Amputação coronária"),
+        ("Other", "Outro"),
+        ("PD0-PD4: periodontal disease stage (AVDC)", "PD0-PD4: estádio de doença periodontal (AVDC)"),
+        (
+            "M0-M3: tooth mobility index (AVDC). Grades as said.",
+            "M0-M3: índice de mobilidade dentária (AVDC). Graus tal como ditos.",
+        ),
+        ("F1-F3: furcation index (AVDC)", "F1-F3: índice de furca (AVDC)"),
+        (
+            "TR1-TR5: tooth resorption stage (AVDC). T1-T3: resorption type.",
+            "TR1-TR5: estádio de reabsorção dentária (AVDC). T1-T3: tipo de reabsorção.",
+        ),
+        ("Probing depth is in millimetres.", "A profundidade de sondagem está em milímetros."),
+        ("Planned: {finding}", "Previsto: {finding}"),
+        ("Patient's right", "Direita do paciente"),
+        ("Patient's left", "Esquerda do paciente"),
+        (
+            "Blank: not charted in this recording. It doesn't mean normal.",
+            "Em branco: não registado nesta gravação. Não significa normal.",
+        ),
+        ("Right and left are the patient's.", "Direita e esquerda são as do paciente."),
+        ("Dentition not recorded.", "Dentição não indicada."),
+    ],
+};
 
 const LABELS: &[(&str, Labels)] = &[
     (
@@ -71,6 +395,7 @@ const LABELS: &[(&str, Labels)] = &[
             draft_record: "DRAFT: not reviewed or signed by a veterinarian.",
             draft_client: "Draft for the client: check it before handing it over.",
             page: "Page {i} of {n}",
+            dental: &DENTAL_EN,
         },
     ),
     (
@@ -86,6 +411,7 @@ const LABELS: &[(&str, Labels)] = &[
             draft_record: "BROUILLON : non relu ni signé par un vétérinaire.",
             draft_client: "Brouillon pour le client : à relire avant de le remettre.",
             page: "Page {i} sur {n}",
+            dental: &DENTAL_FR,
         },
     ),
     (
@@ -101,6 +427,7 @@ const LABELS: &[(&str, Labels)] = &[
             draft_record: "BORRADOR: no revisado ni firmado por un veterinario.",
             draft_client: "Borrador para el cliente: revíselo antes de entregarlo.",
             page: "Página {i} de {n}",
+            dental: &DENTAL_ES,
         },
     ),
     (
@@ -116,6 +443,7 @@ const LABELS: &[(&str, Labels)] = &[
             draft_record: "ENTWURF: nicht von einem Tierarzt geprüft oder unterschrieben.",
             draft_client: "Entwurf für den Kunden: vor der Übergabe prüfen.",
             page: "Seite {i} von {n}",
+            dental: &DENTAL_DE,
         },
     ),
     (
@@ -131,6 +459,7 @@ const LABELS: &[(&str, Labels)] = &[
             draft_record: "RASCUNHO: não revisto nem assinado por um veterinário.",
             draft_client: "Rascunho para o cliente: reveja antes de entregar.",
             page: "Página {i} de {n}",
+            dental: &DENTAL_PT,
         },
     ),
 ];
@@ -278,8 +607,26 @@ fn escape(text: &str) -> Vec<u8> {
 
 /// One drawing operation on a page.
 enum Op {
-    Text { x: f32, y: f32, font: Font, size: f32, grey: f32, text: String },
-    Rule { y: f32, grey: f32 },
+    Text {
+        x: f32,
+        y: f32,
+        font: Font,
+        size: f32,
+        grey: f32,
+        text: String,
+    },
+    Rule {
+        y: f32,
+        grey: f32,
+    },
+    /// A path in page coordinates (points, y up), stroked and/or filled in grey.
+    Path {
+        cmds: Vec<PathCmd>,
+        stroke: Option<f32>,
+        fill: Option<f32>,
+        width: f32,
+        dash: bool,
+    },
 }
 
 struct Layout {
@@ -367,6 +714,28 @@ impl Layout {
             self.ops().push(Op::Text { x: x + label_w, y, font: Font::Regular, size, grey: 0.0, text: line });
         }
     }
+
+    /// A short bold label ("108") with its text wrapping beside it.
+    fn labelled(&mut self, label: &str, value: &str, size: f32, indent: f32, label_w: f32) {
+        let leading = size * 1.35;
+        let max = self.width() - indent - label_w;
+        for (i, line) in wrap(value, Font::Regular, size, max).into_iter().enumerate() {
+            self.ensure(leading);
+            self.y -= leading;
+            let (x, y) = (self.margin + indent, self.y);
+            if i == 0 {
+                self.ops().push(Op::Text {
+                    x,
+                    y,
+                    font: Font::Bold,
+                    size,
+                    grey: 0.0,
+                    text: label.to_string(),
+                });
+            }
+            self.ops().push(Op::Text { x: x + label_w, y, font: Font::Regular, size, grey: 0.0, text: line });
+        }
+    }
 }
 
 const BODY: f32 = 10.5;
@@ -429,13 +798,321 @@ fn fields(l: &mut Layout, defs: &[FieldDef], value: &Value, indent: f32) {
     }
 }
 
-fn content(l: &mut Layout, kind: PartKind, defs: &[FieldDef], value: &Value, indent: f32) {
+fn content(
+    l: &mut Layout,
+    kind: PartKind,
+    defs: &[FieldDef],
+    dentition: Option<Dentition>,
+    value: &Value,
+    indent: f32,
+) {
     match kind {
         PartKind::Statements => statements(l, value, indent),
         PartKind::Text => paragraph(l, value, indent),
         PartKind::Medications => medications(l, value, indent),
         PartKind::Fields => fields(l, defs, value, indent),
+        PartKind::Teeth => tooth_chart(l, dentition, value, indent),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Tooth chart (ADR-0021 §9)
+// ---------------------------------------------------------------------------
+
+// The chart's vertical layout in screen pixels, as in the app, scaled to
+// points on paper: captions, then rows of number band, tooth and mark band
+// (mirrored for the lower jaw, so crowns face the bite line).
+const CAPTION_H: f32 = 16.0;
+const ROW_H: f32 = 64.0;
+const NUMBER_BAND: f32 = 14.0;
+const MARK_BAND: f32 = 10.0;
+const ROW_GAP: f32 = 4.0;
+const BITE_GAP: f32 = 8.0;
+/// The widest slot on paper, in points, so a cat's 16 teeth stay modest.
+const MAX_SLOT: f32 = 24.0;
+const CHART_SMALL: f32 = 8.5;
+
+/// An ellipse as four Bézier curves.
+fn ellipse(cx: f32, cy: f32, rx: f32, ry: f32) -> Vec<PathCmd> {
+    const K: f32 = 0.552_284_8;
+    vec![
+        PathCmd::Move(cx + rx, cy),
+        PathCmd::Curve(cx + rx, cy + K * ry, cx + K * rx, cy + ry, cx, cy + ry),
+        PathCmd::Curve(cx - K * rx, cy + ry, cx - rx, cy + K * ry, cx - rx, cy),
+        PathCmd::Curve(cx - rx, cy - K * ry, cx - K * rx, cy - ry, cx, cy - ry),
+        PathCmd::Curve(cx + K * rx, cy - ry, cx + rx, cy - K * ry, cx + rx, cy),
+        PathCmd::Close,
+    ]
+}
+
+/// A glyph's marks in the tooth's 20 x 40 box (crown at the top), each with
+/// whether it is filled. The app draws the same marks
+/// (apps/desktop/src/components/DentalChart.tsx).
+fn glyph_marks(glyph: Glyph) -> Vec<(Vec<PathCmd>, bool)> {
+    use PathCmd::{Close, Line, Move};
+    let g = &dental::chart().geometry;
+    let (neck, mid) = (g.neck, g.crown_mid);
+    match glyph {
+        Glyph::None => Vec::new(),
+        // Missing: a circle around the tooth.
+        Glyph::Circle => vec![(ellipse(10.0, 20.0, 14.0, 20.5), false)],
+        // Extraction: an X through the tooth.
+        Glyph::X => vec![(vec![Move(1.0, 1.0), Line(19.0, 39.0), Move(19.0, 1.0), Line(1.0, 39.0)], false)],
+        // Fracture: a zigzag across the crown.
+        Glyph::Zigzag => vec![(
+            vec![
+                Move(1.0, mid),
+                Line(4.0, mid - 3.0),
+                Line(7.0, mid + 3.0),
+                Line(10.0, mid - 3.0),
+                Line(13.0, mid + 3.0),
+                Line(16.0, mid - 3.0),
+                Line(19.0, mid),
+            ],
+            false,
+        )],
+        // Resorption: notches at the neck.
+        Glyph::Notch => vec![(
+            vec![
+                Move(0.0, neck - 3.0),
+                Line(5.0, neck),
+                Line(0.0, neck + 3.0),
+                Close,
+                Move(20.0, neck - 3.0),
+                Line(15.0, neck),
+                Line(20.0, neck + 3.0),
+                Close,
+            ],
+            true,
+        )],
+        // Crown amputation: a line across the neck.
+        Glyph::Neck => vec![(vec![Move(-2.0, neck), Line(22.0, neck)], false)],
+        // Any other finding: a small dot on the bite side of the crown.
+        Glyph::Dot => vec![(ellipse(10.0, -5.0, 2.0, 2.0), true)],
+    }
+}
+
+fn place(cmds: &[PathCmd], to_page: &dyn Fn(f32, f32) -> (f32, f32)) -> Vec<PathCmd> {
+    cmds.iter()
+        .map(|c| match *c {
+            PathCmd::Move(x, y) => {
+                let (x, y) = to_page(x, y);
+                PathCmd::Move(x, y)
+            }
+            PathCmd::Line(x, y) => {
+                let (x, y) = to_page(x, y);
+                PathCmd::Line(x, y)
+            }
+            PathCmd::Curve(a, b, c, d, e, f) => {
+                let ((a, b), (c, d), (e, f)) = (to_page(a, b), to_page(c, d), to_page(e, f));
+                PathCmd::Curve(a, b, c, d, e, f)
+            }
+            PathCmd::Close => PathCmd::Close,
+        })
+        .collect()
+}
+
+/// Each glyph once per tooth; dashed only when every finding with it is a plan.
+fn tooth_marks(found: &[&Value]) -> Vec<(Glyph, bool)> {
+    let mut out: Vec<(Glyph, bool)> = Vec::new();
+    for item in found {
+        let glyph = dental::glyph_of(item);
+        let planned = item["planned"].as_bool().unwrap_or(false);
+        match out.iter_mut().find(|(g, _)| *g == glyph) {
+            Some((_, p)) => *p = *p && planned,
+            None => out.push((glyph, planned)),
+        }
+    }
+    out
+}
+
+/// The schematic, seen from the front: patient's right on the viewer's left,
+/// upper row 110-101 | 201-210, lower row 411-401 | 301-311, deciduous rows
+/// between them when a deciduous tooth is charted. Greys only: uncharted
+/// outlines light and thin, charted outlines and marks black, plans dashed.
+fn tooth_diagram(l: &mut Layout, dentition: Dentition, items: &[Value], indent: f32) {
+    let chart = dental::chart();
+    let words = l.labels.dental;
+    let mut found: HashMap<&str, Vec<&Value>> = HashMap::new();
+    for item in items {
+        if let Some(t) = item["tooth"].as_str() {
+            found.entry(t).or_default().push(item);
+        }
+    }
+    let deciduous = found.keys().any(|t| dental::tooth(t).is_some_and(|t| t.deciduous));
+    let rows: Vec<(bool, &[String])> = chart
+        .rows(dentition)
+        .top_to_bottom()
+        .into_iter()
+        .filter(|(name, _)| deciduous || !name.ends_with("_deciduous"))
+        .map(|(name, row)| (name.starts_with("upper"), row))
+        .collect();
+    let mut tops = Vec::new();
+    let mut y = CAPTION_H;
+    for (i, (upper, _)) in rows.iter().enumerate() {
+        if i > 0 {
+            y += if rows[i - 1].0 == *upper { ROW_GAP } else { BITE_GAP };
+        }
+        tops.push(y);
+        y += ROW_H;
+    }
+    let height = y;
+    let span = l.width() - indent;
+    let most = rows.iter().map(|(_, r)| r.len()).max().unwrap_or(1).max(1) as f32;
+    let slot = (span / most).min(MAX_SLOT);
+    let s = slot / chart.geometry.slot;
+    // Keep the diagram with the start of its list.
+    l.ensure(height * s + BODY * 1.35 * 3.0);
+    l.gap(2.0);
+    let top = l.y;
+    let mid = l.margin + indent + span / 2.0;
+    let page_y = |px: f32| top - px * s;
+
+    for (text, centre) in
+        [(words.tr("Patient's right"), mid - span / 4.0), (words.tr("Patient's left"), mid + span / 4.0)]
+    {
+        let x = centre - width(&text, Font::Regular, 7.5) / 2.0;
+        l.ops().push(Op::Text { x, y: page_y(11.0), font: Font::Regular, size: 7.5, grey: 0.35, text });
+    }
+    for ((upper, row), row_top) in rows.iter().zip(&tops) {
+        let upper = *upper;
+        let on_right =
+            row.iter().filter(|id| dental::tooth(id).is_some_and(|t| t.side == dental::Side::Right)).count();
+        for (i, id) in row.iter().enumerate() {
+            let Some(t) = dental::tooth(id) else { continue };
+            let cx = if i < on_right {
+                mid - ((on_right - 1 - i) as f32 + 0.5) * slot
+            } else {
+                mid + ((i - on_right) as f32 + 0.5) * slot
+            };
+            let box_top = row_top + if upper { NUMBER_BAND } else { MARK_BAND };
+            let to_page = |x: f32, y: f32| {
+                let down = if upper { chart.geometry.tooth[1] - y } else { y };
+                (cx + (x - chart.geometry.tooth[0] / 2.0) * s, page_y(box_top + down))
+            };
+            let here = found.get(id.as_str()).map(Vec::as_slice).unwrap_or_default();
+            let outline = dental::parse_path(chart.shapes.get(t.shape)).unwrap_or_default();
+            let (grey, line) = if here.is_empty() { (0.6, 0.5) } else { (0.0, 0.9) };
+            l.ops().push(Op::Path {
+                cmds: place(&outline, &to_page),
+                stroke: Some(grey),
+                fill: None,
+                width: line,
+                dash: false,
+            });
+            for (glyph, planned) in tooth_marks(here) {
+                for (cmds, filled) in glyph_marks(glyph) {
+                    l.ops().push(Op::Path {
+                        cmds: place(&cmds, &to_page),
+                        stroke: (!filled).then_some(0.0),
+                        fill: filled.then_some(0.0),
+                        width: 0.9,
+                        dash: planned && !filled,
+                    });
+                }
+            }
+            let baseline = if upper { row_top + 11.0 } else { row_top + ROW_H - 2.0 };
+            let x = cx - width(id, Font::Regular, 6.5) / 2.0;
+            l.ops().push(Op::Text {
+                x,
+                y: page_y(baseline),
+                font: Font::Regular,
+                size: 6.5,
+                grey: 0.35,
+                text: id.clone(),
+            });
+        }
+    }
+    l.ops().push(Op::Path {
+        cmds: vec![PathCmd::Move(mid, page_y(CAPTION_H)), PathCmd::Line(mid, page_y(height))],
+        stroke: Some(0.75),
+        fill: None,
+        width: 0.4,
+        dash: false,
+    });
+    l.y = page_y(height) - 2.0;
+}
+
+/// One line per tooth in Triadan order: "108  Complicated crown fracture
+/// (T/FX/CCF); open extraction (XSS)". No citations, as everywhere on paper.
+fn tooth_list(l: &mut Layout, items: &[Value], indent: f32) {
+    let words = l.labels.dental;
+    let tr = |k: &str| words.tr(k);
+    for (id, findings) in dental::by_tooth(items) {
+        let parts: Vec<String> = findings
+            .iter()
+            .enumerate()
+            .map(|(n, item)| {
+                let text = dental::code_of(item).render(&tr, words.lower_inner);
+                if n > 0 && words.lower_inner { dental::lower_first(&text) } else { text }
+            })
+            .collect();
+        l.labelled(&id, &parts.join("; "), BODY, indent, 30.0);
+    }
+}
+
+/// The codes used, in words, then (under a diagram) what blank teeth mean.
+fn tooth_legend(l: &mut Layout, items: &[Value], indent: f32, drawn: bool) {
+    let words = l.labels.dental;
+    let mut lines: Vec<String> = dental::legend(items)
+        .into_iter()
+        .map(|line| match line {
+            LegendLine::Index(text) => words.tr(text),
+            LegendLine::Code { code, words: key } => {
+                let w = words.tr(&key);
+                format!("{code}: {}", if words.lower_inner { dental::lower_first(&w) } else { w })
+            }
+        })
+        .collect();
+    if drawn {
+        lines.extend(
+            [
+                "Blank: not charted in this recording. It doesn't mean normal.",
+                "Right and left are the patient's.",
+            ]
+            .map(|k| words.tr(k)),
+        );
+    }
+    if !lines.is_empty() {
+        l.gap(3.0);
+    }
+    for line in lines {
+        l.text(&line, Font::Regular, CHART_SMALL, 0.35, indent, None);
+    }
+}
+
+/// A tooth chart heading's content. Nothing charted prints "Not discussed"
+/// and no diagram, so a blank chart is never read as a full normal exam. With
+/// no dentition (species not entered), the findings print without a diagram.
+fn tooth_chart(l: &mut Layout, dentition: Option<Dentition>, value: &Value, indent: f32) {
+    let items = value.as_array().map(Vec::as_slice).unwrap_or_default();
+    if items.is_empty() {
+        l.text(l.labels.not_discussed, Font::Italic, BODY, 0.4, indent, None);
+        return;
+    }
+    if let Some(d) = dentition {
+        tooth_diagram(l, d, items, indent);
+    }
+    tooth_list(l, items, indent);
+    if dentition.is_none() {
+        let text = l.labels.dental.tr("Dentition not recorded.");
+        l.text(&text, Font::Italic, BODY, 0.4, indent, None);
+    }
+    tooth_legend(l, items, indent, dentition.is_some());
+}
+
+/// A page with one tooth chart under its heading (previews and tests). Notes
+/// draw chart headings through the same code (`content`, `PartKind::Teeth`).
+pub fn tooth_chart_pdf(
+    title: &str,
+    dentition: Option<Dentition>,
+    items: &Value,
+    header: &PdfHeader,
+) -> Vec<u8> {
+    let mut l = Layout::new(header.page, header.labels);
+    l.text(title, Font::Bold, 12.5, 0.0, 0.0, None);
+    tooth_chart(&mut l, dentition, items, 0.0);
+    write(&l, title)
 }
 
 /// Lay out the note and write the PDF.
@@ -480,13 +1157,13 @@ pub fn note_pdf(template: &LoadedTemplate, note: &Value, header: &PdfHeader) -> 
         l.text(&section.title, Font::Bold, 12.5, 0.0, 0.0, None);
         let value = &note[&section.id];
         match section.kind {
-            Some(kind) => content(&mut l, kind, &section.fields, value, 0.0),
+            Some(kind) => content(&mut l, kind, &section.fields, section.dentition, value, 0.0),
             None => {
                 for part in &section.parts {
                     l.ensure(BODY * 3.0);
                     l.gap(3.0);
                     l.text(&part.label, Font::Bold, BODY, 0.3, 0.0, None);
-                    content(&mut l, part.kind, &part.fields, &value[&part.key], 0.0);
+                    content(&mut l, part.kind, &part.fields, part.dentition, &value[&part.key], 0.0);
                 }
             }
         }
@@ -535,6 +1212,38 @@ fn write(l: &Layout, title: &str) -> Vec<u8> {
                     stream.extend(
                         format!("{grey:.2} G 0.5 w {x1:.1} {y:.1} m {x2:.1} {y:.1} l S\n").as_bytes(),
                     );
+                }
+                Op::Path { cmds, stroke, fill, width, dash } => {
+                    // Saved and restored around each path, so its colour,
+                    // width and dash never leak into the text after it.
+                    let mut s = String::from("q 1 J 1 j ");
+                    if let Some(g) = stroke {
+                        s.push_str(&format!("{g:.2} G {width:.2} w "));
+                    }
+                    if let Some(g) = fill {
+                        s.push_str(&format!("{g:.2} g "));
+                    }
+                    if *dash {
+                        s.push_str("[2 1.5] 0 d ");
+                    }
+                    for cmd in cmds {
+                        match *cmd {
+                            PathCmd::Move(x, y) => s.push_str(&format!("{x:.2} {y:.2} m ")),
+                            PathCmd::Line(x, y) => s.push_str(&format!("{x:.2} {y:.2} l ")),
+                            PathCmd::Curve(a, b, c, d, e, f) => {
+                                s.push_str(&format!("{a:.2} {b:.2} {c:.2} {d:.2} {e:.2} {f:.2} c "))
+                            }
+                            PathCmd::Close => s.push_str("h "),
+                        }
+                    }
+                    s.push_str(match (stroke, fill) {
+                        (Some(_), Some(_)) => "B",
+                        (Some(_), None) => "S",
+                        (None, Some(_)) => "f",
+                        (None, None) => "n",
+                    });
+                    s.push_str(" Q\n");
+                    stream.extend(s.as_bytes());
                 }
             }
         }
@@ -687,6 +1396,236 @@ mod tests {
         assert!(pages >= 4, "{pages}");
         assert!(t.contains(&format!("Page {pages} of {pages}")));
         assert!(t.contains("/MediaBox [0 0 595 842]"));
+    }
+
+    fn finding(
+        tooth: &str,
+        finding: &str,
+        detail: Option<&str>,
+        grade: Option<u8>,
+        mm: Option<f64>,
+        planned: bool,
+    ) -> Value {
+        json!({"tooth": tooth, "text": "as said", "finding": finding, "detail": detail, "grade": grade, "mm": mm, "planned": planned, "evidence": [4]})
+    }
+
+    /// A sample chart: a dog's dental, with a plan, a stage-4 resorption and
+    /// periodontal findings on one tooth.
+    fn sample_chart() -> Value {
+        Value::Array(vec![
+            finding("101", "missing", None, None, None, false),
+            finding("104", "normal", None, None, None, false),
+            finding("108", "fracture", Some("complicated_crown"), None, None, false),
+            finding("108", "extraction", Some("open"), None, None, false),
+            finding("304", "extraction", None, None, None, true),
+            finding("304", "fracture", None, None, None, false),
+            finding("307", "resorption", Some("crown_worse"), Some(4), None, false),
+            finding("309", "periodontal_stage", None, Some(3), None, false),
+            finding("309", "probing_depth", None, None, Some(7.0), false),
+            finding("309", "mobility", None, Some(2), None, false),
+            finding("404", "crown_amputation", None, None, None, false),
+        ])
+    }
+
+    /// Chart path operators ("q 1 J" starts each one; rules don't use it).
+    fn chart_paths(t: &str) -> usize {
+        t.matches("q 1 J 1 j").count()
+    }
+
+    #[test]
+    fn draws_a_sample_tooth_chart_with_paths_codes_and_legend() {
+        let pdf = tooth_chart_pdf("Dental chart", Some(Dentition::Canine), &sample_chart(), &header());
+        assert!(pdf.starts_with(b"%PDF-") && pdf.ends_with(b"%%EOF\n"));
+        let t = text_of(&pdf);
+        for needle in [
+            " m ",
+            " c ",
+            " S Q",
+            " f Q",
+            "[2 1.5] 0 d",
+            "Dental chart",
+            "Patient's right",
+            "Patient's left",
+            "Missing",
+            "Complicated crown fracture \\(T/FX/CCF\\); open extraction \\(XSS\\)",
+            "Planned: extraction; fracture \\(T/FX\\)",
+            "Tooth resorption stage 4b \\(TR4b\\)",
+            "Periodontal disease stage 3 \\(PD3\\); probing depth 7 mm; mobility 2 \\(M2\\)",
+            "Crown amputation \\(CR/A\\)",
+            "T/FX/CCF: complicated crown fracture",
+            "M0-M3: tooth mobility index \\(AVDC\\). Grades as said.",
+            "Probing depth is in millimetres.",
+            "Blank: not charted in this recording. It doesn't mean normal.",
+            "Right and left are the patient's.",
+        ] {
+            assert!(t.contains(needle), "{needle}");
+        }
+        assert!(!t.contains("[4]"), "no citations in the PDF");
+        assert!(!t.contains("(PD)") && !t.contains("PD7"), "pocket depth is never PD");
+        // 42 permanent outlines, a midline and the marks; no deciduous row (none charted).
+        assert!(chart_paths(&t) > 42 + 1, "{}", chart_paths(&t));
+        assert!(t.contains("(110)") && t.contains("(411)") && !t.contains("(504)"));
+    }
+
+    #[test]
+    fn deciduous_rows_appear_when_a_deciduous_tooth_is_charted() {
+        let items = json!([finding("504", "persistent_deciduous", None, None, None, false)]);
+        let t = text_of(&tooth_chart_pdf("Dental chart", Some(Dentition::Canine), &items, &header()));
+        assert!(t.contains("(504)") && t.contains("(808)"));
+        assert!(t.contains("DT/P: persistent deciduous tooth"));
+        // 70 outlines (42 + 28), one dot, one midline.
+        assert_eq!(chart_paths(&t), 70 + 1 + 1);
+    }
+
+    #[test]
+    fn a_cat_chart_draws_a_cats_teeth() {
+        let items = json!([finding("307", "resorption_type", None, Some(2), None, false)]);
+        let t = text_of(&tooth_chart_pdf("Dental chart", Some(Dentition::Feline), &items, &header()));
+        assert!(!t.contains("(105)") && !t.contains("(305)") && t.contains("(106)") && t.contains("(307)"));
+        assert_eq!(chart_paths(&t), 30 + 1 + 1, "30 outlines, the notch and the midline");
+        assert!(t.contains("TR1-TR5: tooth resorption stage"));
+    }
+
+    #[test]
+    fn an_empty_chart_says_not_discussed_and_draws_nothing() {
+        let t = text_of(&tooth_chart_pdf("Dental chart", Some(Dentition::Canine), &json!([]), &header()));
+        assert!(t.contains("Not discussed"));
+        assert_eq!(chart_paths(&t), 0);
+        assert!(!t.contains("Blank: not charted") && !t.contains("Patient's right"));
+    }
+
+    #[test]
+    fn no_dentition_lists_the_findings_without_a_diagram() {
+        let t = text_of(&tooth_chart_pdf("Dental chart", None, &sample_chart(), &header()));
+        assert!(t.contains("Dentition not recorded."));
+        assert!(t.contains("T/FX/CCF") && t.contains("(108) Tj"));
+        assert_eq!(chart_paths(&t), 0);
+        assert!(!t.contains("Blank: not charted"), "no blank teeth to explain");
+    }
+
+    fn assert_inside(l: &Layout) {
+        let (left, right) = (l.margin - 0.01, l.page.0 - l.margin + 0.01);
+        let (bottom, top) = (l.margin + FOOTER - 0.01, l.page.1 - l.margin + 0.01);
+        let mut points = 0;
+        for op in l.pages.iter().flatten() {
+            let Op::Path { cmds, .. } = op else { continue };
+            for c in cmds {
+                let pts: Vec<(f32, f32)> = match *c {
+                    PathCmd::Move(x, y) | PathCmd::Line(x, y) => vec![(x, y)],
+                    PathCmd::Curve(a, b, c, d, e, f) => vec![(a, b), (c, d), (e, f)],
+                    PathCmd::Close => vec![],
+                };
+                for (x, y) in pts {
+                    points += 1;
+                    assert!(
+                        (left..=right).contains(&x) && (bottom..=top).contains(&y),
+                        "({x}, {y}) outside the margins"
+                    );
+                }
+            }
+        }
+        assert!(points > 100);
+    }
+
+    #[test]
+    fn the_diagram_stays_inside_the_margins_on_letter_and_a4() {
+        let mut items = sample_chart();
+        items.as_array_mut().unwrap().push(finding("411", "missing", None, None, None, false));
+        items.as_array_mut().unwrap().push(finding("110", "extraction", Some("closed"), None, None, false));
+        items.as_array_mut().unwrap().push(finding("808", "persistent_deciduous", None, None, None, false));
+        for page in [PageSize::Letter, PageSize::A4] {
+            let mut l = Layout::new(page, Labels::for_language("en"));
+            tooth_chart(&mut l, Some(Dentition::Canine), &items, 0.0);
+            assert_inside(&l);
+            assert_eq!(l.pages.len(), 1);
+        }
+    }
+
+    #[test]
+    fn a_long_chart_flows_onto_a_second_page_with_the_diagram_on_the_first() {
+        let ids: Vec<&str> = dental::ids(Some(Dentition::Canine)).into_iter().take(42).collect();
+        let mut items = Vec::new();
+        for (n, id) in ids.iter().cycle().take(60).enumerate() {
+            items.push(match n % 3 {
+                0 => finding(id, "mobility", None, Some(1), None, false),
+                1 => finding(id, "probing_depth", None, None, Some(4.5), false),
+                _ => finding(id, "gingival_recession", None, None, Some(2.0), false),
+            });
+        }
+        let mut l = Layout::new(PageSize::Letter, Labels::for_language("en"));
+        l.gap(560.0); // most of the page is taken by headings above the chart
+        l.text("Dental chart", Font::Bold, 12.5, 0.0, 0.0, None);
+        tooth_chart(&mut l, Some(Dentition::Canine), &Value::Array(items), 0.0);
+        assert!(l.pages.len() >= 3, "{}", l.pages.len());
+        let paths_on = |p: &Vec<Op>| p.iter().filter(|op| matches!(op, Op::Path { .. })).count();
+        assert_eq!(paths_on(&l.pages[0]), 0, "no room for the diagram under the heading");
+        assert!(paths_on(&l.pages[1]) > 42, "the whole diagram is on the next page");
+        assert!(l.pages[2..].iter().all(|p| paths_on(p) == 0));
+        // The start of the list (the bold "101") stays with the diagram.
+        let list_starts = |p: &Vec<Op>| {
+            p.iter().any(|op| matches!(op, Op::Text { text, font: Font::Bold, .. } if text == "101"))
+        };
+        assert!(list_starts(&l.pages[1]));
+        assert_inside(&l);
+    }
+
+    #[test]
+    fn every_pdf_language_has_every_dental_word() {
+        let chart = dental::chart();
+        let mut keys: Vec<String> = DENTAL_FIXED_WORDS.iter().map(|s| s.to_string()).collect();
+        for f in &chart.findings {
+            keys.push(f.words.clone());
+            keys.extend([&f.words_grade, &f.words_mm, &f.legend].into_iter().flatten().cloned());
+            keys.extend(f.details.iter().filter(|d| d.with_grade.is_none()).map(|d| d.words.clone()));
+        }
+        keys.sort();
+        keys.dedup();
+        let placeholders = |s: &str| {
+            let mut p: Vec<String> =
+                s.split('{').skip(1).filter_map(|x| x.split_once('}')).map(|(k, _)| k.to_string()).collect();
+            p.sort();
+            p
+        };
+        for lang in ["fr", "es", "de", "pt"] {
+            let words = Labels::for_language(lang).dental;
+            for key in &keys {
+                let found = words.words.iter().find(|(k, _)| k == key).map(|(_, v)| *v);
+                let v = found.unwrap_or_else(|| panic!("{lang}: no translation of \"{key}\""));
+                assert!(!v.trim().is_empty(), "{lang}: {key}");
+                assert_eq!(placeholders(v), placeholders(key), "{lang}: {key}");
+                assert!(v.chars().all(|c| win_ansi(c) != b'?' || c == '?'), "{lang}: {v} prints in WinAnsi");
+            }
+            for (k, _) in words.words {
+                assert!(keys.iter().any(|x| x == k), "{lang}: \"{k}\" isn't a chart word");
+            }
+        }
+        assert_eq!(Labels::for_language("en").dental.tr("Open extraction"), "Open extraction");
+    }
+
+    #[test]
+    fn chart_words_follow_the_language() {
+        let pdf = tooth_chart_pdf(
+            "Zahnschema",
+            Some(Dentition::Canine),
+            &sample_chart(),
+            &PdfHeader { labels: Labels::for_language("de"), ..header() },
+        );
+        let t = text_of(&pdf);
+        for needle in [
+            "Komplizierte Kronenfraktur \\(T/FX/CCF\\); Offene Extraktion \\(XSS\\)",
+            "Geplant: Extraktion",
+            "Rechts \\(Patient\\)",
+            "T/FX/CCF: Komplizierte Kronenfraktur",
+        ] {
+            assert!(t.contains(needle), "{needle}");
+        }
+        let fr = text_of(&tooth_chart_pdf(
+            "Schéma dentaire",
+            Some(Dentition::Canine),
+            &sample_chart(),
+            &PdfHeader { labels: Labels::for_language("fr"), ..header() },
+        ));
+        assert!(fr.contains("Pr") && fr.contains("vu : extraction"), "lowercased inside the line in French");
     }
 
     #[test]

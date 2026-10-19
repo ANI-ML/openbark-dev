@@ -49,7 +49,12 @@ pub enum PartKind {
     /// A text box: connected sentences shown as a paragraph. Each sentence
     /// still cites its evidence, so the evidence link works inside it.
     Text,
+    /// A tooth chart for dogs and cats (ADR-0021): one item per finding on
+    /// one tooth, in modified Triadan numbering. At most one per template.
+    Teeth,
 }
+
+pub use crate::dental::Dentition;
 
 /// How much the model writes (the team's preference for this template).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
@@ -225,6 +230,10 @@ pub struct Part {
     pub when: Condition,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fields: Vec<FieldDef>,
+    /// A tooth chart's dentition (ADR-0021 decision 4): set from the
+    /// patient's species when drafting, or chosen by the vet when editing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dentition: Option<Dentition>,
 }
 
 /// A top-level heading: either holds content itself (`kind`) or has parts.
@@ -249,6 +258,9 @@ pub struct Section {
     pub fields: Vec<FieldDef>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub parts: Vec<Part>,
+    /// A tooth chart's dentition (see [`Part::dentition`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dentition: Option<Dentition>,
 }
 
 /// Who a standard applies to (ADR-0024 section 8).
@@ -534,6 +546,9 @@ impl LoadedTemplate {
     /// species are removed, so neither the prompt nor the schema asks for
     /// them (M2 item 4). With no species, or one OpenBark doesn't recognise,
     /// every heading stays.
+    ///
+    /// A tooth chart with no dentition gets the animal's when it is a dog or
+    /// a cat (ADR-0021 decision 4), so the schema only offers its teeth.
     pub fn for_species(&self, species: Option<&str>) -> Self {
         let Some(key) = species.and_then(species_key) else { return self.clone() };
         if self.template.schema.is_some() {
@@ -546,10 +561,64 @@ impl LoadedTemplate {
             s.when.allows(key) && (s.kind.is_some() || !s.parts.is_empty())
         });
         let after: usize = t.sections.iter().map(|s| 1 + s.parts.len()).sum();
-        if after == before || t.sections.is_empty() {
+        let mut dentition_set = false;
+        if let Some(d) = Dentition::from_species_key(key) {
+            for s in &mut t.sections {
+                if s.kind == Some(PartKind::Teeth) && s.dentition.is_none() {
+                    s.dentition = Some(d);
+                    dentition_set = true;
+                }
+                for p in &mut s.parts {
+                    if p.kind == PartKind::Teeth && p.dentition.is_none() {
+                        p.dentition = Some(d);
+                        dentition_set = true;
+                    }
+                }
+            }
+        }
+        if (after == before && !dentition_set) || t.sections.is_empty() {
             return self.clone();
         }
         Self::new(t).unwrap_or_else(|_| self.clone())
+    }
+
+    /// The tooth chart heading's path ("dental_chart" or "findings/chart")
+    /// and its dentition, when the template has a chart.
+    pub fn chart(&self) -> Option<(String, Option<Dentition>)> {
+        chart_of(&self.template)
+    }
+
+    /// The template with the chart heading's dentition set (the vet chose
+    /// dog or cat in the chart editor). Refused when the heading isn't a
+    /// chart or already has another dentition.
+    pub fn with_dentition(&self, heading: &str, dentition: Dentition) -> Result<Self, EngineError> {
+        let (sec, part) = split_heading(heading);
+        let mut t = self.template.clone();
+        let section = t
+            .sections
+            .iter_mut()
+            .find(|s| s.id == sec)
+            .ok_or_else(|| bad(format!("No heading '{heading}'.")))?;
+        let slot = match part {
+            None if section.kind == Some(PartKind::Teeth) => &mut section.dentition,
+            Some(key) => match section.parts.iter_mut().find(|p| p.key == key) {
+                Some(p) if p.kind == PartKind::Teeth => &mut p.dentition,
+                _ => return Err(bad(format!("'{heading}' isn't a tooth chart."))),
+            },
+            None => return Err(bad(format!("'{heading}' isn't a tooth chart."))),
+        };
+        match *slot {
+            Some(d) if d == dentition => return Ok(self.clone()),
+            Some(d) => {
+                return Err(bad(format!(
+                    "This chart is already a {}'s. It can't change to a {}'s.",
+                    d.animal(),
+                    dentition.animal()
+                )));
+            }
+            None => *slot = Some(dentition),
+        }
+        Self::new(t)
     }
 
     /// A built-in id, a template directory, or a team template id.
@@ -640,6 +709,19 @@ impl LoadedTemplate {
         node.as_object_mut()?.insert("$defs".into(), defs);
         Some(node)
     }
+}
+
+/// The tooth chart heading of a template: its path and dentition.
+pub fn chart_of(t: &Template) -> Option<(String, Option<Dentition>)> {
+    for s in &t.sections {
+        if s.kind == Some(PartKind::Teeth) {
+            return Some((s.id.clone(), s.dentition));
+        }
+        if let Some(p) = s.parts.iter().find(|p| p.kind == PartKind::Teeth) {
+            return Some((format!("{}/{}", s.id, p.key), p.dentition));
+        }
+    }
+    None
 }
 
 /// "plan/medications" → ("plan", Some("medications")).
@@ -873,6 +955,23 @@ fn normalize(t: &mut Template) -> Result<(), EngineError> {
     if headings > MAX_HEADINGS {
         return Err(bad(format!("A template can have at most {MAX_HEADINGS} headings and subheadings.")));
     }
+    // A tooth chart (ADR-0021 decision 1): at most one, and only a chart
+    // heading carries a dentition.
+    let mut charts = 0;
+    for s in &t.sections {
+        let headings = std::iter::once((s.kind, s.dentition, s.title.as_str()))
+            .chain(s.parts.iter().map(|p| (Some(p.kind), p.dentition, p.label.as_str())));
+        for (kind, dentition, title) in headings {
+            if kind == Some(PartKind::Teeth) {
+                charts += 1;
+            } else if dentition.is_some() {
+                return Err(bad(format!("\"{title}\" isn't a tooth chart, so it can't have a dentition.")));
+            }
+        }
+    }
+    if charts > 1 {
+        return Err(bad("A template can have one tooth chart."));
+    }
     Ok(())
 }
 
@@ -881,6 +980,9 @@ fn kind_schema(kind: PartKind, fields: &[FieldDef]) -> Value {
         // A text box holds the same cited sentences, shown as a paragraph.
         PartKind::Statements | PartKind::Text => json!({ "$ref": "#/$defs/statements" }),
         PartKind::Medications => json!({ "type": "array", "items": { "$ref": "#/$defs/medication" } }),
+        PartKind::Teeth => {
+            json!({ "type": "array", "items": { "$ref": "#/$defs/tooth_finding" }, "maxItems": MAX_CHART_ITEMS })
+        }
         PartKind::Fields => {
             let props: serde_json::Map<String, Value> =
                 fields.iter().map(|f| (f.key.clone(), json!({ "$ref": "#/$defs/field" }))).collect();
@@ -907,6 +1009,49 @@ pub fn generate_schema(t: &Template) -> Value {
         props.insert(s.id.clone(), node);
     }
     let required: Vec<&str> = t.sections.iter().map(|s| s.id.as_str()).collect();
+    let mut schema = base_schema(t, props, &required);
+    // Only templates with a chart get the tooth definition, so every other
+    // template's schema, grammar and prompt stay byte-identical.
+    if let Some((_, dentition)) = chart_of(t) {
+        schema["$defs"]["tooth_finding"] = tooth_finding_schema(dentition);
+    }
+    schema
+}
+
+/// At most this many findings in one chart (about 50 tokens each).
+pub const MAX_CHART_ITEMS: usize = 96;
+
+/// One finding on one tooth (ADR-0021 decision 2). The tooth enum follows
+/// the dentition (the dog's when unknown: it holds every cat tooth), so the
+/// grammar can't emit a tooth the animal doesn't have.
+pub fn tooth_finding_schema(dentition: Option<Dentition>) -> Value {
+    let chart = crate::dental::chart();
+    let teeth = crate::dental::ids(dentition);
+    let findings: Vec<&str> = chart.findings.iter().map(|f| f.id.as_str()).collect();
+    let mut details: Vec<&str> = Vec::new();
+    for d in chart.findings.iter().flat_map(|f| f.details.iter()) {
+        if !details.contains(&d.id.as_str()) {
+            details.push(d.id.as_str());
+        }
+    }
+    json!({
+        "type": "object",
+        "properties": {
+            "tooth": { "type": "string", "enum": teeth },
+            "text": { "type": "string" },
+            "finding": { "type": "string", "enum": findings },
+            "detail": { "anyOf": [{ "type": "null" }, { "type": "string", "enum": details }] },
+            "grade": { "anyOf": [{ "type": "null" }, { "type": "integer", "enum": [0, 1, 2, 3, 4, 5] }] },
+            "mm": { "anyOf": [{ "type": "null" }, { "type": "number" }] },
+            "planned": { "type": "boolean" },
+            "evidence": { "$ref": "#/$defs/evidence" }
+        },
+        "required": ["tooth", "text", "finding", "detail", "grade", "mm", "planned", "evidence"],
+        "additionalProperties": false
+    })
+}
+
+fn base_schema(t: &Template, props: serde_json::Map<String, Value>, required: &[&str]) -> Value {
     json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "title": format!("{} (OpenBark template {}@{})", t.name, t.id, t.version),
@@ -959,7 +1104,7 @@ pub fn generate_schema(t: &Template) -> Value {
 pub fn empty_note(t: &Template) -> Value {
     fn empty(kind: PartKind, fields: &[FieldDef]) -> Value {
         match kind {
-            PartKind::Statements | PartKind::Medications | PartKind::Text => json!([]),
+            PartKind::Statements | PartKind::Medications | PartKind::Text | PartKind::Teeth => json!([]),
             PartKind::Fields => fields.iter().map(|f| (f.key.clone(), Value::Null)).collect(),
         }
     }
@@ -1076,11 +1221,89 @@ sections:
     #[test]
     fn heading_examples_load_but_stay_out_of_the_prompt() {
         let t = LoadedTemplate::builtin("dental").unwrap();
-        let teeth = t.template.sections.iter().find(|s| s.id == "findings_by_tooth").unwrap();
+        let teeth = t.template.sections.iter().find(|s| s.id == "dental_chart").unwrap();
         assert!(teeth.examples.iter().any(|e| e.contains("Triadan")));
         let prompt = crate::note::system_prompt(&t);
-        assert!(!prompt.contains("Use the Triadan number for every tooth"));
-        assert!(!t.schema_text.contains("Use the Triadan number"));
+        assert!(!prompt.contains("Chart every tooth that was named"));
+        assert!(!t.schema_text.contains("Chart every tooth that was named"));
+    }
+
+    #[test]
+    fn dental_template_has_one_tooth_chart_with_the_dentitions_teeth() {
+        let t = LoadedTemplate::builtin("dental").unwrap();
+        assert_eq!(t.label(), "dental@0.2.0");
+        assert_eq!(t.chart(), Some(("dental_chart".to_string(), None)));
+        let enum_len = |l: &LoadedTemplate| {
+            l.schema["$defs"]["tooth_finding"]["properties"]["tooth"]["enum"].as_array().unwrap().len()
+        };
+        // No species: the dog's teeth (they hold every cat tooth).
+        assert_eq!(enum_len(&t), 70);
+        let cat = t.for_species(Some("Cat"));
+        assert_eq!(cat.chart(), Some(("dental_chart".to_string(), Some(Dentition::Feline))));
+        assert_eq!(enum_len(&cat), 56);
+        assert_ne!(cat.schema, t.schema, "the dentition changes the schema though no heading was removed");
+        let dog = t.for_species(Some("Labrador dog"));
+        assert_eq!(enum_len(&dog), 70);
+        assert_eq!(dog.chart().unwrap().1, Some(Dentition::Canine));
+        // A horse has no chart heading at all.
+        assert!(t.for_species(Some("horse")).chart().is_none());
+        // The snapshot keeps the dentition.
+        let back = LoadedTemplate::from_yaml(&cat.to_yaml()).unwrap();
+        assert_eq!(back.chart().unwrap().1, Some(Dentition::Feline));
+        assert_eq!(back.schema, cat.schema);
+        // The empty note validates, and the heading's schema stands alone.
+        assert!(jsonschema::validator_for(&cat.schema).unwrap().is_valid(&empty_note(&cat.template)));
+        let heading = cat.heading_schema("dental_chart").unwrap();
+        let v = jsonschema::validator_for(&heading).unwrap();
+        assert!(v.is_valid(&json!([])));
+        let item = json!({"tooth": "307", "text": "stage 4b resorption", "finding": "resorption",
+            "detail": "crown_worse", "grade": 4, "mm": null, "planned": false, "evidence": [3]});
+        assert!(v.is_valid(&json!([item])));
+        let mut dog_only = item.clone();
+        dog_only["tooth"] = json!("105");
+        assert!(!v.is_valid(&json!([dog_only])), "a cat has no 105");
+    }
+
+    #[test]
+    fn the_dental_schemas_convert_to_a_drafting_grammar() {
+        // The grammar llama.cpp drafts with: the tooth enum per dentition,
+        // nullable grade and mm, and the finding table's enums all convert.
+        let dental = LoadedTemplate::builtin("dental").unwrap();
+        for species in [None, Some("Dog"), Some("Cat")] {
+            let t = dental.for_species(species);
+            let started = std::time::Instant::now();
+            let grammar = os_llm::grammar_for_schema(&t.schema_text).unwrap();
+            assert!(grammar.contains("tooth"), "{species:?}");
+            assert!(started.elapsed().as_millis() < 2000, "{species:?}: {:?}", started.elapsed());
+        }
+    }
+
+    #[test]
+    fn templates_without_a_chart_have_no_tooth_definition() {
+        for id in LoadedTemplate::builtin_ids().filter(|id| *id != "dental") {
+            let t = LoadedTemplate::builtin(id).unwrap();
+            assert!(t.schema["$defs"].get("tooth_finding").is_none(), "{id}");
+            assert!(!crate::note::system_prompt(&t).contains("Tooth chart:"), "{id}");
+        }
+    }
+
+    #[test]
+    fn a_template_has_at_most_one_chart_and_only_charts_have_a_dentition() {
+        let two = "name: X\nsections:\n  - { title: Chart, kind: teeth }\n  - { title: Other chart, kind: teeth }\n";
+        let err = LoadedTemplate::from_yaml(two).unwrap_err().to_string();
+        assert!(err.contains("one tooth chart"), "{err}");
+        let wrong = "name: X\nsections:\n  - { title: History, kind: statements, dentition: feline }\n";
+        let err = LoadedTemplate::from_yaml(wrong).unwrap_err().to_string();
+        assert!(err.contains("isn't a tooth chart"), "{err}");
+        // A chart as a subheading, with its dentition chosen later.
+        let sub =
+            "name: X\nsections:\n  - title: Findings\n    parts:\n      - { title: Chart, kind: teeth }\n";
+        let t = LoadedTemplate::from_yaml(sub).unwrap();
+        assert_eq!(t.chart(), Some(("findings/chart".to_string(), None)));
+        let cat = t.with_dentition("findings/chart", Dentition::Feline).unwrap();
+        assert_eq!(cat.chart().unwrap().1, Some(Dentition::Feline));
+        assert!(cat.with_dentition("findings/chart", Dentition::Canine).is_err());
+        assert!(t.with_dentition("findings", Dentition::Canine).is_err());
     }
 
     /// The SOAP schema is generated from its headings; the snapshot in

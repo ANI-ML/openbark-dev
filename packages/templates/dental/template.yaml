@@ -1,6 +1,6 @@
 # OpenBark template: dental procedure (COHAT) record.
 id: dental
-version: 0.1.1
+version: 0.2.0
 name: Dental procedure
 description: Oral exam under anaesthesia, findings by tooth, treatment and home care.
 icon: tooth
@@ -9,14 +9,14 @@ language: en
 instructions: |
   Write the medical record for this dental procedure (comprehensive oral health assessment and treatment).
   Use concise clinical veterinary English as a veterinarian would chart it.
-  Refer to teeth by the modified Triadan number or name exactly as said (e.g. 108, "upper left fourth premolar").
+  Refer to teeth by the modified Triadan number or name exactly as said (e.g. 108, "upper right fourth premolar").
+  Every tooth named with a finding goes in the dental chart, one item per finding.
   The transcript is from a recording; speakers are labelled by number, not role. Infer roles from context,
   but never put words in a speaker's mouth.
 
 fixed_rules:
   - "Record a periodontal stage, mobility grade or pocket depth only if it was said."
 rules:
-  - "Each tooth finding is one statement naming the tooth exactly as said, with the finding (missing, fractured, mobility grade, pocket depth, periodontal stage, resorption, other)."
   - "Nerve blocks and anaesthetic drugs are medications: drug, dose, route and site as said."
 
 sections:
@@ -34,6 +34,7 @@ sections:
     kind: statements
     presence: required
   - title: Conscious oral exam
+    instruction: What was seen before anaesthesia. Findings on named teeth go in the dental chart too.
     kind: statements
   - title: Anaesthesia and nerve blocks
     examples:
@@ -46,25 +47,25 @@ sections:
     examples:
       - "Mention which teeth showed resorption on radiographs"
     kind: statements
-  - title: Findings by tooth
-    examples:
-      - "Use the Triadan number for every tooth"
-      - "One tooth per line, in numerical order"
-      - "Include pocket depths in mm when they were called out"
-    kind: statements
+  - title: Dental chart
+    kind: teeth
     presence: required
-  - title: Tooth resorption
-    when: { species: [feline] }
+    when: { species: [canine, feline] }
+    instruction: Every tooth named with a finding, one item per finding. Teeth not mentioned are left out.
+    examples:
+      - "Chart every tooth that was named, by its Triadan number"
+      - "Add the extraction technique for each extracted tooth"
+      - "Include probing depths in mm when they were called out"
+      - "Split ranges such as 101 to 103 into one item per tooth"
+  - title: Whole-mouth findings
     kind: statements
-    instruction: Teeth with resorptive lesions, with their stage and type if said.
-  - title: Overall periodontal status
-    kind: statements
+    instruction: "Findings about the whole mouth as said: overall periodontal stage, calculus, gingivitis, occlusion, 'no resorptive lesions'. Never per tooth."
   - title: Treatment performed
     examples:
       - "Name the extraction technique for each tooth (simple or surgical)"
       - "List gingival closures with suture used"
     kind: statements
-    instruction: Scaling, polishing, extractions (tooth and technique), closures, and other procedures, by tooth.
+    instruction: Scaling, polishing, radiographs, flaps, closures and other procedures as said. Extractions and crown amputations go in the dental chart too, one item per tooth.
   - title: Medications to go home
     kind: medications
   - title: Home care and follow-up

@@ -857,6 +857,9 @@ struct EditNote {
     by: String,
     #[serde(default)]
     pet: Option<String>,
+    /// The tooth chart's animal, chosen in the chart editor (ADR-0021).
+    #[serde(default)]
+    dentition: Option<String>,
 }
 
 async fn edit_note(
@@ -864,7 +867,10 @@ async fn edit_note(
     UrlPath(id): UrlPath<String>,
     Json(req): Json<EditNote>,
 ) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app().edit_note(&id, &req.heading, req.value, &req.by, req.pet.as_deref())).await
+    blocking(move || {
+        s.app().edit_note(&id, &req.heading, req.value, &req.by, req.pet.as_deref(), req.dentition.as_deref())
+    })
+    .await
 }
 
 /// The note as a PDF download.

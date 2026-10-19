@@ -10,6 +10,7 @@ pub mod align;
 pub mod audit;
 pub mod awake;
 pub mod crosscheck;
+pub mod dental;
 pub mod edit;
 pub mod faithfulness;
 pub mod fingerprints;

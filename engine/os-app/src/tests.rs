@@ -806,3 +806,68 @@ fn removing_a_signed_visit_for_good_checks_the_folder_itself() {
 
 #[path = "tests/templates.rs"]
 mod templates;
+
+/// A tooth chart edit (ADR-0021 decision 4): with no species entered, the vet
+/// chooses dog or cat in the chart editor; that choice goes into the new run's
+/// template snapshot, a second, different choice is refused, and a tooth the
+/// animal doesn't have is refused with a plain message.
+#[test]
+fn a_chart_edit_records_the_chosen_animal_and_refuses_teeth_it_doesnt_have() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app = app_in(tmp.path());
+    let s = seed_visit(&app.sessions_root, "Pepper Silva", &[], false);
+    let id = id_of(&s);
+    // Redraft the seeded visit with the dental template, species not entered.
+    let dental = LoadedTemplate::builtin("dental").unwrap();
+    assert_eq!(dental.chart().map(|c| c.1), Some(None), "no species, no dentition");
+    let mut result = note_result();
+    result.template = format!("dental@{}", dental.template.version);
+    result.note = os_engine::template::empty_note(&dental.template);
+    Session::open(&s.dir).unwrap().save_run("gemma", &result, &dental).unwrap();
+
+    let normal = |tooth: &str| {
+        serde_json::json!({"tooth": tooth, "text": "normal", "finding": "normal", "detail": null,
+            "grade": null, "mm": null, "planned": false, "evidence": []})
+    };
+    // 105 isn't a cat's tooth: refused, and nothing is saved.
+    let refused = err(app.edit_note(
+        &id,
+        "dental_chart",
+        serde_json::json!([normal("105")]),
+        "Dr Rivera",
+        None,
+        Some("feline"),
+    ));
+    assert!(refused.contains("105") && refused.contains("cat"), "{refused}");
+    // A cat's tooth with "feline": saved, and the snapshot now draws a cat's mouth.
+    app.edit_note(&id, "dental_chart", serde_json::json!([normal("204")]), "Dr Rivera", None, Some("feline"))
+        .unwrap();
+    let opened = Session::open(&s.dir).unwrap();
+    let (run, note) = opened.latest_note().unwrap();
+    let snapshot = opened.run_template(&run).unwrap();
+    assert_eq!(snapshot.chart().and_then(|c| c.1).map(|d| d.key()), Some("feline"));
+    assert_eq!(note["dental_chart"][0]["entered_by"], "Dr Rivera");
+    // The animal can't change afterwards, and later edits keep to its teeth.
+    let other = err(app.edit_note(
+        &id,
+        "dental_chart",
+        serde_json::json!([normal("204")]),
+        "Dr Rivera",
+        None,
+        Some("canine"),
+    ));
+    assert!(!other.is_empty());
+    assert!(
+        app.edit_note(&id, "dental_chart", serde_json::json!([normal("105")]), "Dr Rivera", None, None)
+            .is_err()
+    );
+    app.edit_note(
+        &id,
+        "dental_chart",
+        serde_json::json!([normal("204"), normal("104")]),
+        "Dr Rivera",
+        None,
+        None,
+    )
+    .unwrap();
+}

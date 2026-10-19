@@ -226,8 +226,7 @@ impl Sampler {
     fn new(model: &LlamaModel, request: &GenerateRequest) -> Result<Self, LlmError> {
         let grammar = match &request.json_schema {
             Some(schema) => {
-                let raw = llama_cpp_2::json_schema_to_grammar(schema)
-                    .map_err(|e| LlmError::Grammar(e.to_string()))?;
+                let raw = crate::grammar_for_schema(schema)?;
                 // llama.cpp's own whitespace rule is kept: restricting it to a
                 // single space (fewer tokens) made Gemma 4 E4B corrupt numeric
                 // fields ("} , ") — eval 14/24 vs 19/24 facts (M1 spike).
