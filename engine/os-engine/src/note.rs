@@ -343,6 +343,14 @@ pub fn tooth_findings_guide() -> String {
             crate::dental::MmUse::Optional => parts.push("mm if said".into()),
             crate::dental::MmUse::None => {}
         }
+        if f.id == "extraction" {
+            // A sectioned extraction is a closed one too (AVDC XS), so "closed"
+            // is said with both.
+            parts.push(format!(
+                "a tooth said to be sectioned is {} even when also said to be closed",
+                crate::dental::draft_name("closed_sectioned")
+            ));
+        }
         if f.plannable {
             parts.push("planned true only while it is still to be done".into());
         }
