@@ -58,6 +58,10 @@ paths = [".github/workflows/download-stats.yml", "scripts/download-stats.py"]
 reason = "The daily download-stats job runs only in the private development repo (docs/network.md B7 says so). In the public copy its schedule would run too and push a public `stats` branch, which the published-copy model (one commit per release) does not allow."
 
 [[exclude]]
+paths = [".github/dependabot.yml"]
+reason = "Dependency updates are handled in the development repo; the public copy would otherwise open update pull requests that are never merged there."
+
+[[exclude]]
 paths = ["scripts/public-export.py", "scripts/public-export.toml", "docs/plans/public-repo.md"]
 reason = "This export tooling and its report. Private process documents; the config necessarily spells out the forbidden words the gate searches for."
 

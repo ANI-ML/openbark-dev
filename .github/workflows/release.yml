@@ -37,6 +37,9 @@ env:
 
 jobs:
   installers:
+    # Builds run only in the development repo. The public source repo
+    # (ANI-ML/openbark) is a published copy: no release builds or secrets there.
+    if: github.repository == 'ANI-ML/openbark-dev'
     strategy:
       fail-fast: false
       matrix:
