@@ -4,6 +4,7 @@ import { DEFAULT_CONSENT_SCRIPT, useApp } from "../context";
 import * as engine from "../engine";
 import { NOTE_LANGUAGES, UI_LANGUAGES, useT } from "../i18n";
 import { DeletedVisits } from "../components/DeletedVisits";
+import { PhoneSettings } from "../components/PhoneSettings";
 import { StorageSection } from "../components/StorageSection";
 import { TeamSettings } from "../components/TeamSettings";
 
@@ -223,6 +224,8 @@ export function SettingsScreen() {
           </>
         )}
       </section>
+
+      <PhoneSettings />
 
       <section className="group">
         <h2>{t("PDFs and copying")}</h2>

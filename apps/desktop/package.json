@@ -14,10 +14,11 @@
   },
   "dependencies": {
     "@openbark/ui": "workspace:*",
-    "lucide-react": "catalog:",
     "@tauri-apps/api": "catalog:",
     "@tauri-apps/plugin-dialog": "catalog:",
     "@tauri-apps/plugin-opener": "catalog:",
+    "@twilio/voice-sdk": "catalog:",
+    "lucide-react": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:"
   },

@@ -4,7 +4,9 @@ import { useEffect, useState } from "react";
 import { fmtTime, useApp } from "../context";
 import * as engine from "../engine";
 import { templateName, useT } from "../i18n";
+import { CallButton } from "../components/CallButton";
 import { ReprocessSheet } from "../components/ReprocessSheet";
+import { formatPhone } from "../phone/format";
 import { SPECIES, speciesName } from "../species";
 import { SpeciesIcon, TemplateIcon } from "../templateIcons";
 
@@ -15,7 +17,7 @@ export function PatientDetail({ id }: { id: string }) {
   const [view, setView] = useState<engine.PatientView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState({ name: "", last_name: "", species: "" });
+  const [form, setForm] = useState({ name: "", last_name: "", species: "", owner_phone: "" });
   const [busy, setBusy] = useState(false);
   /** The visit whose note is being drafted again (Reprocess). */
   const [reprocess, setReprocess] = useState<engine.VisitSummary | null>(null);
@@ -28,7 +30,7 @@ export function PatientDetail({ id }: { id: string }) {
     setBusy(true);
     setError(null);
     try {
-      const patient = await engine.updatePatientRecord(id, form.name, form.last_name, form.species);
+      const patient = await engine.updatePatientRecord(id, form.name, form.last_name, form.species, form.owner_phone);
       setView((v) => (v ? { ...v, patient } : v));
       setEditing(false);
       app.toast(t("Patient details saved"));
@@ -75,6 +77,11 @@ export function PatientDetail({ id }: { id: string }) {
                   .filter(Boolean)
                   .join(", ")}
               </span>
+              {p?.owner_phone && (
+                <span className="small muted owner-phone">
+                  {t("Owner's phone")}: <span className="mono">{formatPhone(p.owner_phone)}</span>
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -83,7 +90,7 @@ export function PatientDetail({ id }: { id: string }) {
             <Button
               variant="ghost"
               onClick={() => {
-                setForm({ name: p.name, last_name: p.last_name, species: p.species });
+                setForm({ name: p.name, last_name: p.last_name, species: p.species, owner_phone: p.owner_phone ?? "" });
                 setEditing(true);
               }}
             >
@@ -91,6 +98,7 @@ export function PatientDetail({ id }: { id: string }) {
               {t("Edit details")}
             </Button>
           )}
+          {p && <CallButton patientId={id} />}
           <Button variant="primary" onClick={() => app.navigate({ screen: "record", patient: id })} disabled={!p}>
             <Mic size={20} aria-hidden />
             {t("New visit")}
@@ -141,6 +149,17 @@ export function PatientDetail({ id }: { id: string }) {
                   </option>
                 ))}
               </select>
+            </label>
+            <label className="ob-field">
+              <span className="label">{t("Owner's phone")}</span>
+              <input
+                className="ob-input mono"
+                inputMode="tel"
+                autoComplete="off"
+                value={form.owner_phone}
+                placeholder="+1 555 555 0142"
+                onChange={(e) => setForm({ ...form, owner_phone: e.target.value })}
+              />
             </label>
           </div>
           <p className="small muted">{t("Past visits keep the details entered at the time.")}</p>

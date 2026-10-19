@@ -1139,3 +1139,18 @@ p > .ob-dot { display: inline-block; vertical-align: middle; }
 .import-name { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-weight: 600; overflow-wrap: anywhere; }
 .import-path { overflow-wrap: anywhere; }
 .import-files { list-style: none; margin: 4px 0 0; padding: 0; overflow-wrap: anywhere; }
+
+/* Settings > Phone calls (ADR-0023). */
+.phone-card { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.phone-facts { display: flex; flex-wrap: wrap; gap: 8px 32px; }
+.phone-facts dd { overflow-wrap: anywhere; }
+.phone-helper { margin-top: -8px; padding-left: 24px; }
+.phone-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.phone-notes { display: flex; flex-direction: column; gap: 4px; padding-left: 20px; }
+.phone-checks { display: flex; flex-direction: column; gap: 6px; list-style: none; padding: 0; }
+.phone-checks .ob-chip, .phone-checks li > span { white-space: normal; height: auto; min-height: 24px; }
+.sheet-form { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.phone-steps { display: flex; flex-direction: column; gap: 6px; padding-left: 20px; color: var(--ink-2); }
+.phone-bin { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-2); }
+.phone-bin-text { margin: 0; padding: 12px; border-radius: var(--r-sm); background: var(--surface); border: 1px solid var(--border); font-size: 12px; line-height: 18px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.owner-phone { display: inline-flex; align-items: center; gap: 6px; }

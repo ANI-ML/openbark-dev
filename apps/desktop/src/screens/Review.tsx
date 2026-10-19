@@ -16,6 +16,8 @@ import { RefinePanel } from "../components/RefinePanel";
 import { headingExamples } from "../promptExamples";
 import { speciesName } from "../species";
 import { TranscriptList } from "../components/TranscriptList";
+import { CallButton } from "../components/CallButton";
+import { callLength, formatPhone } from "../phone/format";
 import { fmtTime, useApp } from "../context";
 import { copyToClipboard, formatNote } from "../copyFormats";
 import * as engine from "../engine";
@@ -131,7 +133,8 @@ export function Review({
   const run = view?.latest_run ?? null;
   // Notes render under the headings they were drafted to (saved with the draft).
   const template = view?.latest_template ?? null;
-  const chosen = picked ?? template?.id ?? app.settings.template;
+  // A phone call drafts with the Phone call template unless another is chosen (ADR-0023 section 8).
+  const chosen = picked ?? template?.id ?? (view?.call ? "callback" : app.settings.template);
 
   useEffect(() => {
     if (!template) return;
@@ -630,10 +633,22 @@ export function Review({
               <dt className="label muted">{t("Recorded")}</dt>
               <dd className="mono">{view?.created_at}</dd>
             </div>
+            {view?.call && (
+              <div>
+                <dt className="label muted">{t("Phone call")}</dt>
+                <dd className="mono">{callLine(t, view.call)}</dd>
+              </div>
+            )}
             <div>
               <dt className="label muted">{t("Consent to record")}</dt>
               <dd>
-                {view?.consent ? engine.consentText(view.consent) : <span className="faint">{t("Not recorded")}</span>}
+                {view?.call && view.consent ? (
+                  callConsentLine(t, view.call, view.consent)
+                ) : view?.consent ? (
+                  engine.consentText(view.consent)
+                ) : (
+                  <span className="faint">{t("Not recorded")}</span>
+                )}
               </dd>
             </div>
             {p?.entered_at && (
@@ -649,6 +664,7 @@ export function Review({
               <Button variant="ghost" onClick={() => setEditing(p ? { ...p } : engine.emptyPatient())} disabled={!view}>
                 {p ? t("Edit details") : t("Add patient details")}
               </Button>
+              {p?.patient_id && <CallButton patientId={p.patient_id} variant="ghost" />}
               {view && app.can.notes && (
                 <DeleteVisitMenu
                   others={otherPets.length > 0 ? listNames(app.settings.uiLanguage, otherPets) : undefined}
@@ -745,7 +761,15 @@ export function Review({
             </p>
           )}
           {segments.length > 0 ? (
-            <TranscriptList segments={segments} highlighted={lit} playingId={playingId} onSeek={seek} />
+            <TranscriptList
+              segments={segments}
+              highlighted={lit}
+              playingId={playingId}
+              onSeek={seek}
+              speakerNames={view?.call ? [t(view.call.clinic_label), t("Client")] : undefined}
+            />
+          ) : view?.call && view.consent?.outcome === "declined" ? (
+            <p className="pane-pad muted">{t("Not recorded. The client declined.")}</p>
           ) : (
             <div className="pane-pad">
               <div className="ob-skeleton" style={{ height: 16, width: "70%" }} />
@@ -1118,4 +1142,24 @@ function inferenceHost(t: ReturnType<typeof useT>): string {
   return engine.isDesktop || !host || host === "localhost" || host === "127.0.0.1" || host === "[::1]"
     ? t("local")
     : host;
+}
+
+type Translate = (text: string, vars?: Record<string, string | number>) => string;
+
+/** "Outgoing · 4:12 · +1 555 555 0142" (ADR-0023 section 8). */
+function callLine(t: Translate, call: engine.CallInfo): string {
+  return [t(call.direction === "outgoing" ? "Outgoing" : "Incoming"), callLength(call.duration_secs), formatPhone(call.number)].join(" · ");
+}
+
+/** The announcement and the client's answer, as Review shows them. */
+function callConsentLine(t: Translate, call: engine.CallInfo, c: engine.RecordingConsent): string {
+  if (c.outcome === "declined") {
+    return t("Client declined recording at {time}. The recording was deleted.", { time: callLength(call.declined_at_secs ?? 0) });
+  }
+  const at = callLength(c.announced_at_secs ?? 0);
+  const read =
+    c.method === "announced"
+      ? t("Announcement played at {time}.", { time: at })
+      : t("Announcement read by {name} at {time}.", { name: c.confirmed_by, time: at });
+  return `${read} ${c.outcome === "agreed" ? t("Client agreed.") : t("Client stayed on the line.")}`;
 }

@@ -143,6 +143,19 @@ export function App() {
     document.documentElement.lang = settings.uiLanguage;
   }, [settings.uiLanguage]);
 
+  // A recorded call was saved in the phone window: open it, drafted with the
+  // Phone call template when "Draft the note when I stop recording" is on.
+  const draftOnStop = settings.draftOnStop;
+  useEffect(
+    () =>
+      engine.onCallSaved((id) => {
+        // Review picks the Phone call template for a call by itself.
+        setRoute({ screen: "review", id, draft: draftOnStop });
+        setAnnounce(translate(settings.uiLanguage, "Call saved"));
+      }),
+    [draftOnStop, settings.uiLanguage],
+  );
+
   return (
     <AppContext.Provider value={ctx}>
       <div className="frame">
