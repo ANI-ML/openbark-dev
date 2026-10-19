@@ -45,6 +45,7 @@ export type CallEvent =
   | { type: "read" }
   | { type: "agreed" }
   | { type: "declined" }
+  | { type: "unrecorded" }
   | { type: "mute"; on: boolean }
   | { type: "hold"; on: boolean }
   | { type: "reconnecting"; on: boolean }
@@ -97,6 +98,9 @@ export function callReducer(s: CallState, e: CallEvent): CallState {
       // "No, stop recording", or "Stop and delete the recording" at any time.
       if (!s.record || s.consent === "declined" || s.phase !== "connected") return s;
       return { ...s, consent: "declined", recording: false, message: NOT_RECORDED_DECLINED };
+    case "unrecorded":
+      // The recording couldn't start: the call goes on, unrecorded, with no consent step.
+      return { ...s, record: false, recording: false, consent: "none" };
     case "mute":
       return { ...s, muted: e.on };
     case "hold":

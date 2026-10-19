@@ -45,16 +45,23 @@ export function PhoneApp() {
   const active = useRef<VoiceCall | null>(null);
   const taps = useRef<CallTaps | null>(null);
   const recording = useRef<api.CallRecording | null>(null);
+  /** The recording being started: the engine loads its speech models first, which takes a moment. */
+  const starting = useRef<Promise<api.CallRecording | null> | null>(null);
+  /** Audio from the answer until the recording is ready, so the announcement is in it. */
+  const buffered = useRef<Float32Array[]>([]);
+  /** Decisions made before the recording was ready, applied once it is. */
+  const decision = useRef<"agreed" | "declined" | null>(null);
   const connectedAt = useRef<number | null>(null);
   const finished = useRef(false);
   const phase = useRef(call.phase);
   phase.current = call.phase;
 
-  const loadTarget = useCallback(() => {
+  /** Reads the call the main window chose. `replace` puts its number on the dial pad even over what was typed. */
+  const loadTarget = useCallback((replace = true) => {
     api.pending().then(
       (p) => {
         setTarget(p);
-        setTyped(p?.number ?? "");
+        setTyped((typed) => (replace || !typed.trim() ? (p?.number ?? "") : typed));
       },
       (e) => {
         setTarget(null);
@@ -111,11 +118,13 @@ export function PhoneApp() {
     const at = Date.now();
     dispatch({ type: "disconnected", at });
     taps.current?.setRecording(false);
-    const rec = recording.current;
-    recording.current = null;
     const secs = connectedAt.current === null ? 0 : (at - connectedAt.current) / 1000;
     const sid = active.current?.parameters?.CallSid ?? null;
     await cleanUp();
+    // A hang-up while the recording was still starting waits for it.
+    const rec = recording.current ?? (await starting.current) ?? null;
+    recording.current = null;
+    starting.current = null;
     if (!rec) return;
     try {
       const view = await rec.end(secs, sid);
@@ -142,7 +151,14 @@ export function PhoneApp() {
     dispatch({ type: "dial", number, record });
     try {
       const token = await api.token();
-      taps.current = await createTaps((frames) => recording.current?.push(frames));
+      buffered.current = [];
+      decision.current = null;
+      starting.current = null;
+      taps.current = await createTaps((frames) => {
+        if (recording.current) recording.current.push(frames);
+        // About a minute at most, while the engine gets ready.
+        else if (buffered.current.length < 600) buffered.current.push(frames);
+      });
       device.current = await createDevice(token.token, taps.current, async () => (await api.token()).token);
       device.current.on("error", (e) => setNotice(callErrorMessage(e)));
       const c = await device.current.connect({ params: { To: number } });
@@ -153,7 +169,7 @@ export function PhoneApp() {
         connectedAt.current = at;
         setNow(at);
         dispatch({ type: "accepted", at });
-        if (record) void startRecording(number, c);
+        if (record) startRecording(number, c);
       });
       c.on("disconnect", () => void finish());
       c.on("cancel", () => void finish());
@@ -172,40 +188,59 @@ export function PhoneApp() {
     }
   }
 
-  /** The client answered: record both sides on this computer. */
-  async function startRecording(number: string, c: VoiceCall) {
-    if (!taps.current) return;
-    try {
-      recording.current = await api.startRecording({
-        number,
-        patient_id: target?.patient_id ?? null,
-        call_sid: c.parameters?.CallSid ?? null,
-        sample_rate: taps.current.sampleRate,
-      });
-      taps.current.setRecording(true);
-      dispatch({ type: "recording" });
-    } catch (e) {
-      // The call goes on; it just isn't recorded.
-      setNotice(`${t("This call isn't being recorded.")} ${callErrorMessage(e)}`);
-      dispatch({ type: "declined" });
-    }
+  /**
+   * The client answered: record both sides on this computer, from this
+   * moment. Audio is kept here until the engine is ready, so the
+   * announcement is the first thing in the recording.
+   */
+  function startRecording(number: string, c: VoiceCall) {
+    const t0 = taps.current;
+    if (!t0) return;
+    t0.setRecording(true);
+    dispatch({ type: "recording" });
+    starting.current = (async () => {
+      try {
+        const rec = await api.startRecording({
+          number,
+          patient_id: target?.patient_id ?? null,
+          call_sid: c.parameters?.CallSid ?? null,
+          sample_rate: t0.sampleRate,
+        });
+        for (const frames of buffered.current) rec.push(frames);
+        buffered.current = [];
+        recording.current = rec;
+        if (decision.current) await sendDecision(rec, decision.current);
+        return rec;
+      } catch (e) {
+        // The call goes on; it just isn't recorded.
+        t0.setRecording(false);
+        buffered.current = [];
+        setNotice(`${t("This call isn't being recorded.")} ${callErrorMessage(e)}`);
+        dispatch({ type: "unrecorded" });
+        return null;
+      }
+    })();
+  }
+
+  async function sendDecision(rec: api.CallRecording, outcome: "agreed" | "declined") {
+    await rec.consent(outcome, outcome === "agreed" ? 0 : null).catch((e: unknown) => setNotice(callErrorMessage(e)));
   }
 
   async function answer(agreed: boolean) {
-    if (agreed) {
-      dispatch({ type: "agreed" });
-      await recording.current?.consent("agreed", 0).catch((e: unknown) => setNotice(callErrorMessage(e)));
-      return;
-    }
-    stopRecording();
+    if (!agreed) return stopRecording();
+    dispatch({ type: "agreed" });
+    if (recording.current) await sendDecision(recording.current, "agreed");
+    else decision.current = "agreed";
   }
 
   /** "No, stop recording" or "Stop and delete the recording": the call goes on. */
   function stopRecording() {
     setAskDelete(false);
     taps.current?.setRecording(false);
+    buffered.current = [];
     dispatch({ type: "declined" });
-    void recording.current?.consent("declined", null).catch((e: unknown) => setNotice(callErrorMessage(e)));
+    if (recording.current) void sendDecision(recording.current, "declined");
+    else decision.current = "declined";
   }
 
   function hangUp() {
@@ -386,7 +421,8 @@ export function PhoneApp() {
               onClick={() => {
                 dispatch({ type: "reset" });
                 setNotice(null);
-                loadTarget();
+                setTyped("");
+                loadTarget(false);
               }}
             >
               <Phone size={18} aria-hidden />

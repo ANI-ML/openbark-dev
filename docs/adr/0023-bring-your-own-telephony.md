@@ -1,6 +1,6 @@
 # ADR-0023: Bring your own telephony: calls and email through the clinic's own Twilio and SendGrid
 
-- Status: accepted (owner decisions 2026-10-18; see section 15)
+- Status: accepted (owner decisions 2026-10-18; see section 15). Outgoing calls implemented 2026-10-19 (see "Implementation notes"); not yet tried on a real Twilio account.
 - Date: 2026-10-18
 - Deciders: product owner (asked on 2026-10-18: "Add the ability to add a SendGrid/Twilio integration for phone support (in app with recording) but unique to the user (we don't do anything and we don't pay for it, they do)"), engineering
 - Relations:
@@ -428,3 +428,18 @@ The original questions follow for the record.
 | Media Streams to transcribe in real time | Needs a public WebSocket server to receive the audio. There is none, by design |
 | Emailing through the clinic's own mail server (SMTP) | Possible later. SendGrid was the owner's choice, and its REST API keeps the HTTP client in Rust with no SMTP stack. SMTP would be a separate row and decision |
 | Calling from the iPhone app | Needs Twilio's iOS SDK, CallKit and push notifications through Apple. Separate decision, after ADR-0018's first release |
+
+## Implementation notes (2026-10-19, outgoing calls)
+
+Built on the branch `feat/telephony`, tested on Windows against a local fake Twilio account only (`os-connect`'s `mock` feature). What differs from, or settles, the text above:
+
+- **Sounds.** The SDK's `sounds` option replaces every default URL (checked in `@twilio/voice-sdk` 2.18.5's `device.js`), so OpenBark passes local files for all 15 sounds and `sdk.twilio.com` and `media.twiliocdn.com` are left out of the phone page's CSP (plan step 1, question 6, settled from the source; still to confirm on a real call).
+- **Event gateway.** After registering, the SDK switches to `eventgw.<home region>.twilio.com`, so the phone page's CSP lists `eventgw.twilio.com` and the `us1`, `ie1` and `au1` gateways.
+- **The main window's CSP** is a `<meta>` tag added at build time only (`apps/desktop/vite.config.ts`), so the dev server still runs. Web mode also sends it as a header (`os-server` `PAGE_CSP`), and `/phone.html` gets its own header (`PHONE_CSP`).
+- **Window isolation on the desktop.** Tauri allows app commands from every window, so `src-tauri/src/lib.rs` wraps the command handler: the phone window may call only the phone commands, and no other window may call them. The phone window's capability grants only `core:window:allow-close`. The microphone goes to the phone window only (`on_permission_request`).
+- **Recording starts at the answer, and the engine takes a few seconds** to load its speech models. The phone window keeps the audio from the answer until the engine is ready and sends it first, so the announcement is in the recording; a "yes" or "no" given before then is applied once it is.
+- **Declined calls** keep the visit (`session.json` only: who, when, the number, the consent outcome and when the client declined) and nothing else: no audio, no transcript.
+- **Unrecorded calls** save nothing (the optional history line of section 8 isn't built).
+- **Speaker labels** come from the channel: "Vet" (veterinarian), "Tech" (technician) or "Clinic" (reception, or no team), and "Client". The note model is told which speaker is which, as context entered by the clinic.
+- **Patient phone numbers**: the owner's phone only (stored in E.164, encrypted). The email field arrives with SendGrid.
+- **Not yet confirmed** (plan steps 1 and 2): the SDK in WebView2 and WKWebView, the remote AudioProcessor delivering sound rather than silence, a Bin as a TwiML App's Voice URL for outgoing calls, and a real call end to end.

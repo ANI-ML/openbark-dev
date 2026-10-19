@@ -298,6 +298,8 @@ export function ConnectTwilioSheet({
     setError(null);
     try {
       const out = await engine.phoneConnect(form);
+      // The secret is with the engine now; the form forgets it.
+      setForm((f) => ({ ...f, api_key_secret: "" }));
       onConnected(out.phone);
       close();
     } catch (e) {

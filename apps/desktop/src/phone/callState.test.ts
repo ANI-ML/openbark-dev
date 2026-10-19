@@ -54,6 +54,15 @@ describe("a recorded call", () => {
   });
 });
 
+describe("a recording that can't start", () => {
+  it("lets the call go on unrecorded, with no consent step", () => {
+    const s = run({ type: "dial", number: "+1", record: true }, { type: "accepted", at: 0 }, { type: "recording" }, { type: "unrecorded" });
+    expect(s.recording).toBe(false);
+    expect(s.consent).toBe("none");
+    expect(s.message).toBeNull();
+  });
+});
+
 describe("a call that isn't recorded", () => {
   it("skips the announcement and never records", () => {
     const s = run({ type: "dial", number: "+1", record: false }, { type: "accepted", at: 0 }, { type: "recording" });

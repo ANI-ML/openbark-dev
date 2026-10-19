@@ -12,8 +12,11 @@ vi.mock("./api", () => ({
   startRecording: vi.fn(),
   announceSaved: vi.fn(),
 }));
+/** The taps' frame callback, so a test can play audio into the call. */
+let feedFrames: (frames: Float32Array) => void = () => {};
 vi.mock("./callAudio", () => ({
-  createTaps: vi.fn(async () => ({
+  createTaps: vi.fn(async (onFrames: (frames: Float32Array) => void) => ({
+    ...((feedFrames = onFrames), {}),
     local: {},
     remote: {},
     sampleRate: 48000,
@@ -164,6 +167,43 @@ describe("the phone window", () => {
     render(<PhoneApp />);
     fireEvent.click(await screen.findByRole("button", { name: "Call" }));
     expect(await screen.findByText(/Twilio didn't accept this key/)).toBeTruthy();
+  });
+
+  it("keeps the audio and the client's answer from before the engine was ready", async () => {
+    let ready: (r: typeof rec) => void = () => {};
+    mApi.startRecording.mockReturnValue(new Promise((r) => (ready = r)) as never);
+    render(<PhoneApp />);
+    fireEvent.click(await screen.findByRole("button", { name: "Call" }));
+    await waitFor(() => expect(mVoice.createDevice).toHaveBeenCalled());
+    call.emit("accept");
+    await screen.findByText("Read this to the client now:");
+    // The announcement, read while the engine loads its models.
+    const announcement = new Float32Array([0.1, -0.1]);
+    feedFrames(announcement);
+    fireEvent.click(screen.getByRole("button", { name: "I've read it" }));
+    fireEvent.click(screen.getByRole("button", { name: "No, stop recording" }));
+    expect(rec.consent).not.toHaveBeenCalled();
+    ready(rec);
+    await waitFor(() => expect(rec.consent).toHaveBeenCalledWith("declined", null));
+    // Frames after "No" aren't kept; the ones before it reached the engine first.
+    expect(rec.push).not.toHaveBeenCalled();
+  });
+
+  it("sends what was recorded before the engine was ready, first", async () => {
+    let ready: (r: typeof rec) => void = () => {};
+    mApi.startRecording.mockReturnValue(new Promise((r) => (ready = r)) as never);
+    render(<PhoneApp />);
+    fireEvent.click(await screen.findByRole("button", { name: "Call" }));
+    await waitFor(() => expect(mVoice.createDevice).toHaveBeenCalled());
+    call.emit("accept");
+    await screen.findByText("Read this to the client now:");
+    const first = new Float32Array([0.5, 0.25]);
+    feedFrames(first);
+    ready(rec);
+    await waitFor(() => expect(rec.push).toHaveBeenCalledWith(first));
+    const later = new Float32Array([0.2, 0.1]);
+    feedFrames(later);
+    expect(rec.push).toHaveBeenLastCalledWith(later);
   });
 
   it("says no answer when the call ends before the client answers", async () => {
