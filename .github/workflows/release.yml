@@ -4,12 +4,29 @@ name: Release installers
 #   Windows: setup wizard (NSIS, per-user, no admin), uninstall from Settings
 #   macOS:   disk image (drag OpenBark to Applications; Uninstall OpenBark beside it)
 #   Linux:   .deb, .rpm and AppImage
-# Runs on a version tag (v0.1.0) or by hand; tags also get a draft release.
+# Runs on a version tag (v0.1.0) or by hand.
+#
+# Publishing: only a pushed v* tag creates releases (drafts, in this repo and
+# in ANI-ML/openbark-releases). A manual run (workflow_dispatch) builds the
+# installers as workflow artifacts and never publishes, on any branch or tag.
+#
+# Signing (ADR-0020, docs/runbooks/code-signing.md): only for a pushed v* tag,
+# and per platform only once that platform's secrets exist in the `release`
+# environment. Without them the platform builds unsigned exactly as before
+# (macOS ad-hoc), with a notice in the log. scripts/ci/signing-plan.sh decides.
+#   Windows: Microsoft Artifact Signing through Tauri's signCommand (the app,
+#            its DLLs, uninstall.exe, the NSIS plugins and the installer)
+#   macOS:   Developer ID, hardened runtime, notarized and stapled
+#   Linux:   the .rpm signed with the OpenBark Releases OpenPGP key
+#   All:     SHA256SUMS.txt signed with that key (SHA256SUMS.txt.asc)
 
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -39,8 +56,36 @@ jobs:
               target/release/bundle/appimage/*.AppImage
     name: Installer (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
+    # The signing secrets live in the `release` environment, which accepts
+    # only v* tags. Manual runs use no environment, so they never see them.
+    environment: ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) && 'release' || '' }}
+    permissions:
+      contents: read
+      id-token: write # Azure sign-in (OIDC) for Windows signing
     steps:
       - uses: actions/checkout@v4
+      # Only true/false flags reach this step, never secret values.
+      - name: Signing plan
+        id: plan
+        shell: bash
+        env:
+          IS_RELEASE_TAG: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+          HAS_AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID != '' }}
+          HAS_AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID != '' }}
+          HAS_AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID != '' }}
+          HAS_AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT != '' }}
+          HAS_AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT != '' }}
+          HAS_AZURE_SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE != '' }}
+          HAS_APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE != '' }}
+          HAS_APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD != '' }}
+          HAS_APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY != '' }}
+          HAS_APPLE_API_KEY: ${{ secrets.APPLE_API_KEY != '' }}
+          HAS_APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER != '' }}
+          HAS_APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY != '' }}
+          HAS_OPENBARK_RELEASE_GPG_KEY: ${{ secrets.OPENBARK_RELEASE_GPG_KEY != '' }}
+          HAS_OPENBARK_RELEASE_GPG_PASSPHRASE: ${{ secrets.OPENBARK_RELEASE_GPG_PASSPHRASE != '' }}
+          HAS_OPENBARK_RELEASE_GPG_FINGERPRINT: ${{ vars.OPENBARK_RELEASE_GPG_FINGERPRINT != '' }}
+        run: bash scripts/ci/signing-plan.sh ${{ matrix.name }}
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -56,7 +101,14 @@ jobs:
           restore-keys: cargo-release-${{ matrix.name }}-
       - name: Build tools (Windows)
         if: matrix.name == 'windows'
-        run: choco install llvm vulkan-sdk -y --no-progress
+        shell: bash
+        run: |
+          choco install llvm vulkan-sdk -y --no-progress
+          sdks=(/c/VulkanSDK/*)
+          {
+            printf '%s\n' 'LIBCLANG_PATH=C:\Program Files\LLVM\bin'
+            printf 'VULKAN_SDK=%s\n' "$(cygpath -w "${sdks[-1]}")"
+          } >> "$GITHUB_ENV"
       - name: Build tools (Linux)
         if: matrix.name == 'linux'
         run: |
@@ -86,29 +138,122 @@ jobs:
           } >> "$GITHUB_ENV"
           echo "$sdk/bin" >> "$GITHUB_PATH"
           "$sdk/bin/glslc" --version | head -1
+          # shellcheck disable=SC2012
           ls "$sdk/share/cmake" "$sdk/lib/cmake" 2>/dev/null | head
-      - name: Installers
+
+      # ---- Windows -------------------------------------------------------
+      - name: Installer (Windows, unsigned)
+        if: matrix.name == 'windows' && steps.plan.outputs.sign != 'true'
+        shell: bash
+        run: cd apps/desktop && pnpm tauri build --features ${{ matrix.features }}
+      # Signed: compile (most of the job), then sign in to Azure, then bundle,
+      # so the sign-in lands inside GitHub's 5-minute OIDC token window.
+      - name: Compile (Windows, signed release)
+        if: matrix.name == 'windows' && steps.plan.outputs.sign == 'true'
+        shell: bash
+        run: cd apps/desktop && pnpm tauri build --features ${{ matrix.features }} --no-bundle
+      - name: Signing tools (Windows)
+        if: matrix.name == 'windows' && steps.plan.outputs.sign == 'true'
+        shell: pwsh
+        env:
+          AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          AZURE_SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
+        run: ./scripts/ci/windows-signing.ps1 -Mode Setup -Kind Artifact
+      - name: Sign in to Azure (Windows)
+        if: matrix.name == 'windows' && steps.plan.outputs.sign == 'true'
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Bundle and sign (Windows)
+        if: matrix.name == 'windows' && steps.plan.outputs.sign == 'true'
         shell: bash
         run: |
-          if [ "${{ matrix.name }}" = "windows" ]; then
-            export LIBCLANG_PATH="C:\\Program Files\\LLVM\\bin"
-            export VULKAN_SDK="$(ls -d /c/VulkanSDK/* | tail -1)"
-          fi
-          if [ "${{ matrix.name }}" = "macos" ]; then
-            # Match the app's minimum (bundle.macOS.minimumSystemVersion) so
-            # llama.cpp's availability checks link against the system.
-            export MACOSX_DEPLOYMENT_TARGET=13.0
-            # The app plus "Uninstall OpenBark", laid out in one disk image.
-            scripts/macos-dmg.sh --features ${{ matrix.features }}
-          else
-            cd apps/desktop && pnpm tauri build --features ${{ matrix.features }}
-          fi
+          # Fetch the signing token now, while the OIDC sign-in is fresh.
+          az account get-access-token --resource https://codesigning.azure.net --output none
+          cd apps/desktop
+          pnpm tauri bundle --bundles nsis --features ${{ matrix.features }} --config "$OPENBARK_SIGN_OVERLAY"
+      - name: Check signatures (Windows)
+        if: matrix.name == 'windows' && steps.plan.outputs.sign == 'true'
+        shell: pwsh
+        run: |
+          $setup = @(Get-ChildItem target/release/bundle/nsis/*.exe)
+          if ($setup.Count -ne 1) { throw "expected one installer, found $($setup.Count)" }
+          ./scripts/ci/windows-signing.ps1 -Mode Verify -Installer $setup[0].FullName -Publisher "ANI.ML Health Inc."
+      - name: Sign out of Azure (Windows)
+        if: always() && matrix.name == 'windows' && steps.plan.outputs.sign == 'true'
+        shell: bash
+        run: az logout || true
+
+      # ---- macOS ---------------------------------------------------------
+      - name: Signing keychain (macOS)
+        if: matrix.name == 'macos' && steps.plan.outputs.sign == 'true'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: bash scripts/ci/macos-keychain.sh setup
+      - name: Notarization key (macOS)
+        if: matrix.name == 'macos' && steps.plan.outputs.sign == 'true'
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+        run: |
+          umask 077
+          mkdir -p "$RUNNER_TEMP/private_keys"
+          key="$RUNNER_TEMP/private_keys/AuthKey_${APPLE_API_KEY}.p8"
+          printf '%s\n' "$APPLE_API_PRIVATE_KEY" > "$key"
+          echo "APPLE_API_KEY_PATH=$key" >> "$GITHUB_ENV"
+      - name: Installer (macOS)
+        if: matrix.name == 'macos'
+        env:
+          # Match the app's minimum (bundle.macOS.minimumSystemVersion) so
+          # llama.cpp's availability checks link against the system.
+          MACOSX_DEPLOYMENT_TARGET: "13.0"
+          # Empty unless signing: then the script signs ad-hoc, as before.
+          APPLE_SIGNING_IDENTITY: ${{ steps.plan.outputs.sign == 'true' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          APPLE_API_KEY: ${{ steps.plan.outputs.sign == 'true' && secrets.APPLE_API_KEY || '' }}
+          APPLE_API_ISSUER: ${{ steps.plan.outputs.sign == 'true' && secrets.APPLE_API_ISSUER || '' }}
+        # The app plus "Uninstall OpenBark", laid out in one disk image.
+        run: scripts/macos-dmg.sh --features ${{ matrix.features }}
+      - name: Check signatures (macOS)
+        if: matrix.name == 'macos' && steps.plan.outputs.sign == 'true'
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          set -- target/release/bundle/dmg/*.dmg
+          [ $# -eq 1 ] || { echo "expected one disk image, found $#"; exit 1; }
+          bash scripts/ci/macos-verify.sh "$1" --notarized
+      - name: Remove the keychain and key (macOS)
+        if: always() && matrix.name == 'macos' && steps.plan.outputs.sign == 'true'
+        run: |
+          bash scripts/ci/macos-keychain.sh cleanup
+          rm -rf "$RUNNER_TEMP/private_keys"
+
+      # ---- Linux ---------------------------------------------------------
+      - name: Installers (Linux)
+        if: matrix.name == 'linux'
+        run: cd apps/desktop && pnpm tauri build --features ${{ matrix.features }}
+      - name: Sign the .rpm (Linux)
+        if: matrix.name == 'linux' && steps.plan.outputs.sign == 'true'
+        env:
+          OPENBARK_RELEASE_GPG_KEY: ${{ secrets.OPENBARK_RELEASE_GPG_KEY }}
+          OPENBARK_RELEASE_GPG_PASSPHRASE: ${{ secrets.OPENBARK_RELEASE_GPG_PASSPHRASE }}
+          OPENBARK_RELEASE_GPG_FINGERPRINT: ${{ vars.OPENBARK_RELEASE_GPG_FINGERPRINT }}
+        run: |
+          sudo apt-get install -y rpm
+          bash scripts/ci/gpg-sign.sh rpm target/release/bundle/rpm/*.rpm
+
       # Fixed, friendly file names, so the "latest" download links never change:
       # https://github.com/ANI-ML/openbark-releases/releases/latest/download/<name>
       - name: Name the installers
         shell: bash
         run: |
           mkdir -p out
+          # The patterns are globs on purpose.
+          # shellcheck disable=SC2012,SC2086
           one() { local n; n=$(ls $1 2>/dev/null | wc -l | tr -d " "); [ "$n" = "1" ] || { echo "expected one file for $1, found $n"; exit 1; }; cp $1 "out/$2"; }
           case "${{ matrix.name }}" in
             windows) one "target/release/bundle/nsis/*.exe" OpenBark-Setup.exe ;;
@@ -124,9 +269,14 @@ jobs:
           name: openbark-${{ matrix.name }}
           path: out/*
           if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signing-status-${{ matrix.name }}
+          path: signing-status/*
+          if-no-files-found: error
 
   draft-release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: installers
     runs-on: ubuntu-24.04
     permissions:
@@ -134,6 +284,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
+          pattern: openbark-*
           path: dist
       - name: Draft release with the installers
         env:
@@ -149,19 +300,57 @@ jobs:
   # "Website release" workflow to point the website's buttons at it.
   # Needs the PUBLIC_RELEASES_TOKEN secret (contents: write on that repo).
   public-draft:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: installers
     runs-on: ubuntu-24.04
+    environment: release
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
+          pattern: openbark-*
           path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: signing-status-*
+          path: signing-status
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          # shellcheck disable=SC2035
+          (cd dist && sha256sum */* | sed 's#  [^/]*/#  #' > SHA256SUMS.txt)
+      - name: Signing plan (checksums)
+        id: plan
+        env:
+          IS_RELEASE_TAG: "true"
+          HAS_OPENBARK_RELEASE_GPG_KEY: ${{ secrets.OPENBARK_RELEASE_GPG_KEY != '' }}
+          HAS_OPENBARK_RELEASE_GPG_PASSPHRASE: ${{ secrets.OPENBARK_RELEASE_GPG_PASSPHRASE != '' }}
+          HAS_OPENBARK_RELEASE_GPG_FINGERPRINT: ${{ vars.OPENBARK_RELEASE_GPG_FINGERPRINT != '' }}
+        run: bash scripts/ci/signing-plan.sh checksums
+      - name: Sign the checksums
+        if: steps.plan.outputs.sign == 'true'
+        env:
+          OPENBARK_RELEASE_GPG_KEY: ${{ secrets.OPENBARK_RELEASE_GPG_KEY }}
+          OPENBARK_RELEASE_GPG_PASSPHRASE: ${{ secrets.OPENBARK_RELEASE_GPG_PASSPHRASE }}
+          OPENBARK_RELEASE_GPG_FINGERPRINT: ${{ vars.OPENBARK_RELEASE_GPG_FINGERPRINT }}
+        run: bash scripts/ci/gpg-sign.sh checksums dist/SHA256SUMS.txt dist/openbark-release-key.asc
       - name: Draft the public release
         env:
           GH_TOKEN: ${{ secrets.PUBLIC_RELEASES_TOKEN }}
         run: |
-          (cd dist && sha256sum */* | sed 's#  [^/]*/#  #' > SHA256SUMS.txt)
+          notes="OpenBark, the free, open-source veterinary scribe built by the ANI.ML Health team. Beta: review every draft before signing. Windows: run the setup wizard. macOS: open the disk image and drag OpenBark to Applications. Linux: .deb, .rpm or AppImage. Checksums in SHA256SUMS.txt."
+          signed=""
+          [ "$(cat signing-status/windows.txt 2>/dev/null)" = signed ] && signed="$signed Windows installer signed by ANI.ML Health Inc."
+          [ "$(cat signing-status/macos.txt 2>/dev/null)" = signed ] && signed="$signed macOS disk image signed by ANI.ML Health Inc. and notarized by Apple."
+          [ "$(cat signing-status/linux.txt 2>/dev/null)" = signed ] && signed="$signed Linux .rpm signed with the OpenBark Releases key."
+          extra=()
+          if [ -f dist/SHA256SUMS.txt.asc ]; then
+            fpr="$(gpg --batch --with-colons --import-options show-only --import dist/openbark-release-key.asc | awk -F: '$1 == "fpr" { print $10; exit }')"
+            signed="$signed Checksums signed with the OpenBark Releases key, fingerprint $fpr (openbark-release-key.asc; see www.openbark.io)."
+            extra=(dist/SHA256SUMS.txt.asc dist/openbark-release-key.asc)
+          fi
+          [ -n "$signed" ] && notes="$notes$signed"
           gh release create "${{ github.ref_name }}" --draft --repo ANI-ML/openbark-releases \
             --title "OpenBark ${{ github.ref_name }} (beta)" \
-            --notes "OpenBark, the free, open-source veterinary scribe built by the ANI.ML Health team. Beta: review every draft before signing. Windows: run the setup wizard. macOS: open the disk image and drag OpenBark to Applications. Linux: .deb, .rpm or AppImage. Checksums in SHA256SUMS.txt." \
-            dist/*/* dist/SHA256SUMS.txt
+            --notes "$notes" \
+            dist/*/* dist/SHA256SUMS.txt "${extra[@]}"

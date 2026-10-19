@@ -1,0 +1,243 @@
+name: Signing self-test
+
+# Runs the release workflow's signing code paths (scripts/ci/*.sh,
+# scripts/ci/windows-signing.ps1, scripts/macos-dmg.sh) with THROWAWAY
+# credentials made inside each job: a self-signed code-signing certificate on
+# macOS and Windows, and a fresh OpenPGP key on Linux. Nothing is published,
+# no environment and no repository secret is used, and notarization and
+# Microsoft Artifact Signing are skipped (they need the real accounts).
+# Manual only (ADR-0020).
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  NODE_VERSION: "24.22.0"
+  SELFTEST_NAME: "OpenBark Signing Selftest"
+
+jobs:
+  plan:
+    name: Signing plan rules
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unsigned without secrets, signed with all, stop when half set
+        run: |
+          set -u
+          out="$RUNNER_TEMP/out"
+          run() { : > "$out"; GITHUB_OUTPUT="$out" env "$@" bash scripts/ci/signing-plan.sh macos >/dev/null 2>&1; echo $?; }
+          all="HAS_APPLE_CERTIFICATE=true HAS_APPLE_CERTIFICATE_PASSWORD=true HAS_APPLE_SIGNING_IDENTITY=true HAS_APPLE_API_KEY=true HAS_APPLE_API_ISSUER=true HAS_APPLE_API_PRIVATE_KEY=true"
+          expect() { # expect <exit code> <sign=...|-> <message> <env assignments...>
+            local code="$1" want="$2" msg="$3"; shift 3
+            if [ "$(run "$@")" != "$code" ]; then echo "$msg"; exit 1; fi
+            if [ "$want" != - ] && ! grep -qx "$want" "$out"; then echo "$msg"; exit 1; fi
+          }
+          read -r -a every <<< "$all"
+          expect 0 sign=false "no secrets should build unsigned" IS_RELEASE_TAG=true
+          expect 0 sign=true "all secrets should sign" IS_RELEASE_TAG=true "${every[@]}"
+          expect 0 sign=false "manual runs must not sign" IS_RELEASE_TAG=false "${every[@]}"
+          expect 1 - "half-configured should fail" IS_RELEASE_TAG=true HAS_APPLE_CERTIFICATE=true
+          echo "signing-plan.sh rules hold"
+
+  gpg:
+    name: OpenPGP (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # 22.04 builds the Linux installers; 24.04 signs the checksums.
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y rpm
+      - name: Sign and verify with a throwaway key
+        run: |
+          umask 077
+          gen="$(mktemp -d "$RUNNER_TEMP/gen.XXXXXX")"
+          pass="$(head -c 24 /dev/urandom | base64)"
+          echo "::add-mask::$pass"
+          gpg --homedir "$gen" --batch --pinentry-mode loopback --passphrase-fd 0 \
+            --quick-gen-key "$SELFTEST_NAME <selftest@example.invalid>" rsa3072 sign 1d <<< "$pass"
+          fpr="$(gpg --homedir "$gen" --with-colons --list-secret-keys | awk -F: '$1 == "fpr" { print $10; exit }')"
+          key="$(gpg --homedir "$gen" --batch --pinentry-mode loopback --passphrase-fd 0 --armor --export-secret-keys "$fpr" <<< "$pass")"
+          gpgconf --homedir "$gen" --kill all
+          rm -rf "$gen"
+
+          # A tiny package standing in for the OpenBark .rpm.
+          top="$RUNNER_TEMP/rpmbuild"
+          mkdir -p "$top/SPECS"
+          printf '%s\n' 'Name: openbark-selftest' 'Version: 1.0' 'Release: 1' 'Summary: signing self-test' \
+            'License: Apache-2.0' 'BuildArch: noarch' '%description' 'Signing self-test.' '%files' > "$top/SPECS/t.spec"
+          rpmbuild --quiet --define "_topdir $top" -bb "$top/SPECS/t.spec"
+          mkdir -p dist
+          cp "$top"/RPMS/noarch/*.rpm dist/openbark.x86_64.rpm
+          echo "stand-in installer" > dist/OpenBark-Setup.exe
+
+          export OPENBARK_RELEASE_GPG_KEY="$key" OPENBARK_RELEASE_GPG_PASSPHRASE="$pass" OPENBARK_RELEASE_GPG_FINGERPRINT="$fpr"
+          bash scripts/ci/gpg-sign.sh rpm dist/openbark.x86_64.rpm
+          (cd dist && sha256sum ./* | sed 's#  \./#  #' > SHA256SUMS.txt)
+          bash scripts/ci/gpg-sign.sh checksums dist/SHA256SUMS.txt dist/openbark-release-key.asc
+
+          # What a user does (runbook Part F), in a clean keyring.
+          user="$(mktemp -d "$RUNNER_TEMP/user.XXXXXX")"
+          gpg --homedir "$user" --batch --import dist/openbark-release-key.asc
+          gpg --homedir "$user" --batch --verify dist/SHA256SUMS.txt.asc dist/SHA256SUMS.txt
+          (cd dist && sha256sum --check SHA256SUMS.txt)
+          # A tampered checksum file must fail.
+          cp dist/SHA256SUMS.txt "$RUNNER_TEMP/tampered.txt"
+          echo "extra" >> "$RUNNER_TEMP/tampered.txt"
+          if gpg --homedir "$user" --batch --verify dist/SHA256SUMS.txt.asc "$RUNNER_TEMP/tampered.txt"; then
+            echo "a tampered file verified"; exit 1
+          fi
+          gpgconf --homedir "$user" --kill all
+          rm -rf "$user" "$top"
+          echo "OpenPGP signing works"
+
+  macos:
+    name: macOS (self-signed, not notarized)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-release-macos-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-release-macos-
+      - name: Throwaway code-signing certificate
+        id: cert
+        run: |
+          umask 077
+          d="$RUNNER_TEMP/selfcert"
+          mkdir -p "$d"
+          printf '%s\n' '[req]' 'distinguished_name = dn' 'prompt = no' 'x509_extensions = ext' \
+            '[dn]' "CN = $SELFTEST_NAME" \
+            '[ext]' 'basicConstraints = critical,CA:false' 'keyUsage = critical,digitalSignature' \
+            'extendedKeyUsage = critical,codeSigning' 'subjectKeyIdentifier = hash' > "$d/req.cnf"
+          /usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -days 2 -config "$d/req.cnf" \
+            -keyout "$d/key.pem" -out "$d/cert.pem"
+          pw="$(/usr/bin/openssl rand -hex 16)"
+          echo "::add-mask::$pw"
+          /usr/bin/openssl pkcs12 -export -inkey "$d/key.pem" -in "$d/cert.pem" -name "$SELFTEST_NAME" \
+            -passout "pass:$pw" -out "$d/cert.p12"
+          # Trust it on this runner only, as a Developer ID would be by Apple's roots.
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$d/cert.pem"
+          {
+            echo "p12<<P12EOF"; base64 < "$d/cert.p12" | tr -d '\n'; echo; echo "P12EOF"
+            echo "pw=$pw"
+          } >> "$GITHUB_OUTPUT"
+          rm -f "$d/key.pem" "$d/cert.p12"
+      - name: Signing keychain (shared script)
+        env:
+          APPLE_CERTIFICATE: ${{ steps.cert.outputs.p12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ steps.cert.outputs.pw }}
+          APPLE_SIGNING_IDENTITY: ${{ env.SELFTEST_NAME }}
+        run: bash scripts/ci/macos-keychain.sh setup
+      - name: Build and sign the disk image (shared script, no notarization)
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "13.0"
+          APPLE_SIGNING_IDENTITY: ${{ env.SELFTEST_NAME }}
+        run: scripts/macos-dmg.sh --features metal --no-notarize
+      - name: Check signatures (shared script)
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ env.SELFTEST_NAME }}
+        run: |
+          set -- target/release/bundle/dmg/*.dmg
+          [ $# -eq 1 ] || { echo "expected one disk image, found $#"; exit 1; }
+          bash scripts/ci/macos-verify.sh "$1"
+          echo "--- entitlements and Info.plist of the app"
+          m="$(mktemp -d)"; hdiutil attach "$1" -nobrowse -readonly -mountpoint "$m" -quiet
+          codesign -d --entitlements - --xml "$m/OpenBark.app" | plutil -p - || true
+          plutil -p "$m/OpenBark.app/Contents/Info.plist" | grep -E 'NSHumanReadableCopyright|NSMicrophoneUsageDescription'
+          codesign -d --entitlements - --xml "$m/Uninstall OpenBark.app" | plutil -p - || true
+          hdiutil detach "$m" -quiet
+      - name: Uninstaller launcher runs its script
+        run: |
+          t="$RUNNER_TEMP/launcher/T.app/Contents"
+          mkdir -p "$t/MacOS" "$t/Resources"
+          xcrun clang -O2 -Wall -Werror -mmacosx-version-min=13.0 -o "$t/MacOS/uninstall" install/macos/uninstall-launcher.c
+          printf '#!/bin/bash\necho "ran with: $*"\n' > "$t/Resources/uninstall.sh"
+          got="$("$t/MacOS/uninstall" one "two words")"
+          echo "$got"
+          [ "$got" = "ran with: one two words" ] || { echo "launcher didn't pass its arguments through"; exit 1; }
+      - name: Remove the keychain and certificate
+        if: always()
+        run: |
+          bash scripts/ci/macos-keychain.sh cleanup
+          if [ -f "$RUNNER_TEMP/selfcert/cert.pem" ]; then
+            sudo security remove-trusted-cert -d "$RUNNER_TEMP/selfcert/cert.pem" || true
+          fi
+          rm -rf "$RUNNER_TEMP/selfcert"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: selftest-macos-dmg
+          path: target/release/bundle/dmg/*.dmg
+          retention-days: 3
+
+  windows:
+    name: Windows (self-signed through signCommand)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-release-windows-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-release-windows-
+      - name: Build tools
+        shell: bash
+        run: |
+          choco install llvm vulkan-sdk -y --no-progress
+          sdks=(/c/VulkanSDK/*)
+          {
+            printf '%s\n' 'LIBCLANG_PATH=C:\Program Files\LLVM\bin'
+            printf 'VULKAN_SDK=%s\n' "$(cygpath -w "${sdks[-1]}")"
+          } >> "$GITHUB_ENV"
+      - name: Compile
+        shell: bash
+        run: cd apps/desktop && pnpm tauri build --features vulkan --no-bundle
+      - name: Throwaway certificate and signing overlay (shared script)
+        shell: pwsh
+        run: ./scripts/ci/windows-signing.ps1 -Mode Setup -Kind SelfSigned -Publisher "$env:SELFTEST_NAME"
+      - name: Bundle and sign through signCommand
+        shell: bash
+        run: cd apps/desktop && pnpm tauri bundle --bundles nsis --features vulkan --config "$OPENBARK_SIGN_OVERLAY"
+      - name: Check signatures (shared script)
+        shell: pwsh
+        run: |
+          $setup = @(Get-ChildItem target/release/bundle/nsis/*.exe)
+          if ($setup.Count -ne 1) { throw "expected one installer, found $($setup.Count)" }
+          ./scripts/ci/windows-signing.ps1 -Mode Verify -Installer $setup[0].FullName -Publisher "$env:SELFTEST_NAME"
+          $vi = (Get-Item $setup[0].FullName).VersionInfo
+          Write-Host "Installer: CompanyName='$($vi.CompanyName)' LegalCopyright='$($vi.LegalCopyright)'"
+          $exe = Get-ChildItem "$env:LOCALAPPDATA\Programs\OpenBark\*.exe" | Where-Object Name -ne "uninstall.exe" | Select-Object -First 1
+          Write-Host "App: CompanyName='$($exe.VersionInfo.CompanyName)' LegalCopyright='$($exe.VersionInfo.LegalCopyright)'"
+          $arp = Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenBark"
+          Write-Host "Apps & features: Publisher='$($arp.Publisher)'"
+          if ($arp.Publisher -ne "ANI.ML Health Inc.") { throw "Apps & features publisher is '$($arp.Publisher)'" }
+          if ($vi.CompanyName -ne "ANI.ML Health Inc.") { throw "installer CompanyName is '$($vi.CompanyName)'" }
+      - name: Remove the certificate
+        if: always()
+        shell: pwsh
+        run: |
+          Get-ChildItem Cert:\CurrentUser\My, Cert:\LocalMachine\Root, Cert:\LocalMachine\TrustedPublisher |
+            Where-Object Subject -eq "CN=$env:SELFTEST_NAME" | Remove-Item -ErrorAction SilentlyContinue

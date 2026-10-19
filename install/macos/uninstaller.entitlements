@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Signed builds only (scripts/macos-dmg.sh). Under the hardened runtime,
+       "Uninstall OpenBark" needs this to ask a running OpenBark to quit
+       (osascript "tell application id ... to quit"). -->
+  <key>com.apple.security.automation.apple-events</key>
+  <true/>
+</dict>
+</plist>
