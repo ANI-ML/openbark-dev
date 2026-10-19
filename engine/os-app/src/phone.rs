@@ -144,13 +144,55 @@ pub struct CallTarget {
 /// The call being recorded now.
 pub(crate) struct CallState {
     id: String,
+    /// When the client answered (not when the engine was ready).
     started: Instant,
     outcome: Option<ConsentOutcome>,
+    /// Set only when the caller confirms the announcement was read ("I've
+    /// read it"). Without it the recording isn't kept (owner decision 1).
     announced_at: Option<f32>,
     who: Option<Who>,
-    /// The client declined: the recording is gone, the call goes on.
-    declined: bool,
+    /// Set once the recording is deleted (declined, or never announced): the
+    /// call may go on, unrecorded.
+    discarded: Option<ConsentOutcome>,
 }
+
+#[cfg(test)]
+impl CallState {
+    /// A call being recorded into the visit `id`, for tests that need no
+    /// speech models.
+    pub(crate) fn for_test(id: &str, announced: bool) -> Self {
+        Self {
+            id: id.to_string(),
+            started: Instant::now(),
+            outcome: None,
+            announced_at: announced.then_some(0.0),
+            who: None,
+            discarded: None,
+        }
+    }
+}
+
+/// The label a call's visit folder is made from when no patient is chosen.
+/// Never the number: folder names and visit ids show in logs, replies and
+/// events, and the number is only kept encrypted in `session.json`.
+pub(crate) const CALL_LABEL: &str = "call";
+
+/// The sample rates the phone window may stream at.
+pub const CALL_SAMPLE_RATES: std::ops::RangeInclusive<u32> = 8_000..=192_000;
+
+/// Refuses a sample rate no browser produces (and that would stop the recorder).
+pub fn check_call_sample_rate(rate: u32) -> Result<()> {
+    if CALL_SAMPLE_RATES.contains(&rate) {
+        Ok(())
+    } else {
+        Err(AppError(format!(
+            "The call's audio came at {rate} Hz, which OpenBark can't record. Try the call again."
+        )))
+    }
+}
+
+/// The longest gap accepted between the answer and the engine starting.
+const MAX_SINCE_ANSWER: f32 = 600.0;
 
 /// When the call ends: how long it lasted and Twilio's call SID.
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -169,6 +211,13 @@ pub struct CallStart {
     pub patient_id: Option<String>,
     #[serde(default)]
     pub call_sid: Option<String>,
+    /// The phone window's sample rate, checked before recording starts.
+    #[serde(default)]
+    pub sample_rate: Option<u32>,
+    /// Seconds since the client answered: the window keeps the audio from
+    /// the answer while the engine gets ready, so times count from there.
+    #[serde(default)]
+    pub since_answer_secs: Option<f32>,
 }
 
 /// The pending call target, set by the main window.
@@ -463,6 +512,18 @@ impl App {
             return Err(AppError("Recording calls is off in Settings > Phone calls.".into()));
         }
         let number = os_engine::patients::normalise_phone(&req.number)?;
+        if let Some(rate) = req.sample_rate {
+            check_call_sample_rate(rate)?;
+        }
+        let since_answer = req
+            .since_answer_secs
+            .filter(|s| s.is_finite() && *s > 0.0)
+            .map(|s| s.min(MAX_SINCE_ANSWER))
+            .unwrap_or(0.0);
+        let answered = Instant::now()
+            .checked_sub(std::time::Duration::from_secs_f32(since_answer))
+            .unwrap_or_else(Instant::now);
+        let answered_at = Local::now() - chrono::Duration::milliseconds((since_answer * 1000.0) as i64);
         let by = self
             .pending_call
             .lock()
@@ -497,13 +558,14 @@ impl App {
             confirmed_at: None,
             script: Some(prefs.announcement.clone()),
             outcome: None,
-            announced_at_secs: Some(0.0),
+            // Set when the caller confirms the announcement was read.
+            announced_at_secs: None,
         };
         consent.check()?;
         let call = CallInfo {
             direction: CallDirection::Outgoing,
             number: number.clone(),
-            started_at: Local::now(),
+            started_at: answered_at,
             duration_secs: 0.0,
             call_sid: valid_call_sid(req.call_sid),
             clinic_label: clinic_label(who.as_ref()),
@@ -520,7 +582,7 @@ impl App {
         options.consent = Some(consent);
         options.recorded_by = who.clone();
         options.call = Some(call);
-        let label = if options.patient.is_some() { "call".to_string() } else { format!("call {number}") };
+        let label = CALL_LABEL.to_string();
         let recorder = LiveRecorder::start(
             &self.store,
             &self.sessions_root,
@@ -535,13 +597,28 @@ impl App {
             self.lock_visit(&id, Holder::Recording).ok();
         *call_slot = Some(CallState {
             id: id.clone(),
-            started: Instant::now(),
+            started: answered,
             outcome: None,
-            announced_at: Some(0.0),
+            announced_at: None,
             who,
-            declined: false,
+            discarded: None,
         });
         Ok(id)
+    }
+
+    /// "I've read it": the caller read the announcement to the client. Until
+    /// this arrives the recording isn't kept (owner decision 1). `at` is when
+    /// the announcement started, in seconds into the recording (0: it is
+    /// shown when the client answers).
+    pub fn call_announced(&self, at: Option<f32>) -> Result<()> {
+        let mut call = self.call.lock().map_err(|_| AppError("call lock poisoned".into()))?;
+        let state = call.as_mut().ok_or_else(|| AppError(NO_CALL.into()))?;
+        if state.discarded.is_some() {
+            return Err(AppError("The recording of this call was already deleted.".into()));
+        }
+        let at = at.filter(|a| a.is_finite()).unwrap_or(0.0).clamp(0.0, 3600.0);
+        state.announced_at.get_or_insert(at);
+        Ok(())
     }
 
     /// **Did the client agree?** Yes keeps recording; no deletes what was
@@ -552,18 +629,25 @@ impl App {
         outcome: ConsentOutcome,
         announced_at: Option<f32>,
     ) -> Result<Option<SessionView>> {
-        {
-            let mut call = self.call.lock().map_err(|_| AppError("call lock poisoned".into()))?;
-            let state = call.as_mut().ok_or_else(|| AppError(NO_CALL.into()))?;
-            if state.declined {
-                return Err(AppError("The recording of this call was already deleted.".into()));
-            }
-            state.outcome = Some(outcome);
-            if announced_at.is_some() {
-                state.announced_at = announced_at;
-            }
+        if outcome == ConsentOutcome::Declined {
+            return self.decline_call().map(Some);
         }
-        if outcome == ConsentOutcome::Declined { self.decline_call().map(Some) } else { Ok(None) }
+        if outcome == ConsentOutcome::NotAnnounced {
+            return Err(AppError("That isn't one of the client's answers.".into()));
+        }
+        if announced_at.is_some() {
+            self.call_announced(announced_at)?;
+        }
+        let mut call = self.call.lock().map_err(|_| AppError("call lock poisoned".into()))?;
+        let state = call.as_mut().ok_or_else(|| AppError(NO_CALL.into()))?;
+        if state.discarded.is_some() {
+            return Err(AppError("The recording of this call was already deleted.".into()));
+        }
+        if state.announced_at.is_none() {
+            return Err(AppError("Read the announcement to the client first.".into()));
+        }
+        state.outcome = Some(outcome);
+        Ok(None)
     }
 
     /// **Stop and delete the recording** (or "No, stop recording"): the
@@ -573,29 +657,58 @@ impl App {
         let (id, who, elapsed) = {
             let mut call = self.call.lock().map_err(|_| AppError("call lock poisoned".into()))?;
             let state = call.as_mut().ok_or_else(|| AppError(NO_CALL.into()))?;
-            if state.declined {
+            if state.discarded.is_some() {
                 return Err(AppError("The recording of this call was already deleted.".into()));
             }
-            state.declined = true;
+            state.discarded = Some(ConsentOutcome::Declined);
             state.outcome = Some(ConsentOutcome::Declined);
             (state.id.clone(), state.who.clone(), state.started.elapsed().as_secs_f32())
         };
+        self.discard_recording(&id, who, elapsed, ConsentOutcome::Declined)
+    }
+
+    /// Deletes a call's recording, whatever state the recorder is in: stopped
+    /// cleanly, failed, or already gone. The visit stays, saying why the
+    /// recording was deleted and when.
+    fn discard_recording(
+        &self,
+        id: &str,
+        who: Option<Who>,
+        elapsed: f32,
+        outcome: ConsentOutcome,
+    ) -> Result<SessionView> {
         let recorder = self.recorder.lock().map_err(|_| AppError("recorder lock poisoned".into()))?.take();
         let _work = self.recording_work.lock().map_err(|_| AppError("recorder lock poisoned".into()))?.take();
         let _lock = self.recording_lock.lock().map_err(|_| AppError("recorder lock poisoned".into()))?.take();
-        let result = recorder.ok_or_else(|| AppError(NO_CALL.into()))?.discard()?;
-        let mut s = Session::open(&result.session_dir)?;
-        s.set_consent_outcome(ConsentOutcome::Declined, None)?;
-        let by = who.unwrap_or_else(|| Who::named("Clinic"));
-        s.forget_recording(&by)?;
+        let dir = match recorder {
+            Some(recorder) => {
+                let dir = recorder.session_dir.clone();
+                // A recorder that failed still had its folder: delete what it wrote.
+                if let Err(e) = recorder.discard() {
+                    tracing::warn!(visit = %id, error = %e, "the call's recorder had failed; deleting what it wrote");
+                }
+                dir
+            }
+            None => self.session_dir(id)?,
+        };
+        let mut s = Session::open(&dir)?;
+        s.forget_recording(&who.unwrap_or_else(|| Who::named("Clinic")))?;
+        s.set_consent_outcome(outcome, None)?;
         if let Some(mut call) = s.meta.call.clone() {
             call.declined_at_secs = Some(elapsed);
-            call.duration_secs = elapsed;
+            call.duration_secs = call.duration_secs.max(elapsed);
             s.set_call(call)?;
         }
         self.link_visit(&mut s)?;
-        tracing::info!(visit = %id, "call recording deleted: the client declined");
+        tracing::info!(visit = %id, ?outcome, "call recording deleted");
         Ok(crate::view(&s, None))
+    }
+
+    /// The phone window closed or crashed (desktop): the call is over. An
+    /// announced recording is saved with what it has; one never announced is
+    /// deleted, as at any hang-up.
+    pub fn phone_window_closed(&self) -> Result<Option<SessionView>> {
+        self.end_call(CallEnd::default())
     }
 
     /// Hang up: a recorded call is saved (transcript complete) and returned,
@@ -611,34 +724,49 @@ impl App {
             .filter(|d| d.is_finite() && *d >= 0.0)
             .unwrap_or_else(|| state.started.elapsed().as_secs_f32());
         let sid = valid_call_sid(end.call_sid);
-        if state.declined {
-            let dir = self.session_dir(&state.id)?;
-            let mut s = Session::open(&dir)?;
+        let finish = |s: &mut Session| -> Result<()> {
             if let Some(mut call) = s.meta.call.clone() {
                 call.duration_secs = duration.max(call.declined_at_secs.unwrap_or(0.0));
-                call.call_sid = sid.or(call.call_sid);
+                call.call_sid = sid.clone().or(call.call_sid);
                 s.set_call(call)?;
             }
+            Ok(())
+        };
+        if state.discarded.is_some() {
+            let mut s = Session::open(&self.session_dir(&state.id)?)?;
+            finish(&mut s)?;
             return Ok(Some(crate::view(&s, None)));
         }
-        let recorder = self
-            .recorder
-            .lock()
-            .map_err(|_| AppError("recorder lock poisoned".into()))?
-            .take()
-            .ok_or_else(|| AppError(NO_CALL.into()))?;
+        // Never announced ("I've read it" wasn't confirmed): the recording
+        // isn't kept (owner decision 1), whether the caller hung up, the
+        // client did, or the window closed.
+        if state.announced_at.is_none() {
+            let elapsed = state.started.elapsed().as_secs_f32();
+            self.discard_recording(&state.id, state.who.clone(), elapsed, ConsentOutcome::NotAnnounced)?;
+            let mut s = Session::open(&self.session_dir(&state.id)?)?;
+            finish(&mut s)?;
+            return Ok(Some(crate::view(&s, None)));
+        }
+        let recorder = self.recorder.lock().map_err(|_| AppError("recorder lock poisoned".into()))?.take();
         let _work = self.recording_work.lock().map_err(|_| AppError("recorder lock poisoned".into()))?.take();
         let _lock = self.recording_lock.lock().map_err(|_| AppError("recorder lock poisoned".into()))?.take();
-        let result = recorder.stop()?;
-        let mut s = Session::open(&result.session_dir)?;
+        // A recorder that failed keeps what it wrote; the visit still gets the
+        // call's details and the client's answer.
+        let transcript = match recorder.map(|r| r.stop()) {
+            Some(Ok(result)) => Some(result.transcript),
+            Some(Err(e)) => {
+                tracing::warn!(visit = %state.id, error = %e, "the call's recorder failed");
+                None
+            }
+            None => None,
+        };
+        let mut s = Session::open(&self.session_dir(&state.id)?)?;
+        // An announced call with no answer to "Did the client agree?": the
+        // client stayed on the line after hearing it.
         s.set_consent_outcome(state.outcome.unwrap_or(ConsentOutcome::StayedOnLine), state.announced_at)?;
-        if let Some(mut call) = s.meta.call.clone() {
-            call.duration_secs = duration;
-            call.call_sid = sid.or(call.call_sid);
-            s.set_call(call)?;
-        }
+        finish(&mut s)?;
         self.link_visit(&mut s)?;
-        Ok(Some(crate::view(&s, Some(result.transcript))))
+        Ok(Some(crate::view(&s, transcript)))
     }
 
     /// Set or clear a patient's owner phone number (ADR-0023 section 8).

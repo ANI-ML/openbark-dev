@@ -312,6 +312,149 @@ fn a_calls_note_knows_who_is_who() {
     assert!(context.contains("Speaker 1 is the clinic (Vet), Speaker 2 is the client"));
 }
 
+// ---- review fixes (2026-10-19): announcement, deletion, folder names ----------
+
+/// A call visit being "recorded" (audio and transcript on disk) with the
+/// recorder gone, as after a crash or a failed recorder: no models needed.
+fn call_in_progress(app: &App, announced: bool) -> String {
+    let mut s =
+        os_engine::session::Session::create_live(&app.sessions_root, crate::phone::CALL_LABEL).unwrap();
+    s.set_call(CallInfo {
+        direction: CallDirection::Outgoing,
+        number: "+15555550142".into(),
+        started_at: chrono::Local::now(),
+        duration_secs: 0.0,
+        call_sid: None,
+        clinic_label: "Clinic".into(),
+        declined_at_secs: None,
+    })
+    .unwrap();
+    s.set_consent(RecordingConsent {
+        rule: ConsentRule::AllParties,
+        method: ConsentMethod::Verbal,
+        confirmed_by: "Dr Lee".into(),
+        confirmed_at: None,
+        script: Some("This call is recorded. Is that all right?".into()),
+        outcome: None,
+        announced_at_secs: None,
+    })
+    .unwrap();
+    silent_wav(&s.audio_path());
+    s.save_transcript(&Transcript { segments: Vec::new() }, "parakeet", true, &Default::default()).unwrap();
+    let id = crate::folder_name(&s.dir);
+    *app.call.lock().unwrap() = Some(crate::phone::CallState::for_test(&id, announced));
+    id
+}
+
+fn audio_left(app: &App, id: &str) -> (bool, bool) {
+    let dir = app.session_dir(id).unwrap();
+    (dir.join("audio.wav").exists(), dir.join("transcript.jsonl").exists())
+}
+
+/// Finding 1: hanging up before "I've read it" keeps no recording, and the
+/// visit says why. Nothing claims an announcement that wasn't confirmed.
+#[test]
+fn a_call_hung_up_before_the_announcement_keeps_no_recording() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (app, _fake) = phone_app(tmp.path());
+    let id = call_in_progress(&app, false);
+    // "Did the client agree?" can't be answered before the announcement.
+    assert!(fail(app.call_consent(ConsentOutcome::Agreed, None)).contains("Read the announcement"));
+    let view = app.end_call(CallEnd { duration_secs: Some(12.0), call_sid: None }).unwrap().unwrap();
+    assert_eq!(audio_left(&app, &id), (false, false), "no audio, no transcript");
+    let consent = view.consent.unwrap();
+    assert_eq!(consent.outcome, Some(ConsentOutcome::NotAnnounced));
+    assert_eq!(consent.announced_at_secs, None, "no announcement is claimed");
+    assert!(view.audio_deleted.is_some() && !view.has_audio);
+    assert_eq!(view.call.unwrap().duration_secs, 12.0);
+    assert!(!app.call_active());
+}
+
+/// Finding 1, the other way: once announced, hanging up keeps the recording,
+/// and with no answer the client stayed on the line.
+#[test]
+fn an_announced_call_keeps_its_recording_at_hang_up() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (app, _fake) = phone_app(tmp.path());
+    let id = call_in_progress(&app, false);
+    app.call_announced(Some(0.0)).unwrap();
+    let view = app.end_call(CallEnd::default()).unwrap().unwrap();
+    assert_eq!(audio_left(&app, &id), (true, true));
+    let consent = view.consent.unwrap();
+    assert_eq!((consent.outcome, consent.announced_at_secs), (Some(ConsentOutcome::StayedOnLine), Some(0.0)));
+    // An agreed call says so.
+    let id2 = call_in_progress(&app, false);
+    app.call_consent(ConsentOutcome::Agreed, Some(0.0)).unwrap();
+    let view = app.end_call(CallEnd::default()).unwrap().unwrap();
+    assert_eq!(view.consent.unwrap().outcome, Some(ConsentOutcome::Agreed));
+    assert_eq!(audio_left(&app, &id2), (true, true));
+    assert!(app.call_consent(ConsentOutcome::NotAnnounced, None).is_err(), "not a client's answer");
+}
+
+/// Finding 3: declining deletes the recording even when the recorder has
+/// failed or is gone, and the visit still says the client declined.
+#[test]
+fn declining_deletes_the_recording_whatever_state_the_recorder_is_in() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (app, _fake) = phone_app(tmp.path());
+    let id = call_in_progress(&app, true);
+    let view = app.call_consent(ConsentOutcome::Declined, None).unwrap().unwrap();
+    assert_eq!(audio_left(&app, &id), (false, false));
+    assert_eq!(view.consent.as_ref().unwrap().outcome, Some(ConsentOutcome::Declined));
+    assert!(view.call.as_ref().unwrap().declined_at_secs.is_some());
+    // The call goes on; hanging up later keeps it deleted and sets the length.
+    assert!(app.call_announced(None).unwrap_err().0.contains("already deleted"));
+    let ended = app.end_call(CallEnd { duration_secs: Some(30.0), call_sid: None }).unwrap().unwrap();
+    assert_eq!(ended.call.unwrap().duration_secs, 30.0);
+    assert_eq!(ended.consent.unwrap().outcome, Some(ConsentOutcome::Declined));
+}
+
+/// Finding 3: a sample rate no browser produces is refused before anything starts.
+#[test]
+fn a_sample_rate_that_would_stop_the_recorder_is_refused() {
+    assert!(check_call_sample_rate(0).is_err());
+    assert!(check_call_sample_rate(7_999).is_err());
+    assert!(check_call_sample_rate(200_000).is_err());
+    check_call_sample_rate(48_000).unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let (app, _fake) = phone_app(tmp.path());
+    connected(&app, None);
+    let (_tx, rx) = std::sync::mpsc::channel();
+    let start = CallStart { number: "+15555550142".into(), sample_rate: Some(0), ..Default::default() };
+    let e = app.start_call(start, rx, Arc::new(NoEvents)).unwrap_err();
+    assert!(e.0.contains("0 Hz"), "{}", e.0);
+    assert!(app.list_sessions().is_empty() && !app.call_active());
+}
+
+/// Finding 5: the phone window closing mid-call ends the call in the engine,
+/// so the next call isn't refused; an unannounced recording is deleted.
+#[test]
+fn closing_the_phone_window_ends_the_call() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (app, _fake) = phone_app(tmp.path());
+    assert!(app.phone_window_closed().unwrap().is_none(), "no call, nothing to do");
+    let id = call_in_progress(&app, false);
+    assert!(app.call_active());
+    let view = app.phone_window_closed().unwrap().unwrap();
+    assert!(!app.call_active(), "a new call can start");
+    assert_eq!(audio_left(&app, &id), (false, false));
+    assert_eq!(view.consent.unwrap().outcome, Some(ConsentOutcome::NotAnnounced));
+    // Announced before the window closed: what was recorded is kept.
+    let id2 = call_in_progress(&app, true);
+    app.phone_window_closed().unwrap();
+    assert_eq!(audio_left(&app, &id2), (true, true));
+}
+
+/// Finding 2: a call's visit folder (and so its id) never holds the number.
+#[test]
+fn a_calls_folder_name_holds_no_number() {
+    assert!(!crate::phone::CALL_LABEL.chars().any(|c| c.is_ascii_digit()));
+}
+
+fn call_started(view: &SessionView) -> String {
+    view.call.as_ref().unwrap().started_at.to_rfc3339()
+}
+
 struct NoEvents;
 impl Events for NoEvents {
     fn segment(&self, _: &Segment) {}
@@ -366,6 +509,9 @@ fn a_recorded_call_becomes_a_two_channel_visit_and_a_declined_one_keeps_no_audio
                 number: "+15555550142".into(),
                 patient_id: Some(bella.id.clone()),
                 call_sid: Some(sid("CA", 7)),
+                sample_rate: Some(16_000),
+                // The window kept 3 s of audio while the engine got ready.
+                since_answer_secs: Some(3.0),
             },
             rx,
             events.clone(),
@@ -375,6 +521,12 @@ fn a_recorded_call_becomes_a_two_channel_visit_and_a_declined_one_keeps_no_audio
     app.call_consent(ConsentOutcome::Agreed, Some(0.0)).unwrap();
     let view = app.end_call(CallEnd { duration_secs: Some(42.0), call_sid: None }).unwrap().unwrap();
     assert_eq!(view.id, id);
+    assert!(!id.contains("5555550142"), "the number never goes into the folder name: {id}");
+    let started = chrono::DateTime::parse_from_rfc3339(&call_started(&view)).unwrap();
+    assert!(
+        chrono::Local::now().signed_duration_since(started).num_seconds() >= 3,
+        "times count from the answer"
+    );
     assert_eq!(view.source, "Phone call");
     let call = view.call.as_ref().unwrap();
     // Single-user: no role, so the clinic's side is "Clinic".
@@ -397,7 +549,8 @@ fn a_recorded_call_becomes_a_two_channel_visit_and_a_declined_one_keeps_no_audio
 
     // A declined call keeps the visit, not the audio.
     let (tx, rx) = std::sync::mpsc::channel();
-    app.start_call(CallStart { number: "+15555550142".into(), ..Default::default() }, rx, events).unwrap();
+    app.start_call(CallStart { number: "+15555550142".into(), ..Default::default() }, rx, events.clone())
+        .unwrap();
     feed(tx);
     // Let the recorder finish what it was sent: declining must still leave no audio.
     std::thread::sleep(std::time::Duration::from_secs(4));
@@ -409,4 +562,27 @@ fn a_recorded_call_becomes_a_two_channel_visit_and_a_declined_one_keeps_no_audio
     assert_eq!(ended.call.unwrap().duration_secs, 90.0);
     assert!(!Path::new(&ended.dir).join("audio.wav").exists());
     assert!(ended.transcript.is_none_or(|t| t.segments.is_empty()));
+
+    // No patient chosen: the folder is "call", never the number.
+    let (tx, rx) = std::sync::mpsc::channel();
+    let id = app
+        .start_call(CallStart { number: "+15555550142".into(), ..Default::default() }, rx, events.clone())
+        .unwrap();
+    assert!(id.ends_with("_call") && !id.contains("5555550142"), "{id}");
+    // The recorder fails (audio it can't resample), then the client declines:
+    // what it wrote is still deleted, and the visit says so.
+    tx.send(os_engine::live::CallBlock {
+        clinic: vec![0.1; 1600],
+        client: vec![0.1; 1600],
+        sample_rate: 16_000,
+    })
+    .unwrap();
+    tx.send(os_engine::live::CallBlock { clinic: vec![0.1; 1600], client: vec![0.1; 1600], sample_rate: 0 })
+        .unwrap();
+    std::thread::sleep(std::time::Duration::from_secs(2));
+    let declined = app.call_consent(ConsentOutcome::Declined, None).unwrap().unwrap();
+    assert!(!Path::new(&declined.dir).join("audio.wav").exists(), "a failed recorder's audio is deleted too");
+    assert_eq!(declined.consent.unwrap().outcome, Some(ConsentOutcome::Declined));
+    app.end_call(CallEnd::default()).unwrap();
+    drop(tx);
 }

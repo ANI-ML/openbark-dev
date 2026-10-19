@@ -304,6 +304,10 @@ pub enum ConsentOutcome {
     /// Nobody answered "Did the client agree?": the client stayed on the
     /// line after the announcement.
     StayedOnLine,
+    /// The announcement was never confirmed as read ("I've read it"), so the
+    /// recording was deleted: recording without it isn't allowed (owner
+    /// decision 1). The call itself wasn't affected.
+    NotAnnounced,
 }
 
 /// Consent to record one encounter, confirmed by a member of the team.

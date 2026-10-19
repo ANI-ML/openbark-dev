@@ -134,9 +134,16 @@ const PHONE_COMMANDS: &[&str] = &[
     "phone_token",
     "phone_call_start",
     "phone_audio",
+    "phone_call_announced",
     "phone_call_consent",
     "phone_call_end",
 ];
+
+/// Whether a window may call a command: the phone window only the phone
+/// commands, every other window everything else.
+fn command_allowed(window_label: &str, command: &str) -> bool {
+    (window_label == PHONE_WINDOW) == PHONE_COMMANDS.contains(&command)
+}
 
 /// The phone window's label.
 const PHONE_WINDOW: &str = "phone";
@@ -243,9 +250,12 @@ async fn phone_call_start(
     handle: AppHandle,
     app: State<'_, AppState>,
     audio: State<'_, CallAudio>,
-    start: CallStart,
+    mut start: CallStart,
     sample_rate: u32,
 ) -> Result<String, String> {
+    // A rate the recorder can't use is refused before anything starts.
+    os_app::check_call_sample_rate(sample_rate).map_err(|e| e.0)?;
+    start.sample_rate = Some(sample_rate);
     let (tx, rx) = std::sync::mpsc::channel();
     let app = app.inner().clone();
     let events: Arc<dyn Events> = Arc::new(TauriEvents(handle));
@@ -270,6 +280,29 @@ fn phone_audio(request: tauri::ipc::Request<'_>, audio: State<'_, CallAudio>) ->
         }
     }
     Ok(())
+}
+
+/// "I've read it": the announcement was read; until then nothing is kept.
+#[tauri::command]
+async fn phone_call_announced(app: State<'_, AppState>, at: Option<f32>) -> Result<(), String> {
+    let app = app.inner().clone();
+    work(move || app.call_announced(at)).await
+}
+
+/// The phone window closed or crashed: stop feeding the recorder and end the
+/// call in the engine, so the next call isn't refused. A recording that was
+/// never announced is deleted there.
+fn phone_window_gone(app: &App, audio: &CallAudio) -> Option<os_app::SessionView> {
+    if let Ok(mut tx) = audio.tx.lock() {
+        *tx = None;
+    }
+    match app.phone_window_closed() {
+        Ok(view) => view,
+        Err(e) => {
+            tracing::warn!(error = %e.0, "couldn't end the call after the phone window closed");
+            None
+        }
+    }
 }
 
 #[tauri::command]
@@ -1100,6 +1133,7 @@ pub fn run() {
         phone_token,
         phone_call_start,
         phone_audio,
+        phone_call_announced,
         phone_call_consent,
         phone_call_end
     ]);
@@ -1121,14 +1155,94 @@ pub fn run() {
         // The phone window may call the phone commands and nothing else; the
         // other windows can't call the commands meant for it.
         .invoke_handler(move |invoke| {
-            let phone_window = invoke.message.webview().label() == PHONE_WINDOW;
-            let phone_command = PHONE_COMMANDS.contains(&invoke.message.command());
-            if phone_window != phone_command {
+            if !command_allowed(invoke.message.webview().label(), invoke.message.command()) {
                 invoke.resolver.reject("This window can't do that.");
                 return true;
             }
             handler(invoke)
         })
+        // The phone window closed mid-call (closed, or its WebView crashed):
+        // end the call in the engine.
+        .on_window_event(|window, event| {
+            if window.label() == PHONE_WINDOW && matches!(event, tauri::WindowEvent::Destroyed) {
+                let handle = window.app_handle().clone();
+                std::thread::spawn(move || {
+                    let app = handle.state::<AppState>().inner().clone();
+                    let audio = handle.state::<CallAudio>();
+                    if let Some(view) = phone_window_gone(&app, &audio) {
+                        let _ =
+                            handle.emit_to("main", "phone-call-saved", serde_json::json!({ "id": view.id }));
+                    }
+                });
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running OpenBark");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// ADR-0023 section 4: the phone window may call only the phone commands,
+    /// and no other window may call them.
+    #[test]
+    fn the_phone_window_calls_only_the_phone_commands() {
+        for c in PHONE_COMMANDS {
+            assert!(command_allowed("phone", c), "{c}");
+            assert!(!command_allowed("main", c), "{c} from the main window");
+        }
+        for c in ["open_session", "list_patients", "phone_connect", "phone_open", "export_pdf", "status"] {
+            assert!(!command_allowed("phone", c), "{c} from the phone window");
+            assert!(command_allowed("main", c), "{c}");
+        }
+    }
+
+    /// Finding 4 of the 2026-10-19 review: the phone window must hear
+    /// `phone-target` (a Call pressed on another patient), so its capability
+    /// allows listening for events. It grants nothing that reaches visits,
+    /// files or the shell, and the main window's capability doesn't name it.
+    #[test]
+    fn the_phone_windows_capability_allows_events_and_nothing_more() {
+        let phone: serde_json::Value =
+            serde_json::from_str(include_str!("../capabilities/phone.json")).unwrap();
+        assert_eq!(phone["windows"], serde_json::json!(["phone"]));
+        let perms: Vec<&str> =
+            phone["permissions"].as_array().unwrap().iter().map(|p| p.as_str().unwrap()).collect();
+        for needed in ["core:event:allow-listen", "core:event:allow-unlisten", "core:window:allow-close"] {
+            assert!(perms.contains(&needed), "{needed} in {perms:?}");
+        }
+        assert!(
+            perms.iter().all(|p| p.starts_with("core:event:") || p.starts_with("core:window:")),
+            "{perms:?}"
+        );
+        let main: serde_json::Value =
+            serde_json::from_str(include_str!("../capabilities/default.json")).unwrap();
+        assert_eq!(main["windows"], serde_json::json!(["main"]));
+    }
+
+    /// Finding 5: a closed phone window stops the audio and ends the call;
+    /// with no call it does nothing.
+    #[test]
+    fn a_closed_phone_window_stops_the_audio() {
+        let tmp = std::env::temp_dir().join(format!("openbark-desktop-test-{}", std::process::id()));
+        // SAFETY: this test alone sets these, before the App exists.
+        unsafe {
+            std::env::set_var("OPENBARK_DATA_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=");
+            std::env::set_var("OPENBARK_CONNECTIONS_DIR", tmp.join("connections"));
+            std::env::set_var("OPENBARK_USERS_FILE", tmp.join("users.json"));
+            std::env::set_var("OPENBARK_TEMPLATES_DIR", tmp.join("templates"));
+            std::env::set_var("OPENBARK_LOCATIONS_FILE", tmp.join("locations.json"));
+            std::env::set_var("OPENBARK_KEY_FILE", tmp.join("data.key"));
+            std::env::set_var("OPENBARK_ENGINES_DIR", tmp.join("engines"));
+        }
+        let app = App::new(ModelStore::new(tmp.join("models")), tmp.join("sessions"));
+        let audio = CallAudio::default();
+        let (tx, _rx) = std::sync::mpsc::channel();
+        *audio.tx.lock().unwrap() = Some((tx, 48_000));
+        assert!(phone_window_gone(&app, &audio).is_none(), "no call: nothing saved");
+        assert!(audio.tx.lock().unwrap().is_none(), "the audio channel is closed");
+        assert!(!app.call_active());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 }

@@ -311,28 +311,54 @@ fn router(state: St, ui_dir: &std::path::Path, port: u16) -> Router {
         .layer(DefaultBodyLimit::max(1 << 30))
         .with_state(state);
     api.fallback_service(ServeDir::new(ui_dir).fallback(ServeFile::new(index)))
-        .layer(axum::middleware::from_fn(page_policy))
+        .layer(axum::middleware::from_fn_with_state(port, page_policy))
         .layer(axum::middleware::from_fn_with_state(port, local_only))
 }
 
+/// Twilio's calling service, as the Voice SDK reaches it (docs/network.md
+/// R10): signalling through the roaming edge, then the edge Twilio picked
+/// (the SDK reconnects there), and call-quality events, by default and for
+/// each home region. The SDK's sounds are local files, so no sound host.
+pub const TWILIO_CONNECT: &str = "wss://voice-js.roaming.twilio.com wss://voice-js.ashburn.twilio.com \
+wss://voice-js.umatilla.twilio.com wss://voice-js.dublin.twilio.com wss://voice-js.frankfurt.twilio.com \
+wss://voice-js.sao-paulo.twilio.com wss://voice-js.sydney.twilio.com wss://voice-js.singapore.twilio.com \
+wss://voice-js.tokyo.twilio.com https://eventgw.twilio.com https://eventgw.us1.twilio.com \
+https://eventgw.ie1.twilio.com https://eventgw.au1.twilio.com";
+
+/// This server's own WebSockets, on its own port only.
+fn own_sockets(port: u16) -> String {
+    format!("ws://127.0.0.1:{port} ws://localhost:{port}")
+}
+
 /// The phone page's Content-Security-Policy (ADR-0023 section 4): the only
-/// page of web mode that may reach Twilio, and only its calling service
-/// (docs/network.md R10). Every sound is a local file, so no sound host.
-pub const PHONE_CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
-img-src 'self' data:; font-src 'self'; media-src 'self' mediastream: blob:; \
-connect-src 'self' ws://127.0.0.1:* ws://localhost:* wss://voice-js.roaming.twilio.com \
-https://eventgw.twilio.com https://eventgw.us1.twilio.com https://eventgw.ie1.twilio.com https://eventgw.au1.twilio.com; \
-worker-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
+/// page of web mode that may reach Twilio, and only its calling service.
+pub fn phone_csp(port: u16) -> String {
+    format!(
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; \
+font-src 'self'; media-src 'self' mediastream: blob:; connect-src 'self' {} {TWILIO_CONNECT}; worker-src 'self'; \
+object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+        own_sockets(port)
+    )
+}
 
 /// Every other page: this computer only. The main page carries the same
 /// rule in a `<meta>` tag (apps/desktop/vite.config.ts), for the desktop app.
-pub const PAGE_CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
-img-src 'self' data:; font-src 'self'; media-src 'self' blob:; \
-connect-src 'self' ws://127.0.0.1:* ws://localhost:*; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
+pub fn page_csp(port: u16) -> String {
+    format!(
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; \
+font-src 'self'; media-src 'self' blob:; connect-src 'self' {}; object-src 'none'; base-uri 'none'; \
+frame-ancestors 'none'",
+        own_sockets(port)
+    )
+}
 
 /// Sets each page's Content-Security-Policy: the phone page's own, which
 /// allows Twilio, and the local-only one everywhere else.
-async fn page_policy(request: axum::extract::Request, next: axum::middleware::Next) -> Response {
+async fn page_policy(
+    State(port): State<u16>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
     let phone = request.uri().path() == "/phone.html";
     let mut response = next.run(request).await;
     let html = response
@@ -341,11 +367,10 @@ async fn page_policy(request: axum::extract::Request, next: axum::middleware::Ne
         .and_then(|v| v.to_str().ok())
         .is_some_and(|v| v.starts_with("text/html"));
     if html {
-        let policy = if phone { PHONE_CSP } else { PAGE_CSP };
-        response.headers_mut().insert(
-            axum::http::header::CONTENT_SECURITY_POLICY,
-            axum::http::HeaderValue::from_static(policy),
-        );
+        let policy = if phone { phone_csp(port) } else { page_csp(port) };
+        if let Ok(value) = axum::http::HeaderValue::from_str(&policy) {
+            response.headers_mut().insert(axum::http::header::CONTENT_SECURITY_POLICY, value);
+        }
     }
     response
 }
@@ -437,12 +462,20 @@ struct PhoneLiveQuery {
     call_sid: Option<String>,
     #[serde(default = "rate")]
     sample_rate: u32,
+    /// Seconds since the client answered (audio kept by the page meanwhile).
+    #[serde(default)]
+    since_answer: Option<f32>,
 }
 
 /// What the phone page sends as text on the call's WebSocket.
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum CallMessage {
+    /// "I've read it": the announcement was read to the client.
+    Announced {
+        #[serde(default)]
+        at: Option<f32>,
+    },
     Consent {
         outcome: ConsentOutcome,
         #[serde(default)]
@@ -461,7 +494,14 @@ async fn phone_live(State(s): State<St>, Query(q): Query<PhoneLiveQuery>, ws: We
 async fn phone_session(s: St, q: PhoneLiveQuery, mut socket: WebSocket) {
     let (tx, rx) = std::sync::mpsc::channel::<CallBlock>();
     let events: Arc<dyn Events> = s.events.clone();
-    let start = CallStart { number: q.number, patient_id: q.patient_id, call_sid: q.call_sid };
+    let start = CallStart {
+        number: q.number,
+        patient_id: q.patient_id,
+        call_sid: q.call_sid,
+        // Checked by the engine: a rate the recorder can't use is refused now.
+        sample_rate: Some(q.sample_rate),
+        since_answer_secs: q.since_answer,
+    };
     let started = {
         let s = s.clone();
         tokio::task::spawn_blocking(move || s.app().start_call(start, rx, events)).await
@@ -510,6 +550,16 @@ async fn phone_session(s: St, q: PhoneLiveQuery, mut socket: WebSocket) {
                             serde_json::json!({ "declined": view })
                         }
                         Ok(Ok(None)) => serde_json::json!({ "consent": outcome }),
+                        Ok(Err(e)) => serde_json::json!({ "error": e.0 }),
+                        Err(e) => serde_json::json!({ "error": e.to_string() }),
+                    };
+                    let _ = socket.send(reply(msg)).await;
+                }
+                Ok(CallMessage::Announced { at }) => {
+                    let s2 = s.clone();
+                    let done = tokio::task::spawn_blocking(move || s2.app().call_announced(at)).await;
+                    let msg = match done {
+                        Ok(Ok(())) => serde_json::json!({ "announced": true }),
                         Ok(Err(e)) => serde_json::json!({ "error": e.0 }),
                         Err(e) => serde_json::json!({ "error": e.to_string() }),
                     };
@@ -2043,6 +2093,11 @@ mod tests {
             "{phone}"
         );
         assert!(!phone.contains("sdk.twilio.com") && !phone.contains("twiliocdn"), "sounds are local files");
+        assert!(phone.contains("wss://voice-js.ashburn.twilio.com"), "the edge the SDK reconnects to");
+        assert!(
+            phone.contains(&format!("ws://127.0.0.1:{PORT}")) && !phone.contains(":*"),
+            "own port only: {phone}"
+        );
         for path in ["/", "/index.html", "/patients"] {
             let main = page(path).await;
             assert!(main.starts_with("default-src 'self'"), "{path}: {main}");
@@ -2050,6 +2105,7 @@ mod tests {
                 !main.contains("twilio") && !main.contains("https:") && !main.contains("wss:"),
                 "{path}: {main}"
             );
+            assert!(!main.contains(":*"), "{path}: only this server's own port: {main}");
         }
         // The pending call's patient phone route.
         let bella = app.create_patient("Bella", "Patel", "canine").unwrap();

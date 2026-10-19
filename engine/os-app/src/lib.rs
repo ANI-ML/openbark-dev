@@ -53,8 +53,8 @@ pub use os_engine::session::PatientInfo as Patient;
 pub use os_engine::session::{CallDirection, CallInfo, ConsentOutcome};
 pub use os_engine::session::{Consent as RecordingConsent, ConsentMethod, ConsentRule};
 pub use phone::{
-    CallEnd, CallRequest, CallStart, CallTarget, ConnectRequest, Connected, Disconnected, PhoneToken,
-    PhoneView, SetupCheck, TwilioView,
+    CALL_SAMPLE_RATES, CallEnd, CallRequest, CallStart, CallTarget, ConnectRequest, Connected, Disconnected,
+    PhoneToken, PhoneView, SetupCheck, TwilioView, check_call_sample_rate,
 };
 
 /// Progress notifications for the UI.
