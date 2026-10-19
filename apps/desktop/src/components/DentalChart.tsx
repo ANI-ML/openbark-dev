@@ -1,7 +1,9 @@
-import { Fragment, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import { Button } from "@openbark/ui";
+import { Fragment, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import {
   CHART,
   asItems,
+  blocksSigning,
   byTooth,
   findingText,
   findingWords,
@@ -35,8 +37,10 @@ import "./DentalChart.css";
  * mode follows the brand tokens; tooth numbers and codes in mono; the accent
  * only on the selected tooth while the chart has focus, and on the focus ring.
  *
- * Renders from props only. Below 768 px the mouth splits into two blocks
- * (patient's right, then left) so each tooth stays at least 24 px wide.
+ * Renders from props only. When its own width is below 768 px (a narrow
+ * review pane as much as a phone), the mouth splits into two blocks
+ * (patient's right, then left) so each tooth stays at least 24 px wide and
+ * the tooth numbers at 11 px or more.
  */
 export interface DentalChartProps {
   /** Whose teeth to draw; null when the species wasn't entered (no diagram). */
@@ -57,6 +61,17 @@ export interface DentalChartProps {
   /** Show the per-tooth list and the legend (default true). */
   list?: boolean;
   /**
+   * Activating a tooth toggles its selection (a signed chart), rather than
+   * opening the editor: the teeth are then announced as toggle buttons.
+   */
+  toggles?: boolean;
+  /** The chart can be edited (an unsigned draft): the no-dentition notice says how to choose. */
+  editable?: boolean;
+  /** The patient's species, read as dog or cat, when the chart has no dentition yet. */
+  suggestedDentition?: Dentition | null;
+  /** Write a dentition into the chart (an unsigned draft with none). */
+  onChooseDentition?: (dentition: Dentition) => void;
+  /**
    * Renders one evidence-linked finding, so the note view can pass its own
    * statement (hover lights the lines, click plays, flags as elsewhere).
    */
@@ -65,6 +80,27 @@ export interface DentalChartProps {
 
 /** Narrower than this, the mouth is drawn in two blocks (DESIGN.md §9 breakpoint 768). */
 export const TWO_BLOCKS = "(max-width: 767px)";
+/** The same breakpoint, against the chart's own width. */
+export const TWO_BLOCKS_WIDTH = 768;
+
+/**
+ * The element's width, followed with a ResizeObserver; null where there is
+ * none (component tests), so the caller falls back to the viewport.
+ */
+function useWidth<E extends HTMLElement>(): [React.RefObject<E | null>, number | null] {
+  const ref = useRef<E | null>(null);
+  const [width, setWidth] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const read = (w: number) => setWidth(w > 0 ? w : null);
+    read(el.getBoundingClientRect().width);
+    const observer = new ResizeObserver((entries) => read(entries[0]?.contentRect.width ?? 0));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  return [ref, width];
+}
 
 const SLOT = CHART.geometry.slot;
 const [TOOTH_W, TOOTH_H] = CHART.geometry.tooth;
@@ -117,12 +153,19 @@ function marksOf(items: ToothFinding[]): { glyph: Glyph; planned: boolean }[] {
   return out;
 }
 
-/** Faithfulness flags by item path: hard (blocks signing) and soft (look before signing). */
-export function chartFlags(f: ChartFaithfulness | undefined, t: T) {
+/**
+ * Faithfulness flags by item path: `hard` the numbers said nowhere, `blocking`
+ * the tooth flags that block signing (both stop signing), and `soft` what to
+ * look at before signing. `describe` names another item of the chart by its
+ * path, for a conflict.
+ */
+export function chartFlags(f: ChartFaithfulness | undefined, t: T, describe?: (path: string) => string | undefined) {
   const hard = new Map<string, string[]>();
+  const blocking = new Map<string, string[]>();
   const soft = new Map<string, string[]>();
   const addSoft = (p: string, m: string) => soft.set(p, [...(soft.get(p) ?? []), m]);
-  if (!f) return { hard, soft };
+  const addBlocking = (p: string, m: string) => blocking.set(p, [...(blocking.get(p) ?? []), m]);
+  if (!f) return { hard, soft, blocking };
   for (const u of f.unsupported_numbers ?? []) hard.set(u.path, [...(hard.get(u.path) ?? []), u.number]);
   for (const m of f.citation_mismatches ?? [])
     addSoft(m.path, t('"{number}" is in the transcript, but not in the cited line. Check the citation.', { number: m.number }));
@@ -148,10 +191,43 @@ export function chartFlags(f: ChartFaithfulness | undefined, t: T) {
         }),
       );
     else if (flag.kind === "cue_missing") addSoft(flag.path, t("The cited line doesn't mention this finding. Check before signing."));
-    else if (flag.kind === "shape") addSoft(flag.path, t("This finding's details don't fit together. Check before signing."));
+    else if (flag.kind === "other_tooth")
+      addSoft(flag.path, t("The cited line says this about another tooth. Check which tooth before signing."));
+    else if (flag.kind === "negated") addSoft(flag.path, t("The cited line says this wasn't there. Check before signing."));
+    else if (flag.kind === "other_type")
+      addSoft(
+        flag.path,
+        t("The cited line also has the words for {type}. Check the type before signing.", {
+          type: lowerFirst(t(flag.expected?.[0] ?? "")),
+        }),
+      );
+    else if (flag.kind === "planned")
+      addSoft(flag.path, t("Charted as done, but the cited line sounds like a plan. Check before signing."));
+    else if (flag.kind === "conflict") {
+      const other = (flag.other && describe?.(flag.other)) || flag.expected?.[0] || "";
+      addSoft(flag.path, t("This can't be right beside {finding} on the same tooth. Check before signing.", { finding: other }));
+    } else if (flag.kind === "shape") addSoft(flag.path, t("This finding's details don't fit together. Check before signing."));
     else if (flag.kind === "duplicate") addSoft(flag.path, t("This finding is listed twice."));
+    else if (flag.kind === "not_in_mouth")
+      addBlocking(
+        flag.path,
+        flag.expected?.[0] === "cat"
+          ? t("{tooth} isn't a cat's tooth. Correct the chart before signing.", { tooth: flag.tooth })
+          : t("{tooth} isn't a dog's tooth. Correct the chart before signing.", { tooth: flag.tooth }),
+      );
+    else if (flag.kind === "choose_dentition")
+      addBlocking(flag.path, t("Only a dog has {tooth}. Edit the chart to choose dog or cat before signing.", { tooth: flag.tooth }));
   }
-  return { hard, soft };
+  return { hard, soft, blocking };
+}
+
+/** Paths with a tooth flag, split by whether it blocks signing (for the summary above the note). */
+export function toothFlagPaths(f: ChartFaithfulness | undefined): { blocking: Set<string>; soft: Set<string> } {
+  const blocking = new Set<string>();
+  const soft = new Set<string>();
+  for (const flag of f?.tooth_flags ?? []) (blocksSigning(flag.kind) ? blocking : soft).add(flag.path);
+  for (const p of blocking) soft.delete(p);
+  return { blocking, soft };
 }
 
 export interface ToothDiagramProps {
@@ -159,10 +235,12 @@ export interface ToothDiagramProps {
   items: ToothFinding[];
   showDeciduous: boolean;
   selected?: string[];
-  /** Teeth with a faithfulness flag: "!" beside the number. */
+  /** Teeth with a faithfulness flag: a filled "!" badge (blocks signing) or a plain "!" beside the number. */
   flagged?: Map<string, "hard" | "soft">;
   onToothActivate?: (id: string, how: { additive: boolean }) => void;
   onEvidence?: (ids: number[] | null) => void;
+  /** Activation toggles the tooth's selection: the teeth are toggle buttons (aria-pressed). */
+  toggles?: boolean;
 }
 
 /**
@@ -171,10 +249,21 @@ export interface ToothDiagramProps {
  * the next row; Home and End go to the row's ends; Enter activates a tooth,
  * Space adds it to the selection.
  */
-export function ToothDiagram({ dentition, items, showDeciduous, selected = [], flagged, onToothActivate, onEvidence }: ToothDiagramProps) {
+export function ToothDiagram({
+  dentition,
+  items,
+  showDeciduous,
+  selected = [],
+  flagged,
+  onToothActivate,
+  onEvidence,
+  toggles = false,
+}: ToothDiagramProps) {
   const t = useT();
   const lowerInner = useLowerInner();
-  const twoBlocks = useMediaQuery(TWO_BLOCKS);
+  const narrowViewport = useMediaQuery(TWO_BLOCKS);
+  const [box, width] = useWidth<HTMLDivElement>();
+  const twoBlocks = width != null ? width < TWO_BLOCKS_WIDTH : narrowViewport;
   const { rows, tops, height, slots, half } = useMemo(() => layout(dentition, showDeciduous), [dentition, showDeciduous]);
   const found = useMemo(() => {
     const m = new Map<string, ToothFinding[]>();
@@ -194,7 +283,11 @@ export function ToothDiagram({ dentition, items, showDeciduous, selected = [], f
     const here = found.get(id) ?? [];
     if (here.length === 0) return t("{tooth}, {name}: not charted", { tooth: id, name });
     const words = here.map((i) => findingWords(t, i, lowerInner)).map((w) => (lowerInner ? lowerFirst(w) : w));
-    return t("{tooth}, {name}: {findings}", { tooth: id, name, findings: words.join("; ") });
+    const base = t("{tooth}, {name}: {findings}", { tooth: id, name, findings: words.join("; ") });
+    const flag = flagged?.get(id);
+    if (flag === "hard") return `${base}. ${t("Blocks signing until it's corrected.")}`;
+    if (flag === "soft") return `${base}. ${t("Needs checking before signing.")}`;
+    return base;
   };
 
   const moveTo = (e: KeyboardEvent, target: Slot | undefined) => {
@@ -261,7 +354,7 @@ export function ToothDiagram({ dentition, items, showDeciduous, selected = [], f
         role="button"
         tabIndex={slot.id === focusId ? 0 : -1}
         aria-label={label(slot.id)}
-        aria-pressed={onToothActivate ? isSelected : undefined}
+        aria-pressed={onToothActivate && toggles ? isSelected : undefined}
         data-tooth={slot.id}
         data-charted={here.length ? true : undefined}
         data-selected={isSelected ? true : undefined}
@@ -297,8 +390,9 @@ export function ToothDiagram({ dentition, items, showDeciduous, selected = [], f
         <text className="dc-num" x={SLOT / 2} y={numberY} textAnchor="middle" aria-hidden>
           {slot.id}
         </text>
+        {flag === "hard" && <circle className="dc-flag-badge" cx={SLOT - 4} cy={numberY - 4} r={5} aria-hidden />}
         {flag && (
-          <text className="dc-flag" data-kind={flag} x={SLOT - 2} y={numberY} textAnchor="middle" aria-hidden>
+          <text className="dc-flag" data-kind={flag} x={flag === "hard" ? SLOT - 4 : SLOT - 2} y={flag === "hard" ? numberY - 0.5 : numberY} textAnchor="middle" aria-hidden>
             !
           </text>
         )}
@@ -338,7 +432,11 @@ export function ToothDiagram({ dentition, items, showDeciduous, selected = [], f
     );
   };
 
-  return <div className="dc-diagrams">{twoBlocks ? [block("right"), block("left")] : block("both")}</div>;
+  return (
+    <div className="dc-diagrams" ref={box} data-blocks={twoBlocks ? 2 : 1}>
+      {twoBlocks ? [block("right"), block("left")] : block("both")}
+    </div>
+  );
 }
 
 export function DentalChart({
@@ -353,11 +451,22 @@ export function DentalChart({
   showDeciduous,
   list = true,
   renderStatement,
+  toggles = false,
+  editable = false,
+  suggestedDentition = null,
+  onChooseDentition,
 }: DentalChartProps) {
   const t = useT();
   const lowerInner = useLowerInner();
   const items = useMemo(() => asItems(value), [value]);
-  const { hard, soft } = useMemo(() => chartFlags(faithfulness, t), [faithfulness, t]);
+  const { hard, soft, blocking } = useMemo(() => {
+    const describe = (p: string) => {
+      const index = Number(p.slice(path.length + 1));
+      const item = p.startsWith(`${path}/`) && Number.isInteger(index) ? items[index] : undefined;
+      return item ? findingText(t, item, lowerInner) : undefined;
+    };
+    return chartFlags(faithfulness, t, describe);
+  }, [faithfulness, t, items, path, lowerInner]);
 
   if (items.length === 0) return <p className="not-discussed">{t("Not discussed")}</p>;
 
@@ -365,7 +474,7 @@ export function DentalChart({
   const flagged = new Map<string, "hard" | "soft">();
   for (const [id, entries] of groups) {
     const paths = entries.map((e) => `${path}/${e.index}`);
-    if (paths.some((p) => hard.has(p))) flagged.set(id, "hard");
+    if (paths.some((p) => hard.has(p) || blocking.has(p))) flagged.set(id, "hard");
     else if (paths.some((p) => soft.has(p))) flagged.set(id, "soft");
   }
   const deciduous = showDeciduous ?? items.some((i) => tooth(i.tooth)?.deciduous);
@@ -418,14 +527,21 @@ export function DentalChart({
           flagged={flagged}
           onToothActivate={onToothActivate}
           onEvidence={onEvidence}
+          toggles={toggles}
         />
       )}
       {list && (
         <ul className="dc-list">
           {groups.map(([id, entries]) => {
             const hardNums = entries.flatMap((e) => hard.get(`${path}/${e.index}`) ?? []);
+            const blocks = [...new Set(entries.flatMap((e) => blocking.get(`${path}/${e.index}`) ?? []))];
             return (
-              <li key={id} className={hardNums.length ? "dc-line hardfail" : "dc-line"} data-tooth={id} data-selected={selected.includes(id) ? true : undefined}>
+              <li
+                key={id}
+                className={hardNums.length || blocks.length ? "dc-line hardfail" : "dc-line"}
+                data-tooth={id}
+                data-selected={selected.includes(id) ? true : undefined}
+              >
                 <div className="dc-line-main">
                   <span className="dc-line-tooth">{id}</span>
                   <span className="dc-line-findings">
@@ -451,12 +567,33 @@ export function DentalChart({
                         })}
                   </p>
                 )}
+                {blocks.map((m) => (
+                  <p key={m} className="small">
+                    {m}
+                  </p>
+                ))}
               </li>
             );
           })}
         </ul>
       )}
-      {!dentition && <p className="dc-notice small">{t("Dentition not recorded. Edit the chart to choose dog or cat.")}</p>}
+      {!dentition &&
+        (editable ? (
+          <div className="dc-notice small">
+            <p>{t("Dentition not recorded. Edit the chart to choose dog or cat.")}</p>
+            {suggestedDentition && onChooseDentition && (
+              <p>
+                <Button variant="ghost" size="compact" onClick={() => onChooseDentition(suggestedDentition)}>
+                  {suggestedDentition === "feline"
+                    ? t("The patient is recorded as a cat: use a cat's chart")
+                    : t("The patient is recorded as a dog: use a dog's chart")}
+                </Button>
+              </p>
+            )}
+          </div>
+        ) : (
+          <p className="dc-notice small">{t("Dentition not recorded.")}</p>
+        ))}
       {legend.length > 0 && (
         <ul className="dc-legend small" aria-label={t("Legend")}>
           {legend.map((line) => {

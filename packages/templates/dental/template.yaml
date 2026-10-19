@@ -10,7 +10,7 @@ instructions: |
   Write the medical record for this dental procedure (comprehensive oral health assessment and treatment).
   Use concise clinical veterinary English as a veterinarian would chart it.
   Refer to teeth by the modified Triadan number or name exactly as said (e.g. 108, "upper right fourth premolar").
-  Every tooth named with a finding goes in the dental chart, one item per finding.
+  Every tooth named with a finding goes in the dental chart (dogs and cats) or under Findings by tooth (other animals), one item per finding.
   The transcript is from a recording; speakers are labelled by number, not role. Infer roles from context,
   but never put words in a speaker's mouth.
 
@@ -34,7 +34,7 @@ sections:
     kind: statements
     presence: required
   - title: Conscious oral exam
-    instruction: What was seen before anaesthesia. Findings on named teeth go in the dental chart too.
+    instruction: What was seen before anaesthesia. Findings on named teeth also go in the dental chart or under Findings by tooth.
     kind: statements
   - title: Anaesthesia and nerve blocks
     examples:
@@ -57,15 +57,22 @@ sections:
       - "Add the extraction technique for each extracted tooth"
       - "Include probing depths in mm when they were called out"
       - "Split ranges such as 101 to 103 into one item per tooth"
+  - title: Findings by tooth
+    kind: statements
+    when: { species: [equine, bovine, small_ruminant, porcine, avian, reptile, rabbit, rodent, ferret] }
+    instruction: "For animals other than dogs and cats, which have no dental chart: each tooth finding is one statement naming the tooth exactly as said, with the finding. Leave it empty when there is a dental chart."
+    examples:
+      - "Use the Triadan number for every tooth"
+      - "Include pocket depths in mm when they were called out"
   - title: Whole-mouth findings
     kind: statements
-    instruction: "Findings about the whole mouth as said: overall periodontal stage, calculus, gingivitis, occlusion, 'no resorptive lesions'. Never per tooth."
+    instruction: "Findings about the whole mouth as said: overall periodontal stage, calculus, gingivitis, occlusion, 'no resorptive lesions'. Findings on named teeth go in the dental chart or under Findings by tooth instead."
   - title: Treatment performed
     examples:
       - "Name the extraction technique for each tooth (simple or surgical)"
       - "List gingival closures with suture used"
     kind: statements
-    instruction: Scaling, polishing, radiographs, flaps, closures and other procedures as said. Extractions and crown amputations go in the dental chart too, one item per tooth.
+    instruction: Scaling, polishing, radiographs, flaps, closures and other procedures as said. Extractions and crown amputations also go in the dental chart or under Findings by tooth, one item per tooth.
   - title: Medications to go home
     kind: medications
   - title: Home care and follow-up

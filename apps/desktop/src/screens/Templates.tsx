@@ -1287,7 +1287,13 @@ function HeadingRow({
         parts: parts.length ? parts : [{ key: "", label: "", kind: "statements", _uid: uid() } as TemplatePart],
       });
     } else {
-      onChange({ kind: k, parts: [], fields: k === "fields" && !(s.fields ?? []).length ? [{ key: "", label: "" }] : s.fields });
+      onChange({
+        kind: k,
+        parts: [],
+        fields: k === "fields" && !(s.fields ?? []).length ? [{ key: "", label: "" }] : s.fields,
+        // A tooth chart is for dogs and cats (ADR-0021): never another animal's.
+        ...(k === "teeth" ? { when: { species: ["canine", "feline"] } } : {}),
+      });
     }
   };
   // Read-only, a built-in's text shows in the app language; editable, inputs show what notes will show.
@@ -1503,7 +1509,11 @@ function PartRow({
           disabled={readOnly}
           onChange={(e) => {
             const kind = e.target.value as ContentKind;
-            onChange({ kind, fields: kind === "fields" && !(p.fields ?? []).length ? [{ key: "", label: "" }] : p.fields });
+            onChange({
+              kind,
+              fields: kind === "fields" && !(p.fields ?? []).length ? [{ key: "", label: "" }] : p.fields,
+              ...(kind === "teeth" ? { when: { species: ["canine", "feline"] } } : {}),
+            });
           }}
         >
           {KINDS.filter((k) => k.value !== "parts").map((k) => (

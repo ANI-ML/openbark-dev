@@ -156,7 +156,10 @@ pub fn command(cmd: SessionsCommand) -> Result<()> {
             let s = Session::open(&root.join(&id))?;
             let (run, note) = s.latest_note()?;
             let transcript = s.load_transcript()?;
-            let report = os_engine::faithfulness::check(&note, &transcript);
+            let report = match s.run_template(&run) {
+                Ok(template) => os_engine::faithfulness::check_template(&note, &transcript, &template),
+                Err(_) => os_engine::faithfulness::check(&note, &transcript),
+            };
             let text_at = |path: &str| {
                 let v = note.pointer(path).cloned().unwrap_or_default();
                 v["text"]
@@ -185,6 +188,13 @@ pub fn command(cmd: SessionsCommand) -> Result<()> {
             }
             for c in &report.citation_mismatches {
                 println!("CITE    {} {:?} found in {:?}", c.path, c.number, c.found_in);
+            }
+            for f in &report.tooth_flags {
+                let block = if f.kind.blocks_signing() { "BLOCKS SIGNING" } else { "check" };
+                println!(
+                    "TOOTH   {} {} {:?} ({block}) {:?} {:?}",
+                    f.path, f.tooth, f.kind, f.other, f.expected
+                );
             }
         }
         SessionsCommand::Encrypt => {

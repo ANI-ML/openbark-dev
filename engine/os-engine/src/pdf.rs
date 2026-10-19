@@ -67,20 +67,23 @@ pub struct Labels {
 }
 
 /// The tooth chart's words on a PDF, by their English text (which is also the
-/// app's translation key). A word without an entry prints in English; AVDC
-/// codes are never translated. Every translation is listed for review by a
-/// native-speaking vet before release (ADR-0021 §11).
+/// app's translation key). They come from the app's own translation files
+/// (packages/i18n), so the screen and the signed PDF word a finding the same
+/// way. A word without an entry prints in English; AVDC codes are never
+/// translated. Every translation is listed for review by a native-speaking
+/// vet before release (ADR-0021 §11).
 #[derive(Debug)]
 pub struct DentalWords {
     /// Lowercase the first letter of words inside a line ("Planned: open
     /// extraction"; "fracture; open extraction"). Not in German.
     pub lower_inner: bool,
-    pub words: &'static [(&'static str, &'static str)],
+    /// The interface language whose translations are used ("en": none).
+    pub lang: &'static str,
 }
 
 impl DentalWords {
     pub fn tr(&self, english: &str) -> String {
-        self.words.iter().find(|(k, _)| *k == english).map_or(english, |(_, v)| v).to_string()
+        dental_catalog(self.lang).get(english).cloned().unwrap_or_else(|| english.to_string())
     }
 }
 
@@ -95,291 +98,51 @@ pub const DENTAL_FIXED_WORDS: &[&str] = &[
     "Dentition not recorded.",
 ];
 
-const DENTAL_EN: DentalWords = DentalWords { lower_inner: true, words: &[] };
+/// Every word a tooth chart prints: the fixed words, and each finding's
+/// words, legend and type words from `chart.json`.
+pub fn dental_keys() -> Vec<String> {
+    let chart = dental::chart();
+    let mut keys: Vec<String> = DENTAL_FIXED_WORDS.iter().map(|s| s.to_string()).collect();
+    for f in &chart.findings {
+        keys.push(f.words.clone());
+        keys.extend([&f.words_grade, &f.words_mm, &f.legend].into_iter().flatten().cloned());
+        keys.extend(f.details.iter().filter(|d| d.with_grade.is_none()).map(|d| d.words.clone()));
+    }
+    keys.sort();
+    keys.dedup();
+    keys
+}
 
-const DENTAL_FR: DentalWords = DentalWords {
-    lower_inner: true,
-    words: &[
-        ("Normal", "Normale"),
-        ("Missing", "Absente"),
-        ("Fracture", "Fracture"),
-        ("Enamel infraction", "Infraction de l'émail"),
-        ("Enamel fracture", "Fracture de l'émail"),
-        ("Uncomplicated crown fracture", "Fracture coronaire non compliquée"),
-        ("Complicated crown fracture", "Fracture coronaire compliquée"),
-        ("Uncomplicated crown-root fracture", "Fracture corono-radiculaire non compliquée"),
-        ("Complicated crown-root fracture", "Fracture corono-radiculaire compliquée"),
-        ("Root fracture", "Fracture radiculaire"),
-        ("Periodontal disease", "Maladie parodontale"),
-        ("Periodontal disease stage {n}", "Maladie parodontale stade {n}"),
-        ("Mobility", "Mobilité"),
-        ("Mobility {n}", "Mobilité {n}"),
-        ("Furcation", "Furcation"),
-        ("Furcation {n}", "Furcation {n}"),
-        ("Probing depth", "Profondeur de sondage"),
-        ("Probing depth {mm} mm", "Profondeur de sondage {mm} mm"),
-        ("Gingival recession", "Récession gingivale"),
-        ("Gingival recession {mm} mm", "Récession gingivale {mm} mm"),
-        ("Tooth resorption", "Résorption dentaire"),
-        ("Tooth resorption stage {stage}", "Résorption dentaire stade {stage}"),
-        ("Resorption type", "Type de résorption"),
-        ("Resorption type {n}", "Résorption de type {n}"),
-        ("Persistent deciduous tooth", "Dent déciduale persistante"),
-        ("Unerupted", "Non éruptée"),
-        ("Retained root", "Racine résiduelle"),
-        ("Caries", "Carie"),
-        ("Wear", "Usure"),
-        ("Abrasion", "Abrasion"),
-        ("Attrition", "Attrition"),
-        ("Discoloured", "Dyschromique"),
-        ("Malpositioned", "Malposition"),
-        ("Buccoversion", "Buccoversion"),
-        ("Distoversion", "Distoversion"),
-        ("Labioversion", "Labioversion"),
-        ("Linguoversion", "Linguoversion"),
-        ("Mesioversion", "Mésioversion"),
-        ("Palatoversion", "Palatoversion"),
-        ("Extraction", "Extraction"),
-        ("Closed extraction", "Extraction fermée"),
-        ("Closed extraction, sectioned", "Extraction fermée, avec section"),
-        ("Open extraction", "Extraction ouverte"),
-        ("Crown amputation", "Amputation coronaire"),
-        ("Other", "Autre"),
-        ("PD0-PD4: periodontal disease stage (AVDC)", "PD0-PD4 : stade de maladie parodontale (AVDC)"),
-        (
-            "M0-M3: tooth mobility index (AVDC). Grades as said.",
-            "M0-M3 : indice de mobilité dentaire (AVDC). Grades tels que dits.",
-        ),
-        ("F1-F3: furcation index (AVDC)", "F1-F3 : indice de furcation (AVDC)"),
-        (
-            "TR1-TR5: tooth resorption stage (AVDC). T1-T3: resorption type.",
-            "TR1-TR5 : stade de résorption dentaire (AVDC). T1-T3 : type de résorption.",
-        ),
-        ("Probing depth is in millimetres.", "La profondeur de sondage est en millimètres."),
-        ("Planned: {finding}", "Prévu : {finding}"),
-        ("Patient's right", "Droite du patient"),
-        ("Patient's left", "Gauche du patient"),
-        (
-            "Blank: not charted in this recording. It doesn't mean normal.",
-            "Vide : non noté dans cet enregistrement. Cela ne veut pas dire normal.",
-        ),
-        ("Right and left are the patient's.", "Droite et gauche sont celles du patient."),
-        ("Dentition not recorded.", "Denture non indiquée."),
-    ],
-};
+const I18N: &[(&str, &str)] = &[
+    ("fr", include_str!("../../../packages/i18n/i18n-fr.json")),
+    ("es", include_str!("../../../packages/i18n/i18n-es.json")),
+    ("de", include_str!("../../../packages/i18n/i18n-de.json")),
+    ("pt", include_str!("../../../packages/i18n/i18n-pt.json")),
+];
 
-const DENTAL_ES: DentalWords = DentalWords {
-    lower_inner: true,
-    words: &[
-        ("Normal", "Normal"),
-        ("Missing", "Ausente"),
-        ("Fracture", "Fractura"),
-        ("Enamel infraction", "Infracción del esmalte"),
-        ("Enamel fracture", "Fractura del esmalte"),
-        ("Uncomplicated crown fracture", "Fractura coronal no complicada"),
-        ("Complicated crown fracture", "Fractura coronal complicada"),
-        ("Uncomplicated crown-root fracture", "Fractura corono-radicular no complicada"),
-        ("Complicated crown-root fracture", "Fractura corono-radicular complicada"),
-        ("Root fracture", "Fractura radicular"),
-        ("Periodontal disease", "Enfermedad periodontal"),
-        ("Periodontal disease stage {n}", "Enfermedad periodontal estadio {n}"),
-        ("Mobility", "Movilidad"),
-        ("Mobility {n}", "Movilidad {n}"),
-        ("Furcation", "Furcación"),
-        ("Furcation {n}", "Furcación {n}"),
-        ("Probing depth", "Profundidad de sondaje"),
-        ("Probing depth {mm} mm", "Profundidad de sondaje {mm} mm"),
-        ("Gingival recession", "Recesión gingival"),
-        ("Gingival recession {mm} mm", "Recesión gingival {mm} mm"),
-        ("Tooth resorption", "Reabsorción dentaria"),
-        ("Tooth resorption stage {stage}", "Reabsorción dentaria estadio {stage}"),
-        ("Resorption type", "Tipo de reabsorción"),
-        ("Resorption type {n}", "Reabsorción tipo {n}"),
-        ("Persistent deciduous tooth", "Diente deciduo persistente"),
-        ("Unerupted", "No erupcionado"),
-        ("Retained root", "Raíz retenida"),
-        ("Caries", "Caries"),
-        ("Wear", "Desgaste"),
-        ("Abrasion", "Abrasión"),
-        ("Attrition", "Atrición"),
-        ("Discoloured", "Con cambio de color"),
-        ("Malpositioned", "Malposición"),
-        ("Buccoversion", "Bucoversión"),
-        ("Distoversion", "Distoversión"),
-        ("Labioversion", "Labioversión"),
-        ("Linguoversion", "Linguoversión"),
-        ("Mesioversion", "Mesioversión"),
-        ("Palatoversion", "Palatoversión"),
-        ("Extraction", "Extracción"),
-        ("Closed extraction", "Extracción cerrada"),
-        ("Closed extraction, sectioned", "Extracción cerrada, con odontosección"),
-        ("Open extraction", "Extracción abierta"),
-        ("Crown amputation", "Amputación coronal"),
-        ("Other", "Otro"),
-        ("PD0-PD4: periodontal disease stage (AVDC)", "PD0-PD4: estadio de enfermedad periodontal (AVDC)"),
-        (
-            "M0-M3: tooth mobility index (AVDC). Grades as said.",
-            "M0-M3: índice de movilidad dentaria (AVDC). Grados tal como se dijeron.",
-        ),
-        ("F1-F3: furcation index (AVDC)", "F1-F3: índice de furcación (AVDC)"),
-        (
-            "TR1-TR5: tooth resorption stage (AVDC). T1-T3: resorption type.",
-            "TR1-TR5: estadio de reabsorción dentaria (AVDC). T1-T3: tipo de reabsorción.",
-        ),
-        ("Probing depth is in millimetres.", "La profundidad de sondaje está en milímetros."),
-        ("Planned: {finding}", "Previsto: {finding}"),
-        ("Patient's right", "Derecha del paciente"),
-        ("Patient's left", "Izquierda del paciente"),
-        (
-            "Blank: not charted in this recording. It doesn't mean normal.",
-            "En blanco: no anotado en esta grabación. No significa normal.",
-        ),
-        ("Right and left are the patient's.", "Derecha e izquierda son las del paciente."),
-        ("Dentition not recorded.", "Dentición no indicada."),
-    ],
-};
+/// One language's chart words, read once from the app's translation file.
+fn dental_catalog(lang: &str) -> &'static HashMap<String, String> {
+    use std::sync::LazyLock;
+    static CATALOGS: LazyLock<HashMap<&'static str, HashMap<String, String>>> = LazyLock::new(|| {
+        let keys = dental_keys();
+        I18N.iter()
+            .map(|(lang, json)| {
+                let all: HashMap<String, String> = serde_json::from_str(json).unwrap_or_default();
+                let words =
+                    all.into_iter().filter(|(k, v)| keys.contains(k) && !v.trim().is_empty()).collect();
+                (*lang, words)
+            })
+            .collect()
+    });
+    static NONE: LazyLock<HashMap<String, String>> = LazyLock::new(HashMap::new);
+    CATALOGS.get(lang).unwrap_or(&NONE)
+}
 
-const DENTAL_DE: DentalWords = DentalWords {
-    lower_inner: false,
-    words: &[
-        ("Normal", "Normal"),
-        ("Missing", "Fehlend"),
-        ("Fracture", "Fraktur"),
-        ("Enamel infraction", "Schmelzinfraktion"),
-        ("Enamel fracture", "Schmelzfraktur"),
-        ("Uncomplicated crown fracture", "Unkomplizierte Kronenfraktur"),
-        ("Complicated crown fracture", "Komplizierte Kronenfraktur"),
-        ("Uncomplicated crown-root fracture", "Unkomplizierte Kronen-Wurzel-Fraktur"),
-        ("Complicated crown-root fracture", "Komplizierte Kronen-Wurzel-Fraktur"),
-        ("Root fracture", "Wurzelfraktur"),
-        ("Periodontal disease", "Parodontalerkrankung"),
-        ("Periodontal disease stage {n}", "Parodontalerkrankung Stadium {n}"),
-        ("Mobility", "Beweglichkeit"),
-        ("Mobility {n}", "Beweglichkeit {n}"),
-        ("Furcation", "Furkation"),
-        ("Furcation {n}", "Furkation {n}"),
-        ("Probing depth", "Sondierungstiefe"),
-        ("Probing depth {mm} mm", "Sondierungstiefe {mm} mm"),
-        ("Gingival recession", "Gingivarezession"),
-        ("Gingival recession {mm} mm", "Gingivarezession {mm} mm"),
-        ("Tooth resorption", "Zahnresorption"),
-        ("Tooth resorption stage {stage}", "Zahnresorption Stadium {stage}"),
-        ("Resorption type", "Resorptionstyp"),
-        ("Resorption type {n}", "Resorption Typ {n}"),
-        ("Persistent deciduous tooth", "Persistierender Milchzahn"),
-        ("Unerupted", "Nicht durchgebrochen"),
-        ("Retained root", "Wurzelrest"),
-        ("Caries", "Karies"),
-        ("Wear", "Abnutzung"),
-        ("Abrasion", "Abrasion"),
-        ("Attrition", "Attrition"),
-        ("Discoloured", "Verfärbt"),
-        ("Malpositioned", "Fehlstellung"),
-        ("Buccoversion", "Bukkoversion"),
-        ("Distoversion", "Distoversion"),
-        ("Labioversion", "Labioversion"),
-        ("Linguoversion", "Linguoversion"),
-        ("Mesioversion", "Mesioversion"),
-        ("Palatoversion", "Palatoversion"),
-        ("Extraction", "Extraktion"),
-        ("Closed extraction", "Geschlossene Extraktion"),
-        ("Closed extraction, sectioned", "Geschlossene Extraktion, separiert"),
-        ("Open extraction", "Offene Extraktion"),
-        ("Crown amputation", "Kronenamputation"),
-        ("Other", "Sonstiges"),
-        ("PD0-PD4: periodontal disease stage (AVDC)", "PD0-PD4: Stadium der Parodontalerkrankung (AVDC)"),
-        (
-            "M0-M3: tooth mobility index (AVDC). Grades as said.",
-            "M0-M3: Index der Zahnbeweglichkeit (AVDC). Grade wie gesagt.",
-        ),
-        ("F1-F3: furcation index (AVDC)", "F1-F3: Furkationsindex (AVDC)"),
-        (
-            "TR1-TR5: tooth resorption stage (AVDC). T1-T3: resorption type.",
-            "TR1-TR5: Stadium der Zahnresorption (AVDC). T1-T3: Resorptionstyp.",
-        ),
-        ("Probing depth is in millimetres.", "Die Sondierungstiefe ist in Millimetern angegeben."),
-        ("Planned: {finding}", "Geplant: {finding}"),
-        ("Patient's right", "Rechts (Patient)"),
-        ("Patient's left", "Links (Patient)"),
-        (
-            "Blank: not charted in this recording. It doesn't mean normal.",
-            "Leer: in dieser Aufnahme nicht erfasst. Das bedeutet nicht normal.",
-        ),
-        ("Right and left are the patient's.", "Rechts und links beziehen sich auf den Patienten."),
-        ("Dentition not recorded.", "Gebiss nicht angegeben."),
-    ],
-};
-
-const DENTAL_PT: DentalWords = DentalWords {
-    lower_inner: true,
-    words: &[
-        ("Normal", "Normal"),
-        ("Missing", "Ausente"),
-        ("Fracture", "Fratura"),
-        ("Enamel infraction", "Infração do esmalte"),
-        ("Enamel fracture", "Fratura do esmalte"),
-        ("Uncomplicated crown fracture", "Fratura coronária não complicada"),
-        ("Complicated crown fracture", "Fratura coronária complicada"),
-        ("Uncomplicated crown-root fracture", "Fratura corono-radicular não complicada"),
-        ("Complicated crown-root fracture", "Fratura corono-radicular complicada"),
-        ("Root fracture", "Fratura radicular"),
-        ("Periodontal disease", "Doença periodontal"),
-        ("Periodontal disease stage {n}", "Doença periodontal estádio {n}"),
-        ("Mobility", "Mobilidade"),
-        ("Mobility {n}", "Mobilidade {n}"),
-        ("Furcation", "Furca"),
-        ("Furcation {n}", "Furca {n}"),
-        ("Probing depth", "Profundidade de sondagem"),
-        ("Probing depth {mm} mm", "Profundidade de sondagem {mm} mm"),
-        ("Gingival recession", "Recessão gengival"),
-        ("Gingival recession {mm} mm", "Recessão gengival {mm} mm"),
-        ("Tooth resorption", "Reabsorção dentária"),
-        ("Tooth resorption stage {stage}", "Reabsorção dentária estádio {stage}"),
-        ("Resorption type", "Tipo de reabsorção"),
-        ("Resorption type {n}", "Reabsorção tipo {n}"),
-        ("Persistent deciduous tooth", "Dente decíduo persistente"),
-        ("Unerupted", "Não erupcionado"),
-        ("Retained root", "Raiz retida"),
-        ("Caries", "Cárie"),
-        ("Wear", "Desgaste"),
-        ("Abrasion", "Abrasão"),
-        ("Attrition", "Atrição"),
-        ("Discoloured", "Com alteração de cor"),
-        ("Malpositioned", "Má posição"),
-        ("Buccoversion", "Bucoversão"),
-        ("Distoversion", "Distoversão"),
-        ("Labioversion", "Labioversão"),
-        ("Linguoversion", "Linguoversão"),
-        ("Mesioversion", "Mesioversão"),
-        ("Palatoversion", "Palatoversão"),
-        ("Extraction", "Extração"),
-        ("Closed extraction", "Extração fechada"),
-        ("Closed extraction, sectioned", "Extração fechada, com secção"),
-        ("Open extraction", "Extração aberta"),
-        ("Crown amputation", "Amputação coronária"),
-        ("Other", "Outro"),
-        ("PD0-PD4: periodontal disease stage (AVDC)", "PD0-PD4: estádio de doença periodontal (AVDC)"),
-        (
-            "M0-M3: tooth mobility index (AVDC). Grades as said.",
-            "M0-M3: índice de mobilidade dentária (AVDC). Graus tal como ditos.",
-        ),
-        ("F1-F3: furcation index (AVDC)", "F1-F3: índice de furca (AVDC)"),
-        (
-            "TR1-TR5: tooth resorption stage (AVDC). T1-T3: resorption type.",
-            "TR1-TR5: estádio de reabsorção dentária (AVDC). T1-T3: tipo de reabsorção.",
-        ),
-        ("Probing depth is in millimetres.", "A profundidade de sondagem está em milímetros."),
-        ("Planned: {finding}", "Previsto: {finding}"),
-        ("Patient's right", "Direita do paciente"),
-        ("Patient's left", "Esquerda do paciente"),
-        (
-            "Blank: not charted in this recording. It doesn't mean normal.",
-            "Em branco: não registado nesta gravação. Não significa normal.",
-        ),
-        ("Right and left are the patient's.", "Direita e esquerda são as do paciente."),
-        ("Dentition not recorded.", "Dentição não indicada."),
-    ],
-};
+const DENTAL_EN: DentalWords = DentalWords { lower_inner: true, lang: "en" };
+const DENTAL_FR: DentalWords = DentalWords { lower_inner: true, lang: "fr" };
+const DENTAL_ES: DentalWords = DentalWords { lower_inner: true, lang: "es" };
+const DENTAL_DE: DentalWords = DentalWords { lower_inner: false, lang: "de" };
+const DENTAL_PT: DentalWords = DentalWords { lower_inner: true, lang: "pt" };
 
 const LABELS: &[(&str, Labels)] = &[
     (
@@ -1571,15 +1334,7 @@ mod tests {
 
     #[test]
     fn every_pdf_language_has_every_dental_word() {
-        let chart = dental::chart();
-        let mut keys: Vec<String> = DENTAL_FIXED_WORDS.iter().map(|s| s.to_string()).collect();
-        for f in &chart.findings {
-            keys.push(f.words.clone());
-            keys.extend([&f.words_grade, &f.words_mm, &f.legend].into_iter().flatten().cloned());
-            keys.extend(f.details.iter().filter(|d| d.with_grade.is_none()).map(|d| d.words.clone()));
-        }
-        keys.sort();
-        keys.dedup();
+        let keys = dental_keys();
         let placeholders = |s: &str| {
             let mut p: Vec<String> =
                 s.split('{').skip(1).filter_map(|x| x.split_once('}')).map(|(k, _)| k.to_string()).collect();
@@ -1588,18 +1343,22 @@ mod tests {
         };
         for lang in ["fr", "es", "de", "pt"] {
             let words = Labels::for_language(lang).dental;
+            let catalog = dental_catalog(lang);
             for key in &keys {
-                let found = words.words.iter().find(|(k, _)| k == key).map(|(_, v)| *v);
-                let v = found.unwrap_or_else(|| panic!("{lang}: no translation of \"{key}\""));
-                assert!(!v.trim().is_empty(), "{lang}: {key}");
+                let v = catalog
+                    .get(key)
+                    .unwrap_or_else(|| panic!("{lang}: no translation of \"{key}\" in packages/i18n"));
                 assert_eq!(placeholders(v), placeholders(key), "{lang}: {key}");
                 assert!(v.chars().all(|c| win_ansi(c) != b'?' || c == '?'), "{lang}: {v} prints in WinAnsi");
-            }
-            for (k, _) in words.words {
-                assert!(keys.iter().any(|x| x == k), "{lang}: \"{k}\" isn't a chart word");
+                assert_eq!(&words.tr(key), v, "{lang}: the PDF uses the app's words");
             }
         }
         assert_eq!(Labels::for_language("en").dental.tr("Open extraction"), "Open extraction");
+        // The same words as the app's screen, by construction.
+        assert_eq!(
+            Labels::for_language("de").dental.tr("Tooth resorption"),
+            dental_catalog("de")["Tooth resorption"]
+        );
     }
 
     #[test]

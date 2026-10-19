@@ -60,5 +60,5 @@ Planned or being tested, not finished. No dates are promised.
 - An iPhone app that records and transcribes in the exam room, with encrypted sync of transcripts and notes to your computers.
 - PIMS integration.
 - Signed installers, so Windows and macOS don't warn on first install.
-- Summaries of a patient's past records.
+- A dental chart, and summaries of a patient's past records.
 - Testing on more Macs, Linux computers and graphics cards.

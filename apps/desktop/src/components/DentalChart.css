@@ -7,7 +7,8 @@
  * width.
  */
 .dc { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-.dc-diagrams { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+/* Two blocks below 768 px of the chart's own width (DentalChart.tsx), each at most 352 px. */
+.dc-diagrams { display: flex; flex-direction: column; gap: 16px; min-width: 0; width: 100%; }
 .dc-svg { display: block; max-width: 100%; height: auto; overflow: visible; color: var(--ink); }
 .dc-caption { font-family: var(--font-sans); font-size: 12px; font-weight: 500; letter-spacing: 0.01em; fill: var(--ink-2); }
 .dc-midline { stroke: var(--border); stroke-width: 1px; vector-effect: non-scaling-stroke; }
@@ -28,8 +29,10 @@
 .dc-mark { fill: none; stroke: var(--ob-text); stroke-width: 1.5px; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .dc-mark[data-filled] { fill: var(--ob-text); stroke: none; }
 .dc-num { font-family: var(--font-mono); font-size: 12px; fill: var(--ob-text-2); }
+/* Flags: a plain "!" to look at; a filled badge for what blocks signing (shape, not colour alone). */
 .dc-flag { font-family: var(--font-mono); font-size: 12px; font-weight: 700; fill: var(--ob-text); }
-.dc-flag[data-kind="hard"] { fill: var(--danger); }
+.dc-flag-badge { fill: var(--danger); stroke: none; }
+.dc-flag[data-kind="hard"] { font-size: 9px; fill: var(--surface); }
 
 /* The findings by tooth, in the note's transcript type. */
 .dc-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
@@ -41,6 +44,7 @@
 .dc-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; color: var(--ink-2); font-family: var(--font-sans); }
 .dc-code { font-family: var(--font-mono); font-size: 12px; color: var(--ink); }
 .dc-notice { color: var(--ink-2); font-family: var(--font-sans); }
+.dc-notice p { margin: 0; }
 
 /* The editor: the chart above a panel for the selected teeth. */
 .dce { display: flex; flex-direction: column; gap: 12px; min-width: 0; }

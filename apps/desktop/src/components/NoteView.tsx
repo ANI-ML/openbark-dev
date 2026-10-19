@@ -40,6 +40,10 @@ export interface NoteViewProps {
   onEdit?: (heading: string, opts?: { tooth?: string }) => void;
   /** The editor for the heading being edited (shown in place of its content), else null. */
   renderEdit?: (heading: string) => React.ReactNode;
+  /** The patient's species read as dog or cat, offered for a chart with no dentition. */
+  suggestedDentition?: Dentition | null;
+  /** Write that dentition into a chart heading (an unsigned draft). */
+  onChooseDentition?: (heading: string, dentition: Dentition) => void;
 }
 
 type Statement = { text?: string; value?: string | number; unit?: string | null; evidence?: number[]; entered_by?: string } & Record<
@@ -79,7 +83,19 @@ function get(obj: unknown, key: string): unknown {
   return obj && typeof obj === "object" ? (obj as Record<string, unknown>)[key] : undefined;
 }
 
-export function NoteView({ template, run, onEvidence, onPlay, onCopySection, onAsk, renderAsk, onEdit, renderEdit }: NoteViewProps) {
+export function NoteView({
+  template,
+  run,
+  onEvidence,
+  onPlay,
+  onCopySection,
+  onAsk,
+  renderAsk,
+  onEdit,
+  renderEdit,
+  suggestedDentition = null,
+  onChooseDentition,
+}: NoteViewProps) {
   const t = useT();
   const lowerInner = useLowerInner();
   const { hard, soft } = flagsFor(run.faithfulness, t);
@@ -228,6 +244,10 @@ export function NoteView({ template, run, onEvidence, onPlay, onCopySection, onA
           setPickedTooth((p) => (p === id ? null : id));
           onEvidence(evidenceOf(id));
         }}
+        toggles={!onEdit}
+        editable={Boolean(onEdit)}
+        suggestedDentition={suggestedDentition}
+        onChooseDentition={onEdit && onChooseDentition ? (d) => onChooseDentition(heading, d) : undefined}
       />
     );
   };

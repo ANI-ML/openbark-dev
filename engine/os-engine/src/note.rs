@@ -302,9 +302,20 @@ pub fn tooth_findings_guide() -> String {
             .iter()
             .filter(|d| d.with_grade.is_none())
             .map(|d| {
-                let said: Vec<&str> =
-                    d.cues.first().into_iter().flatten().take(3).map(String::as_str).collect();
-                if said.is_empty() { d.id.clone() } else { format!("{} ({})", d.id, said.join(", ")) }
+                // Every group of words the type needs: "complicated or pulp + root".
+                let take = if d.cues.len() > 1 { 2 } else { 3 };
+                let said: Vec<String> = d
+                    .cues
+                    .iter()
+                    .map(|g| {
+                        g.iter()
+                            .take(take)
+                            .map(String::as_str)
+                            .collect::<Vec<_>>()
+                            .join(if d.cues.len() > 1 { " or " } else { ", " })
+                    })
+                    .collect();
+                if said.is_empty() { d.id.clone() } else { format!("{} ({})", d.id, said.join(" + ")) }
             })
             .collect();
         if !details.is_empty() {
@@ -361,7 +372,8 @@ pub const CHART_RULES: &[&str] = &[
     "Tooth chart: whole-mouth statements (\"stage two across the mouth\", \"no resorptive lesions\", \"everything else looks normal\") never go on teeth.",
     "Tooth chart: a range or group (\"101 to 103\", \"all the lower incisors\") becomes one item per tooth, only when every tooth in it is clear.",
     "Tooth chart: grade and mm only when said. detail is null when the type wasn't said: \"fractured\" alone is never a guessed complicated fracture.",
-    "Tooth chart: planned is true for a plan. A treatment planned and then done in the same recording is charted once, as done.",
+    "Tooth chart: planned is true for a plan or a possibility (\"may need to come out\", \"we'll extract it at the recheck\"). A treatment planned and then done in the same recording is charted once, as done.",
+    "Tooth chart: never chart a finding said to be absent (\"no resorption on 307\", \"404 is not fractured\", \"doesn't need to come out\"), and never give a tooth what was said about another tooth in the same line.",
     "Tooth chart: if a number and a name disagree (\"108, upper left fourth premolar\"), chart the number as said and keep both in text.",
     "Tooth chart: a line that names teeth ends with [teeth: ...], the Triadan numbers read from that line (by number, name, range or group). Go through every such line, exams and treatments alike, and chart what it says about each of those teeth. The list is not evidence of a finding, and never write it in text.",
 ];
@@ -557,8 +569,10 @@ fn reference_message(reference: Option<&Reference>) -> String {
 
 /// For a template with a tooth chart, each line that names teeth ends with
 /// `[teeth: 301, 302, 303, 401, 402, 403]`: the Triadan numbers the tooth
-/// reader ([`crate::dental::teeth_in`]) finds in it, by number, name, range or
-/// group, limited to the chart's dentition. The model then numbers teeth said
+/// reader ([`crate::dental::hint_teeth`]) finds in it, by number, name, range or
+/// group, limited to the chart's dentition. A name that disagrees with the
+/// number beside it is left out, and a group with a count, a vague amount or
+/// a negation in front of it ("two of the lower incisors") names no tooth. The model then numbers teeth said
 /// by name or as a group the same way the faithfulness pass checks them, and
 /// sees every line that names a tooth. Only the prompt sees these hints; the
 /// saved transcript is unchanged, and templates without a chart are untouched.
@@ -572,14 +586,10 @@ pub fn with_tooth_hints<'a>(
     let mut hinted = transcript.clone();
     let mut changed = false;
     for s in &mut hinted.segments {
-        let mut teeth: Vec<String> = Vec::new();
-        for m in crate::dental::teeth_in(&s.text) {
-            for t in m.teeth {
-                if crate::dental::has_tooth(dentition, &t) && !teeth.contains(&t) {
-                    teeth.push(t);
-                }
-            }
-        }
+        let teeth: Vec<String> = crate::dental::hint_teeth(&s.text)
+            .into_iter()
+            .filter(|t| crate::dental::has_tooth(dentition, t))
+            .collect();
         if !teeth.is_empty() {
             s.text = format!("{} [teeth: {}]", s.text, teeth.join(", "));
             changed = true;
@@ -697,7 +707,8 @@ pub fn generate_note(
     // Word-level alignment only when the note is in the consultation's language
     // (English here; other consultation languages pass through untranslated).
     let align = options.language.as_deref().is_none_or(|l| l == "en");
-    let faithfulness = faithfulness::check_opts(&note, transcript, &vet_numbers, align);
+    let dentition = template.chart().and_then(|(_, d)| d);
+    let faithfulness = faithfulness::check_full(&note, transcript, &vet_numbers, align, dentition);
     let markdown = render::markdown(template, &note, transcript, &faithfulness);
     Ok(NoteResult {
         status: "draft",
@@ -775,7 +786,7 @@ pub fn refine_note(
     }
     // The rest of the note may hold the vet's own edits.
     crate::edit::validate_edited(template, &note)?;
-    let faithfulness = faithfulness::check(&note, transcript);
+    let faithfulness = faithfulness::check_template(&note, transcript, template);
     let markdown = render::markdown(template, &note, transcript, &faithfulness);
     Ok(NoteResult {
         status: "draft",

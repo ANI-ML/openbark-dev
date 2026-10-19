@@ -6,7 +6,7 @@
     {"text": "An iPhone app that records and transcribes in the exam room, with encrypted sync of transcripts and notes to your computers."},
     {"text": "PIMS integration."},
     {"text": "Signed installers, so Windows and macOS don't warn on first install."},
-    {"text": "Summaries of a patient's past records."},
+    {"text": "A dental chart, and summaries of a patient's past records."},
     {"text": "Testing on more Macs, Linux computers and graphics cards."}
   ],
   "milestones": [

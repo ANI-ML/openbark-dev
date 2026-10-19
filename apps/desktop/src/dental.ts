@@ -36,10 +36,16 @@ export interface DetailDef {
   /** Only with this grade (resorption 4a-4c need stage 4). */
   with_grade: number | null;
   cues: string[][];
+  /** Words that rule this type out (the engine's check). */
+  exclude?: string[];
 }
 
 export interface FindingDef {
   id: string;
+  /** Only on this kind of tooth: persistent deciduous on 500-800, unerupted on 100-400. */
+  teeth?: "deciduous" | "permanent" | null;
+  /** At most one per tooth (two resorption stages conflict). */
+  one_per_tooth?: boolean;
   group: string;
   label: string;
   words: string;
@@ -59,6 +65,8 @@ export interface FindingDef {
 }
 
 interface ChartData {
+  /** The finding table's version; each saved run records it. */
+  version: number;
   teeth: ToothInfo[];
   rows: Record<Dentition, Record<RowName, string[]>>;
   geometry: { slot: number; tooth: [number, number]; neck: number; crown_mid: number };
@@ -81,14 +89,32 @@ export interface ToothFinding {
   entered_by?: string;
 }
 
-/** A soft flag on a charted tooth from the faithfulness pass (`tooth_flags`). */
+/** The kinds of flag the faithfulness pass puts on a charted tooth. */
+export type ToothFlagKind =
+  | "name_conflict"
+  | "cue_missing"
+  | "other_tooth"
+  | "negated"
+  | "other_type"
+  | "planned"
+  | "conflict"
+  | "shape"
+  | "duplicate"
+  | "not_in_mouth"
+  | "choose_dentition";
+
+/** A flag on a charted tooth from the faithfulness pass (`tooth_flags`). */
 export interface ToothFlag {
   path: string;
   tooth: string;
-  kind: "name_conflict" | "cue_missing" | "shape" | "duplicate";
+  kind: ToothFlagKind;
+  /** Name conflict: the other tooth. Conflict: the other item's path. */
   other?: string;
   expected?: string[];
 }
+
+/** Flags that block signing, like a number said nowhere; the rest are soft. */
+export const blocksSigning = (kind: ToothFlagKind): boolean => kind === "not_in_mouth" || kind === "choose_dentition";
 
 export type ChartFaithfulness = Faithfulness & { tooth_flags?: ToothFlag[] };
 
@@ -99,6 +125,14 @@ const FINDINGS = new Map(CHART.findings.map((f) => [f.id, f]));
 
 export const tooth = (id: string): ToothInfo | undefined => TEETH.get(id);
 export const findingDef = (id: string): FindingDef | undefined => FINDINGS.get(id);
+
+/** The patient's species as a tooth chart's dentition, when it is a dog or a cat ("Cat", "feline", "Labrador dog"). */
+export function dentitionOf(species: string | null | undefined): Dentition | null {
+  const s = ` ${(species ?? "").toLowerCase().replace(/[^a-z]+/g, " ")} `;
+  if (/ (canine|dog|dogs|puppy|pup) /.test(s)) return "canine";
+  if (/ (feline|cat|cats|kitten) /.test(s)) return "feline";
+  return null;
+}
 
 /** The dentition's teeth in Triadan order; with none, the dog's (it holds every cat tooth). */
 export function teethOf(dentition: Dentition | null): ToothInfo[] {
@@ -144,25 +178,41 @@ export const lowerFirst = (s: string) => (s ? s.charAt(0).toLowerCase() + s.slic
 /** "7", "2.5": millimetres as said (JavaScript never prints "7.0"). */
 const num = (n: number) => String(n);
 
-/** Do the item's detail, grade, mm and planned fit its finding? A plain reason when not. */
-export function misfit(item: Pick<ToothFinding, "finding" | "detail" | "grade" | "mm" | "planned" | "text">): string | null {
+const english: T = (text, vars) => fill(text, Object.fromEntries(Object.entries(vars ?? {}).map(([k, v]) => [k, String(v)])));
+
+/**
+ * Do the item's detail, grade, mm and planned fit its finding, and the finding
+ * its tooth (when `tooth` is given)? A plain reason when not, through `t`
+ * (English by default); the engine's `fits` gives the same answers.
+ */
+export function misfit(
+  item: Pick<ToothFinding, "finding" | "detail" | "grade" | "mm" | "planned" | "text"> & { tooth?: string },
+  t: T = english,
+): string | null {
   const f = findingDef(item.finding);
-  if (!f) return `"${item.finding}" isn't a finding the chart knows.`;
-  if (f.text_required && !item.text?.trim()) return "Other needs a description.";
+  if (!f) return t("\"{finding}\" isn't a finding the chart knows.", { finding: item.finding });
+  if (f.text_required && !item.text?.trim()) return t("Other needs a description.");
+  const finding = t(f.words);
   const g = item.grade;
-  if (!f.grade && g != null) return `${f.words} takes no number.`;
-  if (f.grade && g == null && f.grade.required) return `${f.words} needs a number from ${f.grade.min} to ${f.grade.max}.`;
+  if (!f.grade && g != null) return t("{finding} takes no number.", { finding });
+  if (f.grade && g == null && f.grade.required)
+    return t("{finding} needs a number from {min} to {max}.", { finding, min: f.grade.min, max: f.grade.max });
   if (f.grade && g != null && (!Number.isInteger(g) || g < f.grade.min || g > f.grade.max))
-    return `${f.words} takes a number from ${f.grade.min} to ${f.grade.max}.`;
-  if (f.mm === "none" && item.mm != null) return `${f.words} takes no millimetres.`;
-  if (f.mm === "required" && item.mm == null) return `${f.words} needs a measurement in millimetres.`;
-  if (item.mm != null && !(item.mm >= 0)) return `${f.words} needs a measurement of 0 mm or more.`;
+    return t("{finding} takes a number from {min} to {max}.", { finding, min: f.grade.min, max: f.grade.max });
+  if (f.mm === "none" && item.mm != null) return t("{finding} takes no millimetres.", { finding });
+  if (f.mm === "required" && item.mm == null) return t("{finding} needs a measurement in millimetres.", { finding });
+  if (item.mm != null && !(item.mm >= 0)) return t("{finding} needs a measurement of 0 mm or more.", { finding });
   if (item.detail != null) {
     const d = f.details.find((x) => x.id === item.detail);
-    if (!d) return `${f.words} can't be "${item.detail}".`;
-    if (d.with_grade != null && g !== d.with_grade) return `"${d.words}" is only for stage ${d.with_grade}.`;
+    if (!d) return t("{finding} can't be \"{detail}\".", { finding, detail: item.detail });
+    if (d.with_grade != null && g !== d.with_grade) return t("\"{detail}\" is only for stage {stage}.", { detail: t(d.words), stage: d.with_grade });
   }
-  if (item.planned && !f.plannable) return `${f.words} can't be planned.`;
+  if (item.planned && !f.plannable) return t("{finding} can't be planned.", { finding });
+  const info = item.tooth ? tooth(item.tooth) : undefined;
+  if (f.teeth === "deciduous" && info && !info.deciduous)
+    return t("{finding} is only for deciduous teeth (500 to 800), not {tooth}.", { finding, tooth: info.id });
+  if (f.teeth === "permanent" && info?.deciduous)
+    return t("{finding} is only for permanent teeth (100 to 400), not {tooth}.", { finding, tooth: info.id });
   return null;
 }
 

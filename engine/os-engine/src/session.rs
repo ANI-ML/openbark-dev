@@ -96,6 +96,12 @@ pub struct RunInfo {
     pub template_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub template_icon: Option<String>,
+    /// The tooth chart finding table's version (`packages/dental/chart.json`)
+    /// the run was drafted and checked with, when its template has a chart
+    /// (ADR-0021). A later table that changes a word or code must keep this
+    /// version's table to draw the run's chart and PDF.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chart_version: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -505,6 +511,7 @@ impl Session {
             template_origin: template.template.origin.clone(),
             template_name: Some(template.template.name.clone()),
             template_icon: Some(template.template.icon.clone()),
+            chart_version: template.chart().map(|_| crate::dental::chart().version),
         });
         self.save_meta()?;
         Ok(dir)
@@ -580,7 +587,7 @@ impl Session {
         }
         if !run.faithfulness_passed {
             return Err(EngineError::Session(
-                "Some numbers in this draft aren't in the transcript. Check them against the recording and correct the draft before signing.".into(),
+                "Something in this draft blocks signing: a number that isn't in the transcript, or a tooth chart that needs dog or cat chosen. Check the flagged items and correct the draft before signing.".into(),
             ));
         }
         run.signed_at = Some(Local::now());

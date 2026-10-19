@@ -33,6 +33,7 @@ import "./DentalChart.css";
  * |---|---|
  * | Click a tooth, or Enter on it | Selects only that tooth |
  * | Ctrl or Cmd plus click, or Space | Adds the tooth to the selection, or removes it |
+ * | Select several (a toggle, for touch) | Each click adds or removes a tooth |
  * | Arrows, Home, End | Move along the row and between rows (the diagram) |
  * | Escape | Closes the finding form; a second Escape clears the selection |
  * | Mark missing, Mark normal | Only for selected teeth with no findings yet |
@@ -151,6 +152,8 @@ export function DentalChartEditor({
   );
   /** null: closed; -1: adding; otherwise the index of the item being changed. */
   const [form, setForm] = useState<number | null>(null);
+  /** Clicks add to the selection (touch screens have no Ctrl or Cmd). */
+  const [several, setSeveral] = useState(false);
   const [values, setValues] = useState<FormValues>(EMPTY);
 
   const drawn: Dentition = dentition ?? choice ?? "canine";
@@ -161,10 +164,15 @@ export function DentalChartEditor({
   const needsChoice = dentition == null && choice == null;
   const def: FindingDef | undefined = findingDef(values.finding);
   const fields = fieldsOf(values);
-  const problem = def ? misfit(fields) : "";
+  // The teeth the form applies to: every selected tooth when adding, the
+  // item's own tooth when changing. The first reason any of them doesn't fit.
+  const formTeeth = form === -1 ? sorted : form != null && items[form] ? [items[form].tooth] : [];
+  const problem = def
+    ? (formTeeth.length ? formTeeth : [undefined]).map((tooth) => misfit({ ...fields, tooth }, t)).find((m) => m) ?? ""
+    : "";
 
   const activate = (id: string, { additive }: { additive: boolean }) =>
-    setSelection((sel) => (additive ? (sel.includes(id) ? sel.filter((x) => x !== id) : [...sel, id]) : [id]));
+    setSelection((sel) => (additive || several ? (sel.includes(id) ? sel.filter((x) => x !== id) : [...sel, id]) : [id]));
 
   const mark = (finding: "missing" | "normal") => {
     const added = sorted
@@ -271,6 +279,9 @@ export function DentalChartEditor({
           <input type="checkbox" checked={deciduous} disabled={busy} onChange={(e) => setDeciduous(e.target.checked)} />
           {t("Deciduous teeth")}
         </label>
+        <Button variant="ghost" size="compact" aria-pressed={several} disabled={busy} onClick={() => setSeveral((s) => !s)}>
+          {t("Select several")}
+        </Button>
       </div>
 
       <ToothDiagram
@@ -280,6 +291,7 @@ export function DentalChartEditor({
         selected={selection}
         onToothActivate={busy ? undefined : activate}
         onEvidence={onEvidence}
+        toggles
       />
 
       <section className="dce-panel" aria-label={t("Selected teeth")}>
@@ -446,8 +458,16 @@ export function DentalChartEditor({
                 {t("Planned, not done yet")}
               </label>
             )}
+            <p id="dce-form-problem" className="small dce-warning" aria-live="polite">
+              {problem}
+            </p>
             <div className="dce-actions">
-              <Button size="compact" disabled={busy || !def || !!problem} onClick={applyForm}>
+              <Button
+                size="compact"
+                disabled={busy || !def || !!problem}
+                aria-describedby={problem ? "dce-form-problem" : undefined}
+                onClick={applyForm}
+              >
                 {form === -1 ? t("Add") : t("Change")}
               </Button>
               <Button variant="ghost" size="compact" disabled={busy} onClick={() => setForm(null)}>

@@ -871,3 +871,47 @@ fn a_chart_edit_records_the_chosen_animal_and_refuses_teeth_it_doesnt_have() {
     )
     .unwrap();
 }
+
+/// Drafting a chart (ADR-0021 decision 4): each animal of a multi-pet visit
+/// drafts with its own species from its patient record, and a redraft of a
+/// chart whose animal still isn't entered keeps the dog or cat the vet chose.
+#[test]
+fn every_animal_drafts_with_its_own_species_and_a_redraft_keeps_the_chosen_mouth() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app = app_in(tmp.path());
+    let s = seed_visit(&app.sessions_root, "Olive Haddad", &["Pickles"], false);
+    let cat = app.patients.create("Pickles", "Haddad", "Cat").unwrap();
+    let mut s = Session::open(&s.dir).unwrap();
+    let mut info = s.meta.patient.clone().unwrap();
+    info.species = "Dog".into();
+    info.other_ids = vec![cat.id.clone()];
+    s.set_patient(info).unwrap();
+    let main = Session::open(&s.dir).unwrap().for_pet(Some("Olive"));
+    let other = Session::open(&s.dir).unwrap().for_pet(Some("Pickles"));
+    assert_eq!(app.species_of(&main).as_deref(), Some("Dog"));
+    assert_eq!(app.species_of(&other).as_deref(), Some("Cat"), "from Pickles's patient record");
+    let dental = LoadedTemplate::builtin("dental").unwrap();
+    let pickles = dental.for_species(app.species_of(&other).as_deref());
+    assert_eq!(pickles.chart().and_then(|c| c.1).map(|d| d.key()), Some("feline"));
+
+    // No species anywhere: the last draft's chosen mouth carries over.
+    let t = tempfile::tempdir().unwrap();
+    let app = app_in(t.path());
+    let s = seed_visit(&app.sessions_root, "Pepper Silva", &[], false);
+    let mut handle = Session::open(&s.dir).unwrap();
+    assert!(app.species_of(&handle).is_none());
+    let unknown = dental.for_species(None);
+    assert_eq!(App::with_last_dentition(&handle, unknown.clone()).chart().and_then(|c| c.1), None);
+    let chosen = unknown.with_dentition("dental_chart", os_engine::dental::Dentition::Feline).unwrap();
+    let mut result = note_result();
+    result.template = chosen.label();
+    result.note = os_engine::template::empty_note(&chosen.template);
+    handle.save_run("gemma", &result, &chosen).unwrap();
+    let handle = Session::open(&s.dir).unwrap();
+    assert_eq!(
+        handle.latest_record().and_then(|r| r.chart_version),
+        Some(os_engine::dental::chart().version)
+    );
+    let redraft = App::with_last_dentition(&handle, unknown);
+    assert_eq!(redraft.chart().and_then(|c| c.1).map(|d| d.key()), Some("feline"));
+}

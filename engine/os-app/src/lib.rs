@@ -1075,12 +1075,36 @@ impl App {
 
     /// Note options for this encounter: patient context and, in a
     /// multi-pet visit, which animal the note is about.
-    /// The species entered for the animal this handle works on. Other animals
-    /// in a multi-pet visit have no species entered, so they get every heading.
-    fn species_of(s: &Session) -> Option<String> {
+    /// The species entered for the animal this handle works on: the visit's
+    /// for the main animal, and another animal's from its patient record in a
+    /// multi-pet visit. None when it wasn't entered (every heading applies).
+    fn species_of(&self, s: &Session) -> Option<String> {
         let p = s.meta.patient.as_ref()?;
         let main = s.pet.as_deref().is_none_or(|pet| pet.trim().eq_ignore_ascii_case(p.name.trim()));
-        (main && !p.species.trim().is_empty()).then(|| p.species.trim().to_string())
+        let species = if main {
+            p.species.clone()
+        } else {
+            let pet = s.pet.as_deref().unwrap_or_default().trim();
+            let at = p.others.iter().position(|o| o.trim().eq_ignore_ascii_case(pet))?;
+            self.patients.get(p.other_ids.get(at)?)?.species
+        };
+        let species = species.trim();
+        (!species.is_empty()).then(|| species.to_string())
+    }
+
+    /// A redraft of a chart whose animal still isn't entered keeps the dog or
+    /// cat the vet chose on the last draft (ADR-0021 decision 4).
+    fn with_last_dentition(s: &Session, template: LoadedTemplate) -> LoadedTemplate {
+        let Some((heading, None)) = template.chart() else { return template };
+        let chosen = s
+            .latest_record()
+            .and_then(|run| s.run_template(run).ok())
+            .and_then(|t| t.chart())
+            .and_then(|(_, d)| d);
+        match chosen {
+            Some(d) => template.with_dentition(&heading, d).unwrap_or(template),
+            None => template,
+        }
     }
 
     fn note_options(&self, s: &Session, language: Option<String>) -> NoteOptions {
@@ -1319,7 +1343,8 @@ impl App {
         let wanted = if template.is_empty() { templates::DEFAULT_TEMPLATE } else { template };
         let (template, notice) = self.drafting_template(wanted, who.as_ref())?;
         // Headings for other species are left out (M2 item 4).
-        let mut template = template.for_species(Self::species_of(&s).as_deref());
+        let mut template =
+            Self::with_last_dentition(&s, template.for_species(self.species_of(&s).as_deref()));
         // The run records exactly what drafted it.
         let exact = os_engine::template::fingerprint(&template.template);
         if let Some(origin) = template.template.origin.as_mut() {

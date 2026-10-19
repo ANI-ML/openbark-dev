@@ -1,5 +1,6 @@
 {
-  "about": "Dog and cat dentitions in the modified Triadan system (AVDC), the drawing order of each chart row, schematic tooth outlines and the finding table (ADR-0021). Read by the engine (include_str!) and by the app. Quadrants: 100 right maxilla, 200 left maxilla, 300 left mandible, 400 right mandible; 500-800 the same for deciduous teeth. Rows run from the patient's right (viewer's left) to the patient's left. Shapes are drawn crown at the top in a 20 x 40 box, using only absolute M, L, C and Z; upper teeth are flipped so their crowns point down to the bite line, lower teeth are drawn as stored.",
+  "version": 1,
+  "about": "Dog and cat dentitions in the modified Triadan system (AVDC), the drawing order of each chart row, schematic tooth outlines and the finding table (ADR-0021). Read by the engine (include_str!) and by the app. `version` changes whenever a finding, detail, word or code changes; each saved run records it. Quadrants: 100 right maxilla, 200 left maxilla, 300 left mandible, 400 right mandible; 500-800 the same for deciduous teeth. Rows run from the patient's right (viewer's left) to the patient's left. Shapes are drawn crown at the top in a 20 x 40 box, using only absolute M, L, C and Z; upper teeth are flipped so their crowns point down to the bite line, lower teeth are drawn as stored.",
   "teeth": [
     {"id":"101","jaw":"upper","side":"right","deciduous":false,"type":"incisor","ordinal":1,"shape":"incisor","dentitions":["canine","feline"]},
     {"id":"102","jaw":"upper","side":"right","deciduous":false,"type":"incisor","ordinal":2,"shape":"incisor","dentitions":["canine","feline"]},
@@ -106,30 +107,30 @@
       "cues": ["missing","absent","not present","gone"]
     },
     {
-      "id":"fracture","group":"fracture","label":"Fracture","words":"Fracture","words_grade":null,"words_mm":null,"code":"T/FX","code_grade":null,"code_detail":"T/FX/{code}","legend":null,"grade":null,"mm":"none","plannable":false,"text_required":false,"glyph":"zigzag",
+      "id":"fracture","one_per_tooth":true,"group":"fracture","label":"Fracture","words":"Fracture","words_grade":null,"words_mm":null,"code":"T/FX","code_grade":null,"code_detail":"T/FX/{code}","legend":null,"grade":null,"mm":"none","plannable":false,"text_required":false,"glyph":"zigzag",
       "details": [
         {"id":"enamel_infraction","words":"Enamel infraction","code":"EI","with_grade":null,"cues":[["infraction","craze","crazing","crack","cracked"]]},
         {"id":"enamel_fracture","words":"Enamel fracture","code":"EF","with_grade":null,"cues":[["enamel"]]},
-        {"id":"uncomplicated_crown","words":"Uncomplicated crown fracture","code":"UCF","with_grade":null,"cues":[["uncomplicated","no pulp","not exposed","dentin","dentine"]]},
-        {"id":"complicated_crown","words":"Complicated crown fracture","code":"CCF","with_grade":null,"cues":[["complicated","pulp","exposed","exposure"]]},
-        {"id":"uncomplicated_crown_root","words":"Uncomplicated crown-root fracture","code":"UCRF","with_grade":null,"cues":[["uncomplicated","no pulp","not exposed"],["root"]]},
-        {"id":"complicated_crown_root","words":"Complicated crown-root fracture","code":"CCRF","with_grade":null,"cues":[["complicated","pulp","exposed","exposure"],["root"]]},
+        {"id":"uncomplicated_crown","words":"Uncomplicated crown fracture","code":"UCF","with_grade":null,"exclude":["complicated","pulp exposure","exposed pulp","pulp exposed","pulp is exposed"],"cues":[["uncomplicated","no pulp","not exposed","dentin","dentine"]]},
+        {"id":"complicated_crown","words":"Complicated crown fracture","code":"CCF","with_grade":null,"exclude":["uncomplicated","no pulp","not exposed","no exposure","pulp not exposed","without pulp"],"cues":[["complicated","pulp","exposed","exposure"]]},
+        {"id":"uncomplicated_crown_root","words":"Uncomplicated crown-root fracture","code":"UCRF","with_grade":null,"exclude":["complicated","pulp exposure","exposed pulp","pulp exposed","pulp is exposed"],"cues":[["uncomplicated","no pulp","not exposed"],["root"]]},
+        {"id":"complicated_crown_root","words":"Complicated crown-root fracture","code":"CCRF","with_grade":null,"exclude":["uncomplicated","no pulp","not exposed","no exposure","pulp not exposed","without pulp"],"cues":[["complicated","pulp","exposed","exposure"],["root"]]},
         {"id":"root","words":"Root fracture","code":"RF","with_grade":null,"cues":[["root"]]}
       ],
       "cues": ["fracture","fractured","broken","slab","chip","chipped","cracked"]
     },
     {
-      "id":"periodontal_stage","group":"periodontal","label":"Periodontal stage","words":"Periodontal disease","words_grade":"Periodontal disease stage {n}","words_mm":null,"code":null,"code_grade":"PD{grade}","code_detail":null,"legend":"PD0-PD4: periodontal disease stage (AVDC)","grade":{"min":0,"max":4,"required":false},"mm":"none","plannable":false,"text_required":false,"glyph":"dot",
+      "id":"periodontal_stage","one_per_tooth":true,"group":"periodontal","label":"Periodontal stage","words":"Periodontal disease","words_grade":"Periodontal disease stage {n}","words_mm":null,"code":null,"code_grade":"PD{grade}","code_detail":null,"legend":"PD0-PD4: periodontal disease stage (AVDC)","grade":{"min":0,"max":4,"required":false},"mm":"none","plannable":false,"text_required":false,"glyph":"dot",
       "details": [],
       "cues": ["stage","periodontal","periodontitis","periodontal disease"]
     },
     {
-      "id":"mobility","group":"periodontal","label":"Mobility","words":"Mobility","words_grade":"Mobility {n}","words_mm":null,"code":null,"code_grade":"M{grade}","code_detail":null,"legend":"M0-M3: tooth mobility index (AVDC). Grades as said.","grade":{"min":0,"max":3,"required":false},"mm":"none","plannable":false,"text_required":false,"glyph":"dot",
+      "id":"mobility","one_per_tooth":true,"group":"periodontal","label":"Mobility","words":"Mobility","words_grade":"Mobility {n}","words_mm":null,"code":null,"code_grade":"M{grade}","code_detail":null,"legend":"M0-M3: tooth mobility index (AVDC). Grades as said.","grade":{"min":0,"max":3,"required":false},"mm":"none","plannable":false,"text_required":false,"glyph":"dot",
       "details": [],
       "cues": ["mobile","mobility","loose","wobbly"]
     },
     {
-      "id":"furcation","group":"periodontal","label":"Furcation","words":"Furcation","words_grade":"Furcation {n}","words_mm":null,"code":null,"code_grade":"F{grade}","code_detail":null,"legend":"F1-F3: furcation index (AVDC)","grade":{"min":1,"max":3,"required":false},"mm":"none","plannable":false,"text_required":false,"glyph":"dot",
+      "id":"furcation","one_per_tooth":true,"group":"periodontal","label":"Furcation","words":"Furcation","words_grade":"Furcation {n}","words_mm":null,"code":null,"code_grade":"F{grade}","code_detail":null,"legend":"F1-F3: furcation index (AVDC)","grade":{"min":1,"max":3,"required":false},"mm":"none","plannable":false,"text_required":false,"glyph":"dot",
       "details": [],
       "cues": ["furcation","furcal"]
     },
@@ -144,7 +145,7 @@
       "cues": ["recession","receded","receding"]
     },
     {
-      "id":"resorption","group":"resorption","label":"Tooth resorption stage","words":"Tooth resorption","words_grade":"Tooth resorption stage {stage}","words_mm":null,"code":"TR","code_grade":"TR{grade}{sub}","code_detail":null,"legend":"TR1-TR5: tooth resorption stage (AVDC). T1-T3: resorption type.","grade":{"min":1,"max":5,"required":false},"mm":"none","plannable":false,"text_required":false,"glyph":"notch",
+      "id":"resorption","one_per_tooth":true,"group":"resorption","label":"Tooth resorption stage","words":"Tooth resorption","words_grade":"Tooth resorption stage {stage}","words_mm":null,"code":"TR","code_grade":"TR{grade}{sub}","code_detail":null,"legend":"TR1-TR5: tooth resorption stage (AVDC). T1-T3: resorption type.","grade":{"min":1,"max":5,"required":false},"mm":"none","plannable":false,"text_required":false,"glyph":"notch",
       "details": [
         {"id":"crown_and_root_equal","words":"Crown and root equally affected","code":"a","with_grade":4,"cues":[]},
         {"id":"crown_worse","words":"Crown more affected than root","code":"b","with_grade":4,"cues":[]},
@@ -153,17 +154,17 @@
       "cues": ["resorption","resorptive","forl","lesion","resorbed","resorbing"]
     },
     {
-      "id":"resorption_type","group":"resorption","label":"Resorption type","words":"Resorption type","words_grade":"Resorption type {n}","words_mm":null,"code":null,"code_grade":"T{grade}","code_detail":null,"legend":"TR1-TR5: tooth resorption stage (AVDC). T1-T3: resorption type.","grade":{"min":1,"max":3,"required":true},"mm":"none","plannable":false,"text_required":false,"glyph":"notch",
+      "id":"resorption_type","one_per_tooth":true,"group":"resorption","label":"Resorption type","words":"Resorption type","words_grade":"Resorption type {n}","words_mm":null,"code":null,"code_grade":"T{grade}","code_detail":null,"legend":"TR1-TR5: tooth resorption stage (AVDC). T1-T3: resorption type.","grade":{"min":1,"max":3,"required":true},"mm":"none","plannable":false,"text_required":false,"glyph":"notch",
       "details": [],
       "cues": ["type","replacement","inflammatory"]
     },
     {
-      "id":"persistent_deciduous","group":"development","label":"Persistent deciduous","words":"Persistent deciduous tooth","words_grade":null,"words_mm":null,"code":"DT/P","code_grade":null,"code_detail":null,"legend":null,"grade":null,"mm":"none","plannable":false,"text_required":false,"glyph":"dot",
+      "id":"persistent_deciduous","teeth":"deciduous","group":"development","label":"Persistent deciduous","words":"Persistent deciduous tooth","words_grade":null,"words_mm":null,"code":"DT/P","code_grade":null,"code_detail":null,"legend":null,"grade":null,"mm":"none","plannable":false,"text_required":false,"glyph":"dot",
       "details": [],
       "cues": ["persistent","retained","baby","deciduous","still there"]
     },
     {
-      "id":"unerupted","group":"development","label":"Unerupted","words":"Unerupted","words_grade":null,"words_mm":null,"code":"T/U","code_grade":null,"code_detail":null,"legend":null,"grade":null,"mm":"none","plannable":false,"text_required":false,"glyph":"dot",
+      "id":"unerupted","teeth":"permanent","group":"development","label":"Unerupted","words":"Unerupted","words_grade":null,"words_mm":null,"code":"T/U","code_grade":null,"code_detail":null,"legend":null,"grade":null,"mm":"none","plannable":false,"text_required":false,"glyph":"dot",
       "details": [],
       "cues": ["unerupted","not erupted","has not erupted","not yet erupted","yet to erupt"]
     },
@@ -191,7 +192,7 @@
       "cues": ["discolored","discoloured","discoloration","discolouration","grey","gray","pink","purple","dark"]
     },
     {
-      "id":"malposition","group":"condition","label":"Malpositioned","words":"Malpositioned","words_grade":null,"words_mm":null,"code":null,"code_grade":null,"code_detail":"MAL1/{code}","legend":null,"grade":null,"mm":"none","plannable":false,"text_required":false,"glyph":"dot",
+      "id":"malposition","group":"condition","label":"Malpositioned","words":"Malpositioned","words_grade":null,"words_mm":null,"code":null,"code_grade":null,"code_detail":"{code}","legend":null,"grade":null,"mm":"none","plannable":false,"text_required":false,"glyph":"dot",
       "details": [
         {"id":"buccoversion","words":"Buccoversion","code":"BV","with_grade":null,"cues":[["buccoversion","buccal","buccally"]]},
         {"id":"distoversion","words":"Distoversion","code":"DV","with_grade":null,"cues":[["distoversion","distal","distally"]]},
@@ -203,16 +204,16 @@
       "cues": ["malpositioned","malposition","rotated","crowded","version","buccoversion","distoversion","labioversion","linguoversion","mesioversion","palatoversion","base narrow"]
     },
     {
-      "id":"extraction","group":"treatment","label":"Extraction","words":"Extraction","words_grade":null,"words_mm":null,"code":null,"code_grade":null,"code_detail":"{code}","legend":null,"grade":null,"mm":"none","plannable":true,"text_required":false,"glyph":"x",
+      "id":"extraction","one_per_tooth":true,"group":"treatment","label":"Extraction","words":"Extraction","words_grade":null,"words_mm":null,"code":null,"code_grade":null,"code_detail":"{code}","legend":null,"grade":null,"mm":"none","plannable":true,"text_required":false,"glyph":"x",
       "details": [
         {"id":"closed","words":"Closed extraction","code":"X","with_grade":null,"cues":[["simple","closed","no sectioning","without sectioning"]]},
-        {"id":"closed_sectioned","words":"Closed extraction, sectioned","code":"XS","with_grade":null,"cues":[["section","sectioned","sectioning","split"]]},
-        {"id":"open","words":"Open extraction","code":"XSS","with_grade":null,"cues":[["surgical","surgically","flap","open"]]}
+        {"id":"closed_sectioned","words":"Closed extraction, sectioned","code":"XS","with_grade":null,"exclude":["no sectioning","without sectioning","not sectioned"],"cues":[["section","sectioned","sectioning","split"]]},
+        {"id":"open","words":"Open extraction","code":"XSS","with_grade":null,"exclude":["no flap","without a flap","without flap","closed extraction","not surgical","non-surgical","nonsurgical"],"cues":[["surgical","surgically","flap","open"]]}
       ],
       "cues": ["extract","extracting","extracted","extraction","out","remove","removed","removal","pull","pulled"]
     },
     {
-      "id":"crown_amputation","group":"treatment","label":"Crown amputation","words":"Crown amputation","words_grade":null,"words_mm":null,"code":"CR/A","code_grade":null,"code_detail":null,"legend":null,"grade":null,"mm":"none","plannable":true,"text_required":false,"glyph":"neck",
+      "id":"crown_amputation","one_per_tooth":true,"group":"treatment","label":"Crown amputation","words":"Crown amputation","words_grade":null,"words_mm":null,"code":"CR/A","code_grade":null,"code_detail":null,"legend":null,"grade":null,"mm":"none","plannable":true,"text_required":false,"glyph":"neck",
       "details": [],
       "cues": ["amputation","amputate","amputated","amputating"]
     },

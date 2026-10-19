@@ -56,8 +56,28 @@ export interface Faithfulness {
   /** Items a veterinarian wrote or edited by hand (listed, not checked). */
   vet_entered?: string[];
   invalid_evidence: string[];
-  /** Soft flags on charted teeth (ADR-0021): name conflict, cue missing, shape, duplicate. */
-  tooth_flags?: { path: string; tooth: string; kind: "name_conflict" | "cue_missing" | "shape" | "duplicate"; other?: string; expected?: string[] }[];
+  /**
+   * Flags on charted teeth (ADR-0021): soft (look before signing), except
+   * not_in_mouth and choose_dentition, which block signing.
+   */
+  tooth_flags?: {
+    path: string;
+    tooth: string;
+    kind:
+      | "name_conflict"
+      | "cue_missing"
+      | "other_tooth"
+      | "negated"
+      | "other_type"
+      | "planned"
+      | "conflict"
+      | "shape"
+      | "duplicate"
+      | "not_in_mouth"
+      | "choose_dentition";
+    other?: string;
+    expected?: string[];
+  }[];
 }
 
 export interface NoteRun {

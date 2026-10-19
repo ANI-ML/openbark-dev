@@ -141,11 +141,20 @@ describe("DentalChart", () => {
   });
 
   it("draws no diagram without a dentition, and says so", () => {
-    const { container } = render(<DentalChart dentition={null} items={juno} />);
-    expect(container.querySelector("svg")).toBeNull();
+    // Signed (not editable): no hint to edit what can't be edited.
+    const signed = render(<DentalChart dentition={null} items={juno} />);
+    expect(signed.container.querySelector("svg")).toBeNull();
+    expect(screen.getByText("Dentition not recorded.")).toBeTruthy();
+    expect(screen.queryByText(/Edit the chart/)).toBeNull();
+    expect(signed.container.querySelectorAll("li.dc-line")).toHaveLength(8);
+    expect(signed.container.textContent).not.toContain("Blank: not charted");
+    signed.unmount();
+    // A draft: how to choose, and the patient's species offered when it is a dog or a cat.
+    const onChooseDentition = vi.fn();
+    render(<DentalChart dentition={null} items={juno} editable suggestedDentition="feline" onChooseDentition={onChooseDentition} />);
     expect(screen.getByText("Dentition not recorded. Edit the chart to choose dog or cat.")).toBeTruthy();
-    expect(container.querySelectorAll("li.dc-line")).toHaveLength(8);
-    expect(container.textContent).not.toContain("Blank: not charted");
+    fireEvent.click(screen.getByRole("button", { name: "The patient is recorded as a cat: use a cat's chart" }));
+    expect(onChooseDentition).toHaveBeenCalledWith("feline");
   });
 
   it("says Not discussed for an empty chart, with no diagram", () => {
@@ -197,11 +206,71 @@ describe("DentalChart", () => {
   });
 
   it("highlights the selected teeth in the diagram and the list", () => {
-    const { container } = render(<DentalChart dentition="canine" items={juno} selected={["309"]} onToothActivate={() => {}} />);
+    const { container } = render(<DentalChart dentition="canine" items={juno} selected={["309"]} onToothActivate={() => {}} toggles />);
     expect(toothEl(container, "309").hasAttribute("data-selected")).toBe(true);
     expect(toothEl(container, "309").getAttribute("aria-pressed")).toBe("true");
+    expect(toothEl(container, "310").getAttribute("aria-pressed")).toBe("false");
     expect(container.querySelector('li[data-tooth="309"]')?.hasAttribute("data-selected")).toBe(true);
     expect(toothEls(container).find((g) => g.getAttribute("tabindex") === "0")?.getAttribute("data-tooth")).toBe("309");
+  });
+
+  it("announces teeth as toggles only where activating one toggles it", () => {
+    // In a draft, a tooth opens the editor: a plain button, not a toggle.
+    const { container } = render(<DentalChart dentition="canine" items={juno} selected={["309"]} onToothActivate={() => {}} />);
+    expect(toothEl(container, "309").getAttribute("aria-pressed")).toBeNull();
+  });
+
+  it("splits the mouth by its own width, not the window's", () => {
+    // A wide window, a narrow review pane.
+    vi.stubGlobal("matchMedia", () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(private cb: (entries: { contentRect: { width: number } }[]) => void) {}
+        observe() {
+          this.cb([{ contentRect: { width: 447 } }]);
+        }
+        disconnect() {}
+      },
+    );
+    const { container } = render(<DentalChart dentition="canine" items={juno} />);
+    expect([...container.querySelectorAll("svg.dc-svg")].map((b) => b.getAttribute("data-block"))).toEqual(["right", "left"]);
+  });
+
+  it("shows a tooth that blocks signing with a filled badge and says so to screen readers", () => {
+    const faithfulness = {
+      ...clean,
+      passed: false,
+      tooth_flags: [
+        { path: "/dental_chart/0", tooth: "105", kind: "choose_dentition" },
+        { path: "/dental_chart/1", tooth: "309", kind: "negated", expected: ["mobile"] },
+        { path: "/dental_chart/2", tooth: "208", kind: "conflict", other: "/dental_chart/3", expected: ["Normal"] },
+        { path: "/dental_chart/4", tooth: "307", kind: "other_type", expected: ["Open extraction"] },
+        { path: "/dental_chart/5", tooth: "407", kind: "planned" },
+        { path: "/dental_chart/6", tooth: "409", kind: "other_tooth", expected: ["grade 3"] },
+      ],
+    } as ChartFaithfulness;
+    const items = [
+      f("105", "missing"),
+      f("309", "mobility"),
+      f("208", "fracture"),
+      f("208", "normal"),
+      f("307", "extraction", { detail: "closed" }),
+      f("407", "extraction"),
+      f("409", "mobility", { grade: 3 }),
+    ];
+    const { container } = render(<DentalChart dentition="canine" items={items} faithfulness={faithfulness} />);
+    expect(toothEl(container, "105").querySelector(".dc-flag-badge")).not.toBeNull();
+    expect(toothEl(container, "309").querySelector(".dc-flag-badge")).toBeNull();
+    expect(toothEl(container, "105").getAttribute("aria-label")).toMatch(/Blocks signing until it's corrected\.$/);
+    expect(toothEl(container, "309").getAttribute("aria-label")).toMatch(/Needs checking before signing\.$/);
+    expect(screen.getByText("Only a dog has 105. Edit the chart to choose dog or cat before signing.")).toBeTruthy();
+    const title = (tooth: string) => container.querySelector(`li[data-tooth="${tooth}"] .stmt`)?.getAttribute("title");
+    expect(title("309")).toBe("The cited line says this wasn't there. Check before signing.");
+    expect(title("208")).toBe("This can't be right beside Normal on the same tooth. Check before signing.");
+    expect(title("307")).toBe("The cited line also has the words for open extraction. Check the type before signing.");
+    expect(title("407")).toBe("Charted as done, but the cited line sounds like a plan. Check before signing.");
+    expect(title("409")).toBe("The cited line says this about another tooth. Check which tooth before signing.");
   });
 
   it("lets the note view render each finding as its own statement", () => {

@@ -222,4 +222,38 @@ describe("DentalChartEditor", () => {
     expect(onCancel).toHaveBeenCalled();
     expect(onSave).not.toHaveBeenCalled();
   });
+
+  it("says why a finding can't be added, next to the disabled button", () => {
+    const { tooth } = setup([], "canine", ["104"]);
+    fireEvent.click(tooth("104"));
+    fireEvent.click(screen.getByRole("button", { name: "Add finding" }));
+    choose("What was found", "probing_depth");
+    const add = screen.getByRole("button", { name: "Add" }) as HTMLButtonElement;
+    expect(add.disabled).toBe(true);
+    const reason = screen.getByText("Probing depth needs a measurement in millimetres.");
+    expect(add.getAttribute("aria-describedby")).toBe(reason.id);
+    expect(reason.getAttribute("aria-live")).toBe("polite");
+    choose("Millimetres", "3");
+    expect(add.disabled).toBe(false);
+    expect(add.getAttribute("aria-describedby")).toBeNull();
+    // A persistent deciduous tooth belongs on 500-800, not on 104.
+    choose("What was found", "persistent_deciduous");
+    expect(screen.getByText("Persistent deciduous tooth is only for deciduous teeth (500 to 800), not 104.")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Add" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("selects several teeth by tapping once Select several is on", () => {
+    const { tooth } = setup();
+    const toggle = screen.getByRole("button", { name: "Select several" });
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(tooth("101"));
+    fireEvent.click(tooth("102"));
+    fireEvent.click(tooth("103"));
+    expect(screen.getByText("3 teeth selected: 101, 102, 103")).toBeTruthy();
+    fireEvent.click(tooth("102"));
+    expect(screen.getByText("2 teeth selected: 101, 103")).toBeTruthy();
+    expect(tooth("101").getAttribute("aria-pressed")).toBe("true");
+  });
 });

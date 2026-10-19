@@ -10,7 +10,8 @@
 //! - invented numbers (hard fail) and citation errors, from the faithfulness pass
 //! - tooth charts (ADR-0021): each expected finding (`chart`), per-tooth and
 //!   per-finding precision and recall, invented teeth (charted but not
-//!   expected: errors), invented normals, findings that must not be charted
+//!   expected: errors), invented normals, wrong values (an expected tooth and
+//!   finding charted with the wrong type, grade, mm or plan: errors), findings that must not be charted
 //!   (`chart_not_allowed`), items without evidence, and expected flags
 //!   (`chart_flags`, such as a name conflict)
 //!
@@ -105,6 +106,10 @@ struct ChartScore {
     invented_teeth: Vec<String>,
     /// `normal` findings that weren't expected.
     invented_normals: Vec<String>,
+    /// Charted findings on an expected tooth and finding whose type, grade,
+    /// millimetres or plan is wrong ("108 extraction detail closed, expected
+    /// open"): errors, like an invented tooth, not only a precision miss.
+    wrong_values: Vec<String>,
     /// Findings charted where `chart_not_allowed` forbids them.
     not_allowed: Vec<String>,
     /// Model findings citing no evidence.
@@ -126,6 +131,7 @@ impl ChartScore {
         self.teeth_expected += o.teeth_expected;
         self.invented_teeth.extend(o.invented_teeth.iter().cloned());
         self.invented_normals.extend(o.invented_normals.iter().cloned());
+        self.wrong_values.extend(o.wrong_values.iter().cloned());
         self.not_allowed.extend(o.not_allowed.iter().cloned());
         self.no_evidence += o.no_evidence;
         self.flags_found += o.flags_found;
@@ -175,14 +181,46 @@ fn score_chart(
         ..Default::default()
     };
     let mut used = vec![false; items.len()];
-    for want in &expected.chart {
+    let mut hit_wants = vec![false; expected.chart.len()];
+    for (w, want) in expected.chart.iter().enumerate() {
         let hit = items.iter().enumerate().find(|(i, got)| !used[*i] && chart_match(want, got, transcript));
         match hit {
             Some((i, _)) => {
                 used[i] = true;
+                hit_wants[w] = true;
                 c.found += 1;
             }
             None => c.misses.push(format!("chart {}", serde_json::to_string(want).unwrap_or_default())),
+        }
+    }
+    // A charted finding on an expected tooth and finding, with the wrong
+    // type, grade, millimetres or plan: an error in the record.
+    for got in items.iter().enumerate().filter(|(i, _)| !used[*i]).map(|(_, got)| got) {
+        let same = |want: &serde_json::Map<String, Value>| {
+            want.get("tooth") == Some(&got["tooth"]) && want.get("finding") == Some(&got["finding"])
+        };
+        let Some((w, want)) =
+            expected.chart.iter().enumerate().find(|(w, want)| !hit_wants[*w] && same(want))
+        else {
+            continue;
+        };
+        hit_wants[w] = true;
+        let wrong: Vec<String> = ["detail", "grade", "mm", "planned"]
+            .into_iter()
+            .filter(|k| want.contains_key(*k))
+            .filter(|k| {
+                let one = serde_json::Map::from_iter([(k.to_string(), want[*k].clone())]);
+                !chart_match(&one, got, transcript)
+            })
+            .map(|k| format!("{k} {}, expected {}", got[k], want[k]))
+            .collect();
+        if !wrong.is_empty() {
+            c.wrong_values.push(format!(
+                "{} {} {}",
+                got["tooth"].as_str().unwrap_or_default(),
+                got["finding"].as_str().unwrap_or_default(),
+                wrong.join(", ")
+            ));
         }
     }
     c.matched = used.iter().filter(|u| **u).count() as u32;
@@ -593,7 +631,7 @@ pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
         }
         if let Some(c) = &s.chart {
             println!(
-                "    chart: findings {}/{} (recall {}, precision {}), teeth recall {} precision {}, invented teeth {:?}, invented normals {:?}, not allowed {:?}, without evidence {}, flags {}/{}, {} completion tokens",
+                "    chart: findings {}/{} (recall {}, precision {}), teeth recall {} precision {}, invented teeth {:?}, invented normals {:?}, wrong values {:?}, not allowed {:?}, without evidence {}, flags {}/{}, {} completion tokens",
                 c.found,
                 c.expected,
                 pct(c.found, c.expected),
@@ -602,6 +640,7 @@ pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
                 pct(c.teeth_hit, c.teeth_charted),
                 c.invented_teeth,
                 c.invented_normals,
+                c.wrong_values,
                 c.not_allowed,
                 c.no_evidence,
                 c.flags_found,
@@ -622,7 +661,7 @@ pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
     }
     if charts > 0 {
         println!(
-            "TOTAL chart ({charts} fixtures): findings {}/{} (recall {}, precision {}), teeth recall {} precision {}, invented teeth {}, invented normals {}, not allowed {}, without evidence {}, flags {}/{}",
+            "TOTAL chart ({charts} fixtures): findings {}/{} (recall {}, precision {}), teeth recall {} precision {}, invented teeth {}, invented normals {}, wrong values {}, not allowed {}, without evidence {}, flags {}/{}",
             chart.found,
             chart.expected,
             pct(chart.found, chart.expected),
@@ -631,6 +670,7 @@ pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
             pct(chart.teeth_hit, chart.teeth_charted),
             chart.invented_teeth.len(),
             chart.invented_normals.len(),
+            chart.wrong_values.len(),
             chart.not_allowed.len(),
             chart.no_evidence,
             chart.flags_found,
@@ -690,6 +730,7 @@ mod tests {
         assert_eq!((c.teeth_hit, c.teeth_expected, c.teeth_charted), (3, 3, 4));
         assert_eq!(c.invented_teeth, vec!["206"]);
         assert_eq!(c.invented_normals, vec!["206"]);
+        assert_eq!(c.wrong_values, vec!["304 fracture detail \"complicated_crown\", expected null"]);
         assert_eq!(c.not_allowed, vec!["206 normal"]);
         assert_eq!((c.flags_found, c.flags_expected), (0, 1));
         assert!(note_text(&serde_json::json!([items[2]])).contains("probing depth 7 mm"));

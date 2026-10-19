@@ -10,7 +10,8 @@ import { DocumentSheet } from "../components/DocumentSheet";
 import { DraftBoard, useDraftTracker } from "../components/DraftProgress";
 import { HeadingEditor } from "../components/HeadingEditor";
 import { DentalChartEditor } from "../components/DentalChartEditor";
-import { useLowerInner, type Dentition } from "../dental";
+import { asItems, dentitionOf, useLowerInner, type Dentition } from "../dental";
+import { toothFlagPaths } from "../components/DentalChart";
 import { RefinePanel } from "../components/RefinePanel";
 import { headingExamples } from "../promptExamples";
 import { speciesName } from "../species";
@@ -458,11 +459,21 @@ export function Review({
   const p = view?.patient ?? null;
   const patientName = p ? `${p.name} ${p.last_name}`.trim() : "";
   const hardFails = run?.faithfulness.unsupported_numbers.length ?? 0;
+  // Tooth chart flags (ADR-0021): a tooth outside the mouth, or a dog-only
+  // tooth with no dentition chosen, blocks signing; the rest need a look.
+  // Counted once per item, and not again when the item is already counted.
+  const teethFlags = toothFlagPaths(run?.faithfulness);
+  const otherSoft = new Set([
+    ...(run?.faithfulness.citation_mismatches ?? []).map((m) => m.path),
+    ...(run?.faithfulness.unsupported_statements ?? []).map((u) => u.path),
+  ]);
+  const toothBlocks = teethFlags.blocking.size;
   const softFlags =
     (run?.faithfulness.citation_mismatches.length ?? 0) +
     (run?.faithfulness.invalid_evidence.length ?? 0) +
     (run?.faithfulness.unverified_values?.length ?? 0) +
-    (run?.faithfulness.unsupported_statements?.length ?? 0);
+    (run?.faithfulness.unsupported_statements?.length ?? 0) +
+    [...teethFlags.soft].filter((path) => !otherSoft.has(path)).length;
   const disputed = run?.faithfulness.disputed_numbers?.length ?? 0;
   const signed = Boolean(view?.signed_at);
   /** Any animal's note signed makes the whole visit signed (ADR-0022 section 2). */
@@ -535,7 +546,7 @@ export function Review({
               {t("Signed by {name}, {at}", { name: view?.signed_by ?? "", at: view?.signed_at ?? "" })}
             </StatusDot>
           ) : run && app.can.sign ? (
-            <Button variant="primary" onClick={sign} disabled={generating || refining || hardFails > 0}>
+            <Button variant="primary" onClick={sign} disabled={generating || refining || hardFails > 0 || toothBlocks > 0}>
               <Signature size={20} aria-hidden />
               {t("Sign note")}
             </Button>
@@ -741,10 +752,12 @@ export function Review({
                   </div>
                 );
               })()}
-              {(hardFails > 0 || softFlags > 0 || disputed > 0) && (
-                <p className="ob-notice note-summary" data-tone={hardFails ? "danger" : undefined}>
+              {(hardFails > 0 || toothBlocks > 0 || softFlags > 0 || disputed > 0) && (
+                <p className="ob-notice note-summary" data-tone={hardFails || toothBlocks ? "danger" : undefined}>
                   {hardFails > 0 &&
                     `${hardFails === 1 ? t("1 number isn't in the transcript.") : t("{n} numbers aren't in the transcript.", { n: hardFails })} `}
+                  {toothBlocks > 0 &&
+                    `${toothBlocks === 1 ? t("1 tooth on the chart blocks signing until it's corrected.") : t("{n} teeth on the chart block signing until they're corrected.", { n: toothBlocks })} `}
                   {disputed > 0 &&
                     `${disputed === 1 ? t("1 number was heard differently by the second recogniser; listen before signing.") : t("{n} numbers were heard differently by the second recogniser; listen before signing.", { n: disputed })} `}
                   {softFlags > 0 &&
@@ -776,6 +789,12 @@ export function Review({
                         setEditingHeading((h) => (h === heading && !opts?.tooth ? null : heading));
                       }
                 }
+                suggestedDentition={!pet || pet === view?.pets[0] ? dentitionOf(p?.species) : null}
+                onChooseDentition={(heading, dentition) => {
+                  const [sec, part] = heading.split("/");
+                  const sectionValue = run.note[sec ?? ""] as Record<string, unknown> | undefined;
+                  void saveEdit(heading, asItems(part ? sectionValue?.[part] : sectionValue), dentition);
+                }}
                 renderEdit={(heading) => {
                   if (editingHeading !== heading) return null;
                   const def = headingDef(template, heading);

@@ -955,6 +955,28 @@ fn normalize(t: &mut Template) -> Result<(), EngineError> {
     if headings > MAX_HEADINGS {
         return Err(bad(format!("A template can have at most {MAX_HEADINGS} headings and subheadings.")));
     }
+    // A tooth chart is for dogs and cats (ADR-0021 decision 4): one with no
+    // condition gets theirs, so another animal's draft never offers a dog's
+    // teeth; one shown for another species is refused.
+    for s in &mut t.sections {
+        let title = s.title.clone();
+        let headings = std::iter::once((s.kind, &mut s.when, title))
+            .chain(s.parts.iter_mut().map(|p| (Some(p.kind), &mut p.when, p.label.clone())));
+        for (kind, when, title) in headings {
+            if kind != Some(PartKind::Teeth) {
+                continue;
+            }
+            if when.species.is_empty() {
+                when.species = vec!["canine".into(), "feline".into()];
+            } else if let Some(other) =
+                when.species.iter().find(|k| !matches!(k.as_str(), "canine" | "feline"))
+            {
+                return Err(bad(format!(
+                    "\"{title}\" is a tooth chart, which is for dogs and cats only, so it can't be shown for '{other}'. Use a heading of sentences for other animals' teeth."
+                )));
+            }
+        }
+    }
     // A tooth chart (ADR-0021 decision 1): at most one, and only a chart
     // heading carries a dentition.
     let mut charts = 0;
@@ -1245,8 +1267,16 @@ sections:
         let dog = t.for_species(Some("Labrador dog"));
         assert_eq!(enum_len(&dog), 70);
         assert_eq!(dog.chart().unwrap().1, Some(Dentition::Canine));
-        // A horse has no chart heading at all.
-        assert!(t.for_species(Some("horse")).chart().is_none());
+        // A horse or a rabbit has no chart heading, and its teeth go under
+        // Findings by tooth; a dog or a cat has the chart and not that heading.
+        let has = |l: &LoadedTemplate, id: &str| l.template.sections.iter().any(|s| s.id == id);
+        for other in ["horse", "rabbit", "ferret", "guinea pig"] {
+            let o = t.for_species(Some(other));
+            assert!(o.chart().is_none(), "{other}");
+            assert!(has(&o, "findings_by_tooth"), "{other}");
+            assert!(!crate::note::system_prompt(&o).contains("Tooth chart:"), "{other}");
+        }
+        assert!(!has(&cat, "findings_by_tooth") && !has(&dog, "findings_by_tooth"));
         // The snapshot keeps the dentition.
         let back = LoadedTemplate::from_yaml(&cat.to_yaml()).unwrap();
         assert_eq!(back.chart().unwrap().1, Some(Dentition::Feline));
@@ -1295,6 +1325,24 @@ sections:
         let wrong = "name: X\nsections:\n  - { title: History, kind: statements, dentition: feline }\n";
         let err = LoadedTemplate::from_yaml(wrong).unwrap_err().to_string();
         assert!(err.contains("isn't a tooth chart"), "{err}");
+        // A chart with no condition is for dogs and cats; one for another
+        // species is refused.
+        let plain = LoadedTemplate::from_yaml(
+            "name: X
+sections:
+  - { title: History, kind: statements }
+  - { title: Chart, kind: teeth }
+",
+        )
+        .unwrap();
+        assert_eq!(plain.template.sections[1].when.species, ["canine", "feline"]);
+        assert!(plain.for_species(Some("rabbit")).chart().is_none());
+        let horse = "name: X
+sections:
+  - { title: Chart, kind: teeth, when: { species: [horse] } }
+";
+        let err = LoadedTemplate::from_yaml(horse).unwrap_err().to_string();
+        assert!(err.contains("for dogs and cats only"), "{err}");
         // A chart as a subheading, with its dentition chosen later.
         let sub =
             "name: X\nsections:\n  - title: Findings\n    parts:\n      - { title: Chart, kind: teeth }\n";

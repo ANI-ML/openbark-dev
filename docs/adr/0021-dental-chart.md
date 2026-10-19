@@ -127,7 +127,7 @@ The model never writes a code string. The renderer derives the printed words and
 | `persistent_deciduous`, `unerupted`, `retained_root`, `caries` | DT/P, T/U, RTR, CA, each with its word |
 | `wear` | Wear; Abrasion (AB); Attrition (AT) |
 | `discoloured` | Discoloured (no code; T/NV means non-vital, which is a different claim) |
-| `malposition` | Malpositioned; with a version: Linguoversion (MAL1/LV), and so on |
+| `malposition` | Malpositioned; with a version: Linguoversion (LV), and so on (the version alone; see Review fixes) |
 | `extraction` | Extraction; Closed extraction (X); Closed extraction, sectioned (XS); Open extraction (XSS). Planned: "Planned: open extraction (XSS)" |
 | `crown_amputation` | Crown amputation (CR/A) |
 | `other` | The as-said text |
@@ -304,8 +304,24 @@ Added during the build, beyond the decision:
 - `apps/desktop/e2e/dental-chart.mjs`: imports the three new fixtures on a scratch demo, drafts them, and checks the chart in desktop light and dark and at 360 px (light and dark), the evidence link, editing by click and keyboard, the cat's teeth, the dog-or-cat question, the signed read-only chart and the PDF.
 
 Not done yet, or different from the plan:
-- Chart recall on Gemma 4 E4B is 79% against the plan's 90% target (12B: 88%). Invented teeth, invented normals and invented numbers are 0. Misses are blank teeth or missing findings, mostly in the cat consult.
+- Chart recall on Gemma 4 E4B is 83% after the review fixes (79% at first) against the plan's 90% target (12B: 88% at first). Invented teeth, invented normals and invented numbers are 0. Most misses are blank teeth or missing findings, mostly in the cat consult, but not all: E4B charts 108 as a closed extraction where the flap was closed and 309 was the simple extraction. The faithfulness pass now flags that (below).
 - The property-order trial (`text` after `finding`) wasn't run.
 - No schema snapshot files (`schema.canine.json`, `schema.feline.json`); the tests check the tooth enum counts and that other templates have no tooth definition instead.
 - Dental shots are taken by the new e2e script, not by `screenshots.mjs`, and the PDF page isn't rendered to PNG.
 - Tooth names are read in English only. French, Spanish, German and Portuguese name tables, and a native-speaking vet's review of every chart translation (app and PDF), are still to do.
+
+### Review fixes (2026-10-19)
+
+A code review showed the faithfulness pass could pass a wrong chart with no flag. Decided and built on the branch:
+- **Evidence is the tooth's own clause.** Cue words, a type's words, and the grade and millimetres count only in the clause that names the tooth: its sentence, split from another tooth's at a comma, "and", "but" or the next tooth (with no break, the words go to the first tooth). Words said about another tooth raise the soft flag `other_tooth`; a finding said once for two teeth in one sentence ("309 is fractured and 409 too", "309 has grade one mobility and 409 is grade three") passes. A group said elsewhere no longer turns a tooth said nowhere into a citation mismatch: only a number, a name or a range does.
+- **Negation, plans, conflicts and types.** New soft flags: `negated` (said to be absent, or a word that rules the type out, from each detail's `exclude` list in `chart.json`), `planned` (charted as done, said as a plan), `other_type` (the clause also has the words for another type of a one-per-tooth finding), `conflict` (normal beside another finding, missing beside a finding done, two different items of a one-per-tooth finding: `one_per_tooth` in `chart.json`). "Closed" meaning a sutured flap ("closed with 4-0 Monocryl") is not a closed extraction.
+- **Kind of tooth.** `teeth: deciduous` on persistent deciduous and `teeth: permanent` on unerupted in `chart.json`: a misfit (shape flag) in the check, refused in the edit command and the editor.
+- **The mouth blocks signing.** Two flags block signing like a number said nowhere: `not_in_mouth` (a tooth outside the chart's dentition) and `choose_dentition` (no dentition recorded and a tooth only a dog has). The faithfulness pass takes the template's dentition (`faithfulness::check_template`, `check_full`). Each animal of a multi-pet visit drafts with its own species from its patient record; a redraft with no species keeps the dog or cat chosen on the last draft; a draft offers the patient's species when it is a dog or a cat.
+- **The tooth reader** gives no tooth for a group with a count, a vague amount, a negation or "other" in front of it, or with no side or jaw (unless "all", "both" or a count that matches); "to" and a hyphen make a range only inside one quadrant ("through" still crosses the midline); side and jaw are read after the tooth word and carried to a second name said with the first. The `[teeth: …]` hint leaves out a name that disagrees with its number, and a name conflict is flagged whichever of the two teeth was charted.
+- **Codes.** Tooth versions print alone ("Linguoversion (LV)"): AVDC uses them with every malocclusion class, so "MAL1/" was dropped rather than guessed.
+- **Signed records.** `chart.json` has a `version`, recorded in each run (`chart_version`); a test pins the finding table to its version, so a change to a word, code or id can't ship without a new version. A later version must keep the old table to draw older runs; there is only version 1 so far.
+- **Other animals.** A `teeth` heading with no condition is for dogs and cats (normalised, and set by the editor); one shown for another species is refused. Dental 0.2.0 has **Findings by tooth** (sentences) for every other species, and its instructions point to the chart or that heading.
+- **The record and the screen.** The summary above the note counts tooth flags (once per item) and blocking ones stop Sign; a blocking flag is a filled badge in the diagram, not colour alone, and every tooth's accessible name says whether it needs checking or blocks signing; teeth are toggle buttons only where activating one toggles it; **Select several** gives touch screens multi-select; the editor says why a finding can't be added; the diagram splits into two blocks by its own width (under 768 px), not the window's. The PDF's chart words come from the app's translation files (`packages/i18n`), so the screen and the signed PDF word a finding the same way. Hand edits have no 96-item limit (that is the drafting budget) and a schema problem in an edit is a plain message.
+- **Eval.** A charted finding with the wrong type, grade, millimetres or plan on an expected tooth and finding is scored as a wrong value, an error, not only a precision miss.
+
+Not changed: findings are still read in English only, and the cue lists are heuristics. A vet's reading of every flag stays the safeguard.
