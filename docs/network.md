@@ -26,6 +26,20 @@ Nothing else at run time:
 
 Transcription, note generation and everything else run with the network unplugged once the models are on disk.
 
+## The website (not the app)
+
+The public website, www.openbark.io, is separate from the software above. It has an account portal (`/portal`, ADR-0017) where a visitor can sign in with an emailed code, keep a short profile (name, clinic, role, country, update emails), find the downloads and delete the account. **The website makes these calls, in the visitor's browser. The OpenBark app makes none of them:** it ships no Supabase SDK and no portal code, and nothing in it talks to Supabase until encrypted sync is built and turned on (the M3 row under Planned).
+
+| # | When | Host(s) | What's sent | Purpose |
+|---|---|---|---|---|
+| W1 | Opening the portal page | `cdn.jsdelivr.net` | An HTTPS GET for one file, `@supabase/supabase-js@2.118.0/dist/umd/supabase.js`, pinned to that version and checked with Subresource Integrity (sha384). No referrer | Load the sign-in library. The site's Content-Security-Policy allows only this exact file from jsDelivr |
+| W2 | Only when the visitor acts: asks for a code, enters it, saves the profile, signs out or deletes the account; and while signed in, loading the profile and refreshing the session | `nmecovtmijnfnjuadicp.supabase.co`: `/auth/v1` (sign-in), `/rest/v1/profiles` (the profile, one row per account, protected by row level security), `/functions/v1/delete-account` | The email address and the code; the profile fields; the account's own access token. **Never clinical data**: no recordings, transcripts, notes or anything about patients | Sign-in, the profile, deleting the account |
+
+- Opening the portal signed out sends nothing to Supabase. The website end-to-end test checks this, and answers every Supabase call in its own mocked sign-in, so tests never reach the live project.
+- The sign-in session is kept in the browser's localStorage (`sb-nmecovtmijnfnjuadicp-auth-token`), as supabase-js does by default. The site sets no cookies.
+- No realtime connection (`wss:`) is opened; the CSP doesn't allow one.
+- Every page also fetches `release.json` from the site itself and the Manrope and JetBrains Mono fonts from Google Fonts.
+
 ## At build time (developers and CI only)
 
 | # | Host(s) | Purpose | Notes |

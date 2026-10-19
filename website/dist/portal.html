@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Your OpenBark account</title>
+<meta name="description" content="Sign in to your OpenBark account with a code we email you: downloads, update emails, and deleting the account. No clinical data is ever stored here. Built by the ANI.ML Health team.">
+<meta property="og:title" content="Your OpenBark account">
+<meta property="og:description" content="Sign in to your OpenBark account with a code we email you: downloads, update emails, and deleting the account. No clinical data is ever stored here. Built by the ANI.ML Health team.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="OpenBark">
+<link rel="canonical" href="https://www.openbark.io/portal">
+<meta property="og:url" content="https://www.openbark.io/portal">
+<meta property="og:image" content="https://www.openbark.io/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="OpenBark, the free AI scribe for veterinary medicine">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Your OpenBark account">
+<meta name="twitter:description" content="Sign in to your OpenBark account with a code we email you: downloads, update emails, and deleting the account. No clinical data is ever stored here. Built by the ANI.ML Health team.">
+<meta name="twitter:image" content="https://www.openbark.io/og-image.png">
+<meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0F151D" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;800&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="index.html"><svg class="lockup" viewBox="0 0 372 80" role="img" aria-label="OpenBark, home"><g transform="translate(4 4) scale(0.72)" fill="currentColor"><circle cx="30" cy="20" r="7.5"/><circle cx="50" cy="12" r="7.5"/><circle cx="70" cy="20" r="7.5"/><rect class="capsule" x="35" y="28" width="30" height="42" rx="15"/><rect class="grille" x="42" y="44" width="16" height="4" rx="2"/><rect class="grille" x="42" y="52" width="16" height="4" rx="2"/><path d="M24 54 A26 26 0 0 0 76 54" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round"/><rect x="46.5" y="78" width="7" height="10" rx="3.5"/><rect x="35" y="87" width="30" height="7" rx="3.5"/></g><text x="92" y="60" font-family="Manrope, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="60" letter-spacing="-1.8"><tspan font-weight="500">open</tspan><tspan font-weight="800">bark</tspan></text></svg><span class="stage">Beta</span></a>
+    <nav class="site-nav" aria-label="Site">
+      <a href="features.html">Features</a>
+      <a href="history.html">Version history</a>
+      <a href="index.html#contact">Contact</a>
+      <a class="nav-account" href="portal.html" aria-current="page"><svg class="lucide" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 20a6 6 0 0 0-12 0"/><circle cx="12" cy="10" r="4"/><circle cx="12" cy="12" r="10"/></svg><span data-account-label="Account">Sign in</span></a>
+      <a class="btn btn-primary" href="index.html#download">Get OpenBark</a>
+    </nav>
+  </div>
+</header>
+<main id="main">
+<section class="portal" id="portal" data-state="loading">
+  <noscript><style>#view-loading { display: none; }</style></noscript>
+  <p class="wrap pt-loading" id="view-loading">Checking for a saved sign-in…</p>
+
+  <!-- Signed out: email, then the emailed code. -->
+  <div class="wrap pt-out" id="view-signed-out" hidden>
+    <div class="pt-intro">
+      <p class="eyebrow">Your account</p>
+      <h1>Sign in to OpenBark.</h1>
+      <p class="pt-lede">We email you a 6-digit code, so there's no password to remember.</p>
+    </div>
+
+    <div class="pt-card pt-signin">
+      <form class="pt-form" id="email-form">
+        <div class="field">
+          <label for="email">Email address</label>
+          <input class="input" id="email" name="email" type="email" autocomplete="email" inputmode="email" autocapitalize="off" spellcheck="false" maxlength="254" required aria-describedby="email-help">
+          <p class="help" id="email-help">New here? The same code creates your account.</p>
+        </div>
+        <button class="btn btn-primary btn-lg btn-block" type="submit">Email me a code</button>
+      </form>
+
+      <form class="pt-form" id="code-form" hidden>
+        <div class="pt-form-head">
+          <h2>Check your email</h2>
+          <p>We sent a code to <strong id="code-email"></strong>. It works once and expires after an hour.</p>
+        </div>
+        <div class="field">
+          <label for="code">6-digit code</label>
+          <input class="input code-input" id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,10}" maxlength="10" spellcheck="false" required>
+        </div>
+        <button class="btn btn-primary btn-lg btn-block" type="submit">Sign in</button>
+        <div class="pt-links">
+          <button class="btn-text" type="button" id="resend">Send a new code</button>
+          <button class="btn-text" type="button" id="change-email">Use a different email</button>
+        </div>
+      </form>
+
+      <p class="pt-msg" id="signin-msg" role="status" aria-live="polite"></p>
+      <noscript><p class="pt-msg" data-tone="error">Signing in needs JavaScript. Turn it on for this site, or write to we.care@animl.health.</p></noscript>
+    </div>
+
+    <div class="pt-more">
+      <h2>What an account is for</h2>
+      <ul class="ticks">
+        <li><svg class="lucide" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Downloads for your computer, and an email when a new version is out, if you want one</li>
+        <li><svg class="lucide" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>A short profile, so we know who is trying the beta</li>
+        <li><svg class="lucide" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Delete it from this page whenever you like</li>
+      </ul>
+      <p class="pt-note"><svg class="lucide" viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg><span>OpenBark works without an account. Your recordings, transcripts and notes stay on your computer and never come to this page.</span></p>
+    </div>
+  </div>
+
+  <!-- Signed in: profile, downloads, devices (later), what is held, delete. -->
+  <div class="wrap pt-in" id="view-signed-in" hidden>
+    <header class="pt-head">
+      <div class="pt-head-copy">
+        <h1 id="account-h" tabindex="-1">Your account</h1>
+        <p class="pt-who">Signed in as <strong id="account-email"></strong></p>
+      </div>
+      <button class="btn btn-ghost" type="button" id="sign-out"><svg class="lucide" viewBox="0 0 24 24" aria-hidden="true"><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/></svg>Sign out</button>
+    </header>
+
+    <div class="pt-grid">
+      <div class="pt-col">
+        <section class="pt-card" aria-labelledby="profile-h">
+          <div class="pt-card-head">
+            <h2 id="profile-h">Profile</h2>
+            <p>Every field is optional. It tells us who uses OpenBark; it's never about patients.</p>
+          </div>
+          <form class="pt-form" id="profile-form">
+            <div class="field-row">
+              <div class="field">
+                <label for="p-name">Name</label>
+                <input class="input" id="p-name" name="name" type="text" autocomplete="name" maxlength="120">
+              </div>
+              <div class="field">
+                <label for="p-clinic">Clinic or hospital</label>
+                <input class="input" id="p-clinic" name="clinic" type="text" autocomplete="organization" maxlength="160">
+              </div>
+            </div>
+            <div class="field-row">
+              <fieldset class="field">
+                <legend>Role</legend>
+                <div class="choices">
+                  <label class="choice"><input type="radio" name="role" value="veterinarian"><span>Veterinarian</span></label>
+                  <label class="choice"><input type="radio" name="role" value="technician"><span>Technician</span></label>
+                  <label class="choice"><input type="radio" name="role" value="other"><span>Other</span></label>
+                </div>
+              </fieldset>
+              <div class="field">
+                <label for="p-country">Country</label>
+                <span class="select">
+                  <select class="input" id="p-country" name="country" autocomplete="country"><option value="">Choose a country</option></select>
+                  <svg class="lucide" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+                </span>
+              </div>
+            </div>
+            <label class="check">
+              <input type="checkbox" id="p-updates" name="updates_opt_in">
+              <span><strong>Email me when a new version is out</strong><span class="help">Release news only. Turn it off here at any time.</span></span>
+            </label>
+            <div class="pt-actions">
+              <button class="btn btn-primary" type="submit">Save profile</button>
+              <p class="pt-msg" id="profile-msg" role="status" aria-live="polite"></p>
+            </div>
+          </form>
+        </section>
+
+        <section class="pt-card" aria-labelledby="downloads-h">
+          <div class="pt-card-head">
+            <h2 id="downloads-h">Downloads</h2>
+            <p class="pt-dl-line" id="downloads-line">Checking for the latest version…</p>
+          </div>
+          <div class="pt-dl" id="downloads"></div>
+          <p class="pt-card-foot"><a class="link-more" href="history.html">Version history</a></p>
+        </section>
+      </div>
+
+      <div class="pt-col">
+        <section class="pt-card" aria-labelledby="devices-h">
+          <div class="pt-card-head">
+            <h2 id="devices-h">Devices <span class="status">Coming</span></h2>
+          </div>
+          <p>When encrypted sync arrives, the computers and phones linked to your account will be listed here, and you'll be able to remove one. Nothing is linked yet.</p>
+        </section>
+
+        <section class="pt-card" aria-labelledby="holds-h">
+          <div class="pt-card-head">
+            <h2 id="holds-h">What this account holds</h2>
+          </div>
+          <ul class="pt-holds">
+            <li>Your email address</li>
+            <li>The profile, if you fill it in</li>
+            <li>Sign-in records kept by our provider, Supabase: times, IP address and browser</li>
+          </ul>
+          <p class="pt-holds-not">Never recordings, transcripts, notes or anything about patients.</p>
+        </section>
+
+        <section class="pt-card" aria-labelledby="delete-h">
+          <div class="pt-card-head">
+            <h2 id="delete-h">Delete my account</h2>
+            <p>Deletes your sign-in and profile from our servers. OpenBark on your computers keeps working, and your visits stay where they are.</p>
+          </div>
+          <button class="btn btn-danger" type="button" id="delete-open" aria-expanded="false" aria-controls="delete-form">Delete my account</button>
+          <form class="pt-form pt-confirm" id="delete-form" hidden>
+            <div class="field">
+              <label for="delete-email">Type your email address to confirm</label>
+              <input class="input" id="delete-email" type="email" autocomplete="off" autocapitalize="off" spellcheck="false">
+              <p class="help">This can't be undone. You can make a new account later with the same address.</p>
+            </div>
+            <div class="pt-actions">
+              <button class="btn btn-danger" type="submit" id="delete-submit" disabled>Delete permanently</button>
+              <button class="btn btn-ghost" type="button" id="delete-cancel">Cancel</button>
+            </div>
+            <p class="pt-msg" id="delete-msg" role="status" aria-live="polite"></p>
+          </form>
+        </section>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+<footer class="site-foot">
+  <div class="wrap">
+    <p class="foot-name"><svg class="lockup" viewBox="0 0 372 80" role="img" aria-label="OpenBark"><g transform="translate(4 4) scale(0.72)" fill="currentColor"><circle cx="30" cy="20" r="7.5"/><circle cx="50" cy="12" r="7.5"/><circle cx="70" cy="20" r="7.5"/><rect class="capsule" x="35" y="28" width="30" height="42" rx="15"/><rect class="grille" x="42" y="44" width="16" height="4" rx="2"/><rect class="grille" x="42" y="52" width="16" height="4" rx="2"/><path d="M24 54 A26 26 0 0 0 76 54" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round"/><rect x="46.5" y="78" width="7" height="10" rx="3.5"/><rect x="35" y="87" width="30" height="7" rx="3.5"/></g><text x="92" y="60" font-family="Manrope, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="60" letter-spacing="-1.8"><tspan font-weight="500">open</tspan><tspan font-weight="800">bark</tspan></text></svg></p>
+    <div class="foot-row">
+      <p>OpenBark, free veterinary scribe. Built by the <a href="https://www.animl.health">ANI.ML Health</a> team.<br>
+      Drafts are not medical records until a veterinarian reviews and signs them.</p>
+      <nav aria-label="Footer">
+        <a href="features.html">Features</a>
+        <a href="history.html">Version history</a>
+        <a href="index.html#download">Download</a>
+        <a href="portal.html" data-account-label="Your account">Sign in</a>
+        <a href="mailto:we.care@animl.health">we.care@animl.health</a>
+        <a href="https://buymeacoffee.com/animlhealth" rel="noopener">Buy us a coffee</a>
+        <a href="features.html#privacy">Privacy</a>
+        <a href="https://www.apache.org/licenses/LICENSE-2.0">Licence: Apache-2.0</a>
+      </nav>
+    </div>
+  </div>
+</footer>
+<script>
+// "Sign in" reads "Account" when this browser holds a portal sign-in. Read locally; nothing is sent.
+try {
+  if (localStorage.getItem("sb-nmecovtmijnfnjuadicp-auth-token")) document.querySelectorAll("[data-account-label]").forEach(function (el) {
+    el.setAttribute("data-out-label", el.textContent);
+    el.textContent = el.getAttribute("data-account-label");
+  });
+} catch (err) {}
+</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.js" integrity="sha384-TcHRA3zBbn+Lexh5n+Oil4guNPOS3rjNDpGRAN46u/s/mB2IZ50ceC6TYDU2yvgK" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="portal.js"></script>
+</body>
+</html>

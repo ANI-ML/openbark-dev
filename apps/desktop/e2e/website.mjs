@@ -1,12 +1,56 @@
 // Screenshots and layout checks of the public website (website/dist served locally):
 //   python -m http.server -d website/dist 8099 &  node e2e/website.mjs
-import { mkdirSync } from "node:fs";
+// Every page is served with the Content-Security-Policy from website/vercel.json,
+// as Vercel serves it, so a blocked script or connection fails the run.
+// The account portal is checked signed out, then through a mocked sign-in:
+// every call to Supabase is answered here or refused. Nothing reaches the live
+// project and no real account is used.
+import { mkdirSync, readFileSync } from "node:fs";
 import { chromium } from "@playwright/test";
 
 const base = process.env.SITE_URL ?? "http://localhost:8099";
 const out = process.env.OUT_DIR ?? "../../target/website";
 mkdirSync(out, { recursive: true });
 const problems = [];
+
+// The CSP Vercel sends (website/vercel.json; the root vercel.json must match).
+const cspOf = (file) =>
+  JSON.parse(readFileSync(new URL(file, import.meta.url), "utf8"))
+    .headers.find((h) => h.source === "/(.*)")
+    .headers.find((h) => h.key === "Content-Security-Policy").value;
+const CSP = cspOf("../../../website/vercel.json");
+if (cspOf("../../../vercel.json") !== CSP) problems.push("CSP: vercel.json and website/vercel.json differ");
+const directive = (name) => (CSP.split(";").map((d) => d.trim().split(/\s+/)).find((d) => d[0] === name) ?? []).slice(1);
+const SUPABASE = "https://nmecovtmijnfnjuadicp.supabase.co";
+if (!directive("connect-src").includes(SUPABASE)) problems.push("CSP: connect-src doesn't allow the Supabase project");
+if (directive("connect-src").some((s) => s.startsWith("wss:"))) problems.push("CSP: connect-src allows websockets; the portal uses none");
+const portalHtml = readFileSync(new URL("../../../website/dist/portal.html", import.meta.url), "utf8");
+const sdk = portalHtml.match(/<script src="(https:[^"]+)" integrity="(sha384-[^"]+)" crossorigin="anonymous"/);
+if (!sdk) problems.push("portal: supabase-js isn't loaded from a pinned URL with SRI");
+else if (!directive("script-src").includes(sdk[1])) problems.push(`CSP: script-src doesn't allow ${sdk[1]}`);
+if (!/@supabase\/supabase-js@\d+\.\d+\.\d+\//.test(sdk?.[1] ?? "")) problems.push("portal: supabase-js URL isn't pinned to an exact version");
+// No secret ever ships: the portal holds only the publishable key.
+for (const f of ["portal.html", "portal.js"]) {
+  const text = readFileSync(new URL(`../../../website/dist/${f}`, import.meta.url), "utf8");
+  if (/service_role|sb_secret_|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/.test(text)) problems.push(`${f}: looks like it contains a secret key`);
+}
+
+// A made-up account for the mocked sign-in.
+const USER = { id: "0b7e2f4a-5c1d-4e8f-9a3b-6d2c1f0e9a87", email: "jordan.lee@example.com" };
+const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+const session = () => {
+  const now = Math.floor(Date.now() / 1000);
+  const claims = { sub: USER.id, email: USER.email, role: "authenticated", aud: "authenticated", iat: now, exp: now + 3600, session_id: "5f0c9a1e-2b7d-4c3a-8e6f-1a2b3c4d5e6f" };
+  return {
+    access_token: `${b64({ alg: "ES256", typ: "JWT", kid: "e2e" })}.${b64(claims)}.ZTJlLW5vdC1zaWduZWQ`,
+    token_type: "bearer",
+    expires_in: 3600,
+    expires_at: now + 3600,
+    refresh_token: "e2e-refresh",
+    user: { id: USER.id, aud: "authenticated", role: "authenticated", email: USER.email, app_metadata: { provider: "email" }, user_metadata: {}, created_at: new Date().toISOString() },
+  };
+};
+
 const browser = await chromium.launch();
 for (const v of [
   { name: "desktop-light", viewport: { width: 1440, height: 900 }, colorScheme: "light" },
@@ -14,10 +58,42 @@ for (const v of [
   { name: "phone-light", viewport: { width: 390, height: 844 }, colorScheme: "light", isMobile: true, hasTouch: true },
 ]) {
   const ctx = await browser.newContext({ viewport: v.viewport, colorScheme: v.colorScheme, isMobile: v.isMobile, hasTouch: v.hasTouch });
+  // Serve every page with the production CSP, and collect any violation.
+  await ctx.route(`${base}/**`, async (route) => {
+    const res = await route.fetch();
+    await route.fulfill({ response: res, headers: { ...res.headers(), "content-security-policy": CSP } });
+  });
+  await ctx.addInitScript(() => {
+    window.__csp = [];
+    document.addEventListener("securitypolicyviolation", (e) => window.__csp.push(`${e.violatedDirective} ${e.blockedURI}`));
+  });
+  // Supabase: refused unless the mocked sign-in below is running.
+  const mock = { on: false, profile: null, deleted: null, calls: [] };
+  await ctx.route(`${SUPABASE}/**`, async (route) => {
+    const req = route.request();
+    const url = new URL(req.url());
+    const headers = { "access-control-allow-origin": "*", "access-control-allow-headers": "*", "access-control-allow-methods": "GET, POST, PATCH, DELETE, OPTIONS", "content-type": "application/json" };
+    const reply = (status, body) => route.fulfill({ status, headers, body: body === undefined ? "" : JSON.stringify(body) });
+    if (req.method() === "OPTIONS") return reply(204);
+    mock.calls.push(`${req.method()} ${url.pathname}`);
+    if (!mock.on) {
+      problems.push(`${v.name}: unexpected call to Supabase: ${req.method()} ${url.pathname}`);
+      return route.abort();
+    }
+    if (url.pathname === "/auth/v1/otp" && req.method() === "POST") return reply(200, {});
+    if (url.pathname === "/auth/v1/verify" && req.method() === "POST") return reply(200, session());
+    if (url.pathname === "/rest/v1/profiles" && req.method() === "GET") return reply(200, mock.profile ? [mock.profile] : []);
+    if (url.pathname === "/rest/v1/profiles" && req.method() === "POST") { mock.profile = JSON.parse(req.postData() || "{}"); return reply(201); }
+    if (url.pathname === "/rest/v1/profiles" && req.method() === "PATCH") { mock.profile = { ...mock.profile, ...JSON.parse(req.postData() || "{}") }; return reply(204); }
+    if (url.pathname === "/functions/v1/delete-account" && req.method() === "POST") { mock.deleted = JSON.parse(req.postData() || "{}"); return reply(200, { deleted: true }); }
+    if (url.pathname === "/auth/v1/logout") return reply(204);
+    problems.push(`${v.name}: Supabase call the mock doesn't answer: ${req.method()} ${url.pathname}`);
+    return route.abort();
+  });
   const page = await ctx.newPage();
   page.on("pageerror", (e) => problems.push(`${v.name}: ${e}`));
   page.on("console", (m) => m.type() === "error" && problems.push(`${v.name}: ${m.text()}`));
-  for (const p of ["index.html", "features.html", "history.html", "404.html"]) {
+  for (const p of ["index.html", "features.html", "history.html", "portal.html", "404.html"]) {
     await page.goto(`${base}/${p}`);
     await page.waitForLoadState("networkidle");
     await page.waitForTimeout(1200);
@@ -53,7 +129,7 @@ for (const v of [
       // Sharing: canonical and og:url on www.openbark.io, a large preview image.
       const meta = (sel) => document.querySelector(sel)?.getAttribute("content") ?? document.querySelector(sel)?.getAttribute("href");
       const page = location.pathname.split("/").pop() || "index.html";
-      const want = { "index.html": "/", "features.html": "/features", "history.html": "/history" }[page];
+      const want = { "index.html": "/", "features.html": "/features", "history.html": "/history", "portal.html": "/portal" }[page];
       if (want) {
         if (meta('link[rel="canonical"]') !== `https://www.openbark.io${want}`) issues.push(`canonical is ${meta('link[rel="canonical"]')}`);
         if (meta('meta[property="og:url"]') !== `https://www.openbark.io${want}`) issues.push(`og:url is ${meta('meta[property="og:url"]')}`);
@@ -67,6 +143,18 @@ for (const v of [
       // Evidence is behind "How we know", closed until asked for.
       if (document.querySelector(".evidence:not(details .evidence)")) issues.push("evidence shown outside How we know");
       if (document.querySelector("details.how[open]")) issues.push("How we know open by default");
+      // The account link: in the header on every page and every width (an icon on
+      // phones), and in the footer.
+      const acct = document.querySelector('.site-nav a.nav-account[href="portal.html"]');
+      if (!acct) issues.push("no Sign in link in the header");
+      else {
+        const r = acct.getBoundingClientRect();
+        if (r.width < 24 || r.height < 24 || r.right > innerWidth) issues.push(`header Sign in link hidden or clipped (${Math.round(r.width)}x${Math.round(r.height)} at ${Math.round(r.left)})`);
+        if (acct.textContent.trim() !== "Sign in") issues.push(`header account link says "${acct.textContent.trim()}"`);
+      }
+      if (!document.querySelector('.site-foot a[href="portal.html"]')) issues.push("no Sign in link in the footer");
+      // The CSP let everything through.
+      if (window.__csp?.length) issues.push(`CSP violations: ${window.__csp.join("; ")}`);
       return issues;
     });
     for (const b of brand) problems.push(`${v.name} ${p}: ${b}`);
@@ -125,7 +213,7 @@ for (const v of [
     if (hashes) problems.push(`${v.name}: history shows ${hashes} commit hashes`);
   }
   // Every in-site anchor lands on an element that exists (the footer Privacy link once pointed nowhere).
-  for (const p of ["index.html", "features.html", "history.html"]) {
+  for (const p of ["index.html", "features.html", "history.html", "portal.html"]) {
     await page.goto(`${base}/${p}`);
     const links = await page.evaluate(() => [...new Set([...document.querySelectorAll('a[href*="#"]')].map((a) => a.getAttribute("href")))]);
     for (const href of links) {
@@ -142,6 +230,93 @@ for (const v of [
   await page.locator("#fx-q").fill("dental");
   const shown = await page.locator(".fx-item:not([hidden])").count();
   if (shown < 1) problems.push(`${v.name}: filter "dental" shows nothing`);
+  // Hidden must mean not drawn (a display rule once overrode the hidden attribute).
+  const drawn = await page.evaluate(() => [...document.querySelectorAll(".fx-item")].filter((li) => li.getClientRects().length).length);
+  if (drawn !== shown) problems.push(`${v.name}: filter leaves ${shown} items but ${drawn} are drawn`);
+
+  // The account portal, signed out: supabase-js loaded through the CSP and SRI,
+  // the email step showing, and no call to Supabase until someone acts.
+  await page.goto(`${base}/portal.html`);
+  await page.waitForLoadState("networkidle");
+  const signedOut = await page.evaluate(() => {
+    const issues = [];
+    if (typeof window.supabase?.createClient !== "function") issues.push("supabase-js didn't load (CSP, SRI or network)");
+    const state = document.getElementById("portal")?.getAttribute("data-state");
+    if (state !== "out") issues.push(`state is ${state}, expected out`);
+    if (document.getElementById("view-signed-out")?.hidden !== false) issues.push("signed-out view hidden");
+    if (document.getElementById("view-signed-in")?.hidden !== true) issues.push("signed-in view showing while signed out");
+    if (document.getElementById("email-form")?.hidden !== false) issues.push("email step not showing");
+    for (const id of ["code-form", "view-signed-in", "view-loading", "delete-form"]) if (document.getElementById(id)?.getClientRects().length) issues.push(`#${id} drawn while signed out`);
+    const email = document.getElementById("email");
+    if (email?.type !== "email" || email?.autocomplete !== "email" || email?.disabled) issues.push("email field missing or disabled");
+    if (document.querySelector('#portal input[type="password"]')) issues.push("a password field");
+    if (/patient|transcript|recording/i.test(document.querySelector(".pt-signin")?.innerText ?? "")) issues.push("sign-in card mentions clinical data");
+    if (document.getElementById("signin-msg")?.getAttribute("data-tone") === "error") issues.push(`error shown: ${document.getElementById("signin-msg").textContent}`);
+    return issues;
+  });
+  for (const b of signedOut) problems.push(`${v.name} portal: ${b}`);
+  if (mock.calls.length) problems.push(`${v.name} portal: called Supabase while signed out: ${mock.calls.join(", ")}`);
+
+  // The account portal through a mocked sign-in: email, code, profile, delete.
+  mock.on = true;
+  await page.locator("#email").fill(USER.email);
+  await page.locator('#email-form button[type="submit"]').click();
+  await page.locator("#code-form").waitFor({ state: "visible" });
+  if ((await page.locator("#code-email").textContent()) !== USER.email) problems.push(`${v.name} portal: code step doesn't name the email`);
+  if (!(await page.locator("#resend").isDisabled())) problems.push(`${v.name} portal: a new code can be asked for at once`);
+  await page.screenshot({ path: `${out}/${v.name}-portal-code.png` });
+  await page.locator("#code").fill("123456");
+  await page.locator('#code-form button[type="submit"]').click();
+  await page.locator("#view-signed-in").waitFor({ state: "visible" });
+  await page.waitForFunction(() => document.querySelectorAll("#downloads .pt-dl-row").length === 3 && !/Checking/.test(document.getElementById("downloads-line").textContent));
+  await page.waitForTimeout(300);
+  const account = await page.evaluate((email) => {
+    const issues = [];
+    if (document.getElementById("account-email")?.textContent !== email) issues.push("account email not shown");
+    for (const id of ["view-signed-out", "view-loading", "delete-form"]) if (document.getElementById(id)?.getClientRects().length) issues.push(`#${id} drawn while signed in`);
+    if (document.querySelector(".nav-account")?.textContent.trim() !== "Account") issues.push("header doesn't say Account while signed in");
+    const rows = [...document.querySelectorAll("#downloads .pt-dl-row")].map((r) => r.getAttribute("data-os"));
+    const mine = /Windows/.test(navigator.userAgent) ? "windows" : /Mac/.test(navigator.userAgent) ? "mac" : "linux";
+    if (rows[0] !== mine) issues.push(`downloads start with ${rows[0]}, not this computer (${mine})`);
+    if (!document.querySelector('#view-signed-in a[href="history.html"]')) issues.push("no Version history link");
+    if (!document.getElementById("delete-open")) issues.push("no Delete my account");
+    if (document.querySelector(".pt-msg[data-tone=error]")) issues.push(`error shown: ${document.querySelector(".pt-msg[data-tone=error]").textContent}`);
+    if (document.documentElement.scrollWidth > innerWidth) issues.push("horizontal scroll");
+    return issues;
+  }, USER.email);
+  for (const b of account) problems.push(`${v.name} portal signed in: ${b}`);
+  await page.screenshot({ path: `${out}/${v.name}-portal-account.png` });
+  await page.screenshot({ path: `${out}/${v.name}-portal-account-full.png`, fullPage: true });
+  // The profile saves only the person's own row, with the fields the table has.
+  await page.locator("#p-name").fill("Jordan Lee");
+  await page.locator("#p-clinic").fill("Riverside Animal Hospital");
+  await page.locator('input[name="role"][value="veterinarian"]').check();
+  await page.locator("#p-country").selectOption("CA");
+  await page.locator("#p-updates").check();
+  await page.locator('#profile-form button[type="submit"]').click();
+  await page.locator('#profile-msg[data-tone="ok"]').waitFor();
+  const want = { id: USER.id, name: "Jordan Lee", clinic: "Riverside Animal Hospital", role: "veterinarian", country: "CA", updates_opt_in: true };
+  if (JSON.stringify(mock.profile) !== JSON.stringify(want)) problems.push(`${v.name} portal: profile saved as ${JSON.stringify(mock.profile)}`);
+  // Delete: the button stays off until the email is typed; then the account goes and the page signs out.
+  await page.locator("#delete-open").click();
+  if (!(await page.locator("#delete-submit").isDisabled())) problems.push(`${v.name} portal: delete enabled before confirming`);
+  await page.locator("#delete-email").fill(USER.email.toUpperCase());
+  if (await page.locator("#delete-submit").isDisabled()) problems.push(`${v.name} portal: delete still off after typing the email`);
+  await page.locator("#delete-submit").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `${out}/${v.name}-portal-delete.png` });
+  await page.locator("#delete-submit").click();
+  await page.locator("#view-signed-out").waitFor({ state: "visible" });
+  const gone = await page.evaluate(() => ({
+    msg: document.getElementById("signin-msg")?.textContent ?? "",
+    stored: localStorage.getItem("sb-nmecovtmijnfnjuadicp-auth-token"),
+    label: document.querySelector(".nav-account")?.textContent.trim(),
+  }));
+  if (!/deleted/.test(gone.msg)) problems.push(`${v.name} portal: after deleting, the page says "${gone.msg}"`);
+  if (gone.stored) problems.push(`${v.name} portal: session still stored after deleting`);
+  if (gone.label !== "Sign in") problems.push(`${v.name} portal: header says "${gone.label}" after deleting`);
+  if (mock.deleted?.confirm?.toLowerCase() !== USER.email) problems.push(`${v.name} portal: delete sent ${JSON.stringify(mock.deleted)}`);
+  mock.on = false;
+  if (await page.evaluate(() => window.__csp.length)) problems.push(`${v.name} portal: CSP violations ${await page.evaluate(() => window.__csp.join("; "))}`);
   await ctx.close();
 }
 await browser.close();

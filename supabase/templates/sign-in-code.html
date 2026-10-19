@@ -1,0 +1,15 @@
+<!-- OpenBark sign-in code email. Paste this into Supabase > Authentication >
+     Emails, for BOTH "Confirm signup" (first sign-in) and "Magic Link" (every
+     sign-in after that). Subject for both: Your OpenBark sign-in code
+     It shows the 6-digit code (the Token variable) and no link, so the code typed on
+     www.openbark.io/portal is the only way in. See supabase/README.md. -->
+<div style="margin:0;padding:32px 16px;background:#F2F4F7;font-family:Manrope,system-ui,-apple-system,'Segoe UI',Arial,sans-serif;color:#182230;">
+  <div style="max-width:480px;margin:0 auto;padding:32px;background:#FFFFFF;border:1px solid #E5E8EE;border-radius:14px;">
+    <p style="margin:0 0 24px;font-size:22px;line-height:28px;letter-spacing:-0.03em;color:#182230;"><span style="font-weight:500;">open</span><span style="font-weight:800;">bark</span></p>
+    <h1 style="margin:0 0 8px;font-size:24px;line-height:30px;font-weight:800;letter-spacing:-0.02em;color:#182230;">Your sign-in code</h1>
+    <p style="margin:0 0 24px;font-size:15px;line-height:24px;color:#4B5563;">Type this code on the OpenBark account page to sign in.</p>
+    <p style="margin:0 0 24px;padding:16px;background:#F2F4F7;border:1px solid #E5E8EE;border-radius:10px;text-align:center;font-family:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;font-size:32px;line-height:40px;font-weight:500;letter-spacing:0.3em;color:#182230;">{{ .Token }}</p>
+    <p style="margin:0 0 8px;font-size:15px;line-height:24px;color:#4B5563;">It works once and expires after an hour. If you didn't ask for it, ignore this email: nothing changes without the code.</p>
+    <p style="margin:24px 0 0;padding-top:16px;border-top:1px solid #E5E8EE;font-size:13px;line-height:18px;color:#6B7280;">OpenBark, the free veterinary scribe. Built by the ANI.ML Health team. Your recordings and notes stay on your computer; this account never holds them.</p>
+  </div>
+</div>

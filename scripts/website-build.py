@@ -2,9 +2,9 @@
 
     python scripts/website-build.py [--preview DIR]
 
-Pages come from website/src (index.html is the landing page's body, site.css,
-site.js) and website/content/features.json (the features page, generated
-here). website/public is copied as is (release.json, written by the release
+Pages come from website/src (index.html is the landing page's body,
+portal.html the account portal's body, site.css, site.js, portal.js) and
+website/content/features.json (the features page, generated here). website/public is copied as is (release.json, written by the release
 workflow, the favicon and the app icon). How it looks follows the brand guide,
 docs/brand/DESIGN.md. The product name lives in PRODUCT below, so a rename
 is one line.
@@ -41,7 +41,24 @@ COFFEE = "https://buymeacoffee.com/animlhealth"
 # clean URLs (vercel.json), so features.html is canonically /features.
 SITE_URL = "https://www.openbark.io"
 OG_IMAGE = SITE_URL + "/og-image.png"  # website/public/og-image.png, from docs/brand/images
-PAGES = {"home": "/", "features": "/features", "history": "/history"}
+PAGES = {"home": "/", "features": "/features", "history": "/history", "portal": "/portal"}
+
+# The account portal (ADR-0017) signs in with Supabase Auth. supabase-js comes
+# from jsDelivr, pinned to one version and checked with Subresource Integrity:
+# the hash is the sha384 of that exact file (byte-identical to the npm
+# tarball's dist/umd/supabase.js). To upgrade, change both lines and the
+# script-src entry in website/vercel.json and the root vercel.json (the
+# website e2e checks that they agree). Only the portal page loads it.
+SUPABASE_JS = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.js"
+SUPABASE_JS_SRI = "sha384-TcHRA3zBbn+Lexh5n+Oil4guNPOS3rjNDpGRAN46u/s/mB2IZ50ceC6TYDU2yvgK"
+# Where supabase-js keeps the portal session in localStorage (sb-<project ref>-auth-token).
+SUPABASE_SESSION_KEY = "sb-nmecovtmijnfnjuadicp-auth-token"
+
+# Lucide circle-user-round, for the account link.
+ACCOUNT_ICON = (
+    '<svg class="lucide" viewBox="0 0 24 24" aria-hidden="true">'
+    '<path d="M18 20a6 6 0 0 0-12 0"/><circle cx="12" cy="10" r="4"/><circle cx="12" cy="12" r="10"/></svg>'
+)
 
 FONTS = (
     '<link rel="preconnect" href="https://fonts.googleapis.com">'
@@ -138,7 +155,8 @@ def header(page):
       <a href="features.html"{cur("features")}>Features</a>
       <a href="history.html"{cur("history")}>Version history</a>
       <a href="index.html#contact">Contact</a>
-{SOURCE_NAV}      <a class="btn btn-primary" href="index.html#download">Get {e(PRODUCT)}</a>
+{SOURCE_NAV}      <a class="nav-account" href="portal.html"{cur("portal")}>{ACCOUNT_ICON}<span data-account-label="Account">Sign in</span></a>
+      <a class="btn btn-primary" href="index.html#download">Get {e(PRODUCT)}</a>
     </nav>
   </div>
 </header>
@@ -155,6 +173,7 @@ FOOTER = f"""<footer class="site-foot">
         <a href="features.html">Features</a>
         <a href="history.html">Version history</a>
         <a href="index.html#download">Download</a>
+        <a href="portal.html" data-account-label="Your account">Sign in</a>
         <a href="mailto:{CONTACT}">{CONTACT}</a>
         <a href="{COFFEE}" rel="noopener">Buy us a coffee</a>
         <a href="features.html#privacy">Privacy</a>
@@ -163,6 +182,15 @@ FOOTER = f"""<footer class="site-foot">
     </div>
   </div>
 </footer>
+<script>
+// "Sign in" reads "Account" when this browser holds a portal sign-in. Read locally; nothing is sent.
+try {{
+  if (localStorage.getItem("{SUPABASE_SESSION_KEY}")) document.querySelectorAll("[data-account-label]").forEach(function (el) {{
+    el.setAttribute("data-out-label", el.textContent);
+    el.textContent = el.getAttribute("data-account-label");
+  }});
+}} catch (err) {{}}
+</script>
 """
 
 
@@ -392,6 +420,18 @@ def main():
         head(f"{PRODUCT} Version history", f"Everything built into {PRODUCT} so far, newest first. {CREDIT}", "history"),
         header("history") + '<main id="main">\n' + history_body(history) + "</main>\n" + FOOTER,
     )
+    portal = read(SRC, "portal.html").replace("{{PRODUCT}}", e(PRODUCT)).replace("{{CONTACT}}", e(CONTACT))
+    portal_doc = document(
+        head(
+            f"Your {PRODUCT} account",
+            f"Sign in to your {PRODUCT} account with a code we email you: downloads, update emails, and deleting the account. "
+            f"No clinical data is ever stored here. {CREDIT}",
+            "portal",
+        ),
+        header("portal") + '<main id="main">\n' + portal + "</main>\n" + FOOTER
+        + f'<script src="{SUPABASE_JS}" integrity="{SUPABASE_JS_SRI}" crossorigin="anonymous" referrerpolicy="no-referrer"></script>\n'
+        + '<script src="portal.js"></script>\n',
+    )
     lost_doc = document(
         head(f"Page not found, {PRODUCT}", f"This page isn't part of the {PRODUCT} website.", "lost"),
         header("lost") + '<main id="main">\n' + LOST + "</main>\n" + FOOTER,
@@ -404,13 +444,14 @@ def main():
     io.open(os.path.join(DIST, "features.html"), "w", encoding="utf-8", newline="\n").write(features_doc)
     io.open(os.path.join(DIST, "404.html"), "w", encoding="utf-8", newline="\n").write(lost_doc)
     io.open(os.path.join(DIST, "history.html"), "w", encoding="utf-8", newline="\n").write(history_doc)
+    io.open(os.path.join(DIST, "portal.html"), "w", encoding="utf-8", newline="\n").write(portal_doc)
     io.open(os.path.join(ROOT, "CHANGELOG.md"), "w", encoding="utf-8", newline="\n").write(changelog_md(history))
-    for name in ("site.css", "site.js"):
+    for name in ("site.css", "site.js", "portal.js"):
         shutil.copy(os.path.join(SRC, name), os.path.join(DIST, name))
     pub = os.path.join(SITE, "public")
     for name in os.listdir(pub):
         shutil.copy(os.path.join(pub, name), os.path.join(DIST, name))
-    print(f"wrote {DIST}: index.html, features.html ({sum(len(c['items']) for c in content['categories'])} features)")
+    print(f"wrote {DIST}: index.html, features.html ({sum(len(c['items']) for c in content['categories'])} features), history.html, portal.html")
 
     if preview:
         os.makedirs(preview, exist_ok=True)

@@ -69,7 +69,7 @@ All versions are from registry.npmjs.org.
 | `@testing-library/react` | **16.3.3** | — |
 | `lucide-react` | **1.59.0** (exact; released 2026-10-17, ISC) | Icons, per the brand guide §6 (ADR-0016). Replaces `@phosphor-icons/react` 2.1.10. Checked live on 2026-10-18. |
 | Manrope, JetBrains Mono (fonts) | **@fontsource-variable/manrope 5.3.0**, **@fontsource-variable/jetbrains-mono 5.3.0** (OFL-1.1) | Brand type (ADR-0016). Only the latin and latin-ext woff2 files are vendored in `packages/ui/src/fonts`, with the licences in `OFL.txt`. Nothing loads from a CDN. They replace Geist. Checked live on 2026-10-18. |
-| `@supabase/supabase-js` | **2.118.0** (MIT, 2026-10-15) | Website account portal only (ADR-0017). Never shipped in the app. Checked live on 2026-10-18. |
+| `@supabase/supabase-js` | **2.118.0** (MIT, 2026-10-15) | Website account portal only (ADR-0017). Never shipped in the app. Checked live on 2026-10-18. Loaded from jsDelivr (`dist/umd/supabase.js`, byte-identical to the npm tarball) with SRI `sha384-TcHRA3zBbn+Lexh5n+Oil4guNPOS3rjNDpGRAN46u/s/mB2IZ50ceC6TYDU2yvgK`; the Edge Function pins the same version in `supabase/functions/delete-account/deno.json`. |
 | `@playwright/test` | **1.64.1** | — |
 | `tailwindcss` | **4.3.3** | Built on top of the design tokens in `packages/ui`. |
 | `yaml` / `ajv` / `handlebars` | **^2.9.1** / **8.20.0** / **4.7.10** | Template loading, JSON Schema validation and rendering. yaml 3.0 is still `next`. |
