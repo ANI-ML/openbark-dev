@@ -1,10 +1,26 @@
-// Record the in-app help videos (public/help/<topic>.webm) by driving the
-// real app with captions and a visible pointer.
+// Record the in-app help videos by driving the real app with captions and a
+// visible pointer: public/help/<topic>.webm (light theme) and
+// public/help/<topic>-dark.webm (dark theme; Help picks it in dark mode).
 //
-// Run against a demo server with demo data, never a clinic's own:
-//   OPENBARK_URL=http://localhost:4318 node e2e/help-videos.mjs [topic ...]
-// The "record" topic plays FAKE_MIC (a WAV) as the microphone.
+// Run against a demo server with demo data, never a clinic's own (see
+// docs/guide/README.md for the recipe, its neutral C:/OpenBark-demo paths and
+// the seeded patients the topics expect):
+//   OPENBARK_URL=http://localhost:4318 HELP_THEME=light node e2e/help-videos.mjs [topic ...]
+// HELP_THEME is light (default) or dark. Topics share state in order (record
+// adds Pepper's recheck that patients opens, review signs Mochi's consult that
+// documents uses, team adds the first member), so reset the demo between the
+// light and dark passes.
+// The "record" topic plays FAKE_MIC (a WAV) as the microphone: the whole
+// consult is captured, so give it a copy of smoke.wav with a few seconds of
+// silence at the end (the browser loops the file).
+//
+// While recording it scans the page for anything that would show this
+// computer's own paths (the user name, AppData, temp folders) and fails the
+// topic if it finds one; it refuses to start if the server's folders aren't
+// neutral. Drafts the videos show are checked too: a cut-off line or a note
+// that's mostly "Not discussed" fails the topic.
 import { mkdirSync, renameSync, rmSync } from "node:fs";
+import { userInfo } from "node:os";
 import { resolve } from "node:path";
 import { chromium } from "@playwright/test";
 
@@ -12,8 +28,24 @@ const base = process.env.OPENBARK_URL ?? "http://localhost:4318";
 const outDir = resolve("public/help");
 const tmpDir = resolve("../../target/help-video-tmp");
 const fakeMic = resolve(process.env.FAKE_MIC ?? "../../packages/eval/fixtures/audio/smoke.wav");
-const size = { width: 1280, height: 800 };
+// 16:10 like the player, and as small as the app gets before the side
+// navigation folds to icons (1200 px): the player is about 730 px wide, so
+// the smaller the window, the more readable the app's small text is in it.
+const size = { width: 1200, height: 750 };
+const theme = process.env.HELP_THEME === "dark" ? "dark" : "light";
+const suffix = theme === "dark" ? "-dark" : "";
+const LLM = "gemma-4-e4b-it-q4_0";
 mkdirSync(outDir, { recursive: true });
+
+// Text that must never be on screen: this computer's user name and private folders.
+const user = userInfo().username;
+const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const LEAK = new RegExp(
+  [user.length > 2 ? escape(user) : null, "AppData", "\\bTemp\\b", "scratchpad", "[\\\\/]Users[\\\\/]"]
+    .filter(Boolean)
+    .join("|"),
+  "i",
+);
 
 const SEEDED = {
   consentAcknowledgedAt: "2026-10-17T20:00:00Z",
@@ -23,18 +55,28 @@ const SEEDED = {
   uiLanguage: "en",
 };
 
-// Captions and a pointer drawn into the page (videos have no sound).
-function overlay() {
+// Captions and a pointer drawn into the page (videos have no sound). Flat,
+// Manrope, ink on light and a raised dark surface on dark (DESIGN.md §3, §4,
+// §5.3); the pointer stays ink or white so amber is left to the app (§3.5).
+function overlay(theme) {
+  const dark = theme === "dark";
   const install = () => {
     if (document.getElementById("__help_overlay")) return;
     const style = document.createElement("style");
+    const capLook = dark
+      ? "background: #243040; color: #F5F7FA; border: 1px solid #34425A;"
+      : "background: #182230; color: #FFFFFF; border: 1px solid #182230;";
+    const ptrLine = dark ? "#F5F7FA" : "#182230";
+    const ptrFill = dark ? "rgba(245,247,250,0.28)" : "rgba(24,34,48,0.22)";
+    const ptrDown = dark ? "rgba(245,247,250,0.5)" : "rgba(24,34,48,0.45)";
     style.textContent = `
-      #__help_caption { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 99999;
-        max-width: 880px; padding: 12px 20px; border-radius: 10px; background: rgba(27,31,36,0.88); color: #fff;
-        font: 500 19px/1.45 "Geist Sans", system-ui, sans-serif; text-align: center; opacity: 0; transition: opacity 200ms; pointer-events: none; }
+      #__help_caption { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 99999;
+        width: max-content; max-width: min(860px, calc(100vw - 96px)); padding: 12px 20px; border-radius: 14px; ${capLook}
+        font: 500 19px/1.45 "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif; text-align: center;
+        opacity: 0; transition: opacity 200ms cubic-bezier(0.2, 0, 0, 1); pointer-events: none; }
       #__help_pointer { position: fixed; z-index: 100000; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%;
-        background: rgba(47,111,106,0.35); border: 2px solid #2F6F6A; pointer-events: none; transition: transform 120ms; }
-      #__help_pointer.down { transform: scale(0.7); background: rgba(47,111,106,0.6); }`;
+        background: ${ptrFill}; border: 2px solid ${ptrLine}; pointer-events: none; transition: transform 120ms; }
+      #__help_pointer.down { transform: scale(0.7); background: ${ptrDown}; }`;
     document.head.appendChild(style);
     const cap = document.createElement("div");
     cap.id = "__help_caption";
@@ -56,8 +98,12 @@ function overlay() {
     );
     addEventListener("mousedown", () => ptr.classList.add("down"), true);
     addEventListener("mouseup", () => ptr.classList.remove("down"), true);
+    window.__captionAt = (where) => {
+      cap.style.bottom = where === "top" ? "auto" : "24px";
+      cap.style.top = where === "top" ? "92px" : "auto";
+    };
     window.__caption = (text) => {
-      cap.textContent = text;
+      if (text) cap.textContent = text;
       cap.style.opacity = text ? "1" : "0";
     };
   };
@@ -70,11 +116,26 @@ function helpers(page) {
     await page.evaluate((t) => window.__caption?.(t), text);
     await page.waitForTimeout(ms);
   };
+  /** Hide the caption: a caption never carries over onto a screen it doesn't describe. */
+  const clear = async () => {
+    await page.evaluate(() => window.__caption?.(""));
+    await page.waitForTimeout(250);
+  };
+  const captionAt = (where) => page.evaluate((w) => window.__captionAt?.(w), where);
+  const center = async (locator) => {
+    await locator.evaluate((el) => el.scrollIntoView({ block: "center", behavior: "smooth" }));
+    await page.waitForTimeout(700);
+  };
   const point = async (locator) => {
     await locator.scrollIntoViewIfNeeded();
-    const b = await locator.boundingBox();
+    let b = await locator.boundingBox();
     if (!b) return;
-    await page.mouse.move(b.x + b.width / 2, b.y + Math.min(b.height / 2, 18), { steps: 18 });
+    // Keep the target clear of the screen header and the caption: centre it if it's near an edge.
+    if (b.y < 96 || b.y + b.height > size.height - 110) {
+      await center(locator);
+      b = (await locator.boundingBox()) ?? b;
+    }
+    await page.mouse.move(b.x + Math.min(b.width / 2, 120), b.y + Math.min(b.height / 2, 18), { steps: 18 });
     await page.waitForTimeout(250);
   };
   const click = async (locator) => {
@@ -90,12 +151,47 @@ function helpers(page) {
     await page.waitForTimeout(250);
   };
   const nav = (i) => page.locator(".nav-item").nth(i);
-  return { caption, point, click, type, nav };
+  return { caption, clear, captionAt, center, point, click, type, nav };
+}
+
+/**
+ * Refuse to show a draft that would teach the wrong thing: a statement cut
+ * off mid-sentence ("The left ear can"), or a note where most headings are
+ * empty. Drafted lines are short phrases without full stops, so a line counts
+ * as cut off when it ends on a word no statement ends on.
+ */
+async function checkDraft(note, maxEmpty = 2) {
+  const report = await note.first().evaluate((el) => {
+    const DANGLING =
+      /\b(a|an|the|and|or|but|to|of|with|for|from|by|is|are|was|were|be|been|can|could|will|would|should|may|might|has|have|had|that|which|who|if|as|than|their|your|my|very)$/i;
+    const cut = [];
+    for (const stmt of el.querySelectorAll(".stmt")) {
+      const copy = stmt.cloneNode(true);
+      for (const mark of copy.querySelectorAll(".vet-mark")) mark.remove();
+      const text = copy.textContent
+        .replace(/\[[^\]]*\]/g, "")
+        .trim()
+        .replace(/[\s.,;:]+$/, "");
+      if (text && DANGLING.test(text)) cut.push(text);
+    }
+    return { cut, empty: el.querySelectorAll(".not-discussed").length, headings: el.querySelectorAll("h3").length };
+  });
+  if (report.cut.length) throw new Error(`draft has cut-off lines: ${report.cut.slice(0, 3).join(" / ")}`);
+  if (report.empty > maxEmpty)
+    throw new Error(`draft has ${report.empty} of ${report.headings} headings with nothing under them`);
+}
+
+/** Open a visit from Patients, Recent visits, by its patient's name. */
+async function openVisit(page, h, name) {
+  await h.click(h.nav(1));
+  await h.click(page.locator(".patients-bar .ob-segment").nth(1));
+  await h.click(page.locator("tr.row-link", { hasText: name }).first());
+  await page.locator(".note").waitFor();
 }
 
 const TOPICS = {
   async "getting-started"(page) {
-    const { caption, point, click, type, nav } = helpers(page);
+    const { caption, clear, center, point, click, type, nav } = helpers(page);
     await page.goto(base);
     await page.locator(".dialog").waitFor();
     await caption("OpenBark records consultations and writes the medical record, all on this computer.", 3200);
@@ -110,63 +206,119 @@ const TOPICS = {
     await caption("Templates holds your clinic's note templates.");
     await point(nav(3));
     await caption("Models lists the speech and note models. They download once; then OpenBark works offline.", 3400);
+    await clear();
     await click(nav(4));
-    await caption("In Settings, add your name for signing notes.");
+    await caption("In Settings, add your name for signing notes.", 1200);
     await type(page.locator(".settings input.ob-input").first(), "Dr. Demo");
-    const lang = page.locator(".settings select").first();
-    await point(lang);
-    await caption("Choose the app language, and the language notes are written in.", 3200);
+    await page.waitForTimeout(800);
+    await clear();
+    // The Language section: both of its menus sit above the caption.
+    const language = page.locator("section.group").filter({ has: page.locator("h2", { hasText: /^Language$/ }) });
+    await center(language);
+    await point(language.locator("select").first());
+    await caption("Choose the app language,", 1600);
+    await point(language.locator("select").nth(1));
+    await caption("and the language notes are written in.", 2400);
+    await clear();
     const storage = page.locator(".storage-row").first();
-    await storage.scrollIntoViewIfNeeded();
+    await center(storage);
     await point(storage.getByRole("button", { name: "Change folder" }));
     await caption("In Storage, choose where visits and models are kept, such as another drive.", 3400);
+    await clear();
     await point(nav(5));
     await caption("Help has these walkthroughs whenever you need them.", 3000);
   },
 
   async record(page) {
-    const { caption, point, click, type } = helpers(page);
+    const { caption, clear, captionAt, point, click, type } = helpers(page);
     await page.goto(base);
     await page.locator(".recorder").waitFor();
-    await point(page.locator(".patient-search input"));
-    await caption("Find a patient you've seen before, or enter a new one. These are optional.", 3200);
-    const fields = page.locator(".patient-fields .ob-input");
-    await type(fields.nth(0), "Pepper");
-    await type(fields.nth(1), "Okonkwo");
-    await type(fields.nth(2), "Ear infection recheck");
+    const search = page.locator(".patient-search input");
+    await point(search);
+    await caption("Find a patient you've seen before, or enter a new one. These are optional.", 3000);
+    await type(search, "Pepp");
+    await click(page.locator(".patient-match").first());
+    await page.locator(".picked-patient").waitFor();
+    await caption("Choosing a patient fills in their details and links the visit to them.", 3000);
+    await type(page.locator(".recorder-patient [id$='-reason']"), "Ear infection recheck");
+    await clear();
     await click(page.locator(".visit-types button", { hasText: "Recheck" }).first());
     await caption("Choose the kind of visit. Each has its own headings.", 2800);
-    await caption("Press Record, or the Space bar.");
+    await point(page.locator(".ob-record"));
+    await caption("Press Record, or the Space bar.", 2000);
     await click(page.locator(".ob-record"));
-    await caption("Each sentence appears in the transcript as soon as it's finished.", 6000);
-    await caption("The audio is saved, encrypted, as you go. Speakers are labelled for you.", 6000);
-    await caption("Keep the conversation natural; OpenBark listens in the background.", 6000);
+    await clear();
+    // Captions start once the microphone is really recording.
+    await page.locator(".recorder-meta", { hasText: "Recording" }).waitFor({ timeout: 20000 });
+    // The live transcript grows under the button: keep its newest line in
+    // view, with the caption at the top so it doesn't cover the words.
+    await captionAt("top");
+    const lines = page.locator(".recorder-transcript .transcript > li");
+    const follow = async (text, ms, until) => {
+      await page.evaluate((t) => window.__caption?.(t), text);
+      const end = Date.now() + ms;
+      while (Date.now() < end) {
+        await lines
+          .last()
+          .evaluate((el) => el.scrollIntoView({ block: "end", behavior: "smooth" }), null, { timeout: 500 })
+          .catch(() => {});
+        if (until && (await until())) return;
+        await page.waitForTimeout(600);
+      }
+    };
+    await follow("Listening. Each sentence appears in the transcript as soon as it's finished.", 12000);
+    await follow("The audio is saved, encrypted, as you go.", 12000);
+    await follow("Keep the conversation natural; OpenBark listens in the background.", 12000);
+    // The consult ends with the client's thanks; stop then.
+    const thanked = async () => /thank you/i.test((await page.locator(".recorder-transcript").innerText()) ?? "");
+    await follow("Talk through your findings and plan as you normally would.", 25000, thanked);
+    await page.waitForTimeout(1200);
+    await captionAt("bottom");
+    await point(page.locator(".ob-record"));
     await caption("Press the button again to stop.", 1800);
     await click(page.locator(".ob-record"));
-    await caption("A progress bar shows the last words being transcribed and the numbers checked.", 2400);
-    await page.locator(".review").waitFor({ timeout: 60000 });
-    await caption(
-      "The note is drafted automatically. Numbers are checked against the transcript when it finishes.",
-      5000,
-    );
+    await captionAt("top");
+    await caption("The last words are transcribed, then the note is written, heading by heading.", 600);
+    await page.locator(".review").waitFor({ timeout: 90000 });
+    const sign = page.locator(".review-actions .ob-button[data-variant=primary]");
+    await page.locator(".pane-note .stmt").first().waitFor({ timeout: 180000 });
+    await page.locator(".board").waitFor({ state: "detached", timeout: 180000 });
+    await sign.waitFor({ timeout: 30000 });
+    await checkDraft(page.locator(".pane-note .note"), 3);
+    await captionAt("bottom");
+    await clear();
+    await point(page.locator(".pane-note .stmt").nth(1));
+    await caption("The note is drafted automatically. Every number is checked against the transcript.", 3600);
+    await point(page.locator(".pane-note .stmt").nth(4));
+    await caption("Next, read it through in Review.", 2400);
   },
 
   async patients(page) {
-    const { caption, point, click, type, nav } = helpers(page);
+    const { caption, clear, point, click, type, nav } = helpers(page);
     await page.goto(base);
     await click(nav(1));
     await page.locator(".patient-list").waitFor();
     await caption("Patients lists every animal, most recently seen first.", 3000);
-    await type(page.locator(".patient-filter input"), "Jun");
+    await type(page.locator(".patient-filter input"), "Pepp");
     await caption("Type a name to find one.", 2200);
+    await clear();
     await click(page.locator(".patient-row").first());
     await page.locator(".visit-list").waitFor();
-    await caption("A patient's page has every visit, newest first, with its type and whether it's signed.", 3600);
-    await point(page.getByRole("button", { name: "Edit details" }));
-    await caption("Edit details corrects the name or species. Past visits keep what was entered at the time.", 3600);
+    await point(page.locator(".visit-list > li").first());
+    await caption("A patient's page has every visit, newest first, with its type and whether it's signed.", 3800);
+    await clear();
+    await click(page.getByRole("button", { name: "Edit details" }));
+    const form = page.locator("form.patient-edit");
+    await form.waitFor();
+    await point(form.locator("select"));
+    await caption("Edit details corrects the name or species. Past visits keep what was entered at the time.", 3800);
+    await clear();
+    await click(form.getByRole("button", { name: "Cancel" }));
     await click(page.locator(".head-actions").getByRole("button", { name: "New visit" }));
     await page.locator(".picked-patient").waitFor();
+    await point(page.locator(".picked-patient"));
     await caption("New visit opens Record with the patient already filled in.", 3200);
+    await clear();
     await click(nav(1));
     await click(page.locator(".patients-bar .ob-segment").nth(1));
     await page.locator("tr.row-link").first().waitFor();
@@ -174,34 +326,59 @@ const TOPICS = {
   },
 
   async review(page) {
-    const { caption, point, click, type, nav } = helpers(page);
+    const h = helpers(page);
+    const { caption, clear, captionAt, center, point, click, type } = h;
     await page.goto(base);
-    await click(nav(1));
-    await click(page.locator(".patients-bar .ob-segment").nth(1));
-    await click(page.locator('tr.row-link:has(.ob-dot[data-tone="warn"])').first());
-    await page.locator(".note").waitFor();
+    await openVisit(page, h, "Mochi Tanaka");
+    await checkDraft(page.locator(".pane-note .note"));
     await caption("Review shows the transcript on the left and the draft note on the right.", 3200);
-    const line = page.locator(".pane-note .stmt").nth(2);
+    const line = page.locator(".pane-note .stmt").nth(3);
     await point(line);
     await caption("Rest on any line to light up where it was said in the recording.", 3400);
     await click(line);
     await caption("Click it to hear that moment of the recording.");
-    const part = page.locator(".note-part", { hasText: "Follow-up" }).first();
-    await point(part.locator(".note-part-head"));
-    await click(part.getByRole("button", { name: /^Ask for changes/ }));
-    await type(page.locator("form.ask textarea"), "One line per follow-up, with when and why");
-    await caption(
-      "Ask redrafts just that heading from the recording. Save it as a standard to make it the rule.",
-      3800,
-    );
-    await click(page.locator("form.ask .ob-button[data-variant=ghost]"));
-    await point(part.locator(".note-part-head"));
-    await click(part.getByRole("button", { name: /^Edit / }));
-    await click(page.locator("form.edit-heading .ob-button[data-variant=ghost]").first());
-    await type(page.locator("form.edit-heading textarea").last(), "Owner to call if the head shaking returns");
-    await caption("Or edit a heading yourself. Your lines are marked as yours.");
-    await click(page.locator("form.edit-heading .ob-button[data-variant=primary]"));
-    await page.waitForTimeout(1200);
+    // Stop playback, so the transcript doesn't scroll along for the rest of the video.
+    await page.locator("audio").first().evaluate((a) => a.pause()).catch(() => {});
+    await clear();
+    // A heading is a section (h3) or a part of one (h4); its tools sit beside the title.
+    const title = page.locator(".note h3, .note h4").filter({ hasText: /^(Follow-up|Next recheck)$/ }).first();
+    const head = title.locator("xpath=..");
+    const part = head.locator("xpath=..");
+    await point(head);
+    await click(head.getByRole("button", { name: /^Ask for changes/ }));
+    const ask = page.locator("form.ask");
+    await captionAt("top");
+    await type(ask.locator("textarea"), "Say when, and what to watch for at home");
+    await caption("Ask tells the model what to change under this heading only.", 3000);
+    await point(ask.locator("label.check"));
+    await caption("Tick Save as a standard to make it the rule for every draft of this kind.", 3400);
+    await clear();
+    await click(ask.getByRole("button", { name: /^Redraft/ }));
+    await caption("Only that heading is redrafted, from the recording.", 1000);
+    await ask.waitFor({ state: "detached", timeout: 180000 });
+    await page.locator(".board").waitFor({ state: "detached", timeout: 60000 });
+    await page.waitForTimeout(400);
+    await checkDraft(page.locator(".pane-note .note"));
+    await center(title);
+    await point(part.locator(".refined").first());
+    await caption("The new draft notes what you asked for; the earlier one is kept.", 3400);
+    await clear();
+    await captionAt("bottom");
+    await click(head.getByRole("button", { name: /^Edit / }));
+    const edit = part.locator("form.edit-heading");
+    await click(edit.getByRole("button", { name: "Add line" }));
+    await type(edit.locator("textarea").last(), "Owner to call if she vomits again tonight");
+    await caption("Or edit a heading yourself.", 2200);
+    await clear();
+    await click(edit.getByRole("button", { name: "Save changes" }));
+    await edit.waitFor({ state: "detached" });
+    await page.waitForTimeout(600);
+    // Back to the heading just edited, so the mark is on screen with its caption.
+    await center(title);
+    const mark = part.locator(".vet-mark").first();
+    await point(mark);
+    await caption("Your lines are marked as yours.", 3200);
+    await clear();
     const sign = page.locator(".review-actions .ob-button[data-variant=primary]");
     await point(sign);
     await caption("When it's right, Sign note locks it. Anything later goes in as an addendum.", 3200);
@@ -210,53 +387,88 @@ const TOPICS = {
   },
 
   async templates(page) {
-    const { caption, click, type, nav } = helpers(page);
+    const { caption, clear, point, click, type, nav } = helpers(page);
     await page.goto(base);
     await click(nav(2));
-    await caption("Templates are the headings of your notes. Each kind of visit has its own.", 3000);
-    await click(page.getByRole("button", { name: "Start from SOAP" }).first());
+    await caption("Templates are the headings of your notes. Each kind of visit has its own.", 3200);
+    await clear();
+    const soap = page.getByRole("button", { name: "Start from SOAP" }).first();
+    await point(soap);
+    await caption("Start a new one from SOAP, or from blank headings.", 2600);
+    await click(soap);
+    await clear();
     await page.locator(".tb-heading").first().waitFor();
-    await type(page.locator(".builder-meta input.ob-input").first(), "Dental procedure");
-    await caption("Start from SOAP, or from blank headings.");
-    await click(page.locator(".builder-structure > .ob-button").last());
+    await point(page.locator(".builder-meta input.ob-input").first());
+    await caption("Name it and say what it's for.", 1200);
+    await type(page.locator(".builder-meta input.ob-input").first(), "Dental cleaning");
+    await type(page.locator(".builder-meta input.ob-input").nth(1), "Scale and polish under anaesthesia, with any extractions.");
+    await page.waitForTimeout(600);
+    await clear();
+    const add = page.locator(".builder-structure > .ob-button").last();
+    await point(add);
+    await caption("Add a heading, and give it a name.", 1600);
+    await click(add);
     const heading = page.locator(".tb-heading").last();
     await type(heading.locator("input.tb-title"), "Anaesthesia");
-    await heading.locator("select", { has: page.locator('option[value="medications"]') }).selectOption("medications");
+    await page.waitForTimeout(600);
+    await clear();
+    const format = heading.locator("select", { has: page.locator('option[value="medications"]') });
+    await point(format);
+    await caption("Choose what goes under it, and write plain-language instructions.", 1600);
+    await format.selectOption("medications");
     await type(heading.locator("textarea"), "Premedication, induction and maintenance as said.");
-    await caption("Give each heading what goes under it, and plain-language instructions.", 3200);
-    await click(page.locator(".builder-preview [role=tab]").nth(1));
+    await page.waitForTimeout(1200);
+    await clear();
+    const tab = page.locator(".builder-preview [role=tab]").nth(1);
+    await click(tab);
     await caption(
       "This is exactly what the model is told. Every template keeps the core rules: only what was said.",
       3800,
     );
-    await click(page.locator(".head-actions .ob-button[data-variant=primary]"));
-    await caption("Save it, then try it on a recorded consult.", 2800);
+    await clear();
+    const save = page.locator(".head-actions .ob-button[data-variant=primary]");
+    await point(save);
+    await caption("Save it, then try it on a recorded consult.", 1600);
+    await click(save);
+    await page.waitForTimeout(1400);
   },
 
   async documents(page) {
-    const { caption, point, click, nav } = helpers(page);
+    const h = helpers(page);
+    const { caption, clear, captionAt, point, click } = h;
     await page.goto(base);
-    await click(nav(1));
-    await click(page.locator(".patients-bar .ob-segment").nth(1));
-    await click(page.locator('tr.row-link:has(.ob-dot[data-tone="ok"])').first());
-    await page.locator(".note").waitFor();
-    await caption("Under a note: copy it, save a PDF, or make documents for the owner.");
-    await click(page.getByRole("button", { name: "Discharge instructions", exact: true }));
+    await openVisit(page, h, "Mochi Tanaka");
+    const make = page.getByRole("button", { name: "Discharge instructions", exact: true });
+    await point(make);
+    await caption("Under a note: copy it, save a PDF, or make documents for the owner.", 3000);
+    await clear();
+    await click(make);
+    await captionAt("top");
+    await caption("They're written from your corrected note; this takes a few seconds.", 600);
     // Written by the note model: give it time.
-    await page.locator(".ob-sheet .note").waitFor({ timeout: 180000 });
+    const sheet = page.locator(".ob-sheet");
+    await sheet.locator(".note .stmt").first().waitFor({ timeout: 180000 });
+    await sheet.locator(".board").waitFor({ state: "detached", timeout: 180000 });
+    await checkDraft(sheet.locator(".note"));
     await caption("Discharge instructions are in plain language and follow your corrected note.", 3400);
-    await page.locator(".ob-sheet .sheet-body").evaluate((el) => el.scrollBy({ top: 500, behavior: "smooth" }));
-    await page.waitForTimeout(1500);
-    await point(page.locator(".ob-sheet .output-row .ob-button").nth(1));
-    await caption("Copy it, or save a PDF with your clinic's letterhead.");
+    await sheet.locator(".sheet-body").evaluate((el) => el.scrollBy({ top: 420, behavior: "smooth" }));
+    await page.waitForTimeout(1600);
+    await clear();
+    await point(sheet.locator(".output-row .ob-button").nth(0));
+    await caption("Copy it,", 1400);
+    await point(sheet.locator(".output-row .ob-button").nth(1));
+    await caption("or save a PDF with your clinic's letterhead.", 2600);
+    await clear();
     await page.keyboard.press("Escape");
+    await sheet.waitFor({ state: "detached" });
+    await captionAt("bottom");
     const copy = page.locator(".output-row .ob-button").first();
     await click(copy);
     await caption("Copy note pastes the note into your PIMS, as plain or formatted text (Settings).", 3400);
   },
 
   async team(page) {
-    const { caption, click, type, nav, point } = helpers(page);
+    const { caption, clear, click, type, nav, point } = helpers(page);
     await page.goto(base);
     await click(nav(4));
     const team = page.locator("section.group", { hasText: "Team" }).first();
@@ -265,12 +477,14 @@ const TOPICS = {
     await type(team.locator("input.ob-input").nth(0), "Dr. Demo");
     await type(team.locator("input.ob-input").nth(1), "2468");
     await click(team.locator(".team-add .ob-button").first());
+    await clear();
     await page.locator(".user-picker").waitFor({ timeout: 10000 });
     await caption("Now each person picks their name and enters their PIN.");
     await click(page.locator(".user-picker .who").first());
     await type(page.locator(".user-picker input"), "2468");
     await click(page.locator(".user-picker .ob-button[data-variant=primary]"));
     await page.locator(".user-picker").waitFor({ state: "detached" });
+    await clear();
     const team2 = page.locator("section.group", { hasText: "Team" }).first();
     await type(team2.locator(".team-add input.ob-input").nth(0), "Sam");
     await team2.locator(".team-add select").selectOption("rvt");
@@ -280,6 +494,7 @@ const TOPICS = {
       "Veterinarians sign. Technicians draft and edit. Reception records. Every revision records who did it.",
       4000,
     );
+    await clear();
     await point(page.locator("section.group", { hasText: "Encryption" }).locator("h2"));
     await caption(
       "Recordings, transcripts and notes are encrypted on this computer. Keep the recovery key safe.",
@@ -289,6 +504,53 @@ const TOPICS = {
 };
 
 const wanted = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(TOPICS);
+const unknown = wanted.filter((id) => !TOPICS[id]);
+if (unknown.length) throw new Error(`unknown topics: ${unknown.join(", ")}`);
+
+// The folders shown in Settings, Storage must be neutral demo folders.
+for (const path of ["/api/storage", "/api/status"]) {
+  const text = await fetch(`${base}${path}`).then((r) => r.text());
+  const hit = text.match(LEAK);
+  if (hit) {
+    console.error(`Refusing to record: ${path} shows "${hit[0]}". Start the demo server with neutral folders (docs/guide/README.md).`);
+    process.exit(2);
+  }
+}
+
+// Load the note model before any video, so "Loading the note model" (only the
+// first draft after starting OpenBark) never shows. Drafting a template from
+// an example loads it and saves nothing.
+if (wanted.some((id) => ["record", "review", "documents"].includes(id))) {
+  const res = await fetch(`${base}/api/templates/from-example`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "X-OpenBark": "1" },
+    body: JSON.stringify({ llm: LLM, text: "Subjective\nObjective\nAssessment\nPlan" }),
+  });
+  if (!res.ok) console.warn(`Couldn't load the note model first (${res.status}); the first draft will show it loading.`);
+}
+
+// Runs in the page: report any visible text, field value or label that would show private paths.
+function leakWatch(source) {
+  const re = new RegExp(source, "i");
+  const scan = () => {
+    if (!document.body) return;
+    const parts = [document.title, document.body.innerText];
+    for (const el of document.querySelectorAll("input, textarea, select")) parts.push(el.value);
+    for (const el of document.querySelectorAll("[title], [aria-label], [placeholder], [aria-valuetext]"))
+      parts.push(el.getAttribute("title"), el.getAttribute("aria-label"), el.getAttribute("placeholder"), el.getAttribute("aria-valuetext"));
+    for (const text of parts) {
+      const m = text && text.match(re);
+      if (m) {
+        const at = text.indexOf(m[0]);
+        window.__helpLeak?.(text.slice(Math.max(0, at - 40), at + 60));
+      }
+    }
+  };
+  setInterval(scan, 400);
+  addEventListener("DOMContentLoaded", scan);
+}
+
+const failedDir = resolve("../../target/help-video-failed");
 const browser = await chromium.launch({
   args: [
     "--use-fake-ui-for-media-stream",
@@ -296,36 +558,67 @@ const browser = await chromium.launch({
     `--use-file-for-fake-audio-capture=${fakeMic}`,
   ],
 });
+let failures = 0;
 for (const id of wanted) {
   rmSync(tmpDir, { recursive: true, force: true });
   const ctx = await browser.newContext({
     viewport: size,
+    colorScheme: theme,
     recordVideo: { dir: tmpDir, size },
     permissions: ["microphone", "clipboard-read", "clipboard-write"],
     acceptDownloads: true,
   });
+  // The demo server takes its throwaway key from OPENBARK_DATA_KEY, because
+  // its own keychain entry would be this computer's real key. Show the
+  // Encryption card as an installed app shows it (key in the keychain).
+  await ctx.route("**/api/status", async (route) => {
+    const res = await route.fetch();
+    const body = await res.json().catch(() => null);
+    if (body?.encryption?.source === "environment") body.encryption.source = "keychain";
+    await route.fulfill(body ? { response: res, json: body } : { response: res });
+  });
+  const leaks = new Set();
+  await ctx.exposeBinding("__helpLeak", (_source, text) => leaks.add(text));
   const fresh = id === "getting-started";
   await ctx.addInitScript(
-    ({ seed, fresh }) => {
-      if (!fresh && !localStorage.getItem("openbark.settings"))
-        localStorage.setItem("openbark.settings", JSON.stringify(seed));
+    ({ seed, fresh, theme }) => {
+      try {
+        localStorage.setItem("openbark.theme", theme);
+        if (!fresh && !localStorage.getItem("openbark.settings"))
+          localStorage.setItem("openbark.settings", JSON.stringify(seed));
+      } catch {
+        // Storage can be unavailable; the theme still follows colorScheme.
+      }
     },
-    { seed: SEEDED, fresh },
+    { seed: SEEDED, fresh, theme },
   );
-  await ctx.addInitScript(overlay);
+  await ctx.addInitScript(overlay, theme);
+  await ctx.addInitScript(leakWatch, LEAK.source);
   const page = await ctx.newPage();
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
   try {
     await TOPICS[id](page);
+    await page.waitForTimeout(500);
   } catch (e) {
     errors.push(String(e).split("\n")[0]);
   }
   const video = page.video();
   await ctx.close();
   const path = await video.path();
-  renameSync(path, `${outDir}/${id}.webm`);
-  console.log(`${id}: ${errors.length ? errors.join(" | ") : "ok"}`);
+  const name = `${id}${suffix}.webm`;
+  if (leaks.size) errors.push(`private text on screen: ${[...leaks].slice(0, 3).join(" / ")}`);
+  if (errors.length) {
+    // Never ship a broken or leaking video: keep it aside to look at.
+    failures++;
+    mkdirSync(failedDir, { recursive: true });
+    renameSync(path, `${failedDir}/${name}`);
+    console.log(`${name}: FAILED ${errors.join(" | ")}`);
+  } else {
+    renameSync(path, `${outDir}/${name}`);
+    console.log(`${name}: ok`);
+  }
 }
 await browser.close();
 rmSync(tmpDir, { recursive: true, force: true });
+if (failures) process.exit(1);
