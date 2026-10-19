@@ -1,0 +1,46 @@
+name: Download stats
+
+# Once a day, record how many times each OpenBark installer has been
+# downloaded, per version and platform, and commit the snapshot to the
+# private `stats` branch (README.md there is the summary). It reads only the
+# public release list of ANI-ML/openbark-releases. The app is not involved:
+# OpenBark has no telemetry.
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency: download-stats
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out the stats branch
+        run: |
+          if git ls-remote --exit-code --heads origin stats >/dev/null; then
+            git fetch --depth=1 origin stats
+            git worktree add --detach stats-out origin/stats
+          else
+            git worktree add --detach stats-out
+            cd stats-out
+            git checkout --orphan stats
+            git rm -rfq .
+          fi
+      - name: Take today's snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/download-stats.py stats-out
+      - name: Commit
+        working-directory: stats-out
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && { echo "No change"; exit 0; }
+          git commit -q -m "Download stats for $(date -u +%F)"
+          git push origin HEAD:stats

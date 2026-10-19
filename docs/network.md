@@ -36,6 +36,7 @@ Transcription, note generation and everything else run with the network unplugge
 | B4 | `static.rust-lang.org` | Rust toolchain (rustup) | Pinned by `rust-toolchain.toml` |
 | B5 | `github.com/tauri-apps/binary-releases`, `github.com/tauri-apps/nsis-tauri-utils` | `tauri build --bundles nsis` downloads NSIS 3.13 and `nsis_tauri_utils.dll` 0.5.3 on first use, and checks their hashes | Cached afterwards |
 | B6 | `github.com/create-dmg/create-dmg` (tag archive) | `scripts/macos-dmg.sh` downloads create-dmg 1.3.0 to lay out the macOS disk image | Pinned by tag in the script |
+| B7 | `api.github.com` | The daily **Download stats** workflow reads the public release list of ANI-ML/openbark-releases (download counts per installer) and commits a snapshot to the private `stats` branch | CI only. Counts come from GitHub's own per-file totals; nothing is collected from the app or from website visitors |
 
 ## Planned (not built yet)
 
