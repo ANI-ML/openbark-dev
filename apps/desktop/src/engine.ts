@@ -305,6 +305,15 @@ export interface Status {
 export type Fit = "fits" | "tight" | "wont_fit";
 export type Slot = "llm" | "stt" | "vad" | "diarization" | "speaker_embedding";
 
+/** Where a model came from (ADR-0025). */
+export type Origin = "builtin" | "hub" | "local_copy" | "local_in_place";
+/**
+ * What Remove does for a row: delete its files (the row stays), delete a copy
+ * and drop the row, only forget it (used where it is), or nothing at all
+ * (`needed` speech models; `with_gpu_pack` goes with the GPU speech pack).
+ */
+export type RowRemove = "delete" | "delete_and_forget" | "forget_only" | "needed" | "with_gpu_pack";
+
 export interface ModelRow {
   id: string;
   name: string;
@@ -315,6 +324,64 @@ export interface ModelRow {
   installed: boolean;
   fit: Fit;
   builtin: boolean;
+  /**
+   * Bytes on disk that are OpenBark's alone, `.part` files included: what
+   * removing it frees (0 when used where it is).
+   */
+  disk_bytes: number;
+  /**
+   * Bytes on disk whose data another name also holds (a hard link: a copy
+   * from this computer on the same drive). Removing them frees nothing.
+   */
+  shared_bytes: number;
+  /** Bytes of a download that stopped part-way. */
+  partial_bytes: number;
+  origin: Origin;
+  /** Note models only: which engine runs it. */
+  engine: "llama" | "mlx" | null;
+  /** Number of files (split GGUFs and MLX folders have several). */
+  parts: number;
+  remove: RowRemove;
+  /** Used where it is, and the file or folder is gone. */
+  missing: boolean;
+  gated: boolean;
+  /** Used where it is: the file or folder. */
+  path: string | null;
+}
+
+/** What a removal did (ADR-0025 §10). */
+export interface Removal {
+  id: string;
+  /** Space really freed. */
+  freed_bytes: number;
+  /** Bytes deleted whose data another name still holds (a hard link): nothing freed for them. */
+  shared_bytes?: number;
+  files_removed: number;
+  /** Dropped from the list. */
+  forgotten: boolean;
+  /** Used where it is: nothing was deleted. */
+  kept_in_place: boolean;
+}
+
+/** Who can run MLX models (ADR-0025 §1). */
+export type MlxSupport = "yes" | "test_mode" | "needs_apple_silicon" | "needs_macos14" | "not_mac";
+
+/** The MLX engine pack on this computer. */
+export interface MlxStatus {
+  support: MlxSupport;
+  macos_version: string | null;
+  pack_installed: boolean;
+  /** Downloading or setting up right now. */
+  installing: boolean;
+  check: "not_run" | "passed" | "failed";
+  check_message: string | null;
+  metal: boolean;
+  /** Still to download (0 when installed). */
+  download_bytes: number;
+  installed_bytes: number;
+  versions: Record<string, string>;
+  /** An MLX model is loaded now. */
+  in_use: boolean;
 }
 
 export type LicenseClass = "permissive" | "restricted" | "unknown";
@@ -332,9 +399,70 @@ export interface HubModel {
   mlx: boolean;
 }
 
+/** Gated repos: can this computer's token see the files? (ADR-0025 §8) */
+export type HubAccess = "open" | "needs_token" | "no_access_yet";
+
+/** Why an MLX repo can't run. */
+export type MlxProblem =
+  | { kind: "no_config" }
+  | { kind: "bad_config" }
+  | { kind: "no_weights" }
+  | { kind: "incomplete_shards"; missing: string[] }
+  | { kind: "no_tokenizer" }
+  | { kind: "hashes_hidden" };
+
+/** The whole MLX model folder of a repo, offered as one row. */
+export interface HubMlxView {
+  size_bytes: number;
+  files: number;
+  fit: Fit;
+  model_type: string | null;
+  quantization: string | null;
+  problem: MlxProblem | null;
+  /** The MLX engine can run this `model_type`. */
+  arch_supported: boolean;
+  support: MlxSupport;
+  pack_installed: boolean;
+}
+
 export interface HubRepoView {
-  repo: { model: HubModel; revision: string };
-  files: { path: string; size_bytes: number; fit: Fit }[];
+  repo: {
+    model: HubModel;
+    revision: string;
+    access: HubAccess;
+    gated_kind: "auto" | "manual" | null;
+    base_model: string | null;
+  };
+  /** GGUF choices; `parts` > 1 for a split GGUF. */
+  files: { path: string; size_bytes: number; fit: Fit; parts: number }[];
+  mlx: HubMlxView | null;
+}
+
+/** `hubAdd(repo, MLX_CHOICE, …)` adds an MLX repo's whole model folder. */
+export const MLX_CHOICE = "@mlx";
+
+export type ImportMode = "copy" | "in_place";
+
+/** What adding a model from this computer would add, before anything changes. */
+export interface ImportPreview {
+  kind: "gguf" | "mlx";
+  name: string;
+  /** "local/<name>": also the `download` events' model while copying. */
+  id: string;
+  files: { path: string; size: number }[];
+  total_bytes: number;
+  model_type: string | null;
+  /** A copy can be a link on the same drive (no extra space). */
+  same_drive: boolean;
+  free_bytes: number | null;
+}
+
+/** The saved Hugging Face token: never the token itself. */
+export interface HfTokenStatus {
+  saved: boolean;
+  source: "server" | "keychain" | "vault_file" | "session" | null;
+  /** The account name, when the token was saved in this run. */
+  user: string | null;
 }
 
 // ---- templates ----------------------------------------------------------------
@@ -1121,6 +1249,8 @@ export interface GpuStatus {
   /** The self-test failed, so the processor is used. */
   check_failed: boolean;
   download_bytes: number;
+  /** The pack's libraries plus the two full-precision models on disk. */
+  installed_bytes: number;
 }
 
 export const gpuStatus = () => (isDesktop ? invoke<GpuStatus>("gpu_status") : api<GpuStatus>("/api/gpu"));
@@ -1130,7 +1260,148 @@ export const installGpu = (acceptLicense: boolean) =>
     ? invoke<GpuStatus>("install_gpu", { acceptLicense })
     : api<GpuStatus>("/api/gpu/install", post({ accept_license: acceptLicense }));
 export const removeGpu = () =>
-  isDesktop ? invoke<GpuStatus>("remove_gpu") : api<GpuStatus>("/api/gpu/remove", { method: "POST" });
+  isDesktop ? invoke<GpuStatus>("remove_gpu", { by: actor }) : api<GpuStatus>("/api/gpu/remove", post({ by: actor }));
+
+// ---- removing and adding models (ADR-0025) ------------------------------------
+
+/**
+ * Remove a model's files, or forget one used where it is. `noteModel` is this
+ * device's note model (a per-device setting), which the engine refuses to
+ * remove; `forget` also drops a Hugging Face model from the list.
+ */
+export const removeModel = (id: string, noteModel: string | null, forget = false) =>
+  isDesktop
+    ? invoke<Removal>("remove_model", { id, noteModel, forget, by: actor })
+    : api<Removal>("/api/models/remove", post({ id, note_model: noteModel, forget, by: actor }));
+
+/** Look at a .gguf file or an MLX folder without changing anything (with a team, a veterinarian only). */
+export const inspectImport = (path: string) =>
+  isDesktop
+    ? invoke<ImportPreview>("inspect_import", { path, by: actor })
+    : api<ImportPreview>("/api/models/import/inspect", post({ path, by: actor }));
+
+/** Add it: copied into the models folder, or used where it is. Progress comes as `download` events. */
+export const importModel = (path: string, mode: ImportMode) =>
+  isDesktop
+    ? invoke<ModelRow>("import_model", { path, mode, by: actor })
+    : api<ModelRow>("/api/models/import", post({ path, mode, by: actor }));
+
+/** Desktop: the system's file picker for a .gguf model. Web: null (the sheet asks for a path). */
+export async function pickModelFile(): Promise<string | null> {
+  if (!isDesktop) return null;
+  const picked = await open({ multiple: false, directory: false, filters: [{ name: "GGUF", extensions: ["gguf"] }] });
+  return typeof picked === "string" ? picked : null;
+}
+
+/** Desktop: the system's folder picker for an MLX model folder. Web: null. */
+export async function pickModelFolder(): Promise<string | null> {
+  if (!isDesktop) return null;
+  const picked = await open({ multiple: false, directory: true });
+  return typeof picked === "string" ? picked : null;
+}
+
+// ---- MLX engine pack (ADR-0025) -------------------------------------------------
+
+export const mlxStatus = () => (isDesktop ? invoke<MlxStatus>("mlx_status") : api<MlxStatus>("/api/mlx"));
+/** Download and set up the pack; progress comes as `download` events for "mlx-engine-pack". */
+export const installMlx = () =>
+  isDesktop ? invoke<MlxStatus>("install_mlx") : api<MlxStatus>("/api/mlx/install", { method: "POST" });
+/** Run the pack's check again ("Try again"). */
+export const checkMlx = () =>
+  isDesktop ? invoke<MlxStatus>("check_mlx") : api<MlxStatus>("/api/mlx/check", { method: "POST" });
+export const removeMlx = (noteModel: string | null) =>
+  isDesktop
+    ? invoke<Removal>("remove_mlx", { noteModel, by: actor })
+    : api<Removal>("/api/mlx/remove", post({ note_model: noteModel, by: actor }));
+/** The `download` events' model while the MLX engine pack downloads. */
+export const MLX_PACK_ID = "mlx-engine-pack";
+
+// ---- Hugging Face token (ADR-0025 §8) ---------------------------------------------
+
+export const hfTokenStatus = () =>
+  isDesktop ? invoke<HfTokenStatus>("hf_token_status") : api<HfTokenStatus>("/api/hf-token");
+/** Checked with Hugging Face first (one call), then saved. The token never comes back. */
+export const setHfToken = (token: string) =>
+  isDesktop
+    ? invoke<HfTokenStatus>("set_hf_token", { token, by: actor })
+    : api<HfTokenStatus>("/api/hf-token", post({ token, by: actor }));
+export const clearHfToken = () =>
+  isDesktop
+    ? invoke<HfTokenStatus>("clear_hf_token", { by: actor })
+    : api<HfTokenStatus>("/api/hf-token/clear", post({ by: actor }));
+
+/** GGUF builds of an MLX repo's base model, to suggest instead. */
+export const hubAlternatives = (base: string) =>
+  isDesktop
+    ? invoke<HubModel[]>("hub_alternatives", { base })
+    : api<HubModel[]>(`/api/hub/alternatives?base=${enc(base)}`);
+
+type Translate = (text: string, vars?: Record<string, string | number>) => string;
+
+/**
+ * The engine's messages about models (ADR-0025, contracts 3 to 6 and 10), as
+ * `t()` calls so scripts/i18n-keys.py lists them for translation. Messages
+ * with a name, path or size in them are matched by pattern below.
+ */
+export const MODEL_MESSAGES = (t: Translate) => [
+  t("Only a veterinarian can change the models."),
+  t("No model called {id} in the catalog."),
+  t("OpenBark needs this to transcribe visits."),
+  t("This comes with the GPU speech pack. Remove the pack instead."),
+  t("This model is still downloading."),
+  t("This model writes your notes. Choose another one under In use first."),
+  t("A note is being written with this model. Remove it when that's finished."),
+  t("Your note model uses the MLX engine. Choose another one under In use first."),
+  t("A note is being written with an MLX model. Remove the engine when that's finished."),
+  t("Download the MLX engine on the Models screen first."),
+  t("The MLX engine didn't pass its check on this computer. Choose Try again on the MLX engine card in Models."),
+  t("MLX models run on a Mac with Apple silicon and macOS 14 or later."),
+  t("The MLX engine is already downloading."),
+  t("{name} isn't where it was ({path}). Add it again from this computer."),
+  t("{name} didn't pass OpenBark's check, so it can't write notes."),
+  t("This model is gated on Hugging Face. Request access on its page, then add your token."),
+  t("Hugging Face couldn't find {url}. It may have been removed or made private."),
+  t("{0} was added from this computer, so it can't be downloaded."),
+  t("{0} wasn't found on Hugging Face, or it's private."),
+  t("Hugging Face didn't accept that token. Copy it again from huggingface.co/settings/tokens."),
+  t("OpenBark can't find {0}."),
+  t("Give the full path, starting from the top of the drive."),
+  t("That isn't a GGUF model file."),
+  t("That's a helper file ({0}), not a model. Choose the main model file."),
+  t("Some parts of this model are missing from the folder: {0}."),
+  t("That folder isn't an MLX model OpenBark can run: {0}"),
+  t("{0} is a link to a file outside the folder you chose, so OpenBark won't add it."),
+  t("An older version of this model is on this computer. Remove it on the Models screen, then add it again."),
+  t("Not enough space: this needs {need} bytes and {available} are free."),
+  t("OpenBark won't delete {0}: it's outside the models folder."),
+  t("OpenBark won't delete {0}: it's a link to somewhere else."),
+];
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+let messagePatterns: { english: string; re: RegExp; names: string[] }[] | null = null;
+
+/** An engine message about models in the app language (English when unknown). */
+export function modelMessage(t: Translate, e: unknown): string {
+  const text = e instanceof Error ? e.message : String(e);
+  messagePatterns ??= MODEL_MESSAGES((s) => s).map((english) => {
+    const names = [...english.matchAll(/\{(\w+)\}/g)].map((m) => m[1] ?? "");
+    const re = new RegExp(
+      `^${english
+        .split(/\{\w+\}/)
+        .map(escapeRe)
+        .join("(.+?)")}$`,
+      "s",
+    );
+    return { english, re, names };
+  });
+  for (const { english, re, names } of messagePatterns) {
+    const m = text.match(re);
+    if (!m) continue;
+    if (names.length === 0) return t(english);
+    return t(english, Object.fromEntries(names.map((n, i) => [n, m[i + 1] ?? ""])));
+  }
+  return text;
+}
 
 export const downloadModel = (id: string) =>
   isDesktop ? invoke<void>("download_model", { id }) : api<void>(`/api/models/${enc(id)}/download`, { method: "POST" });

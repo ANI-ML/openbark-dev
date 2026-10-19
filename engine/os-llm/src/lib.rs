@@ -6,9 +6,11 @@
 
 mod chat_template;
 mod llama;
+pub mod mlx;
 
 pub use chat_template::ChatMessage;
 pub use llama::{LlamaCppBackend, LlamaCppOptions};
+pub use mlx::{MlxBackend, MlxDevice, MlxOptions, ModelCheck, PackCheck};
 
 use serde::Serialize;
 

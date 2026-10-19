@@ -5,7 +5,7 @@
 //! All methods block; callers run them on a worker thread. Progress goes to
 //! an [`Events`] sink (Tauri events on desktop, server-sent events on web).
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -16,17 +16,25 @@ use os_engine::awake::{AwakeGuard, AwakeReason};
 use os_engine::live::{LiveOptions, LiveRecorder, LiveSink, LiveSource};
 pub use os_engine::live::{Progress, Stage};
 use os_engine::patients::{PatientRecord, PatientStore};
+use os_engine::secrets::{self, TokenSource};
 pub use os_engine::session::AudioDeleted;
 use os_engine::session::{self, Addendum, ChartCheck, Consent, PatientInfo, Session};
 use os_engine::template::{LoadedTemplate, Scope, Template};
 use os_engine::trash::{self, DeletedInfo, Recovered, Trash};
 use os_engine::users::{Role, User, UserStore, Who};
 use os_engine::{NoteOptions, Segment, TemplateStore, TranscribeStats, Transcript};
-use os_llm::{LlamaCppBackend, LlamaCppOptions};
-use os_models::hub::{self, Fit, HubModel, HubRepo};
+use os_llm::{
+    LlamaCppBackend, LlamaCppOptions, LlmBackend, MlxBackend, MlxDevice, MlxOptions, ModelCheck, PackCheck,
+};
+use os_models::hub::{self, Access, Fit, HubModel, HubRepo, MlxProblem};
+use os_models::local::ImportKind;
+pub use os_models::local::{ImportMode, ImportPreview};
 use os_models::locations::{self, Contents};
 pub use os_models::locations::{FolderKind, Moved, Source as FolderSource};
-use os_models::{CatalogEntry, ModelStore, Slot, Verify};
+use os_models::mlx_pack::{self, Support};
+pub use os_models::remove::Removal;
+use os_models::remove::{self as removal, RemoveRule};
+use os_models::{CatalogEntry, Layout, LlmEngine, ModelStore, Slot, Source, Verify};
 use serde::Serialize;
 
 pub use os_asr::capture::AudioBlock;
@@ -263,7 +271,20 @@ pub struct App {
     pub users: UserStore,
     /// Patients, with their visits linked by id (ADR-0011).
     pub patients: PatientStore,
-    llm: Mutex<Option<(String, Arc<LlamaCppBackend>)>>,
+    /// The loaded note model: llama.cpp or MLX (ADR-0025). A draft holds a
+    /// clone of the `Arc` while it runs, so a count above one means busy.
+    llm: Mutex<Option<(String, Arc<dyn LlmBackend>)>>,
+    /// Every note model handed out (id, MLX or not), weakly: a draft still
+    /// running on a model that has since left the slot keeps it busy.
+    loaned: Mutex<Vec<Loaned>>,
+    /// Model ids with a download or an import running (ADR-0025 §10).
+    downloading: Mutex<HashSet<String>>,
+    /// The slot holds, or is loading, an MLX model: for status calls that
+    /// mustn't wait while a model loads (the slot's lock is held for that).
+    mlx_in_slot: std::sync::atomic::AtomicBool,
+    /// Whose Hugging Face token was saved in this run (from `whoami`), kept
+    /// in memory only.
+    hf_user: Mutex<Option<String>>,
     recorder: Mutex<Option<LiveRecorder>>,
     /// The live recording's work ticket, held until it stops.
     recording_work: Mutex<Option<Busy>>,
@@ -309,6 +330,9 @@ fn probe_hardware() -> Hardware {
 
 /// A GPU speech pack download is running (one at a time per process).
 static GPU_INSTALLING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// An MLX engine pack download or set-up is running (one at a time per process).
+static MLX_INSTALLING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Passed to the program itself to run the GPU self-test in a child process.
 pub const GPU_CHECK_ARG: &str = "--openbark-gpu-check";
@@ -409,6 +433,9 @@ pub struct GpuStatus {
     pub check_failed: bool,
     /// Still to download.
     pub download_bytes: u64,
+    /// What Remove frees: the pack's libraries plus the two full-precision
+    /// models on disk.
+    pub installed_bytes: u64,
 }
 
 #[derive(Serialize)]
@@ -628,7 +655,30 @@ pub struct NoteResponse {
     pub notice: Option<String>,
 }
 
-#[derive(Serialize)]
+/// Where a model came from (ADR-0025 §10).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Origin {
+    Builtin,
+    Hub,
+    LocalCopy,
+    LocalInPlace,
+}
+
+/// What Remove does for a row, or why it isn't offered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RowRemove {
+    Delete,
+    DeleteAndForget,
+    ForgetOnly,
+    /// A speech model OpenBark needs to transcribe visits.
+    Needed,
+    /// Removed with the GPU speech pack, not on its own.
+    WithGpuPack,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct ModelRow {
     pub id: String,
     pub name: String,
@@ -639,6 +689,378 @@ pub struct ModelRow {
     pub installed: bool,
     pub fit: Fit,
     pub builtin: bool,
+    /// Bytes on disk that are OpenBark's alone, so removing them frees that
+    /// much (0 when used in place).
+    pub disk_bytes: u64,
+    /// Bytes on disk whose data another name also holds (a hard link: a copy
+    /// from this computer on the same drive). Removing them frees nothing.
+    pub shared_bytes: u64,
+    /// A download that stopped part-way.
+    pub partial_bytes: u64,
+    pub origin: Origin,
+    /// Note models only.
+    pub engine: Option<LlmEngine>,
+    /// Number of files.
+    pub parts: usize,
+    pub remove: RowRemove,
+    /// Used in place, and the file or folder is gone.
+    pub missing: bool,
+    pub gated: bool,
+    /// Used in place: where it is.
+    pub path: Option<String>,
+}
+
+/// The MLX engine pack's self-test.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CheckState {
+    NotRun,
+    Passed,
+    Failed,
+}
+
+/// The MLX engine card (ADR-0025 §4).
+#[derive(Debug, Clone, Serialize)]
+pub struct MlxStatus {
+    pub support: Support,
+    pub macos_version: Option<String>,
+    pub pack_installed: bool,
+    pub installing: bool,
+    pub check: CheckState,
+    pub check_message: Option<String>,
+    pub metal: bool,
+    /// Still to download (0 when installed).
+    pub download_bytes: u64,
+    pub installed_bytes: u64,
+    /// python, mlx, mlx_lm, llguidance, from the lock.
+    pub versions: BTreeMap<String, String>,
+    /// An MLX model is loaded now.
+    pub in_use: bool,
+}
+
+/// The Hugging Face token (ADR-0025 §8). Never the token itself.
+#[derive(Debug, Clone, Serialize)]
+pub struct HfTokenStatus {
+    pub saved: bool,
+    pub source: Option<TokenSource>,
+    /// The name from `whoami` when the token was saved in this run.
+    pub user: Option<String>,
+}
+
+/// An MLX model folder in a Hub repo, as the sheet shows it.
+#[derive(Debug, Clone, Serialize)]
+pub struct HubMlxView {
+    pub size_bytes: u64,
+    pub files: usize,
+    pub fit: Fit,
+    pub model_type: Option<String>,
+    pub quantization: Option<String>,
+    pub problem: Option<MlxProblem>,
+    /// mlx-lm in the pack can run this `model_type`.
+    pub arch_supported: bool,
+    pub support: Support,
+    pub pack_installed: bool,
+}
+
+/// Refused while drafting, refining or proposing a template with the model.
+const MODEL_BUSY: &str = "A note is being written with this model. Remove it when that's finished.";
+const MLX_FIRST: &str = "Download the MLX engine on the Models screen first.";
+const MLX_NEEDS: &str = "MLX models run on a Mac with Apple silicon and macOS 14 or later.";
+const MLX_DOWNLOADING: &str = "The MLX engine is already downloading.";
+const MLX_CHECK_FAILED: &str = "The MLX engine didn't pass its check on this computer. Choose Try again on the MLX engine card in Models.";
+
+/// Why a model can't be removed on its own, if it can't: the speech models
+/// OpenBark needs to transcribe visits, and the GPU speech pack's own
+/// recognisers (ADR-0025 §10). The default note model is not protected.
+pub fn protected_model(id: &str) -> Option<&'static str> {
+    use os_engine::models::{DEFAULT_STT, EMBEDDING, GPU_SECOND_STT, GPU_STT, SEGMENTATION, VAD};
+    if [VAD, DEFAULT_STT, SEGMENTATION, EMBEDDING, os_engine::live::SECOND_STT].contains(&id) {
+        Some("OpenBark needs this to transcribe visits.")
+    } else if [GPU_STT, GPU_SECOND_STT].contains(&id) {
+        Some("This comes with the GPU speech pack. Remove the pack instead.")
+    } else {
+        None
+    }
+}
+
+fn row_remove(m: &CatalogEntry) -> RowRemove {
+    use os_engine::models::{DEFAULT_STT, EMBEDDING, GPU_SECOND_STT, GPU_STT, SEGMENTATION, VAD};
+    if [VAD, DEFAULT_STT, SEGMENTATION, EMBEDDING, os_engine::live::SECOND_STT].contains(&m.id.as_str()) {
+        return RowRemove::Needed;
+    }
+    if [GPU_STT, GPU_SECOND_STT].contains(&m.id.as_str()) {
+        return RowRemove::WithGpuPack;
+    }
+    match removal::rule(m) {
+        RemoveRule::Delete => RowRemove::Delete,
+        RemoveRule::DeleteAndForget => RowRemove::DeleteAndForget,
+        RemoveRule::ForgetOnly => RowRemove::ForgetOnly,
+    }
+}
+
+fn origin_of(m: &CatalogEntry, builtin: bool) -> Origin {
+    match &m.source {
+        _ if builtin => Origin::Builtin,
+        Source::Local { path: Some(_) } => Origin::LocalInPlace,
+        Source::Local { path: None } => Origin::LocalCopy,
+        _ => Origin::Hub,
+    }
+}
+
+/// MLX can run here: a Mac with Apple silicon and macOS 14, or test mode.
+pub fn mlx_runs_here() -> bool {
+    matches!(mlx_pack::support(), Support::Yes | Support::TestMode)
+}
+
+/// MLX's device: `OPENBARK_MLX_DEVICE=cpu` forces the CPU (Mac runners
+/// without usable Metal); otherwise Metal when available.
+pub fn mlx_device() -> MlxDevice {
+    if std::env::var("OPENBARK_MLX_DEVICE").is_ok_and(|v| v.trim().eq_ignore_ascii_case("cpu")) {
+        MlxDevice::Cpu
+    } else {
+        MlxDevice::Auto
+    }
+}
+
+/// On macOS the worker runs under `sandbox-exec` with no network, unless
+/// `OPENBARK_MLX_SANDBOX=0` (support only).
+pub fn mlx_sandbox() -> bool {
+    cfg!(target_os = "macos") && std::env::var("OPENBARK_MLX_SANDBOX").map_or(true, |v| v.trim() != "0")
+}
+
+fn pack_key() -> Option<mlx_pack::CheckKey> {
+    mlx_pack::check_key(env!("CARGO_PKG_VERSION"), "pack")
+}
+
+/// Whether Metal was usable at the last pack check, kept beside it.
+fn metal_key() -> Option<mlx_pack::CheckKey> {
+    mlx_pack::check_key(env!("CARGO_PKG_VERSION"), "pack:metal")
+}
+
+/// Where MLX stands before a model loads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MlxGate {
+    /// Not a Mac that runs MLX (and not test mode).
+    NotHere,
+    /// The engine pack isn't installed.
+    NotInstalled,
+    /// Installed, with no check result for this app version, lock, macOS
+    /// version and chip: after an OpenBark or macOS update, or never run.
+    NeedsCheck,
+    /// Its check failed on this computer.
+    Failed,
+    Ready,
+}
+
+fn mlx_gate(runs: bool, installed: bool, check: Option<&mlx_pack::CheckRecord>) -> MlxGate {
+    match (runs, installed, check) {
+        (false, _, _) => MlxGate::NotHere,
+        (true, false, _) => MlxGate::NotInstalled,
+        (true, true, None) => MlxGate::NeedsCheck,
+        (true, true, Some(r)) if r.ok => MlxGate::Ready,
+        (true, true, Some(_)) => MlxGate::Failed,
+    }
+}
+
+/// Make sure the engine can write notes, running its check first when the
+/// last result no longer applies (a few seconds, local): an update must
+/// never send someone to download an engine they already have. `check` is
+/// [`run_mlx_pack_check`] (a stand-in in tests).
+fn ensure_mlx(gate: MlxGate, check: impl FnOnce() -> Result<PackCheck>) -> Result<()> {
+    match gate {
+        MlxGate::Ready => Ok(()),
+        MlxGate::NotHere => Err(AppError(MLX_NEEDS.into())),
+        MlxGate::NotInstalled => Err(AppError(MLX_FIRST.into())),
+        MlxGate::Failed => Err(AppError(MLX_CHECK_FAILED.into())),
+        MlxGate::NeedsCheck => {
+            tracing::info!("the MLX engine's last check doesn't apply any more; checking it again");
+            match check() {
+                Ok(c) if c.ok => Ok(()),
+                Ok(c) => {
+                    tracing::warn!(message = ?c.message, "the MLX engine didn't pass its check");
+                    Err(AppError(MLX_CHECK_FAILED.into()))
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e.0, "the MLX engine couldn't check itself");
+                    Err(AppError(MLX_CHECK_FAILED.into()))
+                }
+            }
+        }
+    }
+}
+
+/// The MLX engine pack is installed here and passed its check.
+pub fn mlx_ready() -> bool {
+    mlx_runs_here()
+        && mlx_pack::installed()
+        && pack_key().and_then(|k| mlx_pack::check_result(&k)).is_some_and(|r| r.ok)
+}
+
+/// Run the MLX pack check in a child worker and record the result (and
+/// whether Metal was usable). A check that couldn't run at all is recorded
+/// as failed too, and returned as an error.
+pub fn run_mlx_pack_check() -> Result<PackCheck> {
+    let (Some(python), Some(dir)) = (mlx_pack::python(), mlx_pack::pack_dir()) else {
+        return Err(AppError(MLX_NEEDS.into()));
+    };
+    if !mlx_pack::installed() {
+        return Err(AppError(MLX_FIRST.into()));
+    }
+    let record = |key: Option<mlx_pack::CheckKey>, ok: bool, message: Option<&str>| {
+        if let Some(key) = key
+            && let Err(e) = mlx_pack::record_check(&key, ok, message)
+        {
+            tracing::warn!(error = %e, "couldn't save the MLX check result");
+        }
+    };
+    match MlxBackend::pack_check(&python, &dir, mlx_device(), mlx_sandbox()) {
+        Ok(check) => {
+            record(pack_key(), check.ok, check.message.as_deref());
+            record(metal_key(), check.metal, None);
+            Ok(check)
+        }
+        Err(e) => {
+            let message = e.to_string();
+            record(pack_key(), false, Some(&message));
+            record(metal_key(), false, None);
+            Err(AppError(format!("The MLX engine couldn't check itself: {message}.")))
+        }
+    }
+}
+
+/// Download (resumable, verified) and unpack the MLX engine pack, then check
+/// it. `progress(done, total)` counts bytes downloaded. The check's result
+/// is recorded either way; it is returned for the command line.
+pub fn install_mlx_pack(store: &ModelStore, progress: &mut dyn FnMut(u64, u64)) -> Result<PackCheck> {
+    let entry = mlx_pack::entry().filter(|_| mlx_runs_here()).ok_or_else(|| AppError(MLX_NEEDS.into()))?;
+    if !mlx_pack::installed() {
+        let total = entry.total_size();
+        let (mut before, mut current, mut file_done) = (0u64, String::new(), 0u64);
+        os_models::download(store, &entry, None, &mut |file: &str, done: u64, _t: u64| {
+            if file != current {
+                before += file_done;
+                current = file.to_string();
+            }
+            file_done = done;
+            progress(before + done, total);
+        })?;
+        mlx_pack::unpack(store, |_, _| {})
+            .map_err(|e| AppError(format!("The MLX engine couldn't be set up: {e}.")))?;
+    }
+    run_mlx_pack_check()
+}
+
+/// Open a note model by catalog id (built-in, Hub, or added from this
+/// computer) or a path to a `.gguf` file: llama.cpp for GGUF, the MLX
+/// worker for MLX folders (ADR-0025). Refuses a model that can't be held to
+/// a JSON Schema: every draft is constrained (ADR-0006).
+pub fn open_llm(store: &ModelStore, spec: &str, gpu_layers: Option<u32>) -> Result<Arc<dyn LlmBackend>> {
+    let llama = |path: PathBuf| -> Result<Arc<dyn LlmBackend>> {
+        let mut options = LlamaCppOptions::new(path);
+        if let Some(layers) = gpu_layers {
+            options.gpu_layers = layers;
+        }
+        Ok(Arc::new(LlamaCppBackend::load(options)?))
+    };
+    let (name, backend) = if spec.to_ascii_lowercase().ends_with(".gguf") && Path::new(spec).is_file() {
+        let name = Path::new(spec).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        (name, llama(PathBuf::from(spec))?)
+    } else {
+        let catalog = hub::full_catalog(store);
+        let m = catalog.get(spec).ok_or_else(|| AppError(format!("No model called {spec}.")))?;
+        if let Some(p) = m.in_place()
+            && !p.exists()
+        {
+            return Err(AppError(format!(
+                "{} isn't where it was ({}). Add it again from this computer.",
+                m.display_name,
+                p.display()
+            )));
+        }
+        let downloaded = || {
+            if store.is_installed(m, Verify::Size) {
+                Ok(())
+            } else {
+                Err(AppError(format!("{} isn't downloaded yet. Download it in Models.", m.display_name)))
+            }
+        };
+        let backend = match &m.layout {
+            Layout::LlmGguf { model } => {
+                downloaded()?;
+                // A split GGUF: llama.cpp is given part 1 and finds the rest.
+                llama(store.file_path(m, model))?
+            }
+            Layout::LlmMlx { config } => {
+                downloaded()?;
+                open_mlx(store, m, config)?
+            }
+            _ => return Err(AppError(format!("{} can't write notes.", m.display_name))),
+        };
+        (m.display_name.clone(), backend)
+    };
+    if !backend.capabilities().json_schema_constrained {
+        return Err(AppError(format!("{name} didn't pass OpenBark's check, so it can't write notes.")));
+    }
+    Ok(backend)
+}
+
+/// An MLX model, on the pack's worker. The model check runs on its first
+/// load on this computer and is remembered in `checks.json`.
+fn open_mlx(store: &ModelStore, m: &CatalogEntry, config: &str) -> Result<Arc<dyn LlmBackend>> {
+    let installed = mlx_pack::installed();
+    let record = pack_key().and_then(|k| mlx_pack::check_result(&k));
+    ensure_mlx(mlx_gate(mlx_runs_here(), installed, record.as_ref()), run_mlx_pack_check)?;
+    let (Some(python), Some(work_dir)) = (mlx_pack::python(), mlx_pack::pack_dir()) else {
+        return Err(AppError(MLX_FIRST.into()));
+    };
+    let config_path = store.file_path(m, config);
+    let folder = config_path.parent().map(Path::to_path_buf).unwrap_or_default();
+    let model_dir = std::path::absolute(&folder)?;
+    let revision = match &m.source {
+        Source::Huggingface { revision, .. } => revision.clone(),
+        _ => std::fs::metadata(&config_path)
+            .map(|md| {
+                let mtime = md
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map_or(0, |d| d.as_secs());
+                format!("{}+{mtime}", md.len())
+            })
+            .unwrap_or_default(),
+    };
+    let key = mlx_pack::check_key(env!("CARGO_PKG_VERSION"), &format!("{}@{revision}", m.id));
+    let passed_before = key.as_ref().and_then(mlx_pack::check_result).is_some_and(|r| r.ok);
+    let mut options = MlxOptions::new(python, work_dir, model_dir, m.display_name.clone());
+    options.device = mlx_device();
+    options.sandbox = mlx_sandbox();
+    options.model_check = if passed_before { ModelCheck::AlreadyPassed } else { ModelCheck::Run };
+    let backend = MlxBackend::load(options)?;
+    if let (Some(key), Some(passed)) = (&key, backend.model_check_ran()) {
+        let message = (!passed).then_some("The model didn't pass OpenBark's check.");
+        if let Err(e) = mlx_pack::record_check(key, passed, message) {
+            tracing::warn!(error = %e, "couldn't save the MLX model check");
+        }
+    }
+    Ok(Arc::new(backend))
+}
+
+/// A note model handed out to a draft: its id, whether it runs on MLX, and
+/// a weak handle (alive while the draft runs).
+type Loaned = (String, bool, std::sync::Weak<dyn LlmBackend>);
+
+/// Drops a running download's id from the set when it ends.
+struct Downloading<'a> {
+    set: &'a Mutex<HashSet<String>>,
+    id: String,
+}
+
+impl Drop for Downloading<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut set) = self.set.lock() {
+            set.remove(&self.id);
+        }
+    }
 }
 
 impl App {
@@ -654,6 +1076,10 @@ impl App {
             templates: TemplateStore::default(),
             users: UserStore::default(),
             llm: Mutex::new(None),
+            loaned: Mutex::new(Vec::new()),
+            downloading: Mutex::new(HashSet::new()),
+            mlx_in_slot: std::sync::atomic::AtomicBool::new(false),
+            hf_user: Mutex::new(None),
             recorder: Mutex::new(None),
             recording_work: Mutex::new(None),
             recording_lock: Mutex::new(None),
@@ -665,6 +1091,9 @@ impl App {
             undo: Mutex::new(HashMap::new()),
         };
         app.start_gpu_check();
+        // Folders of older MLX engine packs and unfinished unpacks (ADR-0025 §4).
+        static MLX_TIDY: std::sync::Once = std::sync::Once::new();
+        MLX_TIDY.call_once(mlx_pack::tidy);
         app
     }
 
@@ -721,7 +1150,7 @@ impl App {
             Need::Sign | Need::ConfirmChart | Need::DeleteSigned | Need::DeleteSignedRecording => {
                 user.role.can_sign()
             }
-            Need::Team => user.role.can_manage_team(),
+            Need::Team | Need::Models => user.role.can_manage_team(),
         };
         if !allowed {
             return Err(AppError(match need {
@@ -750,6 +1179,7 @@ impl App {
                     "Only a veterinarian can delete the recording of a signed visit.".into()
                 }
                 Need::Team => "Only a veterinarian can change the team.".into(),
+                Need::Models => "Only a veterinarian can change the models.".into(),
                 Need::Any => unreachable!(),
             }));
         }
@@ -2030,7 +2460,7 @@ impl App {
 
     /// [`App::load_llm`], telling the drafting board when the model has to be
     /// loaded first (it stays loaded for the next draft).
-    fn load_llm_with_progress(&self, id: &str, events: &dyn Events) -> Result<Arc<LlamaCppBackend>> {
+    fn load_llm_with_progress(&self, id: &str, events: &dyn Events) -> Result<Arc<dyn LlmBackend>> {
         let loaded = self.llm.lock().map(|slot| slot.as_ref().is_some_and(|(l, _)| l == id)).unwrap_or(false);
         if !loaded {
             events.progress(&Progress::new(Stage::LoadModel, 0.0, 1.0));
@@ -2038,18 +2468,45 @@ impl App {
         self.load_llm(id)
     }
 
-    fn load_llm(&self, id: &str) -> Result<Arc<LlamaCppBackend>> {
+    /// The note model, loaded by its layout: llama.cpp for GGUF, the MLX
+    /// worker for MLX folders. It stays loaded for the next draft.
+    fn load_llm(&self, id: &str) -> Result<Arc<dyn LlmBackend>> {
         let mut slot = self.llm.lock().map_err(|_| AppError("model lock poisoned".into()))?;
         if let Some((loaded, backend)) = slot.as_ref()
             && loaded == id
         {
             return Ok(backend.clone());
         }
-        *slot = None; // one llama.cpp backend per process: free before loading
-        let path = llm_path(&self.store, id)?;
-        let backend = Arc::new(LlamaCppBackend::load(LlamaCppOptions::new(path))?);
+        *slot = None; // one model per process: free before loading
+        // While it loads (minutes, for MLX), status calls read this instead
+        // of waiting for the slot.
+        let loading_mlx =
+            hub::full_catalog(&self.store).get(id).is_some_and(|m| m.llm_engine() == Some(LlmEngine::Mlx));
+        self.mlx_in_slot.store(loading_mlx, std::sync::atomic::Ordering::SeqCst);
+        let backend = match open_llm(&self.store, id, None) {
+            Ok(b) => b,
+            Err(e) => {
+                self.mlx_in_slot.store(false, std::sync::atomic::Ordering::SeqCst);
+                return Err(e);
+            }
+        };
+        let mlx = backend.capabilities().backend == "mlx";
+        if let Ok(mut loaned) = self.loaned.lock() {
+            loaned.retain(|(_, _, w)| w.strong_count() > 0);
+            loaned.push((id.to_string(), mlx, Arc::downgrade(&backend)));
+        }
         *slot = Some((id.to_string(), backend.clone()));
+        self.mlx_in_slot.store(mlx, std::sync::atomic::Ordering::SeqCst);
         Ok(backend)
+    }
+
+    /// Something outside the slot still holds a matching model: a draft that
+    /// started before the slot changed. Call after dropping the slot's copy.
+    fn loaned_out(&self, matches: impl Fn(&str, bool) -> bool) -> bool {
+        self.loaned
+            .lock()
+            .map(|l| l.iter().any(|(id, mlx, w)| matches(id, *mlx) && w.strong_count() > 0))
+            .unwrap_or(false)
     }
 
     // ---- storage (ADR-0013) ----------------------------------------------
@@ -2225,6 +2682,7 @@ impl App {
                 // The note model is memory-mapped while loaded; free it so its file can move.
                 if kind == FolderKind::Models {
                     *self.llm.lock().map_err(|_| AppError("model lock poisoned".into()))? = None;
+                    self.mlx_in_slot.store(false, SeqCst);
                 }
                 let from = self.folder(kind);
                 let moved =
@@ -2277,14 +2735,14 @@ impl App {
 
     fn row(&self, m: &CatalogEntry, builtin: bool) -> ModelRow {
         let size = m.total_size();
+        let in_place = m.in_place();
         ModelRow {
             id: m.id.clone(),
             name: m.display_name.clone(),
             publisher: match &m.source {
-                os_models::Source::Huggingface { repo, .. } => {
-                    repo.split('/').next().unwrap_or_default().into()
-                }
-                os_models::Source::Url => "k2-fsa".into(),
+                Source::Huggingface { repo, .. } => repo.split('/').next().unwrap_or_default().into(),
+                Source::Url => "k2-fsa".into(),
+                Source::Local { .. } => "This computer".into(),
             },
             slot: m.slot,
             size_bytes: size,
@@ -2296,15 +2754,48 @@ impl App {
                 Fit::Fits
             },
             builtin,
+            disk_bytes: self.store.disk_usage(m),
+            shared_bytes: self.store.shared_bytes(m),
+            partial_bytes: self.store.partial_bytes(m),
+            origin: origin_of(m, builtin),
+            engine: m.llm_engine(),
+            parts: m.files.len(),
+            remove: row_remove(m),
+            missing: in_place.is_some_and(|p| !p.exists()),
+            gated: m.gated,
+            path: in_place.map(|p| p.display().to_string()),
         }
     }
 
+    /// Mark a model as downloading (or importing) until the guard drops;
+    /// a second download of the same model at once is refused.
+    fn start_download(&self, id: &str) -> Result<Downloading<'_>> {
+        let mut set = self.downloading.lock().map_err(|_| AppError("download list poisoned".into()))?;
+        if !set.insert(id.to_string()) {
+            return Err(AppError("This model is still downloading.".into()));
+        }
+        Ok(Downloading { set: &self.downloading, id: id.to_string() })
+    }
+
+    /// Download a model. Without `token`, a gated repo's model uses the
+    /// saved Hugging Face token; nothing else ever sends one (ADR-0025 §8).
     pub fn download_model(&self, id: &str, token: Option<&str>, events: &dyn Events) -> Result<()> {
         let _work = self.begin_work()?;
         let _awake = AwakeGuard::acquire(AwakeReason::Processing);
         let catalog = hub::full_catalog(&self.store);
         let entry =
             catalog.get(id).ok_or_else(|| AppError(format!("No model called {id} in the catalog.")))?;
+        // Gigabytes that could never write a note here.
+        if entry.llm_engine() == Some(LlmEngine::Mlx) && !mlx_runs_here() {
+            return Err(AppError(MLX_NEEDS.into()));
+        }
+        let _downloading = self.start_download(id)?;
+        let saved = match token {
+            Some(_) => None,
+            None if entry.gated => secrets::hf_token().map(|(t, _)| t),
+            None => None,
+        };
+        let token = token.or(saved.as_deref());
         let total = entry.total_size();
         let mut before = 0u64;
         let mut current = String::new();
@@ -2318,6 +2809,279 @@ impl App {
             events.download(id, before + done, total);
         })?;
         Ok(())
+    }
+
+    /// Remove a model (ADR-0025 §10), after the guards in the plan's
+    /// contract 10, in order. A running draft is never cancelled: a busy
+    /// model is refused, an idle loaded one is unloaded first.
+    pub fn remove_model(
+        &self,
+        id: &str,
+        note_model: Option<&str>,
+        forget: bool,
+        by: Option<&str>,
+    ) -> Result<Removal> {
+        self.who(by, Need::Models)?;
+        let _work = self.begin_work()?;
+        let catalog = hub::full_catalog(&self.store);
+        let entry =
+            catalog.get(id).ok_or_else(|| AppError(format!("No model called {id} in the catalog.")))?;
+        if let Some(why) = protected_model(id) {
+            return Err(AppError(why.into()));
+        }
+        // Both held to the end: nothing loads this model, and no download of
+        // it starts, mid-removal. The slot first (a model load holds it for
+        // minutes), then the download list, which is never held while waiting
+        // for the slot, so downloads can start and finish during a load.
+        let mut slot = self.llm.lock().map_err(|_| AppError("model lock poisoned".into()))?;
+        let downloading = self.downloading.lock().map_err(|_| AppError("download list poisoned".into()))?;
+        if downloading.contains(id) {
+            return Err(AppError("This model is still downloading.".into()));
+        }
+        if note_model.map(str::trim) == Some(id) {
+            return Err(AppError(
+                "This model writes your notes. Choose another one under In use first.".into(),
+            ));
+        }
+        if let Some((loaded, backend)) = slot.as_ref()
+            && loaded == id
+        {
+            if Arc::strong_count(backend) > 1 {
+                return Err(AppError(MODEL_BUSY.into()));
+            }
+            *slot = None;
+            self.mlx_in_slot.store(false, std::sync::atomic::Ordering::SeqCst);
+        }
+        if self.loaned_out(|loaned, _| loaned == id) {
+            return Err(AppError(MODEL_BUSY.into()));
+        }
+        let builtin = os_models::Catalog::builtin().get(id).is_some();
+        let removed = removal::remove(&self.store, entry, builtin, forget)?;
+        drop(downloading);
+        drop(slot);
+        tracing::info!(
+            id,
+            freed = removed.freed_bytes,
+            shared = removed.shared_bytes,
+            forgotten = removed.forgotten,
+            "model removed"
+        );
+        Ok(removed)
+    }
+
+    /// Look at a model file or MLX folder on this computer, changing nothing.
+    /// It reveals what is at a path on the computer running OpenBark (files,
+    /// sizes, free space), so with a team it needs a veterinarian, as adding does.
+    pub fn inspect_import(&self, path: &str, by: Option<&str>) -> Result<ImportPreview> {
+        self.who(by, Need::Models)?;
+        let preview = os_models::local::inspect(&self.store, Path::new(path.trim()))?;
+        if preview.kind == ImportKind::Mlx && !mlx_runs_here() {
+            return Err(AppError(MLX_NEEDS.into()));
+        }
+        Ok(preview)
+    }
+
+    /// Add a model from this computer: copied into the store, or used where
+    /// it is (ADR-0025 §9). Progress goes out as downloads of the new id.
+    pub fn import_model(
+        &self,
+        path: &str,
+        mode: ImportMode,
+        by: Option<&str>,
+        events: &dyn Events,
+    ) -> Result<ModelRow> {
+        self.who(by, Need::Models)?;
+        let _work = self.begin_work()?;
+        let _awake = AwakeGuard::acquire(AwakeReason::Processing);
+        let preview = self.inspect_import(path, by)?;
+        let _downloading = self.start_download(&preview.id)?;
+        let id = preview.id.clone();
+        let total = preview.total_bytes;
+        let mut before = 0u64;
+        let mut current = String::new();
+        let mut file_done = 0u64;
+        let entry = os_models::local::import(
+            &self.store,
+            Path::new(path.trim()),
+            mode,
+            &mut |file: &str, done: u64, _t: u64| {
+                if file != current {
+                    before += file_done;
+                    current = file.to_string();
+                }
+                file_done = done;
+                events.download(&id, (before + done).min(total), total);
+            },
+        )?;
+        Ok(self.row(&entry, false))
+    }
+
+    // ---- MLX engine pack (ADR-0025 §4) ------------------------------------
+
+    pub fn mlx_status(&self) -> MlxStatus {
+        let support = mlx_pack::support();
+        let pack_installed = mlx_pack::installed();
+        let record = pack_key().and_then(|k| mlx_pack::check_result(&k));
+        let check = match &record {
+            _ if !pack_installed => CheckState::NotRun,
+            None => CheckState::NotRun,
+            Some(r) if r.ok => CheckState::Passed,
+            Some(_) => CheckState::Failed,
+        };
+        let metal =
+            pack_installed && metal_key().and_then(|k| mlx_pack::check_result(&k)).is_some_and(|r| r.ok);
+        let download_bytes = match mlx_pack::entry() {
+            Some(e) if !pack_installed => {
+                e.files.iter().filter(|f| !self.store.file_ok(&e, f, Verify::Size)).map(|f| f.size).sum()
+            }
+            _ => 0,
+        };
+        let mut versions = BTreeMap::new();
+        if let Some(lock) = mlx_pack::lock() {
+            versions.insert("python".to_string(), lock.python.version.clone());
+            for (name, key) in [("mlx", "mlx"), ("mlx-lm", "mlx_lm"), ("llguidance", "llguidance")] {
+                if let Some(w) = lock.wheels.iter().find(|w| w.name.eq_ignore_ascii_case(name)) {
+                    versions.insert(key.to_string(), w.version.clone());
+                }
+            }
+        }
+        // Never wait for the slot: a model load holds its lock for minutes.
+        let in_use = match self.llm.try_lock() {
+            Ok(slot) => slot.as_ref().is_some_and(|(_, b)| b.capabilities().backend == "mlx"),
+            Err(_) => self.mlx_in_slot.load(std::sync::atomic::Ordering::SeqCst),
+        };
+        MlxStatus {
+            support,
+            macos_version: mlx_pack::macos_version(),
+            pack_installed,
+            installing: MLX_INSTALLING.load(std::sync::atomic::Ordering::SeqCst),
+            check,
+            check_message: if check == CheckState::Failed { record.and_then(|r| r.message) } else { None },
+            metal,
+            download_bytes,
+            installed_bytes: if pack_installed { mlx_pack::disk_bytes() } else { 0 },
+            versions,
+            in_use,
+        }
+    }
+
+    /// Download, unpack and check the MLX engine pack. Progress goes out as
+    /// one download, `mlx-engine-pack`. A failed check shows on the card.
+    pub fn install_mlx(&self, events: &dyn Events) -> Result<MlxStatus> {
+        use std::sync::atomic::Ordering::SeqCst;
+        if !mlx_runs_here() {
+            return Err(AppError(MLX_NEEDS.into()));
+        }
+        // One install at a time, across tabs and windows.
+        if MLX_INSTALLING.compare_exchange(false, true, SeqCst, SeqCst).is_err() {
+            return Err(AppError(MLX_DOWNLOADING.into()));
+        }
+        struct Done;
+        impl Drop for Done {
+            fn drop(&mut self) {
+                MLX_INSTALLING.store(false, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+        let _done = Done;
+        let _work = self.begin_work()?;
+        let _awake = AwakeGuard::acquire(AwakeReason::Processing);
+        let result =
+            install_mlx_pack(&self.store, &mut |done, total| events.download(mlx_pack::PACK_ID, done, total));
+        match result {
+            Ok(_) => {}
+            // The check ran and failed, or couldn't run: recorded, and the card says so.
+            Err(_) if mlx_pack::installed() => {}
+            Err(e) => return Err(e),
+        }
+        Ok(self.mlx_status())
+    }
+
+    /// Run the pack check again ("Try again").
+    pub fn check_mlx(&self) -> Result<MlxStatus> {
+        if !mlx_runs_here() {
+            return Err(AppError(MLX_NEEDS.into()));
+        }
+        if MLX_INSTALLING.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(AppError(MLX_DOWNLOADING.into()));
+        }
+        if !mlx_pack::installed() {
+            return Err(AppError(MLX_FIRST.into()));
+        }
+        // A failure is recorded and shown on the card, not raised.
+        let _ = run_mlx_pack_check();
+        Ok(self.mlx_status())
+    }
+
+    /// Remove the MLX engine pack. MLX models stay on disk.
+    pub fn remove_mlx(&self, note_model: Option<&str>, by: Option<&str>) -> Result<Removal> {
+        self.who(by, Need::Models)?;
+        let _work = self.begin_work()?;
+        if let Some(note) = note_model.map(str::trim).filter(|n| !n.is_empty())
+            && hub::full_catalog(&self.store)
+                .get(note)
+                .is_some_and(|m| m.llm_engine() == Some(LlmEngine::Mlx))
+        {
+            return Err(AppError(
+                "Your note model uses the MLX engine. Choose another one under In use first.".into(),
+            ));
+        }
+        if MLX_INSTALLING.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(AppError(MLX_DOWNLOADING.into()));
+        }
+        const MLX_BUSY: &str =
+            "A note is being written with an MLX model. Remove the engine when that's finished.";
+        let mut slot = self.llm.lock().map_err(|_| AppError("model lock poisoned".into()))?;
+        if let Some((_, backend)) = slot.as_ref()
+            && backend.capabilities().backend == "mlx"
+        {
+            if Arc::strong_count(backend) > 1 {
+                return Err(AppError(MLX_BUSY.into()));
+            }
+            *slot = None;
+            self.mlx_in_slot.store(false, std::sync::atomic::Ordering::SeqCst);
+        }
+        if self.loaned_out(|_, mlx| mlx) {
+            return Err(AppError(MLX_BUSY.into()));
+        }
+        let freed = mlx_pack::remove(&self.store)
+            .map_err(|e| AppError(format!("The MLX engine couldn't be removed: {e}.")))?;
+        drop(slot);
+        tracing::info!(freed, "MLX engine removed");
+        Ok(Removal { id: mlx_pack::PACK_ID.into(), freed_bytes: freed, ..Removal::default() })
+    }
+
+    // ---- Hugging Face token (ADR-0025 §8) ---------------------------------
+
+    pub fn hf_token_status(&self) -> HfTokenStatus {
+        let source = secrets::hf_token().map(|(_, source)| source);
+        let user = source.and_then(|_| self.hf_user.lock().ok().and_then(|u| u.clone()));
+        HfTokenStatus { saved: source.is_some(), source, user }
+    }
+
+    /// Check a token with Hugging Face (`whoami-v2`, once), then save it.
+    pub fn set_hf_token(&self, token: &str, by: Option<&str>) -> Result<HfTokenStatus> {
+        self.who(by, Need::Models)?;
+        let token = token.trim();
+        if !secrets::plausible_token(token) {
+            return Err(AppError(hub::HubError::BadToken.to_string()));
+        }
+        let name = hub::whoami(token)?;
+        secrets::set_hf_token(token)
+            .map_err(|e| AppError(format!("OpenBark couldn't save the token: {e}.")))?;
+        if let Ok(mut user) = self.hf_user.lock() {
+            *user = Some(name);
+        }
+        Ok(self.hf_token_status())
+    }
+
+    pub fn clear_hf_token(&self, by: Option<&str>) -> Result<HfTokenStatus> {
+        self.who(by, Need::Models)?;
+        secrets::clear_hf_token()
+            .map_err(|e| AppError(format!("OpenBark couldn't remove the token: {e}.")))?;
+        if let Ok(mut user) = self.hf_user.lock() {
+            *user = None;
+        }
+        Ok(self.hf_token_status())
     }
 
     // ---- GPU speech pack (ADR-0014) ---------------------------------------
@@ -2373,6 +3137,18 @@ impl App {
         if !pack_installed {
             download_bytes += os_models::gpu_pack::entry().total_size();
         }
+        // What Remove frees: the libraries it deletes (the processor-only
+        // ONNX Runtime stays) and the full-precision models.
+        let library_bytes: u64 = match os_models::gpu_pack::program_dir() {
+            Some(dir) if pack_installed => os_models::gpu_pack::libraries()
+                .iter()
+                .filter(|n| *n != "onnxruntime.dll" && *n != "onnxruntime_providers_shared.dll")
+                .filter_map(|n| std::fs::metadata(dir.join(n)).ok())
+                .map(|m| m.len())
+                .sum(),
+            _ => 0,
+        };
+        let installed_bytes = library_bytes + models.iter().map(|m| self.store.disk_usage(m)).sum::<u64>();
         GpuStatus {
             supported: os_models::gpu_pack::supported() && nvidia,
             gpu,
@@ -2383,6 +3159,7 @@ impl App {
             restart_needed: pack_installed && models_installed && !self.gpu_at_start && checked != 2,
             check_failed: checked == 2,
             download_bytes,
+            installed_bytes,
         }
     }
 
@@ -2453,14 +3230,18 @@ impl App {
     }
 
     /// Take the GPU speech pack and the full-precision recognisers away again.
-    pub fn remove_gpu(&self) -> Result<GpuStatus> {
+    pub fn remove_gpu(&self, by: Option<&str>) -> Result<GpuStatus> {
+        self.who(by, Need::Models)?;
         let _work = self.begin_work()?;
         os_asr::set_gpu_usable(false);
         self.gpu_checked.store(0, std::sync::atomic::Ordering::SeqCst);
         os_models::gpu_pack::remove()
             .map_err(|e| AppError(format!("The GPU speech pack couldn't be removed: {e}.")))?;
+        // Only the models' listed files, never a whole folder (ADR-0025 §10).
         for m in self.gpu_models() {
-            let _ = std::fs::remove_dir_all(self.store.model_dir(&m));
+            if let Err(e) = removal::remove_files(&self.store, &m) {
+                tracing::warn!(id = %m.id, error = %e, "couldn't remove a GPU recogniser");
+            }
         }
         Ok(self.gpu_status())
     }
@@ -2469,26 +3250,62 @@ impl App {
         Ok(hub::search(query, 30, None, platform() == "macos")?)
     }
 
-    pub fn hub_repo(&self, repo: &str) -> Result<HubRepoView> {
+    /// A repo's details. Metadata and public files without a token; the
+    /// saved token only for a gated repo whose files are hidden (ADR-0025 §8).
+    fn fetch_repo(&self, repo: &str) -> Result<HubRepo> {
         let r = hub::repo(repo, None)?;
+        if r.gated_kind.is_some()
+            && r.access == Access::NeedsToken
+            && let Some((token, _)) = secrets::hf_token()
+        {
+            return Ok(hub::repo(repo, Some(&token))?);
+        }
+        Ok(r)
+    }
+
+    pub fn hub_repo(&self, repo: &str) -> Result<HubRepoView> {
+        let r = self.fetch_repo(repo)?;
+        let fit = |size| hub::fit(size, self.hardware.gpu_memory_bytes, self.hardware.ram_bytes);
         let files = r
             .files
             .iter()
             .map(|f| HubFileView {
                 path: f.path.clone(),
                 size_bytes: f.size,
-                fit: hub::fit(f.size, self.hardware.gpu_memory_bytes, self.hardware.ram_bytes),
+                fit: fit(f.size),
+                parts: f.parts.len(),
             })
             .collect();
-        Ok(HubRepoView { files, repo: r })
+        let mlx = r.mlx.as_ref().map(|m| HubMlxView {
+            size_bytes: m.size,
+            files: m.files.len(),
+            fit: fit(m.size),
+            model_type: m.model_type.clone(),
+            quantization: m.quantization.clone(),
+            problem: m.problem.clone(),
+            arch_supported: m.model_type.as_deref().is_some_and(mlx_pack::architecture_supported),
+            support: mlx_pack::support(),
+            pack_installed: mlx_pack::installed(),
+        });
+        Ok(HubRepoView { files, mlx, repo: r })
     }
 
-    /// Add a Hub file to the catalog; download it with [`App::download_model`].
+    /// Add a Hub file (or `@mlx`, the whole MLX folder) to the catalog;
+    /// download it with [`App::download_model`].
     pub fn hub_add(&self, repo: &str, file: &str, accept_license: bool) -> Result<ModelRow> {
+        // An MLX folder can't write a note here: don't offer gigabytes of it.
+        if file == hub::MLX_CHOICE && !mlx_runs_here() {
+            return Err(AppError(MLX_NEEDS.into()));
+        }
         let _work = self.begin_work()?;
-        let r = hub::repo(repo, None)?;
+        let r = self.fetch_repo(repo)?;
         let entry = hub::add_to_catalog(&self.store, &r, file, accept_license)?;
         Ok(self.row(&entry, false))
+    }
+
+    /// GGUF builds of an MLX repo's base model (tokenless).
+    pub fn hub_alternatives(&self, base_model: &str) -> Result<Vec<HubModel>> {
+        Ok(hub::gguf_alternatives(base_model, 5)?)
     }
 }
 
@@ -2510,6 +3327,9 @@ enum Need {
     /// Confirm drafted tooth chart entries against the recording (veterinarian).
     ConfirmChart,
     Team,
+    /// Remove or add models and engine packs, or change the Hugging Face
+    /// token, in web mode with a team (veterinarian; ADR-0025 §8-10).
+    Models,
     /// Delete, restore or remove an unsigned visit, or see Deleted visits
     /// (veterinarian or technician; ADR-0022 section 1).
     Delete,
@@ -2581,17 +3401,20 @@ pub enum RecordingSource {
     Stream(std::sync::mpsc::Receiver<AudioBlock>),
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct HubFileView {
     pub path: String,
     pub size_bytes: u64,
     pub fit: Fit,
+    /// Files to download: more than one for a split GGUF.
+    pub parts: usize,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct HubRepoView {
     pub repo: HubRepo,
     pub files: Vec<HubFileView>,
+    pub mlx: Option<HubMlxView>,
 }
 
 /// What an import's worker reports to the thread that started it.
@@ -2641,22 +3464,6 @@ fn writable(dir: &Path) -> std::result::Result<(), String> {
         Ok(())
     } else {
         Err("OpenBark can't write to that folder. Choose another, or ask whoever manages this computer for access.".into())
-    }
-}
-
-/// A catalog id (built-in or user-added) or a path to a `.gguf` file.
-fn llm_path(store: &ModelStore, spec: &str) -> Result<PathBuf> {
-    if spec.to_ascii_lowercase().ends_with(".gguf") && Path::new(spec).is_file() {
-        return Ok(PathBuf::from(spec));
-    }
-    let catalog = hub::full_catalog(store);
-    let m = catalog.get(spec).ok_or_else(|| AppError(format!("No model called {spec}.")))?;
-    if !store.is_installed(m, Verify::Size) {
-        return Err(AppError(format!("{} isn't downloaded yet. Download it in Models.", m.display_name)));
-    }
-    match &m.layout {
-        os_models::Layout::LlmGguf { model } => Ok(store.file_path(m, model)),
-        _ => Err(AppError(format!("{} can't write notes.", m.display_name))),
     }
 }
 

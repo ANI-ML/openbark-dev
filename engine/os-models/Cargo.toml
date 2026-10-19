@@ -9,16 +9,30 @@ rust-version.workspace = true
 [dependencies]
 bzip2.workspace = true
 dirs.workspace = true
+flate2.workspace = true
 hex.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha1.workspace = true
 sha2.workspace = true
 sysinfo.workspace = true
 tar.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 zip.workspace = true
+
+[features]
+# MLX "test mode" (ADR-0025 §1): OPENBARK_MLX_DEV=1 runs MLX on Linux's CPU.
+# Honoured only in debug builds and builds with this feature (CI and
+# developers' end-to-end runs), never in a release built without it.
+mlx-test-mode = []
+
+# Hard-link counts on Windows (GetFileInformationByHandle), so the space a
+# model frees is honest when its copy is a hard link (ADR-0025 §9, §10).
+# The version already in Cargo.lock.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.61.2", features = ["Win32_Storage_FileSystem"] }
 
 [dev-dependencies]
 tempfile.workspace = true

@@ -12,6 +12,7 @@ The same walkthroughs are in the app under **Help**, each with a short video.
 | 4 | [Templates](templates.md) | Your clinic's own note headings, and standards |
 | 5 | [Client documents, PDF and copying](documents.md) | Discharge instructions, client summaries, PDFs, pasting into your PIMS |
 | 6 | [Team and security](team-and-security.md) | Team members and roles, encryption, the recovery key, moving computers |
+| 7 | [Models](models.md) | Choosing and downloading models, MLX on a Mac, gated models and tokens, adding and removing models |
 | | [Languages](../languages.md) | The app's language, the note's language, and what to expect |
 | | [Troubleshooting](troubleshooting.md) | Common messages and what to do |
 

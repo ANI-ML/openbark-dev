@@ -1,0 +1,5 @@
+# MLX engine pack, macOS on Apple silicon (ADR-0025 decision 4).
+# Input to scripts/mlx-pack-lock.py; the resolved, pinned list is in
+# engine/os-models/src/mlx_pack.lock.json and docs/mlx-pack-pins.md.
+mlx-lm==0.32.0
+llguidance==1.9.1

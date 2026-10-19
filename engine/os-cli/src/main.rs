@@ -5,9 +5,11 @@
 //! openbark transcribe consult.wav --diarize | openbark note --template soap
 //! ```
 //!
-//! Only `models pull` touches the network (see docs/network.md).
+//! Only `models pull`, `models setup`, `models add-hf` and `mlx install`
+//! touch the network (see docs/network.md).
 
 mod eval;
+mod mlx;
 mod models;
 mod probe;
 mod record;
@@ -43,6 +45,9 @@ enum Command {
     /// Manage local models.
     #[command(subcommand)]
     Models(models::ModelsCommand),
+    /// The MLX engine pack for MLX models (ADR-0025).
+    #[command(subcommand)]
+    Mlx(mlx::MlxCommand),
     /// Transcribe a recording to JSON Lines (one segment per line) on stdout.
     Transcribe(TranscribeArgs),
     /// Generate a draft note from a JSONL transcript (stdin or --input).
@@ -127,7 +132,8 @@ pub struct TranscribeArgs {
 
 #[derive(clap::Args, Clone)]
 pub struct LlmArgs {
-    /// LLM: catalog id or path to a .gguf file.
+    /// Note model: a catalog id (built-in, from Hugging Face or added from
+    /// this computer; GGUF or MLX) or a path to a .gguf file.
     #[arg(long, default_value = os_engine::models::DEFAULT_LLM)]
     pub llm: String,
     /// Layers to offload to GPU (default: all).
@@ -191,6 +197,7 @@ fn main() -> Result<()> {
     match cli.command {
         Command::Probe => probe::run(),
         Command::Models(cmd) => models::run(cmd, &store),
+        Command::Mlx(cmd) => mlx::run(cmd, &store),
         Command::Transcribe(args) => {
             let _awake = AwakeGuard::acquire(AwakeReason::Processing);
             let transcriber = build_transcriber(&store, &args)?;
@@ -233,7 +240,7 @@ fn main() -> Result<()> {
             let llm = load_llm(&store, &args.llm)?;
             let stream = args.stream;
             let result =
-                generate_note(&llm, &template, &transcript, &note_options(&args.llm), &mut |piece| {
+                generate_note(&*llm, &template, &transcript, &note_options(&args.llm), &mut |piece| {
                     if stream {
                         eprint!("{piece}");
                     }
@@ -316,13 +323,13 @@ pub(crate) fn build_transcriber(
     )?)
 }
 
-pub(crate) fn load_llm(store: &os_models::ModelStore, args: &LlmArgs) -> Result<os_llm::LlamaCppBackend> {
-    let path = os_engine::models::llm_path(store, &args.llm)?;
-    let mut options = os_llm::LlamaCppOptions::new(path);
-    if let Some(layers) = args.gpu_layers {
-        options.gpu_layers = layers;
-    }
-    Ok(os_llm::LlamaCppBackend::load(options)?)
+/// The note model, by layout: llama.cpp for GGUF, the MLX worker for MLX
+/// (the same loader as the app, including the constrained-output check).
+pub(crate) fn load_llm(
+    store: &os_models::ModelStore,
+    args: &LlmArgs,
+) -> Result<std::sync::Arc<dyn os_llm::LlmBackend>> {
+    os_app::open_llm(store, &args.llm, args.gpu_layers).map_err(|e| anyhow::anyhow!(e.0))
 }
 
 fn bench(store: &os_models::ModelStore, args: BenchArgs) -> Result<()> {
@@ -339,7 +346,7 @@ fn bench(store: &os_models::ModelStore, args: BenchArgs) -> Result<()> {
     let template = LoadedTemplate::resolve(&args.llm.template)?;
     let llm = load_llm(store, &args.llm)?;
     let llm_load_ms = t.elapsed().as_millis() as u64;
-    let result = generate_note(&llm, &template, &transcript, &note_options(&args.llm), &mut |_| true)?;
+    let result = generate_note(&*llm, &template, &transcript, &note_options(&args.llm), &mut |_| true)?;
     let wall_ms = started.elapsed().as_millis() as u64;
 
     if let Some(path) = &args.markdown {

@@ -29,6 +29,8 @@ fn test_env() -> &'static Path {
             std::env::set_var("OPENBARK_USERS_FILE", dir.join("users.json"));
             std::env::set_var("OPENBARK_TEMPLATES_DIR", dir.join("templates"));
             std::env::set_var("OPENBARK_KEY_FILE", dir.join("data.key"));
+            // The MLX engine pack's folder and its checks (ADR-0025).
+            std::env::set_var("OPENBARK_ENGINES_DIR", dir.join("engines"));
         }
         dir
     })
@@ -156,6 +158,8 @@ fn the_harness_stays_in_temporary_folders() {
     assert!(os_engine::users::default_path().starts_with(test_env()));
     assert!(os_engine::template_store::default_root().starts_with(test_env()));
     assert!(os_models::locations::config_path().starts_with(test_env()));
+    assert!(os_models::mlx_pack::engines_dir().starts_with(test_env()));
+    assert!(app.store.root().starts_with(tmp.path()));
     assert_eq!(os_engine::vault::status().source, Some(os_engine::vault::KeySource::Environment));
 }
 
@@ -962,4 +966,503 @@ fn the_app_signs_a_drafted_chart_only_after_a_vet_confirms_each_tooth() {
     assert!(no.contains("Only a veterinarian can confirm"), "{no}");
     let view = app.confirm_chart(&id, &["208".to_string()], true, &dvm.id, None).unwrap();
     assert_eq!(view.chart_checks[0].who.as_ref().and_then(|w| w.role), Some(Role::Dvm));
+}
+
+// ---- models of your choice and removal (ADR-0025) ----------------------
+//
+// Every model folder here is a temporary one: removal is never tried
+// against a real models folder.
+
+/// A loaded note model that writes "{}" and counts its calls.
+struct FakeLlm {
+    backend: &'static str,
+    calls: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl FakeLlm {
+    /// The backend (to hand to the slot, which then holds the only Arc) and
+    /// its call counter.
+    fn loaded(backend: &'static str) -> (Arc<dyn LlmBackend>, Arc<std::sync::atomic::AtomicUsize>) {
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        (Arc::new(Self { backend, calls: calls.clone() }), calls)
+    }
+}
+
+impl LlmBackend for FakeLlm {
+    fn capabilities(&self) -> os_llm::LlmCapabilities {
+        os_llm::LlmCapabilities {
+            backend: self.backend,
+            model_name: "fake".into(),
+            context_length: 4096,
+            streaming: true,
+            json_schema_constrained: true,
+            audio_input: false,
+        }
+    }
+
+    fn generate(
+        &self,
+        _request: &os_llm::GenerateRequest,
+        on_token: &mut dyn FnMut(&str) -> bool,
+    ) -> std::result::Result<os_llm::GenerateOutput, os_llm::LlmError> {
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        on_token("{}");
+        Ok(os_llm::GenerateOutput { text: "{}".into(), stats: Default::default() })
+    }
+}
+
+struct Quiet;
+impl Events for Quiet {
+    fn segment(&self, _: &Segment) {}
+    fn token(&self, _: &str) {}
+    fn level(&self, _: f32, _: f32) {}
+    fn download(&self, _: &str, _: u64, _: u64) {}
+}
+
+/// Put a model in the note-model slot, as a draft's first load does.
+fn load_fake(app: &App, id: &str, backend: Arc<dyn LlmBackend>) {
+    *app.llm.lock().unwrap() = Some((id.to_string(), backend));
+}
+
+fn loaded_id(app: &App) -> Option<String> {
+    app.llm.lock().unwrap().as_ref().map(|(id, _)| id.clone())
+}
+
+/// A tiny but valid GGUF (magic, version 3).
+fn tiny_gguf(path: &Path) -> Vec<u8> {
+    let mut bytes = b"GGUF".to_vec();
+    bytes.extend_from_slice(&3u32.to_le_bytes());
+    bytes.extend_from_slice(&[7u8; 120]);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, &bytes).unwrap();
+    bytes
+}
+
+/// A downloaded Hub model in the temporary store: a GGUF, or with `mlx` an
+/// MLX folder. Its files are written at their listed sizes.
+fn hub_model(app: &App, name: &str, mlx: bool) -> CatalogEntry {
+    let (files, layout, id) = if mlx {
+        (
+            serde_json::json!([
+                { "path": "config.json", "size": 30, "git_sha1": "1".repeat(40) },
+                { "path": "model.safetensors", "size": 64, "sha256": "2".repeat(64) },
+                { "path": "tokenizer.json", "size": 20, "git_sha1": "3".repeat(40) },
+            ]),
+            serde_json::json!({ "type": "llm_mlx", "config": "config.json" }),
+            format!("hf:someone/{name}/@mlx"),
+        )
+    } else {
+        (
+            serde_json::json!([{ "path": format!("{name}.gguf"), "size": 128, "sha256": "4".repeat(64) }]),
+            serde_json::json!({ "type": "llm_gguf", "model": format!("{name}.gguf") }),
+            format!("hf:someone/{name}-GGUF/{name}"),
+        )
+    };
+    let entry: CatalogEntry = serde_json::from_value(serde_json::json!({
+        "id": id,
+        "display_name": format!("someone/{name}"),
+        "slot": "llm",
+        "license": "apache-2.0",
+        "source": { "kind": "huggingface", "repo": format!("someone/{name}"), "revision": "a".repeat(40) },
+        "files": files,
+        "layout": layout,
+    }))
+    .unwrap();
+    hub::save_user_entry(&app.store, entry.clone()).unwrap();
+    for f in &entry.files {
+        let path = app.store.file_path(&entry, &f.path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, vec![b'x'; f.size as usize]).unwrap();
+    }
+    entry
+}
+
+fn row(app: &App, id: &str) -> Option<ModelRow> {
+    app.models().into_iter().find(|r| r.id == id)
+}
+
+#[test]
+fn rows_say_where_a_model_came_from_and_what_remove_does() {
+    use os_engine::models::{
+        DEFAULT_LLM, DEFAULT_STT, EMBEDDING, GPU_SECOND_STT, GPU_STT, SEGMENTATION, VAD,
+    };
+    let tmp = tempfile::tempdir().unwrap();
+    let app = app_in(tmp.path());
+    for id in [VAD, DEFAULT_STT, SEGMENTATION, EMBEDDING, os_engine::live::SECOND_STT] {
+        assert_eq!(row(&app, id).unwrap().remove, RowRemove::Needed, "{id}");
+    }
+    let llm = row(&app, DEFAULT_LLM).unwrap();
+    assert_eq!(llm.remove, RowRemove::Delete, "the default note model can be removed like any other");
+    assert_eq!((llm.origin, llm.engine, llm.builtin), (Origin::Builtin, Some(LlmEngine::Llama), true));
+    assert!(row(&app, GPU_STT).is_none() && row(&app, GPU_SECOND_STT).is_none(), "they come with the pack");
+    assert_eq!(
+        protected_model(GPU_STT),
+        Some("This comes with the GPU speech pack. Remove the pack instead.")
+    );
+
+    let mlx = hub_model(&app, "Tiny-4bit", true);
+    let r = row(&app, &mlx.id).unwrap();
+    assert_eq!(
+        (r.origin, r.engine, r.parts, r.publisher.as_str()),
+        (Origin::Hub, Some(LlmEngine::Mlx), 3, "someone")
+    );
+    assert!(r.installed && r.disk_bytes == 114 && r.partial_bytes == 0);
+
+    let file = tmp.path().join("elsewhere").join("Mine-Q4_K_M.gguf");
+    tiny_gguf(&file);
+    let added = app.import_model(file.to_str().unwrap(), ImportMode::InPlace, None, &Quiet).unwrap();
+    assert_eq!(
+        (added.origin, added.remove, added.publisher.as_str()),
+        (Origin::LocalInPlace, RowRemove::ForgetOnly, "This computer")
+    );
+    assert_eq!((added.disk_bytes, added.missing), (0, false));
+    let canonical = os_models::locations::plain(&std::fs::canonicalize(&file).unwrap());
+    assert_eq!(added.path.as_deref().map(Path::new), Some(canonical.as_path()));
+    let json = serde_json::to_value(&added).unwrap();
+    assert_eq!(
+        (json["origin"].as_str(), json["remove"].as_str(), json["engine"].as_str()),
+        (Some("local_in_place"), Some("forget_only"), Some("llama"))
+    );
+}
+
+#[test]
+fn removing_checks_every_guard_in_order_and_never_cancels_a_draft() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app = app_in(tmp.path());
+    let m = hub_model(&app, "Tiny", false);
+    let file = app.store.file_path(&m, &m.files[0].path);
+
+    // With a team, only a veterinarian; checked before anything else.
+    let (dvm, rvt, desk) = team(&app);
+    for who in [&rvt.id, &desk.id] {
+        assert_eq!(
+            err(app.remove_model(&m.id, None, false, Some(who))),
+            "Only a veterinarian can change the models."
+        );
+    }
+    assert_eq!(
+        err(app.remove_model("nope", None, false, Some(&desk.id))),
+        "Only a veterinarian can change the models."
+    );
+    let by = Some(dvm.id.as_str());
+    // Then the folder-change gate.
+    app.gate.changing.store(true, std::sync::atomic::Ordering::SeqCst);
+    assert!(err(app.remove_model("nope", None, false, by)).contains("changing where it keeps its files"));
+    app.gate.changing.store(false, std::sync::atomic::Ordering::SeqCst);
+    // Then the catalog, the protected models, a download, the note model.
+    assert_eq!(err(app.remove_model("nope", None, false, by)), "No model called nope in the catalog.");
+    assert_eq!(
+        err(app.remove_model(os_engine::models::DEFAULT_STT, None, false, by)),
+        "OpenBark needs this to transcribe visits."
+    );
+    assert_eq!(
+        err(app.remove_model(os_engine::models::GPU_SECOND_STT, None, false, by)),
+        "This comes with the GPU speech pack. Remove the pack instead."
+    );
+    {
+        let _downloading = app.start_download(&m.id).unwrap();
+        assert_eq!(err(app.start_download(&m.id)), "This model is still downloading.");
+        assert_eq!(err(app.remove_model(&m.id, None, false, by)), "This model is still downloading.");
+    }
+    assert_eq!(
+        err(app.remove_model(&m.id, Some(&m.id), false, by)),
+        "This model writes your notes. Choose another one under In use first."
+    );
+    // Loaded and in use by a draft (it holds a clone): refused, untouched.
+    let (fake, calls) = FakeLlm::loaded("llama.cpp");
+    load_fake(&app, &m.id, fake);
+    let draft = app.load_llm(&m.id).unwrap();
+    assert_eq!(
+        err(app.remove_model(&m.id, None, false, by)),
+        "A note is being written with this model. Remove it when that's finished."
+    );
+    assert!(file.is_file(), "nothing deleted");
+    assert_eq!(loaded_id(&app).as_deref(), Some(m.id.as_str()), "still loaded");
+    draft.generate(&os_llm::GenerateRequest::new(Vec::new()), &mut |_| true).unwrap();
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1, "the draft carried on");
+    drop(draft);
+    // Idle now: unloaded first, then removed. The row stays, with Download.
+    let removed = app.remove_model(&m.id, None, false, by).unwrap();
+    assert_eq!((removed.freed_bytes, removed.files_removed, removed.forgotten), (128, 1, false));
+    assert!(!file.exists());
+    assert_eq!(loaded_id(&app), None, "unloaded");
+    let r = row(&app, &m.id).unwrap();
+    assert!(!r.installed && r.disk_bytes == 0);
+    // "Remove from list" drops it.
+    let again = app.remove_model(&m.id, None, true, by).unwrap();
+    assert!(again.forgotten);
+    assert!(row(&app, &m.id).is_none());
+}
+
+#[test]
+fn a_removed_builtin_keeps_its_row_with_download() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app = app_in(tmp.path());
+    let id = os_engine::models::DEFAULT_LLM;
+    let entry = os_models::Catalog::builtin().get(id).unwrap().clone();
+    // A download that stopped part-way, and a stranger's file beside it.
+    let first = app.store.file_path(&entry, &entry.files[0].path);
+    std::fs::create_dir_all(first.parent().unwrap()).unwrap();
+    std::fs::write(first.with_file_name(format!("{}.part", entry.files[0].path)), vec![0u8; 500]).unwrap();
+    let stranger = first.with_file_name("notes.txt");
+    std::fs::write(&stranger, b"mine").unwrap();
+    let r = row(&app, id).unwrap();
+    assert!(!r.installed);
+    assert_eq!(r.partial_bytes, 500);
+    let removed = app.remove_model(id, None, true, None).unwrap();
+    assert_eq!(removed.freed_bytes, 500);
+    assert!(!removed.forgotten, "a built-in is never dropped from the list");
+    assert!(stranger.is_file(), "only the listed files and their downloads go");
+    let r = row(&app, id).unwrap();
+    assert!(r.builtin && !r.installed && r.partial_bytes == 0 && r.remove == RowRemove::Delete);
+}
+
+#[test]
+fn a_model_used_where_it_is_is_only_forgotten() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app = app_in(tmp.path());
+    let file = tmp.path().join("LM Studio").join("Big-Q8_0.gguf");
+    let bytes = tiny_gguf(&file);
+    let before = std::fs::metadata(&file).unwrap().modified().unwrap();
+    let added = app.import_model(file.to_str().unwrap(), ImportMode::InPlace, None, &Quiet).unwrap();
+    assert!(!app.store.root().join("local").exists(), "nothing was copied");
+    let removed = app.remove_model(&added.id, None, false, None).unwrap();
+    assert!(removed.kept_in_place && removed.forgotten);
+    assert_eq!((removed.freed_bytes, removed.files_removed), (0, 0));
+    assert_eq!(std::fs::read(&file).unwrap(), bytes, "never changed");
+    assert_eq!(std::fs::metadata(&file).unwrap().modified().unwrap(), before);
+    assert!(row(&app, &added.id).is_none());
+
+    // A model used in place that has gone missing: shown, and refused plainly.
+    let other = tmp.path().join("usb").join("Gone.gguf");
+    tiny_gguf(&other);
+    let gone = app.import_model(other.to_str().unwrap(), ImportMode::InPlace, None, &Quiet).unwrap();
+    std::fs::remove_file(&other).unwrap(); // the test's own file, never the store's
+    let r = row(&app, &gone.id).unwrap();
+    assert!(r.missing);
+    let refusal = err(app.load_llm(&gone.id));
+    assert!(
+        refusal.contains("isn't where it was") && refusal.ends_with("Add it again from this computer."),
+        "{refusal}"
+    );
+}
+
+#[test]
+fn a_copied_model_is_deleted_and_dropped_and_the_original_stays() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app = app_in(tmp.path());
+    let file = tmp.path().join("Downloads").join("Small-Q4_K_M.gguf");
+    let bytes = tiny_gguf(&file);
+    let preview = app.inspect_import(file.to_str().unwrap(), None).unwrap();
+    struct Seen(Mutex<Vec<String>>);
+    impl Events for Seen {
+        fn segment(&self, _: &Segment) {}
+        fn token(&self, _: &str) {}
+        fn level(&self, _: f32, _: f32) {}
+        fn download(&self, model: &str, _: u64, _: u64) {
+            self.0.lock().unwrap().push(model.to_string());
+        }
+    }
+    let seen = Seen(Mutex::new(Vec::new()));
+    let added = app.import_model(file.to_str().unwrap(), ImportMode::Copy, None, &seen).unwrap();
+    assert_eq!(added.id, preview.id);
+    assert!(seen.0.lock().unwrap().iter().all(|m| *m == preview.id), "copy progress uses the new id");
+    assert_eq!((added.origin, added.remove), (Origin::LocalCopy, RowRemove::DeleteAndForget));
+    // On one drive the copy is a hard link: on disk, but its bytes are the
+    // original's, so they show as shared and removing them frees nothing.
+    assert_eq!(added.disk_bytes + added.shared_bytes, bytes.len() as u64);
+    assert!(app.downloading.lock().unwrap().is_empty());
+    let removed = app.remove_model(&added.id, None, false, None).unwrap();
+    assert_eq!(
+        (removed.freed_bytes, removed.shared_bytes),
+        (added.disk_bytes, added.shared_bytes),
+        "what the row promised is what was freed"
+    );
+    assert!(removed.forgotten);
+    assert!(row(&app, &added.id).is_none());
+    assert_eq!(std::fs::read(&file).unwrap(), bytes, "the original is untouched");
+}
+
+#[test]
+fn mlx_models_need_the_engine_and_the_engine_has_its_guards() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app = app_in(tmp.path());
+    let m = hub_model(&app, "Tiny-4bit", true);
+    // Without the engine pack (never installed in tests), loading says what
+    // to do: download it on a Mac that runs MLX, else that MLX needs one.
+    let expected = if mlx_runs_here() { MLX_FIRST } else { MLX_NEEDS };
+    assert_eq!(err(app.load_llm(&m.id)), expected);
+    let status = app.mlx_status();
+    assert!(!status.pack_installed && status.check == CheckState::NotRun && !status.in_use);
+
+    let (dvm, _, desk) = team(&app);
+    assert_eq!(err(app.remove_mlx(None, Some(&desk.id))), "Only a veterinarian can change the models.");
+    let by = Some(dvm.id.as_str());
+    assert_eq!(
+        err(app.remove_mlx(Some(&m.id), by)),
+        "Your note model uses the MLX engine. Choose another one under In use first."
+    );
+    // An MLX model loaded and busy: refused; idle: unloaded, then removed.
+    let (fake, _) = FakeLlm::loaded("mlx");
+    load_fake(&app, &m.id, fake);
+    assert!(app.mlx_status().in_use);
+    let draft = app.load_llm(&m.id).unwrap();
+    assert_eq!(
+        err(app.remove_mlx(None, by)),
+        "A note is being written with an MLX model. Remove the engine when that's finished."
+    );
+    assert_eq!(loaded_id(&app).as_deref(), Some(m.id.as_str()));
+    drop(draft);
+    let removed = app.remove_mlx(Some(os_engine::models::DEFAULT_LLM), by).unwrap();
+    assert_eq!(removed.id, os_models::mlx_pack::PACK_ID);
+    assert_eq!(loaded_id(&app), None);
+    // MLX models stay on disk.
+    assert!(row(&app, &m.id).unwrap().installed);
+    // A llama.cpp model loaded doesn't hold the engine.
+    load_fake(&app, "gguf", FakeLlm::loaded("llama.cpp").0);
+    app.remove_mlx(None, by).unwrap();
+    assert_eq!(loaded_id(&app).as_deref(), Some("gguf"));
+}
+
+#[test]
+fn a_draft_still_running_after_the_slot_changed_keeps_its_model_busy() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app = app_in(tmp.path());
+    let m = hub_model(&app, "Tiny", false);
+    let mlx = hub_model(&app, "Tiny-4bit", true);
+    // Drafts on both started, then another model took the slot.
+    let (gguf_draft, _) = FakeLlm::loaded("llama.cpp");
+    let (mlx_draft, _) = FakeLlm::loaded("mlx");
+    app.loaned.lock().unwrap().push((m.id.clone(), false, Arc::downgrade(&gguf_draft)));
+    app.loaned.lock().unwrap().push((mlx.id.clone(), true, Arc::downgrade(&mlx_draft)));
+    load_fake(&app, "another", FakeLlm::loaded("llama.cpp").0);
+    assert_eq!(
+        err(app.remove_model(&m.id, None, false, None)),
+        "A note is being written with this model. Remove it when that's finished."
+    );
+    assert_eq!(
+        err(app.remove_mlx(None, None)),
+        "A note is being written with an MLX model. Remove the engine when that's finished."
+    );
+    assert!(app.store.file_path(&m, &m.files[0].path).is_file());
+    drop(gguf_draft);
+    drop(mlx_draft);
+    app.remove_model(&m.id, None, false, None).unwrap();
+    app.remove_mlx(None, None).unwrap();
+    assert_eq!(loaded_id(&app).as_deref(), Some("another"), "an unrelated model stays loaded");
+}
+
+/// The major finding: after an OpenBark or macOS update, the pack check's
+/// key no longer matches, and drafting said "Download the MLX engine" until
+/// someone opened the Models screen. Now the check runs again by itself, and
+/// a failed check has its own message, pointing to Try again.
+#[test]
+fn a_stale_mlx_check_runs_again_by_itself_instead_of_asking_for_a_download() {
+    let rec = |ok| os_models::mlx_pack::CheckRecord { ok, at: "2026-10-19T00:00:00Z".into(), message: None };
+    assert_eq!(mlx_gate(false, true, Some(&rec(true))), MlxGate::NotHere);
+    assert_eq!(mlx_gate(true, false, None), MlxGate::NotInstalled);
+    assert_eq!(mlx_gate(true, true, None), MlxGate::NeedsCheck, "installed, no result for this version");
+    assert_eq!(mlx_gate(true, true, Some(&rec(true))), MlxGate::Ready);
+    assert_eq!(mlx_gate(true, true, Some(&rec(false))), MlxGate::Failed);
+
+    let passed = || PackCheck {
+        ok: true,
+        device: "gpu".into(),
+        metal: true,
+        versions: BTreeMap::new(),
+        checks: vec![("imports".into(), true)],
+        message: None,
+    };
+    let runs = std::cell::Cell::new(0);
+    ensure_mlx(MlxGate::NeedsCheck, || {
+        runs.set(runs.get() + 1);
+        Ok(passed())
+    })
+    .unwrap();
+    assert_eq!(runs.get(), 1, "checked once, then drafting goes on");
+    let failed =
+        PackCheck { ok: false, message: Some("Metal isn't available on this Mac".into()), ..passed() };
+    assert_eq!(err(ensure_mlx(MlxGate::NeedsCheck, || Ok(failed))), MLX_CHECK_FAILED);
+    assert_eq!(err(ensure_mlx(MlxGate::NeedsCheck, || Err(AppError("no python".into())))), MLX_CHECK_FAILED);
+    assert_eq!(
+        err(ensure_mlx(MlxGate::Failed, || panic!("a failed check isn't re-run here"))),
+        MLX_CHECK_FAILED
+    );
+    ensure_mlx(MlxGate::Ready, || panic!("a passed check isn't re-run")).unwrap();
+    assert_eq!(err(ensure_mlx(MlxGate::NotInstalled, || panic!("nothing to check"))), MLX_FIRST);
+    assert_eq!(err(ensure_mlx(MlxGate::NotHere, || panic!("nothing to check"))), MLX_NEEDS);
+    assert!(!MLX_CHECK_FAILED.contains("Download"), "never sends anyone to download what they have");
+}
+
+/// MLX-only downloads where MLX can't run (Windows, Linux outside test mode,
+/// Intel Macs, macOS 13) would fetch gigabytes that never write a note.
+#[test]
+fn mlx_downloads_are_refused_where_mlx_cant_run() {
+    if mlx_runs_here() {
+        println!("skipped: MLX runs here");
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let app = app_in(tmp.path());
+    let m = hub_model(&app, "Tiny-4bit", true);
+    assert_eq!(err(app.download_model(&m.id, None, &Quiet)), MLX_NEEDS);
+    // Refused before any Hub call is made.
+    assert_eq!(err(app.hub_add("mlx-community/Qwen3-0.6B-4bit", "@mlx", false)), MLX_NEEDS);
+    assert!(app.downloading.lock().unwrap().is_empty());
+}
+
+/// Inspecting a path reveals what is on the computer running OpenBark, so
+/// with a team it needs a veterinarian, like adding the model.
+#[test]
+fn inspecting_an_import_needs_a_veterinarian_with_a_team() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app = app_in(tmp.path());
+    let file = tmp.path().join("Downloads").join("Small-Q4_K_M.gguf");
+    tiny_gguf(&file);
+    let path = file.to_str().unwrap();
+    assert!(app.inspect_import(path, None).is_ok(), "single-user: anyone at the computer");
+    let (dvm, rvt, desk) = team(&app);
+    assert_eq!(err(app.inspect_import(path, None)), "Choose who you are first.");
+    for by in [&rvt.id, &desk.id] {
+        assert_eq!(err(app.inspect_import(path, Some(by))), "Only a veterinarian can change the models.");
+    }
+    assert_eq!(app.inspect_import(path, Some(&dvm.id)).unwrap().total_bytes, 128);
+}
+
+/// GET /api/mlx used to wait on the note-model slot, which a model load
+/// holds for minutes: the MLX card stayed blank. It reads a hint instead.
+#[test]
+fn the_mlx_status_never_waits_for_a_model_to_load() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app = app_in(tmp.path());
+    let loading = app.llm.lock().unwrap(); // as load_llm holds it while loading
+    app.mlx_in_slot.store(true, std::sync::atomic::Ordering::SeqCst);
+    let started = std::time::Instant::now();
+    assert!(app.mlx_status().in_use, "an MLX model is loading");
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    drop(loading);
+    load_fake(&app, "gguf", FakeLlm::loaded("llama.cpp").0);
+    assert!(!app.mlx_status().in_use, "read from the slot when it's free");
+}
+
+/// A removal waiting for a model load used to hold the download list, so no
+/// download could start or finish until the load ended (and a download
+/// starting on the loading thread would have deadlocked).
+#[test]
+fn a_removal_waiting_for_a_model_load_doesnt_hold_up_downloads() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app = app_in(tmp.path());
+    let m = hub_model(&app, "Tiny", false);
+    std::thread::scope(|scope| {
+        let loading = app.llm.lock().unwrap();
+        let remover = scope.spawn(|| app.remove_model(&m.id, None, false, None));
+        std::thread::sleep(std::time::Duration::from_millis(300)); // it now waits for the slot
+        let started = std::time::Instant::now();
+        let other = app.start_download("hf:someone/other-GGUF/other").unwrap();
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
+        drop(other);
+        drop(loading);
+        let removed = remover.join().unwrap().unwrap();
+        assert_eq!(removed.files_removed, 1);
+    });
 }

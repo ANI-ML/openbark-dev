@@ -31,7 +31,7 @@ The **Models** screen lists every model, its size and licence, and whether it fi
 | QAT | Trained to be compressed: a 4-bit file with nearly full quality. Prefer it when offered. |
 | GGUF, MLX | File formats. OpenBark runs GGUF; MLX is Apple's format (labelled on a Mac). |
 
-As a rule of thumb: older laptops, Gemma 4 E2B (about 3 GB); most laptops, E4B (about 5 GB); a graphics card with 10 GB or more, or a Mac with 24 GB or more, 12B (about 7 GB). Every model name in the app and in the Hugging Face browser shows these labels; rest on one to read its meaning. You can browse Hugging Face for other note-writing models there. On a Mac, models converted for Apple's MLX framework are marked **MLX optimized** (see [ADR-0009](../adr/0009-mlx-on-mac.md)); OpenBark runs the GGUF builds, on the Mac's graphics chip.
+As a rule of thumb: older laptops, Gemma 4 E2B (about 3 GB); most laptops, E4B (about 5 GB); a graphics card with 10 GB or more, or a Mac with 24 GB or more, 12B (about 7 GB). Every model name in the app and in the Hugging Face browser shows these labels; rest on one to read its meaning. You can browse Hugging Face for other note-writing models there. On a Mac with Apple silicon and macOS 14 or later, models converted for Apple's MLX framework can run too, once you download the **MLX engine** on the Models screen. You can also add a model file from this computer, and remove models you no longer use. All of this is in [Models](models.md).
 
 ## Settings to set up first
 

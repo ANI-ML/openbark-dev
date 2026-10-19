@@ -42,12 +42,16 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "native-tls", "http2"] }
 sha2 = "0.11.1"
 hex = "0.4.3"
+# Git blob SHA-1 for Hub files not in LFS (ADR-0025).
+sha1 = "=0.11.0"
 dirs = "7.0.0"
 sysinfo = "0.39.6"
 # GPU speech pack archives (ADR-0014); the versions already in Cargo.lock.
 bzip2 = "=0.5.2"
 tar = "=0.4.46"
 zip = { version = "=2.6.1", default-features = false, features = ["deflate"] }
+# MLX engine pack: CPython archive (ADR-0025); the version already in Cargo.lock.
+flate2 = "=1.1.10"
 minijinja = { version = "3.0.1", features = ["serde", "json", "loop_controls", "preserve_order"] }
 minijinja-contrib = { version = "3.0.1", features = ["pycompat"] }
 indicatif = "0.18.6"

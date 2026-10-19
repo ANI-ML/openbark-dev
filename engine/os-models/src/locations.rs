@@ -310,8 +310,9 @@ pub fn contents(kind: FolderKind, dir: &Path, model_ids: &[&str]) -> Contents {
         }
         let mine = match kind {
             FolderKind::Models => {
-                (path.is_dir() && (model_ids.contains(&name.as_str()) || name == crate::gpu_pack::PACK_ID))
+                (path.is_dir() && models_folder_is_ours(&name, model_ids))
                     || name == "user-catalog.json"
+                    || name == "user-catalog.json.tmp"
             }
             FolderKind::Visits => {
                 name == "patients.json"
@@ -326,6 +327,25 @@ pub fn contents(kind: FolderKind, dir: &Path, model_ids: &[&str]) -> Contents {
         (true, false) => Contents::OpenBark,
         (false, false) => Contents::Empty,
     }
+}
+
+/// The MLX engine pack's download folder (`mlx_pack::PACK_ID`, ADR-0025 §4).
+const MLX_PACK_DOWNLOADS: &str = "mlx-engine-pack";
+
+/// A folder at the top of the models folder that OpenBark made: a model's
+/// folder (by id, or the first part of an id's safe folder name), a Hub
+/// model's `hf_...` folder (`hf:...` on Mac and Linux installs from before
+/// ADR-0025), models added from this computer (`local`), and the GPU speech
+/// and MLX engine packs' downloads.
+fn models_folder_is_ours(name: &str, model_ids: &[&str]) -> bool {
+    name.starts_with("hf_")
+        || name.starts_with("hf:")
+        || name == "local"
+        || name == MLX_PACK_DOWNLOADS
+        || name == crate::gpu_pack::PACK_ID
+        || model_ids.iter().any(|id| {
+            *id == name || crate::store::dir_name(id).split('/').next().is_some_and(|first| first == name)
+        })
 }
 
 /// What [`move_tree`] did.
@@ -604,6 +624,33 @@ mod tests {
         assert_eq!(contents(FolderKind::Models, &d.join("mixed"), &["gemma-4-e4b"]), Contents::Other);
         write(&d.join("loose/model.gguf"), b"");
         assert_eq!(contents(FolderKind::Models, &d.join("loose"), &["gemma-4-e4b"]), Contents::Other);
+    }
+
+    /// ADR-0025: Hub models' folders (safe and old names), models added from
+    /// this computer and both packs' downloads are OpenBark's.
+    #[test]
+    fn hub_local_and_pack_folders_count_as_openbark() {
+        let tmp = tempfile::tempdir().unwrap();
+        let d = tmp.path().join("m");
+        for folder in [
+            "hf_bartowski/x/m.gguf",
+            "local/mine/m.gguf",
+            "mlx-engine-pack/a.whl",
+            "gpu-speech-pack/a.tar.bz2",
+        ] {
+            write(&d.join(folder), b"");
+        }
+        #[cfg(unix)]
+        write(&d.join("hf:unsloth/x/m.gguf"), b"");
+        write(&d.join("user-catalog.json"), b"{}");
+        assert_eq!(contents(FolderKind::Models, &d, &[]), Contents::OpenBark);
+        // A model id with folders counts by its first folder.
+        write(&d.join("nested/model/x.gguf"), b"");
+        assert_eq!(contents(FolderKind::Models, &d, &[]), Contents::Other);
+        assert_eq!(contents(FolderKind::Models, &d, &["nested/model"]), Contents::OpenBark);
+        // A file called local isn't the folder; other things still make it someone else's.
+        write(&d.join("holiday.jpg"), b"");
+        assert_eq!(contents(FolderKind::Models, &d, &["nested/model"]), Contents::Other);
     }
 
     /// ADR-0022: the housekeeping folder (Deleted visits, the deletion record)

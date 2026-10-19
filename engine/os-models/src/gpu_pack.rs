@@ -122,9 +122,16 @@ pub fn entry() -> CatalogEntry {
         source: Source::Url,
         files: ARCHIVES
             .iter()
-            .map(|a| FileSpec { path: a.name.into(), size: a.size, sha256: a.sha256.into(), url: Some(a.url.into()) })
+            .map(|a| FileSpec {
+                path: a.name.into(),
+                size: a.size,
+                sha256: a.sha256.into(),
+                git_sha1: None,
+                url: Some(a.url.into()),
+            })
             .collect(),
         layout: Layout::Archives,
+        gated: false,
     }
 }
 

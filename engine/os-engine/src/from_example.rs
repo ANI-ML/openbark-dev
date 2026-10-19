@@ -33,8 +33,9 @@ Audience: \"veterinary record\" for clinical notes written by and for the veteri
 surgical reports, rechecks). Choose \"pet owner\" only when the note speaks to the owner in plain language \
 (\"you\", discharge instructions, letters).";
 
-/// The shape the model fills.
-fn draft_schema() -> Value {
+/// The shape the model fills. Public for the golden schema check
+/// (`examples/write_schemas.rs`, ADR-0025 decision 3).
+pub fn draft_schema() -> Value {
     let kind = |with_parts: bool| {
         let mut kinds = vec!["statements", "text", "fields", "medications", "teeth"];
         if with_parts {

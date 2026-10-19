@@ -1,0 +1,6 @@
+# MLX engine pack, Linux x86_64 on the CPU: test mode only (OPENBARK_MLX_DEV=1,
+# ADR-0025 decision 1). Input to scripts/mlx-pack-lock.py; the resolved list is
+# in engine/os-models/src/mlx_pack.linux.lock.json and docs/mlx-pack-pins.md.
+mlx-lm==0.32.0
+llguidance==1.9.1
+mlx[cpu]==0.32.3

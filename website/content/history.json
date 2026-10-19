@@ -21,7 +21,8 @@
           "summary": "Make templates your own, choose the model that writes your notes, and chart teeth during a dental.",
           "items": [
             {"text": "Change any template, built-ins included, as your own version; a hospital-wide templates setting; admins approve hospital changes with their PIN.", "status": "shipped"},
-            {"text": "MLX models on Macs with Apple silicon, models of your choice, and removing models you no longer need.", "status": "testing"},
+            {"text": "MLX models on Macs with Apple silicon (macOS 14 or later), as an optional download.", "status": "testing"},
+            {"text": "Choose any model from Hugging Face, including split and gated ones, add one from your computer, and remove models to free space.", "status": "shipped"},
             {"text": "A dental chart for dogs and cats, drafted from the conversation, linked to the transcript and included in the note and PDF. You confirm every tooth before signing.", "status": "shipped"},
             {"text": "Help videos re-recorded, in light and dark.", "status": "shipped"},
             {"text": "Installers now name ANI.ML Health Inc. as the publisher.", "status": "shipped"}

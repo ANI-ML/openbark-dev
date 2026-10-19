@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { fmtBytes, useApp } from "../context";
 import * as engine from "../engine";
 import { useT } from "../i18n";
+import { RemoveModelDialog } from "./RemoveModelDialog";
 
 const NVIDIA_LICENCE = "https://docs.nvidia.com/deeplearning/cudnn/latest/reference/eula.html";
 
@@ -17,6 +18,7 @@ export function GpuCard() {
   const [status, setStatus] = useState<engine.GpuStatus | null>(null);
   const [accepted, setAccepted] = useState(false);
   const [busy, setBusy] = useState<"install" | "remove" | null>(null);
+  const [removing, setRemoving] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [error, setError] = useState<string | null>(null);
 
@@ -53,23 +55,15 @@ export function GpuCard() {
     }
   }
 
-  async function remove() {
-    setError(null);
-    setBusy("remove");
-    try {
-      setStatus(await engine.removeGpu());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(null);
-    }
-  }
-
   const ready = status.pack_installed && status.models_installed;
   const removeButton = (status.pack_installed || status.models_installed) && !installing && (
-    <Button variant="danger" onClick={() => void remove()} disabled={busy !== null}>
+    <Button variant="danger" onClick={() => setRemoving(true)} disabled={busy !== null}>
       {t("Remove")}
     </Button>
+  );
+  // ADR-0025 §10: the card shows the space the pack uses.
+  const onDisk = status.installed_bytes > 0 && (
+    <span className="small faint">{t("{size} on disk", { size: fmtBytes(status.installed_bytes) })}</span>
   );
   return (
     <section className="group gpu-card">
@@ -96,6 +90,7 @@ export function GpuCard() {
       {status.active ? (
         <div className="gpu-row">
           <StatusDot tone="ok">{t("On: speech recognition runs on the graphics card.")}</StatusDot>
+          {onDisk}
           {removeButton}
         </div>
       ) : status.restart_needed && !status.check_failed ? (
@@ -119,6 +114,7 @@ export function GpuCard() {
           >
             {t("Restart now")}
           </Button>
+          {onDisk}
           {removeButton}
         </div>
       ) : installing ? (
@@ -156,6 +152,7 @@ export function GpuCard() {
               </a>
             </span>
           </label>
+          {onDisk && <p>{onDisk}</p>}
           <div className="ask-actions">
             <Button variant="primary" onClick={() => void install()} disabled={!accepted || busy !== null}>
               {status.check_failed ? t("Try again") : ready ? t("Set up") : t("Download")}
@@ -163,6 +160,18 @@ export function GpuCard() {
             {removeButton}
           </div>
         </>
+      )}
+      {removing && (
+        <RemoveModelDialog
+          target={{ kind: "gpu", bytes: status.installed_bytes }}
+          noteModel={app.settings.llm}
+          toast={app.toast}
+          onClose={() => setRemoving(false)}
+          onRemoved={(r) => {
+            if (r.gpu) setStatus(r.gpu);
+            else void engine.gpuStatus().then(setStatus, () => {});
+          }}
+        />
       )}
     </section>
   );

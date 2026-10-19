@@ -161,7 +161,7 @@ pub fn run(cmd: TemplatesCommand, models: &os_models::ModelStore) -> Result<()> 
         TemplatesCommand::FromExample { file, expect, llm } => {
             let backend = crate::load_llm(models, &llm)?;
             let t =
-                os_engine::from_example::template_from_example(&backend, &std::fs::read_to_string(&file)?)?;
+                os_engine::from_example::template_from_example(&*backend, &std::fs::read_to_string(&file)?)?;
             println!("{}", serde_yaml_ng::to_string(&t.template)?);
             if let Some(expect) = expect {
                 let got: Vec<String> = t

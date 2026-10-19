@@ -178,9 +178,108 @@ async fn install_gpu(
 }
 
 #[tauri::command]
-async fn remove_gpu(app: State<'_, AppState>) -> Result<os_app::GpuStatus, String> {
+async fn remove_gpu(app: State<'_, AppState>, by: Option<String>) -> Result<os_app::GpuStatus, String> {
     let app = app.inner().clone();
-    work(move || app.remove_gpu()).await
+    work(move || app.remove_gpu(by.as_deref())).await
+}
+
+// ---- models of your choice and the MLX engine (ADR-0025) -------------------
+
+#[tauri::command]
+async fn remove_model(
+    app: State<'_, AppState>,
+    id: String,
+    note_model: Option<String>,
+    forget: bool,
+    by: Option<String>,
+) -> Result<os_app::Removal, String> {
+    let app = app.inner().clone();
+    work(move || app.remove_model(&id, note_model.as_deref(), forget, by.as_deref())).await
+}
+
+#[tauri::command]
+async fn inspect_import(
+    app: State<'_, AppState>,
+    path: String,
+    by: Option<String>,
+) -> Result<os_app::ImportPreview, String> {
+    let app = app.inner().clone();
+    work(move || app.inspect_import(&path, by.as_deref())).await
+}
+
+#[tauri::command]
+async fn import_model(
+    handle: AppHandle,
+    app: State<'_, AppState>,
+    path: String,
+    mode: os_app::ImportMode,
+    by: Option<String>,
+) -> Result<os_app::ModelRow, String> {
+    let app = app.inner().clone();
+    work(move || app.import_model(&path, mode, by.as_deref(), &TauriEvents(handle))).await
+}
+
+#[tauri::command]
+async fn mlx_status(app: State<'_, AppState>) -> Result<os_app::MlxStatus, String> {
+    let app = app.inner().clone();
+    work(move || Ok(app.mlx_status())).await
+}
+
+#[tauri::command]
+async fn install_mlx(handle: AppHandle, app: State<'_, AppState>) -> Result<os_app::MlxStatus, String> {
+    let app = app.inner().clone();
+    work(move || app.install_mlx(&TauriEvents(handle))).await
+}
+
+#[tauri::command]
+async fn check_mlx(app: State<'_, AppState>) -> Result<os_app::MlxStatus, String> {
+    let app = app.inner().clone();
+    work(move || app.check_mlx()).await
+}
+
+#[tauri::command]
+async fn remove_mlx(
+    app: State<'_, AppState>,
+    note_model: Option<String>,
+    by: Option<String>,
+) -> Result<os_app::Removal, String> {
+    let app = app.inner().clone();
+    work(move || app.remove_mlx(note_model.as_deref(), by.as_deref())).await
+}
+
+#[tauri::command]
+async fn hf_token_status(app: State<'_, AppState>) -> Result<os_app::HfTokenStatus, String> {
+    let app = app.inner().clone();
+    work(move || Ok(app.hf_token_status())).await
+}
+
+/// The token is checked and saved; it is never returned or logged.
+#[tauri::command]
+async fn set_hf_token(
+    app: State<'_, AppState>,
+    token: String,
+    by: Option<String>,
+) -> Result<os_app::HfTokenStatus, String> {
+    let app = app.inner().clone();
+    work(move || app.set_hf_token(&token, by.as_deref())).await
+}
+
+#[tauri::command]
+async fn clear_hf_token(
+    app: State<'_, AppState>,
+    by: Option<String>,
+) -> Result<os_app::HfTokenStatus, String> {
+    let app = app.inner().clone();
+    work(move || app.clear_hf_token(by.as_deref())).await
+}
+
+#[tauri::command]
+async fn hub_alternatives(
+    app: State<'_, AppState>,
+    base: String,
+) -> Result<Vec<os_models::hub::HubModel>, String> {
+    let app = app.inner().clone();
+    work(move || app.hub_alternatives(&base)).await
 }
 
 /// Restart, unless a recording or other work is running (it would be lost).
@@ -784,9 +883,20 @@ pub fn run() {
             profile_summary,
             models,
             download_model,
+            remove_model,
+            inspect_import,
+            import_model,
+            mlx_status,
+            install_mlx,
+            check_mlx,
+            remove_mlx,
+            hf_token_status,
+            set_hf_token,
+            clear_hf_token,
             hub_search,
             hub_repo,
-            hub_add
+            hub_add,
+            hub_alternatives
         ])
         .run(tauri::generate_context!())
         .expect("error while running OpenBark");

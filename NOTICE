@@ -34,6 +34,16 @@ CUDA build published by k2-fsa/sherpa-onnx) and NVIDIA's CUDA runtime, cuBLAS
 and cuDNN libraries, which are NVIDIA's software under NVIDIA's license and
 are fetched from NVIDIA's own packages after the user accepts that license.
 
+The optional MLX engine pack (Mac with Apple silicon, macOS 14 or later) is
+downloaded on the user's request and is not distributed here: a standalone
+CPython build from the python-build-standalone project (Python under the PSF
+License, build scripts MPL-2.0), and the Python packages MLX and mlx-lm (MIT,
+by Apple Inc.), llguidance (MIT, by Microsoft Corporation), Transformers and
+Tokenizers (Apache-2.0, by Hugging Face) and their dependencies, under MIT,
+BSD, Apache-2.0, ISC, PSF-2.0, MPL-2.0 (tqdm, with MIT), CNRI-Python (regex,
+with Apache-2.0) and, in NumPy, also 0BSD, Zlib and CC0-1.0 terms; each
+package's license is listed in docs/mlx-pack-pins.md.
+
 Third-party software compiled into or shipped with the app and installers,
 each under its own license (full license texts are in the respective projects):
 
