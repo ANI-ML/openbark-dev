@@ -116,3 +116,17 @@ All shas are the Hugging Face `main` commit on 2026-10-17. The full catalog is a
 - Moonshine **streaming** models are MIT in every language. Only the older non-streaming non-English models are non-commercial.
 - Qwen3-ASR comes only in 0.6B and 1.7B, and **there is no official diarization variant**.
 - The `Pl4tt/OpenScribe` repo named in the prompt is a fork of `sammargolis/OpenScribe` (MIT, an active human-medicine scribe, openscribe.org).
+
+## 5. CI and release signing (ADR-0020)
+
+Checked live on 2026-10-18 (GitHub release and tag APIs, the NuGet registration and catalog APIs, GitHub's Windows 2025 runner image readme). New GitHub Actions are pinned by full commit SHA, with the version in a comment. The older actions in the workflows (`actions/checkout@v4` and the like) are still pinned by major tag.
+
+| Item | Pin | Source | Notes |
+|---|---|---|---|
+| `azure/login` | **v3.1.0** (2026-09-10), commit `a641126d1b8aa4d1fa005f4f92df94a3a4c4c906` | GitHub releases API; tag ref dereferenced | OIDC sign-in for Windows signing in `release.yml`. Runs only for a v* tag with the Azure secrets set |
+| `Microsoft.ArtifactSigning.Client` | **1.0.128** (2026-03-30), nupkg SHA-256 `74bd7d27e6ce1051409c38d9b46bc8df0400ecd643d51ffbf2ac00869061e40b` (matches NuGet's catalog SHA-512) | api.nuget.org registration and catalog | The signtool dlib, `bin/x64/Azure.CodeSigning.Dlib.dll`, needs the .NET 8 runtime (present on windows-2025 images: Microsoft.NETCore.App 8.0.6 to 8.0.31). Downloaded and hash-checked by `scripts/ci/windows-signing.ps1`. 1.0.146 (2026-10-08) is inside the 30-day rule |
+| `signtool.exe` | the newest x64 copy in the runner's Windows SDK, at least **10.0.22621.755** (the minimum Artifact Signing needs) | Microsoft Learn; runner image (Windows SDK 10.0.26100.0) | Checked by the script, which fails below the minimum |
+| `azure/artifact-signing-action` (formerly `trusted-signing-action`, which now redirects) | **v2.0.0** (2026-05-14), commit `c7ab2a863ab5f9a846ddb8265964877ef296ee82` | GitHub releases API | **Not used yet.** Tauri must sign the files inside the installer, so the action can't replace `signCommand`. Kept for files outside the installer (the `openbark` CLI, `ggml-cuda.dll`, ADR-0019) |
+| `actions/setup-dotnet` | v6.0.0 (2026-07-16) | GitHub releases API | **Not needed**: the runner image already has .NET 8 |
+| actionlint (local check of the workflow files) | **1.7.12** (2026-03-30), with shellcheck **0.11.0** | GitHub releases; checksums file and asset digest | Run by hand: `actionlint -shellcheck shellcheck .github/workflows/*.yml`. Not a CI step yet |
+| `rpm` / `rpmsign` (Ubuntu package) | Ubuntu 22.04's and 24.04's archive version | apt | Signs the `.rpm` in `scripts/ci/gpg-sign.sh`. Debian's rpm points `%__gpg` at `/usr/bin/gpg2`, which isn't installed, so the script overrides it |
