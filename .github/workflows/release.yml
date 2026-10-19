@@ -62,10 +62,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libclang-dev cmake libasound2-dev libvulkan-dev
-      # Ubuntu 22.04 (kept for older-glibc compatibility) has no glslc package;
-      # ggml's Vulkan backend needs it to compile shaders. Take glslc from the
-      # pinned LunarG Vulkan SDK, checked against its published SHA-256.
-      - name: glslc from the Vulkan SDK (Linux)
+      # Ubuntu 22.04 (kept for older-glibc compatibility) lacks what ggml's
+      # Vulkan backend needs at build time: glslc, current Vulkan headers and
+      # the SPIRV-Headers CMake package. Use the pinned LunarG Vulkan SDK,
+      # checked against its published SHA-256, and point CMake at it.
+      - name: Vulkan SDK (Linux)
         if: matrix.name == 'linux'
         env:
           VK_SDK: "1.4.363.0"
@@ -73,9 +74,19 @@ jobs:
         run: |
           curl -fsSL -o /tmp/vksdk.tar.xz "https://sdk.lunarg.com/sdk/download/$VK_SDK/linux/vulkansdk-linux-x86_64-$VK_SDK.tar.xz"
           echo "$VK_SHA256  /tmp/vksdk.tar.xz" | sha256sum -c -
-          tar -xJf /tmp/vksdk.tar.xz -C /tmp --wildcards "*/x86_64/bin/glslc"
-          sudo install -m 0755 /tmp/$VK_SDK/x86_64/bin/glslc /usr/local/bin/glslc
-          glslc --version | head -1
+          mkdir -p "$HOME/vulkansdk"
+          tar -xJf /tmp/vksdk.tar.xz -C "$HOME/vulkansdk"
+          rm /tmp/vksdk.tar.xz
+          sdk="$HOME/vulkansdk/$VK_SDK/x86_64"
+          {
+            echo "VULKAN_SDK=$sdk"
+            echo "CMAKE_PREFIX_PATH=$sdk"
+            echo "LD_LIBRARY_PATH=$sdk/lib"
+            echo "PKG_CONFIG_PATH=$sdk/lib/pkgconfig"
+          } >> "$GITHUB_ENV"
+          echo "$sdk/bin" >> "$GITHUB_PATH"
+          "$sdk/bin/glslc" --version | head -1
+          ls "$sdk/share/cmake" "$sdk/lib/cmake" 2>/dev/null | head
       - name: Installers
         shell: bash
         run: |
