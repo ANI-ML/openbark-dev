@@ -46,6 +46,11 @@ pub struct EvalArgs {
     /// own (e.g. a client document from the euthanasia consult).
     #[arg(long)]
     pub force_template: bool,
+    /// Leave out the patient details a script declares (`patient:`). By
+    /// default they go into the prompt as the app sends them, as entered by
+    /// the clinic: name, reason for visit and species.
+    #[arg(long)]
+    pub no_patient: bool,
     #[command(flatten)]
     pub llm: LlmArgs,
 }
@@ -277,8 +282,42 @@ struct Script {
     /// `--template` option is used when absent.
     #[serde(default)]
     template: Option<String>,
+    /// What the clinic would have entered before the visit. The app sends
+    /// these details with every draft (`PatientInfo::prompt_context`), so the
+    /// eval does too, unless `--no-patient`.
+    #[serde(default)]
+    patient: Option<ScriptPatient>,
     #[serde(default)]
     expected: Expected,
+}
+
+/// The patient details a script declares, as the clinic types them.
+#[derive(Deserialize, Default)]
+struct ScriptPatient {
+    name: String,
+    #[serde(default)]
+    reason: String,
+    /// As typed ("Dog"); the script's `species` when absent.
+    #[serde(default)]
+    species: Option<String>,
+}
+
+/// The draft options for a script: the app's prompt context when the script
+/// declares its patient, so the eval drafts from the prompt the app sends.
+fn script_options(args: &EvalArgs, script: &Script) -> os_engine::NoteOptions {
+    let mut options = note_options(&args.llm);
+    if !args.no_patient
+        && let Some(p) = &script.patient
+    {
+        let info = os_engine::session::PatientInfo {
+            name: p.name.clone(),
+            reason: p.reason.clone(),
+            species: p.species.clone().or_else(|| script.species.clone()).unwrap_or_default(),
+            ..Default::default()
+        };
+        options.context = Some(info.prompt_context()).filter(|c| !c.is_empty());
+    }
+    options
 }
 
 #[derive(Serialize, Default)]
@@ -305,6 +344,10 @@ struct Score {
     /// run can be traced to the exact template text (ADR-0024 step 12).
     template: String,
     fingerprint: String,
+    /// The patient details sent with the draft, as the app sends them
+    /// (none with `--no-patient`, or when the script declares none).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    context: Option<String>,
 }
 
 struct Quiet;
@@ -587,9 +630,9 @@ pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
             _ => default_template.clone(),
         }
         .for_species(script.species.as_deref());
+        let options = script_options(&args, &script);
         let s = if script.expected.vitals_by_patient.is_empty() {
-            let result =
-                generate_note(&llm, &template, &transcript, &note_options(&args.llm), &mut |_| true)?;
+            let result = generate_note(&llm, &template, &transcript, &options, &mut |_| true)?;
             std::fs::write(
                 format!("target/eval/{}.note.json", script.id),
                 serde_json::to_string_pretty(&result.note)?,
@@ -610,6 +653,7 @@ pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
             score_pets(&llm, &template, &transcript, &script, &args.llm)?
         };
         let mut s = s;
+        s.context = options.context.clone();
         s.template = template.label();
         s.fingerprint = os_engine::template::fingerprint(&template.template);
         println!(
@@ -623,6 +667,9 @@ pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
             s.misses.join("; ")
         );
         println!("    template: {} ({})", s.template, &s.fingerprint[..12]);
+        if let Some(context) = &s.context {
+            println!("    patient details in the prompt: {context}");
+        }
         for number in &s.invented {
             println!("    invented: {number}");
         }

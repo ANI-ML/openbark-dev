@@ -12,6 +12,8 @@ id: dental-chart
 title: Canine dental under anaesthesia, charted by number, name, range and group
 species: canine
 template: dental
+# As the clinic enters it before the visit; the app sends it with every draft.
+patient: { name: Juno, reason: Dental, species: Dog }
 speakers:
   dvm: af_sarah
   tech: am_adam

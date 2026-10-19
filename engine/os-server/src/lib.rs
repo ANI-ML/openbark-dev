@@ -25,6 +25,9 @@
 //!   redraft one heading of the latest draft
 //! - `POST /api/sessions/{id}/edit`         `{heading, value, by}`: the vet's own version of a heading
 //! - `POST /api/sessions/{id}/addenda`      `{text, by}`: signed addition to a signed note
+//! - `POST /api/sessions/{id}/chart/confirm` `{teeth, confirmed, by, pet?}`: a veterinarian
+//!   confirms (or takes back) the drafted tooth chart entries on these teeth; signing
+//!   waits for every drafted entry (ADR-0021)
 //! - `POST /api/sessions/{id}/pdf`          `{clinic: {name, lines}, page, document?}` → application/pdf
 //! - Templates (ADR-0024; reads take `by` in the query, writes in the body; an
 //!   admin's PIN travels only in a body, as `approver: {id, pin}`):
@@ -206,6 +209,7 @@ fn router(state: St, ui_dir: &std::path::Path, port: u16) -> Router {
         .route("/api/sessions/{id}/audio", get(session_audio))
         .route("/api/sessions/{id}/notes", post(create_note))
         .route("/api/sessions/{id}/sign", post(sign_note))
+        .route("/api/sessions/{id}/chart/confirm", post(confirm_chart))
         .route("/api/sessions/{id}/patient", post(update_patient))
         .route("/api/sessions/{id}/refine", post(refine_note))
         .route("/api/sessions/{id}/edit", post(edit_note))
@@ -828,6 +832,24 @@ async fn sign_note(
     Json(req): Json<Sign>,
 ) -> Result<impl IntoResponse, ApiError> {
     blocking(move || s.app().sign(&id, &req.by, req.pet.as_deref())).await
+}
+
+#[derive(Deserialize)]
+struct ConfirmChart {
+    teeth: Vec<String>,
+    #[serde(default = "yes")]
+    confirmed: bool,
+    by: String,
+    #[serde(default)]
+    pet: Option<String>,
+}
+
+async fn confirm_chart(
+    State(s): State<St>,
+    UrlPath(id): UrlPath<String>,
+    Json(req): Json<ConfirmChart>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().confirm_chart(&id, &req.teeth, req.confirmed, &req.by, req.pet.as_deref())).await
 }
 
 async fn update_patient(

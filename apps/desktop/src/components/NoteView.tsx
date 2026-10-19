@@ -2,7 +2,7 @@ import { Copy, MessageSquareText, Pencil } from "lucide-react";
 import { useState } from "react";
 import { headingLines } from "../copyFormats";
 import { asItems, useLowerInner, type Dentition } from "../dental";
-import type { ContentKind, Faithfulness, NoteRun, Template, TemplateField, TemplatePart } from "../engine";
+import type { ChartCheck, ContentKind, Faithfulness, NoteRun, Template, TemplateField, TemplatePart } from "../engine";
 import { useT } from "../i18n";
 import { DentalChart } from "./DentalChart";
 
@@ -44,6 +44,14 @@ export interface NoteViewProps {
   suggestedDentition?: Dentition | null;
   /** Write that dentition into a chart heading (an unsigned draft). */
   onChooseDentition?: (heading: string, dentition: Dentition) => void;
+  /** The vet's confirmations of the chart's drafted teeth (ADR-0021 decision 10). */
+  chartChecks?: ChartCheck[];
+  /** Teeth with a drafted entry not confirmed yet; given, the chart shows its draft state. */
+  unconfirmedTeeth?: string[];
+  /** Confirm or take back drafted teeth (an unsigned draft, for a veterinarian). */
+  onConfirmTeeth?: (teeth: string[], confirmed: boolean) => void;
+  /** A confirmation is being saved. */
+  confirming?: boolean;
 }
 
 type Statement = { text?: string; value?: string | number; unit?: string | null; evidence?: number[]; entered_by?: string } & Record<
@@ -95,6 +103,10 @@ export function NoteView({
   renderEdit,
   suggestedDentition = null,
   onChooseDentition,
+  chartChecks,
+  unconfirmedTeeth,
+  onConfirmTeeth,
+  confirming = false,
 }: NoteViewProps) {
   const t = useT();
   const lowerInner = useLowerInner();
@@ -248,6 +260,10 @@ export function NoteView({
         editable={Boolean(onEdit)}
         suggestedDentition={suggestedDentition}
         onChooseDentition={onEdit && onChooseDentition ? (d) => onChooseDentition(heading, d) : undefined}
+        checks={chartChecks}
+        unconfirmed={unconfirmedTeeth}
+        onConfirm={onConfirmTeeth}
+        confirming={confirming}
       />
     );
   };

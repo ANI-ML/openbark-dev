@@ -8,6 +8,8 @@ id: dental-young-dog
 title: Young dog with persistent deciduous teeth, charted
 species: canine
 template: dental
+# As the clinic enters it before the visit; the app sends it with every draft.
+patient: { name: Coco, reason: Dental, species: Dog }
 speakers:
   dvm: bf_emma
 pause_secs: 0.6

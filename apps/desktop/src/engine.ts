@@ -70,6 +70,12 @@ export interface Faithfulness {
       | "negated"
       | "other_type"
       | "planned"
+      | "not_planned"
+      | "history"
+      | "uncertain"
+      | "ambiguous"
+      | "contradicted"
+      | "other_pet"
       | "conflict"
       | "shape"
       | "duplicate"
@@ -193,6 +199,20 @@ export interface SessionView {
   has_audio?: boolean;
   /** When only the recording was deleted, and by whom. */
   audio_deleted?: AudioDeleted | null;
+  /** The latest draft's tooth chart confirmations, by tooth (ADR-0021 decision 10). */
+  chart_checks?: ChartCheck[];
+  /** Teeth with a drafted chart entry no veterinarian has confirmed; signing waits until it's empty. */
+  unconfirmed_teeth?: string[];
+}
+
+/** A veterinarian's confirmation of the drafted chart entries on one tooth (ADR-0021 decision 10). */
+export interface ChartCheck {
+  tooth: string;
+  /** The drafted entries confirmed (the engine's item keys). */
+  items: string[];
+  by: string;
+  who?: Who | null;
+  at: string;
 }
 
 // ---- deleting (ADR-0022) ----------------------------------------------------
@@ -1047,6 +1067,11 @@ export const addAddendum = (id: string, text: string, by: string, pet?: string |
   isDesktop
     ? invoke<SessionView>("add_addendum", { id, text, by, pet: pet ?? null })
     : api<SessionView>(`/api/sessions/${enc(id)}/addenda`, post({ text, by, pet: pet ?? null }));
+/** Confirm (or take back) the drafted tooth chart entries on these teeth, as a veterinarian. */
+export const confirmChart = (id: string, teeth: string[], confirmed: boolean, by: string, pet?: string | null) =>
+  isDesktop
+    ? invoke<SessionView>("confirm_chart", { id, teeth, confirmed, by, pet: pet ?? null })
+    : api<SessionView>(`/api/sessions/${enc(id)}/chart/confirm`, post({ teeth, confirmed, by, pet: pet ?? null }));
 export const signNote = (id: string, by: string, pet?: string | null) =>
   isDesktop
     ? invoke<SessionView>("sign_note", { id, by, pet: pet ?? null })

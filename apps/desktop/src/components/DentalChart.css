@@ -44,6 +44,25 @@
 .dc-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; color: var(--ink-2); font-family: var(--font-sans); }
 .dc-code { font-family: var(--font-mono); font-size: 12px; color: var(--ink); }
 .dc-notice { color: var(--ink-2); font-family: var(--font-sans); }
+
+/*
+ * The draft state (ADR-0021 decision 10): a box with a dashed edge (a draft,
+ * by shape as well as the warn dot) until every drafted tooth is confirmed,
+ * then a plain line. Per tooth, the confirm checkbox under its findings, and
+ * who confirmed it. A tooth with no flag gets no mark of its own: only the
+ * vet's confirmation says checked.
+ */
+.dc-draft { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 10px 14px; border: 1px dashed var(--ink-2); border-radius: var(--r-md); background: var(--surface-2); color: var(--ink); font-family: var(--font-sans); font-size: 13px; line-height: 18px; }
+.dc-draft p { margin: 0; }
+.dc-draft[data-state="confirmed"] { padding: 0; border: 0; background: none; color: var(--ink-2); }
+.dc-draft-title { display: flex; gap: 8px; align-items: center; font-weight: 600; }
+.dc-draft-title::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: var(--r-full); background: var(--warn); }
+.dc-confirm { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; margin: 2px 0 6px; font-family: var(--font-sans); }
+.dc-confirm-check { display: inline-flex; gap: 8px; align-items: center; min-height: 24px; cursor: pointer; color: var(--ink); }
+.dc-confirm-check input { width: 18px; height: 18px; margin: 0; accent-color: var(--ink); cursor: pointer; }
+.dc-confirm-check input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.dc-draft-tag { display: inline-flex; align-items: center; min-height: 20px; padding: 0 6px; border: 1px dashed var(--ink-2); border-radius: var(--r-sm); color: var(--ink-2); }
+.dc-confirmed { color: var(--ink-2); }
 .dc-notice p { margin: 0; }
 
 /* The editor: the chart above a panel for the selected teeth. */

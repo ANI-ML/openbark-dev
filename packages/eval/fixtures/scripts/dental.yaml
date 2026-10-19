@@ -3,6 +3,8 @@ id: dental
 title: Canine dental under anaesthesia, with extractions
 species: canine
 template: dental
+# As the clinic enters it before the visit; the app sends it with every draft.
+patient: { name: Biscuit, reason: Dental, species: Dog }
 speakers:
   dvm: am_michael
   tech: af_nicole

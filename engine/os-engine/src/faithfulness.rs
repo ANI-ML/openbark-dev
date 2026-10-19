@@ -139,8 +139,22 @@ pub fn check_full(
     align: bool,
     dentition: Option<crate::dental::Dentition>,
 ) -> FaithfulnessReport {
+    check_for_pet(note, transcript, vet_numbers, align, dentition, &[])
+}
+
+/// [`check_full`] for one animal of a multi-pet visit (`other_pets`: the
+/// other animals' names): a charted tooth whose cited clause names another
+/// animal ("Rex has a fractured 108, Bella doesn't") is flagged.
+pub fn check_for_pet(
+    note: &Value,
+    transcript: &Transcript,
+    vet_numbers: &HashSet<String>,
+    align: bool,
+    dentition: Option<crate::dental::Dentition>,
+    other_pets: &[String],
+) -> FaithfulnessReport {
     let mut report = FaithfulnessReport::default();
-    let ctx = Ctx { transcript, dentition };
+    let ctx = Ctx { transcript, dentition, other_pets };
     walk(note, String::new(), &ctx, &mut report);
     if align {
         let aligner = crate::align::Aligner::new(transcript);
@@ -160,6 +174,8 @@ pub fn check_full(
 struct Ctx<'a> {
     transcript: &'a Transcript,
     dentition: Option<crate::dental::Dentition>,
+    /// The other animals of a multi-pet visit.
+    other_pets: &'a [String],
 }
 
 /// Numbers in the items a veterinarian wrote or edited (`entered_by`).
@@ -351,6 +367,21 @@ fn check_statement(
         report.citation_mismatches.extend(teeth.mismatches);
         report.disputed_numbers.extend(teeth.disputed);
         report.tooth_flags.extend(teeth.flags);
+        if let Some(tooth) = map.get("tooth").and_then(Value::as_str)
+            && !ctx.other_pets.is_empty()
+            && cited
+                .iter()
+                .filter_map(|id| transcript.get(*id))
+                .any(|s| crate::dental::clause_names_animal(&s.text, tooth, ctx.other_pets))
+        {
+            report.tooth_flags.push(crate::dental::ToothFlag {
+                path: path.to_string(),
+                tooth: tooth.to_string(),
+                kind: crate::dental::ToothFlagKind::OtherPet,
+                other: None,
+                expected: Vec::new(),
+            });
+        }
         supported.extend(
             cited
                 .iter()
@@ -372,6 +403,15 @@ fn check_statement(
             report.unverified_values.push(path.to_string());
         }
     }
+    // Teeth said in the cited lines by number, name, range or group, read as
+    // the chart's own check reads them ("the lower incisors" is 301 to 303
+    // and 401 to 403).
+    let said_teeth: HashSet<String> = cited
+        .iter()
+        .filter_map(|id| transcript.get(*id))
+        .flat_map(|s| crate::dental::teeth_in(&s.text))
+        .flat_map(|m| m.teeth)
+        .collect();
     for (key, v) in map {
         if key == "evidence" || key == "entered_by" || (tooth_item && key == "tooth") {
             continue;
@@ -381,8 +421,21 @@ fn check_statement(
             Value::Number(n) => n.to_string(),
             _ => continue,
         };
+        // Tooth numbers the statement itself names ("Extraction of 301, 302,
+        // 303"): supported when the cited lines say those teeth in any way,
+        // in any heading, not only the chart. Never a dose or a vital: the
+        // statement must read the number as a tooth.
+        let as_teeth: HashSet<String> = crate::dental::teeth_in(&text)
+            .into_iter()
+            .filter(|m| m.said_as != crate::dental::SaidAs::Group)
+            .flat_map(|m| m.teeth)
+            .collect();
         {
             for number in extract_numbers(&text) {
+                if as_teeth.contains(&number) && said_teeth.contains(&number) {
+                    report.numbers_checked += 1;
+                    continue;
+                }
                 report.numbers_checked += 1;
                 let disputed: Vec<String> = cited
                     .iter()
@@ -405,7 +458,7 @@ fn check_statement(
                         .iter()
                         .filter(|s| {
                             extract_numbers(&normalize_spoken(&s.text)).contains(&number)
-                                || (tooth_item
+                                || ((tooth_item || as_teeth.contains(&number))
                                     && crate::dental::teeth_in(&s.text).iter().any(|m| m.covers(&number)))
                         })
                         .map(|s| s.id)

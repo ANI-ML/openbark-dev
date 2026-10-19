@@ -1,5 +1,5 @@
 import { createLevelSource } from "@openbark/ui";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppContext, loadSettings, type Ctx } from "../context";
 import * as engine from "../engine";
@@ -10,6 +10,7 @@ vi.mock("../engine", async (importOriginal) => {
   return {
     ...real,
     openSession: vi.fn(),
+    confirmChart: vi.fn(),
     listTemplates: vi.fn().mockResolvedValue([]),
     template: vi.fn().mockRejectedValue(new Error("none")),
     on: vi.fn().mockResolvedValue(() => {}),
@@ -133,5 +134,44 @@ describe("Review: tooth chart flags in the summary", () => {
     show(view({ passed: false, tooth_flags: [{ path: "/dental_chart/1", tooth: "105", kind: "choose_dentition" }] }));
     expect(await screen.findByText(/1 tooth on the chart blocks signing until it's corrected\./)).toBeTruthy();
     expect((screen.getByRole("button", { name: /Sign/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe("Review: a drafted chart signs only once a vet confirms each tooth (ADR-0021 decision 10)", () => {
+  it("keeps Sign off and says why while drafted teeth aren't confirmed", async () => {
+    show({ ...view({}), unconfirmed_teeth: ["105", "108"], chart_checks: [] });
+    expect(await screen.findByText(/2 drafted teeth on the chart aren't confirmed yet\./)).toBeTruthy();
+    expect((screen.getByRole("button", { name: /Sign/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("Draft chart: check every tooth")).toBeTruthy();
+  });
+
+  it("confirms a tooth through the engine, then lets the note be signed", async () => {
+    const confirmed = {
+      ...view({}),
+      unconfirmed_teeth: [],
+      chart_checks: [
+        { tooth: "105", items: [], by: "Dr Rivera", at: "2026-10-19T10:05:00-04:00" },
+        { tooth: "108", items: [], by: "Dr Rivera", at: "2026-10-19T10:06:00-04:00" },
+      ],
+    };
+    mocked.confirmChart.mockResolvedValue(confirmed);
+    show({ ...view({}), unconfirmed_teeth: ["108"], chart_checks: [{ tooth: "105", items: [], by: "Dr Rivera", at: "2026-10-19T10:05:00-04:00" }] });
+    fireEvent.click(await screen.findByRole("checkbox", { name: "108: checked against the recording" }));
+    expect(mocked.confirmChart).toHaveBeenCalledWith("2026-10-19_090000_juno", ["108"], true, "Dr Rivera", null);
+    await waitFor(() => expect((screen.getByRole("button", { name: /Sign/ }) as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.getByText("Every drafted tooth is confirmed.")).toBeTruthy();
+  });
+
+  it("shows a signed chart's confirmations with no checkbox", async () => {
+    show({
+      ...view({}),
+      signed_at: "2026-10-19 10:10",
+      signed_by: "Dr Rivera",
+      unconfirmed_teeth: [],
+      chart_checks: [{ tooth: "108", items: [], by: "Dr Rivera", at: "2026-10-19T10:06:00-04:00" }],
+    });
+    expect(await screen.findByText(/^Confirmed by Dr Rivera/)).toBeTruthy();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.queryByText("Draft chart: check every tooth")).toBeNull();
   });
 });

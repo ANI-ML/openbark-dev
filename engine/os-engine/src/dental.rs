@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::faithfulness::{DisputedNumber, UnsupportedNumber};
-use crate::numbers::{extract_numbers, normalize_spoken};
+
 use crate::transcript::{Segment, Transcript};
 
 const CHART_JSON: &str = include_str!("../../../packages/dental/chart.json");
@@ -827,6 +827,8 @@ struct Tok {
     stop: bool,
     /// A hyphen or en dash before this word.
     hyphen: bool,
+    /// A question mark before this word: the sentence before it was a question.
+    question: bool,
     /// The word's characters in the text, start inclusive, end exclusive.
     span: (usize, usize),
 }
@@ -836,7 +838,7 @@ struct Tok {
 fn tokens(text: &str) -> Vec<Tok> {
     let chars: Vec<char> = text.chars().map(|c| if c == '\u{2019}' { '\'' } else { c }).collect();
     let mut out = Vec::new();
-    let (mut brk, mut stop, mut hyphen) = (false, false, false);
+    let (mut brk, mut stop, mut hyphen, mut question) = (false, false, false, false);
     let mut i = 0;
     while i < chars.len() {
         let c = chars[i];
@@ -846,6 +848,7 @@ fn tokens(text: &str) -> Vec<Tok> {
                 '.' | ';' | '!' | '?' => {
                     brk = true;
                     stop = true;
+                    question |= c == '?';
                 }
                 // A colon introduces what follows ("Probing depths: 309 is
                 // nine millimetres, 409 is three"): a clause, not a sentence.
@@ -880,7 +883,7 @@ fn tokens(text: &str) -> Vec<Tok> {
         match lower.strip_suffix("n't") {
             Some(base) => {
                 if !base.is_empty() {
-                    out.push(Tok { w: base.to_string(), brk, stop, hyphen, span });
+                    out.push(Tok { w: base.to_string(), brk, stop, hyphen, question, span });
                 }
                 let first = base.is_empty();
                 out.push(Tok {
@@ -888,14 +891,16 @@ fn tokens(text: &str) -> Vec<Tok> {
                     brk: first && brk,
                     stop: first && stop,
                     hyphen: false,
+                    question: first && question,
                     span,
                 });
             }
-            None => out.push(Tok { w: lower, brk, stop, hyphen, span }),
+            None => out.push(Tok { w: lower, brk, stop, hyphen, question, span }),
         }
         brk = false;
         stop = false;
         hyphen = false;
+        question = false;
     }
     out
 }
@@ -1168,20 +1173,28 @@ struct Quant {
     count: Option<usize>,
     /// "no", "none of", "not", "neither": the finding is said to be absent.
     negated: bool,
-    /// "some", "a few", "two of", "the other", "the remaining": part of the
-    /// group, and which part isn't said.
+    /// "some", "a few", "two of", "the other", "the remaining", "a pair of",
+    /// "the majority of": part of the group, and which part isn't said.
     partial: bool,
+    /// "a" or "an" before a plural group ("a pair of", "a handful of"): an
+    /// amount of the group, never the whole of it.
+    indefinite: bool,
 }
 
+/// A word before a group that says how much of it is meant. Only "all",
+/// "every", "each", "both" and a count of the whole group name every tooth
+/// in it; an amount word ("a pair of", "a handful of", "a number of", "the
+/// majority of") names none, because which teeth are meant isn't said.
 fn quantifier(w: &str, q: &mut Quant) -> bool {
     match w {
         "all" | "every" | "each" | "entire" => q.all = true,
         "both" => q.both = true,
         "no" | "none" | "not" | "neither" | "nor" | "never" | "without" => q.negated = true,
         "some" | "few" | "couple" | "several" | "most" | "many" | "any" | "either" | "other" | "others"
-        | "another" | "remaining" | "rest" | "else" | "half" | "multiple" | "various" | "certain" => {
-            q.partial = true
-        }
+        | "another" | "remaining" | "rest" | "else" | "half" | "multiple" | "various" | "certain"
+        | "pair" | "pairs" | "handful" | "number" | "majority" | "minority" | "bunch" | "lot" | "lots"
+        | "dozen" | "part" | "portion" | "proportion" | "fraction" | "bulk" | "remainder" | "least"
+        | "subset" | "quarter" | "percent" | "mostly" | "partly" | "mainly" => q.partial = true,
         _ => match count_word(w) {
             Some(n) => q.count = Some(n),
             None => return false,
@@ -1262,7 +1275,8 @@ const NAME_FILLER: &[&str] = &[
 /// whole of it ("all the canines"). A count or a vague amount in front of it
 /// ("two of the lower incisors", "a few premolars") or a negation ("none of
 /// the canines", "no fractured canines") names no tooth, because which teeth
-/// are meant isn't said; so does "the other premolars".
+/// are meant isn't said; so does "the other premolars", and so does an
+/// amount word ("a pair of", "a handful of", "the majority of").
 fn resolve(head: &Head, m: &Mods, q: Quant) -> Option<(Vec<String>, SaidAs)> {
     if m.deciduous && m.permanent {
         return None;
@@ -1274,7 +1288,7 @@ fn resolve(head: &Head, m: &Mods, q: Quant) -> Option<(Vec<String>, SaidAs)> {
             return None; // "either lower canine", "the other upper canine"
         }
     } else {
-        if q.negated || q.partial {
+        if q.negated || q.partial || q.indefinite {
             return None;
         }
         // "upper right and lower left canines": both sides and both jaws said.
@@ -1420,6 +1434,7 @@ pub fn teeth_in(text: &str) -> Vec<Mention> {
         let mut quant = Quant::default();
         let mut start = head.start;
         let mut j = head.start;
+        let mut past_of = false;
         while j > 0 && head.start - j < 7 {
             if toks[j].brk || used[j - 1] {
                 break;
@@ -1429,21 +1444,52 @@ pub fn teeth_in(text: &str) -> Vec<Mention> {
                 Some(Modifier::Position(_)) if head.kind != HeadKind::Incisor => break,
                 Some(m) => mods.set(&m),
                 None if quantifier(w, &mut quant) => {}
-                None if NAME_FILLER.contains(&w) => {
+                None if matches!(w, "a" | "an") => {
+                    // "A pair of upper incisors", "a few": an amount of a group.
+                    quant.indefinite = true;
                     j -= 1;
                     continue;
                 }
-                None => break,
+                None if NAME_FILLER.contains(&w) => {
+                    past_of |= w == "of";
+                    j -= 1;
+                    continue;
+                }
+                None => {
+                    // "a smattering of the lower incisors": any amount word
+                    // after "a" and before "of" is part of the group.
+                    if past_of && j >= 2 && !toks[j - 1].brk && matches!(toks[j - 2].w.as_str(), "a" | "an") {
+                        quant.partial = true;
+                    }
+                    break;
+                }
             }
             j -= 1;
             start = j;
         }
+        // Side and jaw just before, set off by commas: "108, on the upper
+        // left, the fourth premolar". Only for one tooth with no place yet.
+        if !mods.has_place()
+            && !head.plural
+            && !quant.all
+            && j > 0
+            && toks[j].brk
+            && let Some((first, place)) = place_clause_before(&toks, &used, j)
+        {
+            mods.right |= place.right;
+            mods.left |= place.left;
+            mods.upper |= place.upper;
+            mods.lower |= place.lower;
+            start = first;
+        }
         // Side and jaw after the tooth word: "the fourth premolar on the
         // upper right", "first molar, lower left". Not when they lead into
-        // the next tooth's name.
+        // the next tooth's name, nor when they start the next clause's
+        // subject ("a fractured canine, upper right is fine").
         let mut end = head.end;
         let mut after = Mods::default();
         let mut k = head.end;
+        let mut preposition = false;
         while k < toks.len()
             && k < head.end + 6
             && !used[k]
@@ -1456,10 +1502,16 @@ pub fn teeth_in(text: &str) -> Vec<Mention> {
                     after.set(&m);
                     end = k + 1;
                 }
-                None if AFTER_HEAD.contains(&w) => {}
+                None if AFTER_HEAD.contains(&w) => preposition |= matches!(w, "on" | "in" | "of" | "at"),
                 _ => break,
             }
             k += 1;
+        }
+        let new_subject = end > head.end
+            && !preposition
+            && toks.get(end).is_some_and(|t| !t.brk && SUBJECT_VERBS.contains(&t.w.as_str()));
+        if new_subject {
+            end = head.end;
         }
         let mut next = end;
         while next < toks.len()
@@ -1509,7 +1561,157 @@ pub fn teeth_in(text: &str) -> Vec<Mention> {
         i = end;
     }
     mentions.sort_by_key(|m| m.words);
+    apply_exceptions(&toks, &mut mentions);
     mentions
+}
+
+/// Verbs that start a clause's predicate: side and jaw words right before
+/// one are a new subject ("a fractured canine, upper right is fine").
+const SUBJECT_VERBS: &[&str] = &[
+    "is", "are", "was", "were", "looks", "look", "looked", "has", "have", "had", "seems", "seemed",
+    "appears", "appeared", "remains", "remain", "stays", "feels",
+];
+
+/// The side and jaw said in the clause just before word `at` (which starts
+/// after a comma), when that clause holds nothing else: "on the upper left"
+/// in "108, on the upper left, the fourth premolar". The first place word's
+/// position and the place.
+fn place_clause_before(toks: &[Tok], used: &[bool], at: usize) -> Option<(usize, Mods)> {
+    let mut place = Mods::default();
+    let mut first = None;
+    let mut p = at;
+    while p > 0 {
+        let k = p - 1;
+        if used[k] || at - k > 5 {
+            return None;
+        }
+        match modifier(&toks[k].w) {
+            Some(m @ (Modifier::Side(_) | Modifier::Jaw(_))) => {
+                place.set(&m);
+                first = Some(k);
+            }
+            _ if matches!(toks[k].w.as_str(), "on" | "in" | "at" | "the" | "side" | "jaw") => {}
+            _ => return None,
+        }
+        p = k;
+        if toks[k].brk {
+            break;
+        }
+    }
+    // The clause must start the line or follow a break.
+    if p > 0 && !toks[p].brk {
+        return None;
+    }
+    (place.has_place()).then_some(())?;
+    Some((first?, place))
+}
+
+/// Words after a group that say only part of it is meant: "the lower
+/// incisors are mostly missing".
+const PART_AFTER: &[&str] =
+    &["mostly", "partly", "partially", "largely", "mainly", "predominantly", "majority", "minority"];
+
+/// An exception to a group starting at word `k` ("except", "except for",
+/// "other than", "apart from", "aside from", "besides", "but not",
+/// "excluding", "with the exception of"): the position after it.
+fn exception_at(toks: &[Tok], k: usize) -> Option<usize> {
+    let w = |i: usize| toks.get(i).filter(|t| i == k || !t.brk).map(|t| t.w.as_str());
+    match w(k)? {
+        "except" | "excepting" => Some(if w(k + 1) == Some("for") { k + 2 } else { k + 1 }),
+        "excluding" | "besides" => Some(k + 1),
+        "apart" | "aside" if w(k + 1) == Some("from") => Some(k + 2),
+        "other" if w(k + 1) == Some("than") => Some(k + 2),
+        "but" if w(k + 1) == Some("not") => Some(k + 2),
+        "save" if w(k + 1) == Some("for") => Some(k + 2),
+        "exception" if w(k + 1) == Some("of") => Some(k + 2),
+        _ => None,
+    }
+}
+
+/// Exceptions and amounts said after a group, in its sentence. Teeth named
+/// after "except", "other than", "apart from" and the like leave the group
+/// ("all the lower incisors are missing except 401"). An exception that names
+/// no tooth ("all but one", "except one"), an amount after the group ("two of
+/// them") or "mostly" makes the group ambiguous: it names no tooth.
+fn apply_exceptions(toks: &[Tok], mentions: &mut Vec<Mention>) {
+    let starts_at = |mentions: &[Mention], x: usize| mentions.iter().position(|m| m.words.0 == x);
+    let mut drop: Vec<usize> = Vec::new();
+    for g in 0..mentions.len() {
+        if mentions[g].said_as != SaidAs::Group {
+            continue;
+        }
+        let size = mentions[g].teeth.len();
+        let mut ambiguous = false;
+        let mut remove: Vec<String> = Vec::new();
+        let mut k = mentions[g].words.1;
+        while k < toks.len() && !toks[k].stop {
+            // A later group owns what follows it.
+            if let Some(m) = starts_at(mentions, k)
+                && mentions[m].said_as == SaidAs::Group
+            {
+                break;
+            }
+            let w = toks[k].w.as_str();
+            let next = toks.get(k + 1).filter(|t| !t.brk).map(|t| t.w.as_str());
+            if let Some(after) = exception_at(toks, k) {
+                let mut x = after;
+                let mut named = 0;
+                loop {
+                    while x < toks.len()
+                        && !toks[x].stop
+                        && matches!(
+                            toks[x].w.as_str(),
+                            "for" | "the" | "of" | "tooth" | "teeth" | "and" | "or"
+                        )
+                    {
+                        x += 1;
+                    }
+                    match starts_at(mentions, x) {
+                        Some(m) if !toks[x].stop => {
+                            remove.extend(mentions[m].teeth.iter().cloned());
+                            named += 1;
+                            x = mentions[m].words.1;
+                        }
+                        _ => break,
+                    }
+                }
+                if named == 0 {
+                    ambiguous = true; // "except one", "apart from a couple"
+                }
+                k = x.max(k + 1);
+                continue;
+            }
+            if PART_AFTER.contains(&w) {
+                ambiguous = true;
+            }
+            // "but one", "but two": all but some.
+            if w == "but" && next.and_then(count_word).is_some() && starts_at(mentions, k + 1).is_none() {
+                ambiguous = true;
+            }
+            // "two of them", "some of them": part of the group.
+            if w == "of" && matches!(next, Some("them" | "those" | "these")) && k > 0 && !toks[k].brk {
+                let before = toks[k - 1].w.as_str();
+                let mut q = Quant::default();
+                let part = match count_word(before) {
+                    Some(n) => n != size,
+                    None => quantifier(before, &mut q) && (q.partial || q.negated),
+                };
+                ambiguous |= part && !q.negated;
+            }
+            k += 1;
+        }
+        if ambiguous {
+            drop.push(g);
+        } else if !remove.is_empty() {
+            mentions[g].teeth.retain(|t| !remove.contains(t));
+            if mentions[g].teeth.is_empty() {
+                drop.push(g);
+            }
+        }
+    }
+    for g in drop.into_iter().rev() {
+        mentions.remove(g);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1538,8 +1740,27 @@ pub enum ToothFlagKind {
     /// finding ("surgically with a flap" on a closed extraction).
     OtherType,
     /// Charted as done, but the line sounds like a plan ("may need to come
-    /// out").
+    /// out", "should be extracted", "a candidate for crown amputation").
     Planned,
+    /// Charted as a plan, but the line says it was done ("308 was extracted").
+    NotPlanned,
+    /// A treatment charted as done today, but the line says it was done at an
+    /// earlier visit ("extracted at her last dental", "two years ago").
+    History,
+    /// The finding is said as possible, suspected, conditional or to be
+    /// checked ("possible resorption", "to rule out a root fracture", "if 307
+    /// has resorption", "check 309 for mobility"), or reported by someone
+    /// else ("owner thinks").
+    Uncertain,
+    /// The line pairs teeth and findings in a way the check can't follow
+    /// ("grade one and grade three respectively", "the first is fractured, the
+    /// second is missing").
+    Ambiguous,
+    /// Another line names this tooth and says something else about it ("one
+    /// oh eight is fine, it's just stain"). `other`: that line's id.
+    Contradicted,
+    /// The cited line says this about another animal in the visit.
+    OtherPet,
     /// Findings on one tooth that can't both be true: normal beside a
     /// fracture, two resorption stages, two extraction techniques. `other` is
     /// the other item's path.
@@ -1573,12 +1794,12 @@ pub struct ToothFlag {
     pub tooth: String,
     pub kind: ToothFlagKind,
     /// Name conflict: the other tooth (the one not charted). Conflict: the
-    /// other item's path.
+    /// other item's path. Contradicted: the other line's id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub other: Option<String>,
-    /// Cue missing, negated, other tooth: the words looked for. Other type:
-    /// the other type's words. Shape: the reason. Conflict: the other item's
-    /// printed words.
+    /// Cue missing, negated, other tooth, uncertain: the words looked for.
+    /// Other type: the other type's or finding's words. Shape: the reason.
+    /// Conflict: the other item's printed words.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub expected: Vec<String>,
 }
@@ -1661,81 +1882,373 @@ fn stem(w: &str) -> String {
 }
 
 /// Words that start a negation: "no pulp exposure", "not fractured",
-/// "without sectioning", "doesn't need to come out".
-const NEGATORS: &[&str] = &["no", "not", "without", "never", "none", "nor", "neither"];
+/// "without sectioning", "nothing broken", "lacks any mobility", "non-mobile",
+/// "owner declined extraction".
+const NEGATORS: &[&str] = &[
+    "no",
+    "not",
+    "without",
+    "never",
+    "none",
+    "nor",
+    "neither",
+    "nothing",
+    "lacks",
+    "lack",
+    "lacking",
+    "non",
+    "declined",
+    "declines",
+    "refused",
+    "refuses",
+    "deferred",
+    "postponed",
+];
 
-/// Words that end a negation before punctuation does: "not mobile but
-/// fractured".
-const NEGATION_ENDS: &[&str] =
-    &["but", "and", "although", "though", "however", "except", "which", "while", "whereas"];
+/// Words that end a negation or an uncertainty before punctuation does: "not
+/// mobile but fractured".
+const NEGATION_ENDS: &[&str] = &[
+    "but", "and", "although", "though", "however", "except", "which", "while", "whereas", "so", "because",
+    "since", "actually",
+];
 
-/// Which words of a line are inside a negation. Forward from "no", "not",
-/// "without", "never", "none", "negative for" and "free of" to the next
-/// punctuation, tooth or [`NEGATION_ENDS`] word; backward from "ruled out"
-/// and "absent" to the clause start or a tooth. `absent_negates`: false for
-/// the `missing` finding, whose own word "absent" is.
-fn negated(toks: &[Tok], mentions: &[Mention], absent_negates: bool) -> Vec<bool> {
-    let in_mention = |i: usize| mentions.iter().any(|m| (m.words.0..m.words.1).contains(&i));
-    let mut out = vec![false; toks.len()];
-    for i in 0..toks.len() {
-        let w = toks[i].w.as_str();
-        let next = toks.get(i + 1).filter(|t| !t.brk).map(|t| t.w.as_str());
-        let forward =
-            NEGATORS.contains(&w) || (matches!(w, "negative" | "free") && matches!(next, Some("for" | "of")));
-        if forward && !in_mention(i) {
-            let mut k = i + 1;
-            while k < toks.len()
-                && !toks[k].brk
-                && !in_mention(k)
-                && !NEGATION_ENDS.contains(&toks[k].w.as_str())
-            {
-                out[k] = true;
-                k += 1;
+/// Words after "not" that negate what came before: "mobility not detected",
+/// "resorption not seen", "a flap wasn't needed".
+const POSTPOSED: &[&str] = &[
+    "seen",
+    "noted",
+    "detected",
+    "found",
+    "present",
+    "evident",
+    "visible",
+    "appreciated",
+    "observed",
+    "needed",
+    "required",
+    "indicated",
+    "identified",
+    "apparent",
+    "palpable",
+    "obvious",
+    "there",
+];
+
+/// Words that are the whole answer when a finding is absent: "mobility:
+/// none", "resorption: absent", "mobility negative".
+const ABSENT_WORDS: &[&str] = &["none", "absent", "negative", "nil"];
+
+/// Single words that say a finding or its type (every cue of the finding
+/// table), so a negation carries through a list: "no fracture, mobility, or
+/// resorption".
+static FINDING_WORDS: LazyLock<HashSet<String>> = LazyLock::new(|| {
+    let mut out = HashSet::new();
+    for f in chart().findings.iter().filter(|f| !f.text_required) {
+        let details = f.details.iter().flat_map(|d| d.cues.iter().flatten());
+        for cue in f.cues.iter().chain(details) {
+            let words = tokens(cue);
+            if words.len() == 1 {
+                out.insert(stem(&words[0].w));
             }
         }
-        let ruled_out = w == "out" && i > 0 && toks[i - 1].w == "ruled" && !toks[i].brk;
-        let backward = ruled_out || (absent_negates && w == "absent");
-        if backward {
-            let mut k = if ruled_out { i - 1 } else { i };
-            while k > 0 && !toks[k].brk {
-                k -= 1;
-                if in_mention(k) || NEGATION_ENDS.contains(&toks[k].w.as_str()) {
+    }
+    out
+});
+
+/// Is word `i` inside one of these mentions?
+fn in_mentions(mentions: &[Mention], i: usize) -> bool {
+    mentions.iter().any(|m| (m.words.0..m.words.1).contains(&i))
+}
+
+/// The word after `i` in its clause.
+fn next_word(toks: &[Tok], i: usize) -> Option<&str> {
+    toks.get(i + 1).filter(|t| !t.brk).map(|t| t.w.as_str())
+}
+
+/// The word before `i` in its clause.
+fn prev_word(toks: &[Tok], i: usize) -> Option<&str> {
+    (i > 0 && !toks[i].brk).then(|| toks[i - 1].w.as_str())
+}
+
+/// Which words of a line are inside a negation (ADR-0021 decision 7):
+/// - forward from "no", "not", "without", "never", "nothing", "lacks",
+///   "non-", "declined", "negative for", "free of", "absence of", "rather
+///   than", "instead of", "decided against" and "ruled out" to the next
+///   punctuation, tooth or [`NEGATION_ENDS`] word, and on through a list of
+///   finding words ("no fracture, mobility, or resorption");
+/// - both arms of "neither ... nor";
+/// - backward from "not seen", "not detected", "wasn't needed", "ruled out",
+///   "absent", "negative" and "-free" to the clause start, past a tooth
+///   ("resorption on 307 was ruled out");
+/// - the clause before a clause that is only "none", "absent" or "negative"
+///   ("mobility: none");
+/// - a question answered "no" ("Is 108 fractured? No, it's stained");
+/// - what "appeared", "seemed", "looked" or "thought" said before "but",
+///   "actually" or "however", and what was said before "but now" ("retained
+///   but has now fallen out").
+///
+/// `absent_negates`: false for the `missing` finding, whose own word "absent"
+/// is.
+fn negated(toks: &[Tok], mentions: &[Mention], absent_negates: bool) -> Vec<bool> {
+    let n = toks.len();
+    let mut out = vec![false; n];
+    let in_mention = |i: usize| in_mentions(mentions, i);
+    let finding_word = |i: usize| FINDING_WORDS.contains(&stem(&toks[i].w));
+    // Forward from `from`, carried on through a list of finding words.
+    let forward = |out: &mut [bool], from: usize| {
+        let mut k = from;
+        let mut said = false;
+        let mut item_start = false;
+        while k < n {
+            if toks[k].brk && !item_start {
+                if toks[k].stop || !said {
                     break;
                 }
+                let mut x = k;
+                while x < n && (x == k || !toks[x].brk) && matches!(toks[x].w.as_str(), "or" | "and" | "nor")
+                {
+                    x += 1;
+                }
+                if x < n && (x == k || !toks[x].brk) && finding_word(x) && !in_mention(x) {
+                    out.iter_mut().take(x).skip(k).for_each(|o| *o = true);
+                    k = x;
+                    item_start = true;
+                    continue;
+                }
+                break;
+            }
+            item_start = false;
+            if in_mention(k) || NEGATION_ENDS.contains(&toks[k].w.as_str()) {
+                break;
+            }
+            out[k] = true;
+            said |= finding_word(k);
+            k += 1;
+        }
+    };
+    // Backward from `from` (not included) to the start of its clause, past
+    // teeth, stopping at a word that starts another clause.
+    let backward = |out: &mut [bool], from: usize| {
+        let mut k = from;
+        while k > 0 && !toks[k].brk {
+            k -= 1;
+            let w = toks[k].w.as_str();
+            if NEGATION_ENDS.contains(&w) || CLAUSE_WORDS.contains(&w) {
+                break;
+            }
+            if !in_mention(k) {
                 out[k] = true;
+            }
+        }
+    };
+    // Every word of the clause that ends before `end`.
+    let clause_before = |out: &mut [bool], end: usize| {
+        let mut k = end;
+        while k > 0 {
+            k -= 1;
+            if !in_mention(k) {
+                out[k] = true;
+            }
+            if toks[k].brk {
+                break;
+            }
+        }
+    };
+    for i in 0..n {
+        if in_mention(i) {
+            continue;
+        }
+        let w = toks[i].w.as_str();
+        let next = next_word(toks, i);
+        let prev = prev_word(toks, i);
+        let two_word = matches!(
+            (w, next),
+            ("negative" | "free" | "absence", Some("for" | "of"))
+                | ("rather", Some("than"))
+                | ("instead", Some("of"))
+        );
+        let against = w == "against"
+            && matches!(
+                prev,
+                Some("decided" | "decide" | "decides" | "advised" | "recommended" | "elected" | "chose")
+            );
+        let ruled_out = w == "out" && prev == Some("ruled");
+        if w == "neither" {
+            // Both arms: "neither 108 nor 208 is fractured".
+            let mut k = i + 1;
+            while k < n && !toks[k].brk {
+                if !in_mention(k) {
+                    out[k] = true;
+                }
+                k += 1;
+            }
+        } else if NEGATORS.contains(&w) || two_word || against || ruled_out {
+            forward(&mut out, if two_word { i + 2 } else { i + 1 });
+        }
+        let postposed = w == "not" && next.is_some_and(|x| POSTPOSED.contains(&x));
+        let absent = ABSENT_WORDS.contains(&w)
+            && (absent_negates || w != "absent")
+            && !matches!(next, Some("for" | "of"));
+        if postposed || ruled_out || absent {
+            backward(&mut out, if ruled_out { i - 1 } else { i });
+        }
+        // "Mobility: none", "resorption: absent".
+        if absent && toks[i].brk && !toks[i].stop && i > 0 && (i + 1 == n || toks[i + 1].brk) {
+            clause_before(&mut out, i);
+        }
+        // "Fracture-free".
+        if w == "free" && toks[i].hyphen && next != Some("of") && i > 0 {
+            out[i - 1] = true;
+        }
+        // "Is 108 fractured? No, it's just stained."
+        if toks[i].question && toks[i].stop && matches!(w, "no" | "nope" | "negative") {
+            let mut k = i;
+            while k > 0 {
+                k -= 1;
+                if !in_mention(k) {
+                    out[k] = true;
+                }
+                if toks[k].stop {
+                    break;
+                }
+            }
+        }
+        // "209 appeared missing, but it's just unerupted."
+        if matches!(w, "appeared" | "appears" | "seemed" | "seems" | "looked" | "thought") {
+            let mut k = i + 1;
+            while k < n && !toks[k].stop && !matches!(toks[k].w.as_str(), "but" | "actually" | "however") {
+                k += 1;
+            }
+            if k < n && !toks[k].stop {
+                for (x, o) in out.iter_mut().enumerate().take(k).skip(i + 1) {
+                    if !in_mention(x) {
+                        *o = true;
+                    }
+                }
+            }
+        }
+        // "504 was retained but has now fallen out."
+        if w == "but" && (i + 1..(i + 4).min(n)).any(|k| toks[k].w == "now" && !toks[k].stop) {
+            let mut k = i;
+            while k > 0 && !toks[k].stop {
+                k -= 1;
+                if !in_mention(k) {
+                    out[k] = true;
+                }
             }
         }
     }
     out
 }
 
-/// "closed" meaning a sutured flap or site, not a closed extraction: "closed
-/// with 4-0 Monocryl", "the flap was closed".
-fn suture_closed(toks: &[Tok], i: usize) -> bool {
-    if toks[i].w != "closed" {
-        return false;
-    }
-    let next = toks.get(i + 1).filter(|t| !t.brk).map(|t| t.w.as_str());
-    if matches!(next, Some("with" | "using" | "over" | "in" | "primarily")) {
-        return true;
-    }
-    let mut k = i;
-    while k > 0 && !toks[k].brk {
-        k -= 1;
-        match toks[k].w.as_str() {
-            "was" | "were" | "is" | "then" | "and" | "been" if k + 3 > i => continue,
-            "flap" | "flaps" | "site" | "sites" | "incision" | "gingiva" | "gum" | "gums" | "defect"
-            | "socket" | "sockets" | "wound" | "sutured" => return true,
-            _ => return false,
+/// Words that start an uncertainty to the end of their clause: "possible
+/// resorption", "if 307 has resorption", "check 309 for mobility", "owner
+/// thinks", "to rule out a root fracture".
+#[rustfmt::skip]
+const UNCERTAIN: &[&str] = &[
+    "possible", "possibly", "suspect", "suspected", "suspicious", "suspicion", "query", "queried",
+    "questionable", "likely", "probable", "probably", "presumptive", "presumed", "potential", "potentially",
+    "maybe", "perhaps", "whether", "if", "differential", "concern", "concerned", "worried", "think", "thinks",
+    "thought", "believe", "believes", "says", "reports", "reported", "according", "might", "may", "could",
+    "check", "assess", "evaluate", "investigate",
+];
+
+/// Which words of a line are inside an uncertainty: after an [`UNCERTAIN`]
+/// word, "rule out" or "r/o" to the end of the clause, and every word of a
+/// question (`questions`: per sentence).
+fn uncertain(toks: &[Tok], questions: &[bool], sent: &[usize]) -> Vec<bool> {
+    let n = toks.len();
+    let mut out = vec![false; n];
+    for i in 0..n {
+        let w = toks[i].w.as_str();
+        let rule_out = w == "out" && prev_word(toks, i) == Some("rule");
+        let r_o = w == "o" && prev_word(toks, i) == Some("r");
+        if UNCERTAIN.contains(&w) || rule_out || r_o {
+            let mut k = i + 1;
+            while k < n && !toks[k].brk && !NEGATION_ENDS.contains(&toks[k].w.as_str()) {
+                out[k] = true;
+                k += 1;
+            }
+        }
+        if sent.get(i).and_then(|s| questions.get(*s)).copied().unwrap_or(false) {
+            out[i] = true;
         }
     }
-    false
+    out
 }
 
-/// The words a check reads: stems, and whether each is negated or masked.
+/// Words that mean something else in their place: "closed" meaning a sutured
+/// flap or site ("closed with 4-0 Monocryl", "the flap was closed"), not a
+/// closed extraction; "open" meaning a socket left to heal ("socket left open
+/// to heal"), not an open extraction.
+fn masked(toks: &[Tok], i: usize) -> bool {
+    let next = next_word(toks, i);
+    match toks[i].w.as_str() {
+        "closed" => {
+            if matches!(next, Some("with" | "using" | "over" | "in" | "primarily")) {
+                return true;
+            }
+            let mut k = i;
+            while k > 0 && !toks[k].brk {
+                k -= 1;
+                match toks[k].w.as_str() {
+                    "was" | "were" | "is" | "then" | "and" | "been" if k + 3 > i => continue,
+                    "flap" | "flaps" | "site" | "sites" | "incision" | "gingiva" | "gum" | "gums"
+                    | "defect" | "socket" | "sockets" | "wound" | "sutured" => return true,
+                    _ => return false,
+                }
+            }
+            false
+        }
+        // The gum or bone, not the tooth: "the gum around it looks healthy",
+        // "the mucosa is normal".
+        "normal" | "fine" | "healthy" | "good" | "unremarkable" | "intact" | "pink" => {
+            let mut k = i;
+            while k > 0 && !toks[k].brk && i - k < 5 {
+                k -= 1;
+                if matches!(
+                    toks[k].w.as_str(),
+                    "gum"
+                        | "gums"
+                        | "gingiva"
+                        | "gingivae"
+                        | "gingival"
+                        | "mucosa"
+                        | "tissue"
+                        | "tissues"
+                        | "bone"
+                        | "socket"
+                        | "lip"
+                        | "lips"
+                        | "tongue"
+                        | "palate"
+                ) {
+                    return true;
+                }
+            }
+            false
+        }
+        "open" => {
+            let heal =
+                next == Some("to") && toks.get(i + 2).is_some_and(|t| !t.brk && t.w.starts_with("heal"));
+            let left = matches!(
+                prev_word(toks, i),
+                Some("left" | "leave" | "leaving" | "kept" | "remained" | "remains" | "stays")
+            ) || (matches!(prev_word(toks, i), Some("it" | "them"))
+                && i > 1
+                && matches!(toks[i - 2].w.as_str(), "left" | "leave" | "leaving" | "kept"));
+            heal || left
+        }
+        _ => false,
+    }
+}
+
+/// The words a check reads: stems, and whether each is negated, uncertain or
+/// masked.
 struct Words {
     stems: Vec<String>,
     neg: Vec<bool>,
+    unc: Vec<bool>,
     masked: Vec<bool>,
 }
 
@@ -1747,30 +2260,42 @@ enum Said {
     No,
 }
 
-/// Is the cue (a word or a short phrase) said in these runs of words? A cue
-/// with its own negation ("no pulp", "not erupted") matches as written; any
-/// other cue counts only outside a negation.
-fn said_in(runs: &[Words], cue: &str) -> Said {
+/// Where a cue (a word or a short phrase) is said in these runs, outside a
+/// negation: (run, start) pairs. A cue with its own negation ("no pulp",
+/// "not erupted") matches as written.
+fn matches_of(runs: &[Words], cue: &str) -> (Vec<(usize, usize)>, bool) {
     let cue_words = tokens(cue);
     let cue_stems: Vec<String> = cue_words.iter().map(|t| stem(&t.w)).collect();
+    let mut found = Vec::new();
+    let mut negated_only = false;
     if cue_stems.is_empty() {
-        return Said::No;
+        return (found, false);
     }
     let own_negation = cue_words.iter().any(|t| NEGATORS.contains(&t.w.as_str()));
-    let mut negated_only = false;
-    for run in runs {
+    for (r, run) in runs.iter().enumerate() {
         for at in 0..run.stems.len().saturating_sub(cue_stems.len() - 1) {
             let span = at..at + cue_stems.len();
             if run.stems[span.clone()] != cue_stems[..] || run.masked[span.clone()].iter().any(|m| *m) {
                 continue;
             }
             if own_negation || !run.neg[span].iter().any(|n| *n) {
-                return Said::Yes;
+                found.push((r, at));
+            } else {
+                negated_only = true;
             }
-            negated_only = true;
         }
     }
-    if negated_only { Said::Negated } else { Said::No }
+    (found, negated_only)
+}
+
+/// Is the cue said in these runs: said, said only inside a negation, or not
+/// said?
+fn said_in(runs: &[Words], cue: &str) -> Said {
+    match matches_of(runs, cue) {
+        (found, _) if !found.is_empty() => Said::Yes,
+        (_, true) => Said::Negated,
+        _ => Said::No,
+    }
 }
 
 /// The best of several cues: said, said only negated, or not said.
@@ -1786,11 +2311,33 @@ fn any_said(runs: &[Words], cues: &[String]) -> Said {
     best
 }
 
+/// Said, but only inside an uncertainty ("possible resorption"): true when
+/// some cue is said and every place it is said is uncertain.
+fn said_uncertainly(runs: &[Words], cues: &[String]) -> bool {
+    let mut any = false;
+    for c in cues {
+        for (r, at) in matches_of(runs, c).0 {
+            any = true;
+            if !runs[r].unc[at] {
+                return false;
+            }
+        }
+    }
+    any
+}
+
+/// Is any finding of the table said in these runs (said or said negated)?
+/// A clause with none ("409 is grade three", "and 409 too") borrows its
+/// finding from the clause beside it.
+fn any_finding_said(runs: &[Words]) -> bool {
+    chart().findings.iter().filter(|f| !f.text_required).any(|f| any_said(runs, &f.cues) != Said::No)
+}
+
 /// Mentions said together as one subject: "five oh four and six oh four",
 /// "108, the upper right fourth premolar", "108, which is the …".
 #[rustfmt::skip]
 const SUBJECT_JOIN: &[&str] = &[
-    "and", "or", "the", "a", "an", "plus", "also", "as", "well", "which", "is", "that", "that's", "aka",
+    "and", "or", "nor", "the", "a", "an", "plus", "also", "as", "well", "which", "is", "that", "that's", "aka",
     "known", "called", "being", "tooth", "teeth", "its", "it's",
 ];
 
@@ -1798,23 +2345,43 @@ const SUBJECT_JOIN: &[&str] = &[
 const CLAUSE_WORDS: &[&str] =
     &["and", "but", "while", "whereas", "then", "although", "though", "however", "except"];
 
+/// Words that tie what follows to the next tooth when no punctuation or
+/// clause word separates two teeth: "209 looks fine next to the fractured
+/// 208", "a fracture on 108 with a missing 208".
+const RELATION_WORDS: &[&str] = &[
+    "with",
+    "next",
+    "beside",
+    "behind",
+    "near",
+    "nearby",
+    "adjacent",
+    "alongside",
+    "between",
+    "than",
+    "versus",
+    "vs",
+    "unlike",
+];
+
 /// A line read for the tooth checks: its words, the teeth in it, and for a
 /// tooth the clause that speaks about it.
 struct Line {
     chars: Vec<char>,
     toks: Vec<Tok>,
     mentions: Vec<Mention>,
+    /// The sentence index of each word.
+    sent: Vec<usize>,
+    /// Whether each sentence is a question.
+    questions: Vec<bool>,
 }
 
 impl Line {
     fn new(text: &str) -> Self {
-        Line { chars: chars_of(text), toks: tokens(text), mentions: teeth_in(text) }
-    }
-
-    /// The sentence index of each word.
-    fn sentences(&self) -> Vec<usize> {
+        let chars = chars_of(text);
+        let toks = tokens(text);
         let mut n = 0;
-        self.toks
+        let sent: Vec<usize> = toks
             .iter()
             .enumerate()
             .map(|(i, t)| {
@@ -1823,11 +2390,24 @@ impl Line {
                 }
                 n
             })
-            .collect()
+            .collect();
+        let count = sent.last().map_or(0, |s| s + 1);
+        let mut questions = vec![false; count];
+        for (i, t) in toks.iter().enumerate() {
+            if i > 0 && t.question {
+                questions[sent[i] - 1] = true;
+            }
+        }
+        // The last sentence: a question mark after its last word.
+        if let (Some(last), Some(q)) = (toks.last(), questions.last_mut()) {
+            *q |= chars[last.span.1..].iter().take_while(|c| !c.is_alphanumeric()).any(|c| *c == '?');
+        }
+        Line { chars, mentions: teeth_in(text), toks, sent, questions }
     }
 
     /// Mentions grouped into subjects: (first word, end, mention indexes).
-    fn subjects(&self, sent: &[usize]) -> Vec<(usize, usize, Vec<usize>)> {
+    fn subjects(&self) -> Vec<(usize, usize, Vec<usize>)> {
+        let sent = &self.sent;
         let mut out: Vec<(usize, usize, Vec<usize>)> = Vec::new();
         for (n, m) in self.mentions.iter().enumerate() {
             if let Some(last) = out.last_mut()
@@ -1846,33 +2426,43 @@ impl Line {
     /// The clauses about `tooth`, as word ranges: for each subject that names
     /// it, from the start of its sentence (or the clause break after the
     /// subject before it) to the end of its sentence (or the last clause break
-    /// before the next subject). With no break between two subjects, the
-    /// words between belong to the first.
+    /// before the next subject). With no break between two subjects, the words
+    /// after a relation word ("with", "next to") belong to the second, and the
+    /// rest to the first. A tooth said by number, name or range is spoken
+    /// about only in those clauses; a group's clause counts for the teeth said
+    /// only by the group.
     fn windows(&self, tooth: &str) -> Vec<(usize, usize)> {
         if self.toks.is_empty() {
             return Vec::new();
         }
-        let sent = self.sentences();
-        let subjects = self.subjects(&sent);
+        let sent = &self.sent;
+        let subjects = self.subjects();
+        let explicit = self.mentions.iter().any(|m| m.said_as != SaidAs::Group && m.covers(tooth));
         let first_of = |s: usize| sent.iter().position(|x| *x == s).unwrap_or(0);
         let end_of = |s: usize| sent.iter().rposition(|x| *x == s).map_or(0, |i| i + 1);
-        // The last clause break between two subjects: (end of the first's
-        // clause, start of the second's).
+        // Between two subjects: (end of the first's clause, start of the second's).
         let split = |from: usize, to: usize| -> (usize, usize) {
-            let mut at = (to, to);
+            let mut at = None;
             for x in from..=to.min(self.toks.len() - 1) {
                 if self.toks[x].brk && x > from {
-                    at = (x, x);
+                    at = Some((x, x));
                 }
                 if x < to && CLAUSE_WORDS.contains(&self.toks[x].w.as_str()) {
-                    at = (x, x + 1);
+                    at = Some((x, x + 1));
                 }
             }
-            at
+            at.or_else(|| {
+                (from..to).find(|&x| RELATION_WORDS.contains(&self.toks[x].w.as_str())).map(|x| (x, x + 1))
+            })
+            .unwrap_or((to, to))
         };
         let mut out = Vec::new();
         for (n, (start, end, members)) in subjects.iter().enumerate() {
-            if !members.iter().any(|m| self.mentions[*m].covers(tooth)) {
+            let names_it = members.iter().any(|m| {
+                let m = &self.mentions[*m];
+                m.covers(tooth) && (!explicit || m.said_as != SaidAs::Group)
+            });
+            if !names_it {
                 continue;
             }
             let s = sent[*start];
@@ -1889,15 +2479,18 @@ impl Line {
         out
     }
 
-    /// The words in these ranges, each run read with its negations.
+    /// The words in these ranges, each run read with its negations and
+    /// uncertainties.
     fn words(&self, ranges: &[(usize, usize)], absent_negates: bool) -> Vec<Words> {
         let neg = negated(&self.toks, &self.mentions, absent_negates);
+        let unc = uncertain(&self.toks, &self.questions, &self.sent);
         ranges
             .iter()
             .map(|&(a, b)| Words {
                 stems: self.toks[a..b].iter().map(|t| stem(&t.w)).collect(),
                 neg: neg[a..b].to_vec(),
-                masked: (a..b).map(|i| suture_closed(&self.toks, i)).collect(),
+                unc: unc[a..b].to_vec(),
+                masked: (a..b).map(|i| masked(&self.toks, i)).collect(),
             })
             .collect()
     }
@@ -1922,7 +2515,7 @@ impl Line {
 
     /// The words of the sentences these ranges sit in, outside the ranges.
     fn beside(&self, ranges: &[(usize, usize)]) -> Vec<(usize, usize)> {
-        let sent = self.sentences();
+        let sent = &self.sent;
         let mine: HashSet<usize> =
             ranges.iter().filter(|(a, _)| *a < sent.len()).map(|(a, _)| sent[*a]).collect();
         let mut out = Vec::new();
@@ -1943,74 +2536,250 @@ impl Line {
         out
     }
 
-    /// Numbers said in these ranges, outside the tooth mentions themselves
-    /// (so "three oh nine" never supports a grade of 3, nor "fourth premolar"
-    /// a stage 4).
-    fn numbers(&self, ranges: &[(usize, usize)]) -> HashSet<String> {
-        let in_mention = |i: usize| self.mentions.iter().any(|m| (m.words.0..m.words.1).contains(&i));
-        let mut runs: Vec<String> = Vec::new();
+    /// Values said in these ranges, outside tooth mentions: (word, value).
+    /// Ordinals ("fourth") are never values, and a number followed by a unit
+    /// other than millimetres ("three weeks", "two mg") is neither a grade nor
+    /// a measure. `mm`: millimetre values, which may carry their unit; a grade
+    /// never does.
+    fn values(&self, ranges: &[(usize, usize)], mm: bool) -> Vec<(usize, f64)> {
+        let mut out = Vec::new();
         for &(a, b) in ranges {
-            let mut run: Option<(usize, usize)> = None;
-            for i in a..=b {
-                let keep = i < b && !in_mention(i);
-                match (keep, run) {
-                    (true, None) => run = Some((i, i)),
-                    (true, Some((s, _))) => run = Some((s, i)),
-                    (false, Some((s, e))) => {
-                        runs.push(self.chars[self.toks[s].span.0..self.toks[e].span.1].iter().collect());
-                        run = None;
-                    }
-                    (false, None) => {}
+            let mut i = a;
+            while i < b {
+                if in_mentions(&self.mentions, i) {
+                    i += 1;
+                    continue;
+                }
+                let Some((v, len)) = cardinal_at(&self.toks, i) else {
+                    i += 1;
+                    continue;
+                };
+                let unit = self.toks.get(i + len).filter(|t| !t.brk).map(|t| t.w.as_str());
+                let is_mm = unit.is_some_and(|u| MM_UNITS.contains(&u));
+                let other_unit = unit.is_some_and(|u| NOT_TOOTH_AFTER.contains(&u)) && !is_mm;
+                if !other_unit && (mm || !is_mm) {
+                    out.push((i, v));
+                }
+                i += len;
+            }
+        }
+        out
+    }
+
+    /// The finding a number at word `at` is said with: the nearest word of a
+    /// finding that takes a number, within six words in its range ("stage two
+    /// resorption, type one": 2 is the resorption's, 1 the type's). `mine`
+    /// wins a tie. None when no such word is near (a bare number).
+    fn finding_near(&self, range: (usize, usize), at: usize, mine: &str) -> Option<&'static str> {
+        let mut best: Option<(usize, &'static str)> = None;
+        for i in range.0..range.1 {
+            let d = i.abs_diff(at);
+            if d == 0 || d > 6 || in_mentions(&self.mentions, i) {
+                continue;
+            }
+            let s = stem(&self.toks[i].w);
+            for (id, words) in VALUE_ANCHORS.iter() {
+                if !words.contains(&s) {
+                    continue;
+                }
+                let better = match best {
+                    None => true,
+                    Some((bd, bid)) => d < bd || (d == bd && id == mine && bid != mine),
+                };
+                if better {
+                    best = Some((d, id.as_str()));
                 }
             }
         }
-        runs.iter().flat_map(|r| extract_numbers(&normalize_spoken(r))).collect()
+        best.map(|(_, id)| id)
+    }
+
+    /// "Respectively", or "the first ... the second" standing for teeth: the
+    /// line pairs teeth and findings in an order the check can't follow.
+    fn pairs_by_order(&self, ranges: &[(usize, usize)]) -> bool {
+        let toks = &self.toks;
+        ranges.iter().any(|&(a, b)| {
+            (a..b).any(|i| {
+                let w = toks[i].w.as_str();
+                w == "respectively"
+                    || (matches!(w, "first" | "second" | "third" | "former" | "latter")
+                        && prev_word(toks, i) == Some("the")
+                        && !in_mentions(&self.mentions, i)
+                        && !(i + 1 < toks.len() && !toks[i + 1].brk && head_at(toks, i + 1).is_some()))
+            })
+        })
+    }
+
+    /// Does the clause about `tooth` name any of these animals?
+    fn names_animal(&self, tooth: &str, names: &[String]) -> bool {
+        let wanted: Vec<String> =
+            names.iter().map(|n| n.trim().to_lowercase()).filter(|n| !n.is_empty()).collect();
+        self.windows(tooth).iter().any(|&(a, b)| {
+            self.toks[a..b].iter().any(|t| {
+                let w = t.w.strip_suffix("'s").unwrap_or(&t.w);
+                wanted.iter().any(|n| n == w)
+            })
+        })
     }
 }
 
-/// Plan or possibility words: "may need to come out", "we'll extract it".
+/// Units after a number that make it a millimetre measure.
+const MM_UNITS: &[&str] = &["mm", "millimeter", "millimeters", "millimetre", "millimetres"];
+
+/// A cardinal number at word `i` ("3", "three", "2.5", "two point five",
+/// "4b") and how many words it takes. Ordinals ("fourth", "4th") are not.
+fn cardinal_at(toks: &[Tok], i: usize) -> Option<(f64, usize)> {
+    fn word(w: &str) -> Option<f64> {
+        Some(match w {
+            "zero" | "nought" => 0.0,
+            "one" => 1.0,
+            "two" => 2.0,
+            "three" => 3.0,
+            "four" => 4.0,
+            "five" => 5.0,
+            "six" => 6.0,
+            "seven" => 7.0,
+            "eight" => 8.0,
+            "nine" => 9.0,
+            "ten" => 10.0,
+            "eleven" => 11.0,
+            "twelve" => 12.0,
+            _ => {
+                // "4b": a resorption stage with its letter.
+                let digits = w.strip_suffix(['a', 'b', 'c']).unwrap_or(w);
+                if digits.is_empty() || !digits.starts_with(|c: char| c.is_ascii_digit()) {
+                    return None;
+                }
+                digits.parse::<f64>().ok().filter(|v| v.is_finite())?
+            }
+        })
+    }
+    let v = word(&toks[i].w)?;
+    if next_word(toks, i) == Some("point")
+        && let Some(frac) = toks.get(i + 2).filter(|t| !t.brk).and_then(|t| word(&t.w))
+        && frac < 10.0
+        && frac.fract() == 0.0
+    {
+        return Some((v + frac / 10.0, 3));
+    }
+    Some((v, 1))
+}
+
+/// Words that name a finding that takes a number, to tie a number to its
+/// finding: each such finding's single cue words, without the words for the
+/// number itself ("stage", "grade", "class").
+static VALUE_ANCHORS: LazyLock<Vec<(String, HashSet<String>)>> = LazyLock::new(|| {
+    chart()
+        .findings
+        .iter()
+        .filter(|f| f.grade.is_some() || f.mm != MmUse::None)
+        .map(|f| {
+            let words: HashSet<String> = f
+                .cues
+                .iter()
+                .filter_map(|c| {
+                    let t = tokens(c);
+                    (t.len() == 1).then(|| stem(&t[0].w))
+                })
+                .filter(|s| !matches!(s.as_str(), "stage" | "grade" | "class" | "level" | "score" | "index"))
+                .collect();
+            (f.id.clone(), words)
+        })
+        .collect()
+});
+
+/// Words that make a treatment a plan or a possibility.
 #[rustfmt::skip]
 const PLAN_WORDS: &[&str] = &[
-    "may", "might", "will", "would", "could", "should", "plan", "plans", "planned", "planning", "recommend",
-    "recommended", "recommending", "consider", "considering", "if", "possibly", "probably", "schedule",
-    "scheduled", "later", "eventually",
+    "may", "might", "will", "would", "could", "should", "shall", "must", "plan", "plans", "planned",
+    "planning", "recommend", "recommended", "recommending", "recommends", "consider", "considering",
+    "considered", "schedule", "scheduled", "later", "eventually", "if", "possibly", "probably", "indicated",
+    "pending", "candidate", "discuss", "discussed", "discussing", "advise", "advised", "suggest", "suggested",
+    "propose", "proposed", "offer", "offered", "quote", "quoted", "estimate", "need", "needs", "needed",
+    "option", "options", "future",
 ];
 
-/// Treatment said as done or being done: "extracted", "extracting", "came out".
+/// A treatment said as done or being done: "extracted", "extracting", "came
+/// out".
 #[rustfmt::skip]
 const DONE_WORDS: &[&str] = &[
     "extracted", "extracting", "removed", "removing", "came", "pulled", "pulling", "amputated", "amputating",
-    "sectioned", "elevated", "done", "performed", "took",
+    "sectioned", "elevated", "done", "performed", "took", "taken",
 ];
 
-/// Does the clause sound like a plan, with no word for it being done?
-fn sounds_planned(line: &Line, ranges: &[(usize, usize)]) -> bool {
-    let words: Vec<&str> =
-        ranges.iter().flat_map(|&(a, b)| line.toks[a..b].iter().map(|t| t.w.as_str())).collect();
-    let plan = words.iter().enumerate().any(|(i, w)| {
-        PLAN_WORDS.contains(w)
-            || w.ends_with("'ll")
-            || (matches!(*w, "need" | "needs" | "going" | "want" | "wants")
-                && words.get(i + 1) == Some(&"to"))
-    });
-    plan && !words.iter().any(|w| DONE_WORDS.contains(w))
+/// What a clause says about a treatment's time: a plan word ("should be
+/// extracted", "consider extracting", "a candidate for", "at the next
+/// dental"), a word for it being done that no plan word governs ("was
+/// extracted"; not "will need to be extracted"), and a word for an earlier
+/// visit ("at her last dental", "two years ago", "previously").
+fn treatment_said(line: &Line, ranges: &[(usize, usize)]) -> (bool, bool, bool) {
+    let toks = &line.toks;
+    let (mut plan, mut done, mut history) = (false, false, false);
+    for &(a, b) in ranges {
+        let mut last_plan: Option<usize> = None;
+        for i in a..b {
+            if toks[i].brk && i > a {
+                last_plan = None; // a plan word governs its own clause
+            }
+            let w = toks[i].w.as_str();
+            let next = next_word(toks, i);
+            let marker = PLAN_WORDS.contains(&w)
+                || w.ends_with("'ll")
+                || (w == "to" && next == Some("be"))
+                || (matches!(w, "going" | "want" | "wants" | "like") && next == Some("to"))
+                || (w == "next"
+                    && matches!(
+                        next,
+                        Some(
+                            "time"
+                                | "visit"
+                                | "dental"
+                                | "appointment"
+                                | "recheck"
+                                | "week"
+                                | "month"
+                                | "procedure"
+                        )
+                    ));
+            if marker {
+                plan = true;
+                last_plan = Some(i);
+            }
+            if DONE_WORDS.contains(&w) && !last_plan.is_some_and(|p| i - p <= 6) {
+                done = true;
+            }
+            history |= matches!(w, "previously" | "previous" | "prior" | "ago" | "formerly")
+                || (w == "last"
+                    && matches!(
+                        next,
+                        Some("dental" | "visit" | "time" | "year" | "cleaning" | "procedure" | "appointment")
+                    ))
+                || (w == "history" && next == Some("of"))
+                || (w == "past" && prev_word(toks, i) == Some("the"));
+        }
+    }
+    (plan, done, history)
 }
 
 /// Words that may sit between a tooth's number and its name when one restates
-/// the other.
+/// or corrects the other: "108, which is the …", "108, I mean the …", "the
+/// upper left fourth premolar, so 108", "108, which I think is the …".
 #[rustfmt::skip]
 const APPOSITION: &[&str] = &[
     "the", "a", "an", "that", "that's", "is", "which", "or", "aka", "also", "known", "as", "called", "being",
-    "tooth",
+    "tooth", "i", "mean", "sorry", "so", "think", "believe", "guess", "rather", "namely", "e", "ie", "um", "uh",
+    "er", "on", "it's", "its", "actually",
 ];
 
-/// Numbers with a name beside them, in apposition, that mean another tooth:
-/// "108, upper left fourth premolar", "108, which is the upper left fourth
-/// premolar". Not "206 is missing, and the upper left canine looks healthy",
-/// and not when the name's own number was said too. (number's tooth, name's
-/// tooth) pairs.
+/// Numbers and names in one sentence, with nothing but restating words
+/// between them and no other tooth, that mean different teeth: "108, upper
+/// left fourth premolar", "108, I mean the upper left fourth premolar", "the
+/// upper left fourth premolar, so 108". Not "206 is missing, and the upper
+/// left canine looks healthy", and not when the name's own number was said
+/// too. (number's tooth, name's tooth) pairs.
 fn disagreeing_names(toks: &[Tok], line: &[Mention]) -> Vec<(String, String)> {
     let numbers = || line.iter().filter(|m| m.said_as == SaidAs::Number);
+    let sentence = |i: usize| toks.iter().take(i + 1).skip(1).filter(|t| t.stop).count();
     line.iter()
         .filter(|m| m.said_as == SaidAs::Name && m.teeth.len() == 1)
         .filter_map(|name| {
@@ -2018,21 +2787,44 @@ fn disagreeing_names(toks: &[Tok], line: &[Mention]) -> Vec<(String, String)> {
             if numbers().any(|m| m.covers(named)) {
                 return None; // its own number was said too
             }
-            let nearest = numbers().filter(|m| m.gap(name) <= 6).min_by_key(|m| m.gap(name))?;
+            let nearest = numbers()
+                .filter(|m| m.gap(name) <= 10 && sentence(m.words.0) == sentence(name.words.0))
+                .min_by_key(|m| m.gap(name))?;
             let (from, to) = if nearest.words.1 <= name.words.0 {
                 (nearest.words.1, name.words.0)
             } else {
                 (name.words.1, nearest.words.0)
             };
+            let other_between = line.iter().any(|m| m.words.0 >= from && m.words.1 <= to && m.words.0 < to);
             let apposition = toks[from..to].iter().all(|t| APPOSITION.contains(&t.w.as_str()));
-            (apposition && nearest.teeth[0] != *named).then(|| (nearest.teeth[0].clone(), named.clone()))
+            (apposition && !other_between && nearest.teeth[0] != *named)
+                .then(|| (nearest.teeth[0].clone(), named.clone()))
         })
         .collect()
 }
 
+/// A number on one line and a disagreeing name opening the next ("Next is
+/// 108." / "The upper left fourth premolar has a slab fracture."), when the
+/// number's own clause says no finding and neither line says the name's own
+/// number: (number's tooth, name's tooth).
+fn disagreeing_across(first: &Line, second: &Line) -> Option<(String, String)> {
+    let number = first.mentions.last().filter(|m| m.said_as == SaidAs::Number)?;
+    let name = second.mentions.first().filter(|m| m.said_as == SaidAs::Name && m.teeth.len() == 1)?;
+    let (num, named) = (&number.teeth[0], &name.teeth[0]);
+    let said_by_number = |l: &Line| l.mentions.iter().any(|m| m.said_as != SaidAs::Name && m.covers(named));
+    if num == named || said_by_number(first) || said_by_number(second) {
+        return None;
+    }
+    // The number's clause only names the tooth ("next is 108").
+    let words = first.words(&first.windows(num), true);
+    (!any_finding_said(&words)).then(|| (num.clone(), named.clone()))
+}
+
 /// The teeth for a line's prompt hint (`note::with_tooth_hints`): every
 /// tooth read in it, except a name that disagrees with the number beside it,
-/// so the hint matches the rule to chart the number as said.
+/// so the hint matches the rule to chart the number as said. An ambiguous
+/// group ("a pair of upper incisors", "the lower incisors, two of them")
+/// names no tooth, so it gets no hint.
 pub fn hint_teeth(text: &str) -> Vec<String> {
     let toks = tokens(text);
     let line = teeth_in(text);
@@ -2056,6 +2848,12 @@ pub fn tooth_clauses(text: &str, tooth: &str) -> Vec<String> {
         .into_iter()
         .map(|(a, b)| line.chars[line.toks[a].span.0..line.toks[b - 1].span.1].iter().collect())
         .collect()
+}
+
+/// Does the clause of `text` about `tooth` name one of these animals (a
+/// multi-pet visit: "Rex has a fractured 108, Bella doesn't")?
+pub fn clause_names_animal(text: &str, tooth: &str, names: &[String]) -> bool {
+    Line::new(text).names_animal(tooth, names)
 }
 
 fn is_vet_entered(map: &Map<String, Value>) -> bool {
@@ -2123,8 +2921,9 @@ pub fn check_item(
     }
 
     // A number and a name beside it that mean different teeth, whichever of
-    // the two was charted.
-    let conflict = lines.iter().find_map(|line| {
+    // the two was charted: in one sentence, or a number on one line and the
+    // name opening the next.
+    let mut conflict = lines.iter().find_map(|line| {
         disagreeing_names(&line.toks, &line.mentions).into_iter().find_map(|(number, name)| {
             if number == tooth_id {
                 Some(name)
@@ -2135,6 +2934,25 @@ pub fn check_item(
             }
         })
     });
+    for seg in &segments {
+        if conflict.is_some() {
+            break;
+        }
+        let Some(at) = transcript.segments.iter().position(|s| s.id == seg.id) else { continue };
+        let this = Line::new(&seg.text);
+        if let Some(prev) = at.checked_sub(1).and_then(|p| transcript.segments.get(p))
+            && let Some((number, name)) = disagreeing_across(&Line::new(&prev.text), &this)
+            && name == tooth_id
+        {
+            conflict = Some(number);
+        }
+        if let Some(next) = transcript.segments.get(at + 1)
+            && let Some((number, name)) = disagreeing_across(&this, &Line::new(&next.text))
+            && number == tooth_id
+        {
+            conflict = Some(name);
+        }
+    }
     if let Some(other) = conflict {
         report.flag(path, tooth_id, ToothFlagKind::NameConflict, Some(other), Vec::new());
     }
@@ -2176,17 +2994,33 @@ pub fn check_item(
         // "309 is fractured and 409 too".
         let beside: Vec<Words> =
             lines.iter().zip(&windows).flat_map(|(l, w)| l.words(&l.beside(w), absent_negates)).collect();
-        let near: HashSet<String> = lines.iter().zip(&windows).flat_map(|(l, w)| l.numbers(w)).collect();
-        let far: HashSet<String> =
-            lines.iter().zip(&windows).flat_map(|(l, w)| l.numbers(&l.outside(w))).collect();
-        let values: Vec<(&str, String)> = [("grade", v.grade), ("mm", v.mm)]
+        // The grade and the millimetres, as said in this tooth's clauses and
+        // in the rest of the cited lines.
+        let values: Vec<(&str, f64)> = [("grade", v.grade), ("mm", v.mm)]
             .into_iter()
-            .filter_map(|(key, n)| n.map(|n| (key, crate::numbers::canonical(&fmt_num(n)))))
+            .filter_map(|(key, n)| n.map(|n| (key, n)))
             .collect();
-        let shared = (!values.is_empty() && values.iter().all(|(_, n)| near.contains(n)))
-            || inside
-                .iter()
-                .any(|w| w.stems.iter().any(|s| matches!(s.as_str(), "too" | "also" | "likewise" | "same")));
+        let said_at = |key: &str, n: f64, outside: bool| -> Vec<(usize, usize, (usize, usize))> {
+            let mut out = Vec::new();
+            for (li, (l, w)) in lines.iter().zip(&windows).enumerate() {
+                let ranges = if outside { l.outside(w) } else { w.clone() };
+                for r in ranges {
+                    for (at, x) in l.values(&[r], key == "mm") {
+                        if (x - n).abs() < 1e-9 {
+                            out.push((li, at, r));
+                        }
+                    }
+                }
+            }
+            out
+        };
+        let value_here = values.iter().any(|(key, n)| !said_at(key, *n, false).is_empty());
+        // A clause with no finding word of its own borrows the finding said
+        // beside it, when it says the grade or "too": "and 409 is grade three".
+        let together = inside
+            .iter()
+            .any(|w| w.stems.iter().any(|s| matches!(s.as_str(), "too" | "also" | "likewise" | "same")));
+        let shared = !any_finding_said(&inside) && (together || value_here);
         // The finding's own words.
         let mut cue_flagged = false;
         let mut check_cues = |report: &mut ToothReport, cues: &[String]| {
@@ -2209,37 +3043,120 @@ pub fn check_item(
             for group in &d.cues {
                 check_cues(&mut report, group);
             }
-            // Words that rule this type out: "uncomplicated", "no pulp".
+            // Words that rule this type out: "uncomplicated", "no pulp", "pulp intact".
             if let Some(x) = d.exclude.iter().find(|x| said_in(&inside, x) == Said::Yes) {
                 report.flag(path, tooth_id, ToothFlagKind::Negated, None, vec![x.clone()]);
             }
             // Words for another type of a finding that has one type per tooth.
             if f.one_per_tooth {
                 let mine: Vec<&Vec<String>> = d.cues.iter().collect();
+                // Not a type its own exclude words rule out ("pulp intact" is
+                // no complicated fracture, though it says "pulp").
                 let other = f.details.iter().filter(|o| o.id != d.id && !o.cues.is_empty()).find(|o| {
                     o.cues.iter().all(|g| any_said(&inside, g) == Said::Yes)
                         && !o.cues.iter().all(|g| mine.contains(&g))
+                        && !o.exclude.iter().any(|x| said_in(&inside, x) == Said::Yes)
                 });
                 if let Some(o) = other {
                     report.flag(path, tooth_id, ToothFlagKind::OtherType, None, vec![o.words.clone()]);
                 }
             }
         }
-        // The grade and the millimetres: said in this tooth's clause, or only
-        // in another tooth's.
-        let elsewhere: Vec<String> = values
-            .iter()
-            .filter(|(_, n)| !near.contains(n) && far.contains(n))
-            .map(|(key, n)| format!("{key} {n}"))
-            .collect();
+        // The grade and the millimetres: said in this tooth's clause, next to
+        // this finding's word; said only in another tooth's clause; or not
+        // said as a value at all ("loose for three weeks", "behind the fourth
+        // premolar").
+        let mut elsewhere: Vec<String> = Vec::new();
+        let mut unsaid: Vec<String> = Vec::new();
+        for (key, n) in &values {
+            let label = format!("{key} {}", fmt_num(*n));
+            let here = said_at(key, *n, false);
+            if here.is_empty() {
+                if said_at(key, *n, true).is_empty() {
+                    unsaid.push(label);
+                } else {
+                    elsewhere.push(label);
+                }
+                continue;
+            }
+            // Tied to another finding's word ("stage three periodontal disease,
+            // mobility grade one" charted as mobility 3).
+            let tied: Vec<Option<&'static str>> =
+                here.iter().map(|(li, at, r)| lines[*li].finding_near(*r, *at, &f.id)).collect();
+            if !tied.iter().any(|t| t.is_none_or(|id| id == f.id))
+                && let Some(Some(other)) = tied.first()
+                && let Some(o) = chart().finding(other)
+            {
+                report.flag(path, tooth_id, ToothFlagKind::OtherType, None, vec![o.words.clone()]);
+            }
+        }
         if !elsewhere.is_empty() {
             report.flag(path, tooth_id, ToothFlagKind::OtherTooth, None, elsewhere);
         }
-        // Charted as done, but said as a plan.
-        if f.plannable && !v.planned {
-            let all: Vec<bool> = lines.iter().zip(&windows).map(|(l, w)| sounds_planned(l, w)).collect();
-            if all.iter().any(|p| *p) {
+        if !unsaid.is_empty() {
+            report.flag(path, tooth_id, ToothFlagKind::CueMissing, None, unsaid);
+        }
+        // Done or planned, today or at an earlier visit.
+        let mut planned_flag = false;
+        if f.plannable {
+            let said: Vec<(bool, bool, bool)> =
+                lines.iter().zip(&windows).map(|(l, w)| treatment_said(l, w)).collect();
+            let plan = said.iter().any(|s| s.0);
+            let done = said.iter().any(|s| s.1);
+            let history = said.iter().any(|s| s.2);
+            if !v.planned && plan && !done {
                 report.flag(path, tooth_id, ToothFlagKind::Planned, None, Vec::new());
+                planned_flag = true;
+            }
+            if v.planned && done && !plan {
+                report.flag(path, tooth_id, ToothFlagKind::NotPlanned, None, Vec::new());
+            }
+            if !v.planned && history {
+                report.flag(path, tooth_id, ToothFlagKind::History, None, Vec::new());
+            }
+        }
+        // Said only as a possibility, a condition, a question or hearsay.
+        let plan_words_expected = f.plannable && (v.planned || planned_flag);
+        if !plan_words_expected && said_uncertainly(&inside, &f.cues) {
+            report.flag(path, tooth_id, ToothFlagKind::Uncertain, None, f.cues.clone());
+        }
+        // "Respectively", "the first ... the second".
+        if lines.iter().zip(&windows).any(|(l, w)| l.pairs_by_order(w)) {
+            report.flag(path, tooth_id, ToothFlagKind::Ambiguous, None, Vec::new());
+        }
+    }
+
+    // Another line names this tooth and says something else about it: fine
+    // where this finding was charted, or a finding where this is normal.
+    if let Some(f) = def
+        && !f.text_required
+    {
+        let normal: &[String] = chart().finding("normal").map(|n| n.cues.as_slice()).unwrap_or_default();
+        for seg in transcript.segments.iter().filter(|s| !cited.contains(&s.id)) {
+            let line = Line::new(&seg.text);
+            if !line.mentions.iter().any(|m| m.said_as != SaidAs::Group && m.covers(tooth_id)) {
+                continue;
+            }
+            let w = line.windows(tooth_id);
+            let words = line.words(&w, f.id != "missing");
+            let differs = if f.id == "normal" {
+                chart()
+                    .findings
+                    .iter()
+                    .filter(|o| !o.text_required && o.id != "normal")
+                    .any(|o| any_said(&words, &o.cues) == Said::Yes)
+            } else {
+                any_said(&words, normal) == Said::Yes && any_said(&words, &f.cues) != Said::Yes
+            };
+            if differs {
+                report.flag(
+                    path,
+                    tooth_id,
+                    ToothFlagKind::Contradicted,
+                    Some(seg.id.to_string()),
+                    Vec::new(),
+                );
+                break;
             }
         }
     }
@@ -2270,10 +3187,23 @@ fn conflicts(items: &[Value], path: &str) -> Vec<ToothFlag> {
                 continue; // a duplicate
             }
             let one = chart().finding(a.finding).is_some_and(|f| f.one_per_tooth);
+            // Both remove the crown today: an extraction and a crown amputation.
+            let removed = |x: &View, y: &View| {
+                x.finding == "extraction" && y.finding == "crown_amputation" && !x.planned && !y.planned
+            };
+            // An unerupted tooth has no crown in the mouth to break, wear or move.
+            let unerupted = |x: &View, y: &View| {
+                x.finding == "unerupted"
+                    && matches!(y.finding, "fracture" | "wear" | "caries" | "discoloured" | "mobility")
+            };
             let clash = (a.finding == "normal") != (b.finding == "normal")
                 || (a.finding == "missing" && b.finding != "missing" && !b.planned)
                 || (b.finding == "missing" && a.finding != "missing" && !a.planned)
-                || (a.finding == b.finding && one);
+                || (a.finding == b.finding && one)
+                || removed(&a, &b)
+                || removed(&b, &a)
+                || unerupted(&a, &b)
+                || unerupted(&b, &a);
             if clash {
                 out.push(ToothFlag {
                     path: format!("{path}/{n}"),
@@ -2287,6 +3217,78 @@ fn conflicts(items: &[Value], path: &str) -> Vec<ToothFlag> {
         }
     }
     out
+}
+
+/// A drafted chart entry's identity for a veterinarian's confirmation
+/// (ADR-0021 decision 10): its tooth, finding, fields and citations. An entry
+/// the model drafts again differently, or the vet changes, is another entry.
+pub fn item_key(item: &Value) -> String {
+    ["tooth", "finding", "detail", "grade", "mm", "planned", "evidence"]
+        .map(|k| item[k].to_string())
+        .join("|")
+}
+
+/// The drafted chart entries anywhere in a note: charted teeth the model
+/// wrote, not the vet's own (`entered_by`).
+pub fn drafted_items(note: &Value) -> Vec<&Value> {
+    fn walk<'a>(v: &'a Value, out: &mut Vec<&'a Value>) {
+        match v {
+            Value::Object(m) if is_tooth_item(m) => {
+                if !is_vet_entered(m) {
+                    out.push(v);
+                }
+            }
+            Value::Object(m) => m.values().for_each(|x| walk(x, out)),
+            Value::Array(a) => a.iter().for_each(|x| walk(x, out)),
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    walk(note, &mut out);
+    out
+}
+
+/// Merge drafted chart items that repeat an earlier item's tooth, finding,
+/// detail, grade, mm and planned into the first one, with the evidence of
+/// both: a model caught in a loop ("404 normal" seventeen times) leaves one
+/// item. Anywhere in the note; the vet's own items are left as they are.
+pub fn merge_repeats(note: &mut Value) {
+    let key = |i: &Value| {
+        ["tooth", "finding", "detail", "grade", "mm", "planned"].map(|k| i[k].to_string()).join("|")
+    };
+    match note {
+        Value::Array(items) if items.iter().any(|v| v.as_object().is_some_and(is_tooth_item)) => {
+            let mut kept: Vec<Value> = Vec::with_capacity(items.len());
+            for item in items.drain(..) {
+                let drafted = item.as_object().is_some_and(|m| is_tooth_item(m) && !is_vet_entered(m));
+                let first = drafted
+                    .then(|| {
+                        kept.iter_mut().find(|k| {
+                            k.as_object().is_some_and(|m| is_tooth_item(m) && !is_vet_entered(m))
+                                && key(k) == key(&item)
+                        })
+                    })
+                    .flatten();
+                match first {
+                    Some(first) => {
+                        let mut evidence: Vec<Value> =
+                            first["evidence"].as_array().cloned().unwrap_or_default();
+                        for e in item["evidence"].as_array().into_iter().flatten() {
+                            if !evidence.contains(e) {
+                                evidence.push(e.clone());
+                            }
+                        }
+                        first["evidence"] = Value::Array(evidence);
+                    }
+                    None => kept.push(item),
+                }
+            }
+            *items = kept;
+        }
+        Value::Array(items) => items.iter_mut().for_each(merge_repeats),
+        Value::Object(map) => map.values_mut().for_each(merge_repeats),
+        _ => {}
+    }
 }
 
 /// Items repeating an earlier item's tooth, finding, detail, grade, mm and
@@ -2332,6 +3334,9 @@ pub fn check_chart(
     report.flags.extend(duplicates(items, path));
     report
 }
+
+#[cfg(test)]
+mod reattack;
 
 #[cfg(test)]
 mod tests {
@@ -3438,9 +4443,14 @@ mod tests {
         assert!(kinds(&check(&charted("504", "persistent_deciduous", None, None, &[0]), &t)).is_empty());
     }
 
+    /// The printed words, codes and legends of finding table version 1.
+    const PRINTED_V1: &str = "be15bcc6b87a20976822887e579467eaadddcb3af2ae587c87bb714a3b36b1f0";
+
     /// Signed runs record the finding table's version (`RunInfo::chart_version`):
     /// any change to a finding, detail, word or code must bump `version`, and
     /// keep the old table for drawing older runs. Update both together.
+    /// Version 2 changed only cue and exclude words (what the check reads),
+    /// never a word or code printed, so version 1 runs draw the same.
     #[test]
     fn the_finding_table_changes_only_with_its_version() {
         use sha2::{Digest, Sha256};
@@ -3448,8 +4458,23 @@ mod tests {
         let digest = hex::encode(Sha256::digest(v["findings"].to_string().as_bytes()));
         assert_eq!(
             (chart().version, digest.as_str()),
-            (1, "d8260ada4c633b6f27d5b8e14fc0074c86d06a5cb08d290e34504d3d075ef3b8"),
+            (2, "ea9d6dc688500e766acfa15429bf8c8da48b0c9471c1d3301ef35b21135d8f0f"),
             "the finding table changed: bump its version"
         );
+        // What prints is unchanged from version 1: words, codes and legends.
+        let printed: Vec<String> = chart()
+            .findings
+            .iter()
+            .flat_map(|f| {
+                let details = f.details.iter().map(|d| format!("{}|{}", d.words, d.code));
+                std::iter::once(format!(
+                    "{}|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+                    f.id, f.words, f.words_grade, f.words_mm, f.code, f.code_grade, f.code_detail, f.legend
+                ))
+                .chain(details)
+            })
+            .collect();
+        let digest = hex::encode(Sha256::digest(printed.join("\n").as_bytes()));
+        assert_eq!(digest, PRINTED_V1, "a printed word or code changed: keep the old table for older runs");
     }
 }

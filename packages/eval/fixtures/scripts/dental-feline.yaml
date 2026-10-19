@@ -9,6 +9,8 @@ id: dental-feline
 title: Feline dental with tooth resorption, charted
 species: feline
 template: dental
+# As the clinic enters it before the visit; the app sends it with every draft.
+patient: { name: Pepper, reason: Dental, species: Cat }
 speakers:
   dvm: am_michael
   tech: af_nicole

@@ -20,6 +20,7 @@ import {
   type Glyph,
   type ToothFinding,
 } from "../dental";
+import { fmtStamp, type ChartCheck } from "../engine";
 import { useT } from "../i18n";
 import { useMediaQuery } from "../useMediaQuery";
 import "./DentalChart.css";
@@ -41,6 +42,11 @@ import "./DentalChart.css";
  * review pane as much as a phone), the mouth splits into two blocks
  * (patient's right, then left) so each tooth stays at least 24 px wide and
  * the tooth numbers at 11 px or more.
+ *
+ * A drafted chart is a draft until a veterinarian confirms it (ADR-0021
+ * decision 10): "Draft chart: check every tooth", and each tooth with a
+ * drafted entry carries a "Checked against the recording" checkbox. A tooth
+ * with no flag is never shown as checked; only the vet's confirmation is.
  */
 export interface DentalChartProps {
   /** Whose teeth to draw; null when the species wasn't entered (no diagram). */
@@ -76,6 +82,17 @@ export interface DentalChartProps {
    * statement (hover lights the lines, click plays, flags as elsewhere).
    */
   renderStatement?: (item: ToothFinding, path: string, content: ReactNode) => ReactNode;
+  /** The vet's confirmations of drafted teeth: who and when (ADR-0021 decision 10). */
+  checks?: ChartCheck[];
+  /**
+   * Teeth with a drafted entry no veterinarian has confirmed. Given, the chart
+   * shows its draft state; absent, it says nothing about confirmation.
+   */
+  unconfirmed?: string[];
+  /** Confirm or take back teeth (an unsigned draft, for a veterinarian). */
+  onConfirm?: (teeth: string[], confirmed: boolean) => void;
+  /** A confirmation is being saved. */
+  confirming?: boolean;
 }
 
 /** Narrower than this, the mouth is drawn in two blocks (DESIGN.md §9 breakpoint 768). */
@@ -111,6 +128,11 @@ const NUMBER_BAND = 14;
 const MARK_BAND = 10;
 const ROW_GAP = 4;
 const BITE_GAP = 8;
+// A flag beside the tooth number, inside the slot: the number (12 px mono,
+// about 22 px wide for three digits) moves left, the mark sits at the right.
+const NUMBER_X_FLAGGED = SLOT / 2 - 4;
+const BADGE_R = 4;
+const MARK_X = SLOT - BADGE_R - 0.5;
 
 type T = ReturnType<typeof useT>;
 
@@ -203,6 +225,18 @@ export function chartFlags(f: ChartFaithfulness | undefined, t: T, describe?: (p
       );
     else if (flag.kind === "planned")
       addSoft(flag.path, t("Charted as done, but the cited line sounds like a plan. Check before signing."));
+    else if (flag.kind === "not_planned")
+      addSoft(flag.path, t("Charted as a plan, but the cited line says it was done. Check before signing."));
+    else if (flag.kind === "history")
+      addSoft(flag.path, t("The cited line says this was done at an earlier visit. Check before signing."));
+    else if (flag.kind === "uncertain")
+      addSoft(flag.path, t("The cited line says this only as possible, to be checked, or as someone's belief. Check before signing."));
+    else if (flag.kind === "ambiguous")
+      addSoft(flag.path, t("The cited line pairs teeth and findings by their order. Check which tooth has which finding before signing."));
+    else if (flag.kind === "contradicted")
+      addSoft(flag.path, t("Another line of the transcript says something else about this tooth. Check before signing."));
+    else if (flag.kind === "other_pet")
+      addSoft(flag.path, t("The cited line says this about another animal in the visit. Check before signing."));
     else if (flag.kind === "conflict") {
       const other = (flag.other && describe?.(flag.other)) || flag.expected?.[0] || "";
       addSoft(flag.path, t("This can't be right beside {finding} on the same tooth. Check before signing.", { finding: other }));
@@ -241,6 +275,8 @@ export interface ToothDiagramProps {
   onEvidence?: (ids: number[] | null) => void;
   /** Activation toggles the tooth's selection: the teeth are toggle buttons (aria-pressed). */
   toggles?: boolean;
+  /** Drafted teeth and their confirmation: "draft" (not confirmed yet) or the confirmer's name. */
+  confirmation?: Map<string, { draft: true } | { by: string }>;
 }
 
 /**
@@ -258,6 +294,7 @@ export function ToothDiagram({
   onToothActivate,
   onEvidence,
   toggles = false,
+  confirmation,
 }: ToothDiagramProps) {
   const t = useT();
   const lowerInner = useLowerInner();
@@ -285,9 +322,13 @@ export function ToothDiagram({
     const words = here.map((i) => findingWords(t, i, lowerInner)).map((w) => (lowerInner ? lowerFirst(w) : w));
     const base = t("{tooth}, {name}: {findings}", { tooth: id, name, findings: words.join("; ") });
     const flag = flagged?.get(id);
-    if (flag === "hard") return `${base}. ${t("Blocks signing until it's corrected.")}`;
-    if (flag === "soft") return `${base}. ${t("Needs checking before signing.")}`;
-    return base;
+    const state = confirmation?.get(id);
+    const parts = [base];
+    if (flag === "hard") parts.push(t("Blocks signing until it's corrected."));
+    if (flag === "soft") parts.push(t("Needs checking before signing."));
+    if (state && "draft" in state) parts.push(t("Draft, not confirmed yet."));
+    if (state && "by" in state) parts.push(t("Confirmed by {name}.", { name: state.by }));
+    return parts.join(". ").replace(/\.\. /g, ". ");
   };
 
   const moveTo = (e: KeyboardEvent, target: Slot | undefined) => {
@@ -387,12 +428,13 @@ export function ToothDiagram({
             )),
           )}
         </g>
-        <text className="dc-num" x={SLOT / 2} y={numberY} textAnchor="middle" aria-hidden>
+        {/* A flagged tooth's number moves left so its mark sits clear of the last digit. */}
+        <text className="dc-num" x={flag ? NUMBER_X_FLAGGED : SLOT / 2} y={numberY} textAnchor="middle" aria-hidden>
           {slot.id}
         </text>
-        {flag === "hard" && <circle className="dc-flag-badge" cx={SLOT - 4} cy={numberY - 4} r={5} aria-hidden />}
+        {flag === "hard" && <circle className="dc-flag-badge" cx={MARK_X} cy={numberY - 4} r={BADGE_R} aria-hidden />}
         {flag && (
-          <text className="dc-flag" data-kind={flag} x={flag === "hard" ? SLOT - 4 : SLOT - 2} y={flag === "hard" ? numberY - 0.5 : numberY} textAnchor="middle" aria-hidden>
+          <text className="dc-flag" data-kind={flag} x={MARK_X} y={flag === "hard" ? numberY - 0.5 : numberY} textAnchor="middle" aria-hidden>
             !
           </text>
         )}
@@ -455,6 +497,10 @@ export function DentalChart({
   editable = false,
   suggestedDentition = null,
   onChooseDentition,
+  checks = [],
+  unconfirmed,
+  onConfirm,
+  confirming = false,
 }: DentalChartProps) {
   const t = useT();
   const lowerInner = useLowerInner();
@@ -478,6 +524,20 @@ export function DentalChart({
     else if (paths.some((p) => soft.has(p))) flagged.set(id, "soft");
   }
   const deciduous = showDeciduous ?? items.some((i) => tooth(i.tooth)?.deciduous);
+  // The draft state (ADR-0021 decision 10): teeth with an entry the model
+  // drafted, and whether a veterinarian has confirmed each.
+  const isVet = (i: ToothFinding) => typeof i.entered_by === "string" && i.entered_by !== "";
+  const drafted = groups.filter(([, entries]) => entries.some(({ item }) => !isVet(item))).map(([id]) => id);
+  const showDraft = unconfirmed !== undefined && drafted.length > 0;
+  const waiting = showDraft ? drafted.filter((id) => unconfirmed.includes(id)) : [];
+  const checkOf = (id: string) => [...checks].reverse().find((c) => c.tooth === id);
+  const confirmation = new Map<string, { draft: true } | { by: string }>();
+  if (showDraft)
+    for (const id of drafted) {
+      const check = checkOf(id);
+      if (waiting.includes(id)) confirmation.set(id, { draft: true });
+      else if (check) confirmation.set(id, { by: check.by });
+    }
 
   const statement = (item: ToothFinding, p: string, content: ReactNode) => {
     if (renderStatement) return renderStatement(item, p, content);
@@ -518,6 +578,22 @@ export function DentalChart({
 
   return (
     <div className="dc">
+      {showDraft && editable && waiting.length > 0 && (
+        <div className="dc-draft" role="status" data-state="draft">
+          <p className="dc-draft-title">{t("Draft chart: check every tooth")}</p>
+          <p>
+            {onConfirm
+              ? t("Compare each drafted tooth with the recording, then tick Checked against the recording. Signing stays off until every drafted tooth is confirmed.")
+              : t("A veterinarian checks each drafted tooth against the recording before the note can be signed.")}
+          </p>
+          <p className="small">{t("{n} of {m} drafted teeth confirmed", { n: drafted.length - waiting.length, m: drafted.length })}</p>
+        </div>
+      )}
+      {showDraft && editable && waiting.length === 0 && (
+        <p className="dc-draft small" role="status" data-state="confirmed">
+          {t("Every drafted tooth is confirmed.")}
+        </p>
+      )}
       {dentition && (
         <ToothDiagram
           dentition={dentition}
@@ -528,6 +604,7 @@ export function DentalChart({
           onToothActivate={onToothActivate}
           onEvidence={onEvidence}
           toggles={toggles}
+          confirmation={showDraft ? confirmation : undefined}
         />
       )}
       {list && (
@@ -572,6 +649,34 @@ export function DentalChart({
                     {m}
                   </p>
                 ))}
+                {showDraft && drafted.includes(id) && (
+                  <div className="dc-confirm small" data-state={waiting.includes(id) ? "draft" : "confirmed"}>
+                    {onConfirm && (
+                      <label className="dc-confirm-check">
+                        <input
+                          type="checkbox"
+                          checked={!waiting.includes(id)}
+                          disabled={confirming}
+                          aria-label={t("{tooth}: checked against the recording", { tooth: id })}
+                          onChange={(e) => onConfirm([id], e.target.checked)}
+                        />
+                        <span>{t("Checked against the recording")}</span>
+                      </label>
+                    )}
+                    {waiting.includes(id)
+                      ? !onConfirm && <span className="dc-draft-tag">{t("Draft, not confirmed yet")}</span>
+                      : (() => {
+                          const check = checkOf(id);
+                          return (
+                            check && (
+                              <span className="dc-confirmed muted">
+                                {t("Confirmed by {name}, {at}", { name: check.by, at: fmtStamp(check.at) })}
+                              </span>
+                            )
+                          );
+                        })()}
+                  </div>
+                )}
               </li>
             );
           })}

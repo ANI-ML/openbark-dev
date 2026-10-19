@@ -90,6 +90,9 @@ INDIRECT = [
     "There's no copy of the original from when this version was made.",
     "Only you use this template. Share it with the hospital instead.",
     "That PIN isn't right.", "Choose who you are first.",
+    # Tooth chart confirmation (ADR-0021 decision 10): engine messages shown through t(error).
+    "Add your name in Settings, then confirm the chart.",
+    "This note is signed, so its chart can't change. Add an addendum instead.",
 ]
 
 

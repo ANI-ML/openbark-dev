@@ -53,6 +53,8 @@ export function Review({
   /** The tooth clicked to open the chart editor (ADR-0021 §8). */
   const [editingTeeth, setEditingTeeth] = useState<string[]>([]);
   const [savingEdit, setSavingEdit] = useState(false);
+  /** A tooth chart confirmation being saved (ADR-0021 decision 10). */
+  const [confirming, setConfirming] = useState(false);
   const [addendum, setAddendum] = useState<string | null>(null);
   /** The client document open in the sheet, and the one being drafted. */
   const [openDoc, setOpenDoc] = useState<string | null>(null);
@@ -358,6 +360,28 @@ export function Review({
     }
   }
 
+  /** A veterinarian confirms (or takes back) drafted teeth against the recording. */
+  async function confirmTeeth(teeth: string[], confirmed: boolean) {
+    if (!app.actorName.trim()) {
+      setError(t("Add your name in Settings, then confirm the chart."));
+      return;
+    }
+    setError(null);
+    setConfirming(true);
+    try {
+      setView(await engine.confirmChart(id, teeth, confirmed, app.actor, pet));
+      app.announce(
+        confirmed
+          ? t("Tooth {tooth} confirmed", { tooth: teeth.join(", ") })
+          : t("Tooth {tooth} is a draft again", { tooth: teeth.join(", ") }),
+      );
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setConfirming(false);
+    }
+  }
+
   async function sign() {
     if (!app.actorName.trim()) {
       setError(t("Add your name in Settings, then sign."));
@@ -468,6 +492,8 @@ export function Review({
     ...(run?.faithfulness.unsupported_statements ?? []).map((u) => u.path),
   ]);
   const toothBlocks = teethFlags.blocking.size;
+  /** Drafted teeth no veterinarian has confirmed: signing waits for them (ADR-0021 decision 10). */
+  const unconfirmed = view?.unconfirmed_teeth ?? [];
   const softFlags =
     (run?.faithfulness.citation_mismatches.length ?? 0) +
     (run?.faithfulness.invalid_evidence.length ?? 0) +
@@ -546,7 +572,11 @@ export function Review({
               {t("Signed by {name}, {at}", { name: view?.signed_by ?? "", at: view?.signed_at ?? "" })}
             </StatusDot>
           ) : run && app.can.sign ? (
-            <Button variant="primary" onClick={sign} disabled={generating || refining || hardFails > 0 || toothBlocks > 0}>
+            <Button
+              variant="primary"
+              onClick={sign}
+              disabled={generating || refining || confirming || hardFails > 0 || toothBlocks > 0 || unconfirmed.length > 0}
+            >
               <Signature size={20} aria-hidden />
               {t("Sign note")}
             </Button>
@@ -752,12 +782,14 @@ export function Review({
                   </div>
                 );
               })()}
-              {(hardFails > 0 || toothBlocks > 0 || softFlags > 0 || disputed > 0) && (
+              {(hardFails > 0 || toothBlocks > 0 || unconfirmed.length > 0 || softFlags > 0 || disputed > 0) && (
                 <p className="ob-notice note-summary" data-tone={hardFails || toothBlocks ? "danger" : undefined}>
                   {hardFails > 0 &&
                     `${hardFails === 1 ? t("1 number isn't in the transcript.") : t("{n} numbers aren't in the transcript.", { n: hardFails })} `}
                   {toothBlocks > 0 &&
                     `${toothBlocks === 1 ? t("1 tooth on the chart blocks signing until it's corrected.") : t("{n} teeth on the chart block signing until they're corrected.", { n: toothBlocks })} `}
+                  {unconfirmed.length > 0 &&
+                    `${unconfirmed.length === 1 ? t("1 drafted tooth on the chart isn't confirmed yet. Signing waits until a veterinarian confirms it.") : t("{n} drafted teeth on the chart aren't confirmed yet. Signing waits until a veterinarian confirms each one.", { n: unconfirmed.length })} `}
                   {disputed > 0 &&
                     `${disputed === 1 ? t("1 number was heard differently by the second recogniser; listen before signing.") : t("{n} numbers were heard differently by the second recogniser; listen before signing.", { n: disputed })} `}
                   {softFlags > 0 &&
@@ -790,6 +822,10 @@ export function Review({
                       }
                 }
                 suggestedDentition={!pet || pet === view?.pets[0] ? dentitionOf(p?.species) : null}
+                chartChecks={view?.chart_checks ?? []}
+                unconfirmedTeeth={signed ? [] : unconfirmed}
+                onConfirmTeeth={signed || generating || refining || !app.can.sign ? undefined : (teeth, ok) => void confirmTeeth(teeth, ok)}
+                confirming={confirming}
                 onChooseDentition={(heading, dentition) => {
                   const [sec, part] = heading.split("/");
                   const sectionValue = run.note[sec ?? ""] as Record<string, unknown> | undefined;

@@ -364,7 +364,7 @@ pub fn tooth_findings_guide() -> String {
 /// Rules for a tooth chart (ADR-0021 decision 5), added whenever the template
 /// has one, in drafting and re-prompting. Teams can't remove them.
 pub const CHART_RULES: &[&str] = &[
-    "Tooth chart: chart a tooth only when it was named, by number or by name, and a finding was said about it. Teeth not mentioned are left out. Chart every finding said about a named tooth, even when it also belongs under another heading (oral exam, radiographs, treatment).",
+    "Tooth chart: chart a tooth only when it was named, by number or by name, and a finding was said about it. Teeth not mentioned are left out. Chart every finding said about a named tooth, even when it also belongs under another heading (oral exam, radiographs, treatment). An extraction or crown amputation done in this visit is charted too, on each tooth, even when the line also says what wasn't done (\"closed, no sectioning\").",
     "Tooth chart: one item per finding. A tooth with a fracture and an extraction has two items; a stage, a pocket depth and a mobility said together are three items.",
     "Tooth chart: use the tooth number as said. When only a name was said, use its modified Triadan number: 100 right upper, 200 left upper, 300 left lower, 400 right lower; 500-800 the same for deciduous teeth; the incisors are x01 to x03, the canine x04 and the first molar x09.",
     "Tooth chart: never chart a tooth as normal unless normal, fine, healthy or the like was said about that tooth.",
@@ -698,17 +698,23 @@ pub fn generate_note(
         json_schema: Some(template.schema_text.clone()),
     };
     let output = llm.generate(&request, on_token)?;
-    let note: Value = serde_json::from_str(output.text.trim()).map_err(|e| {
+    let mut note: Value = serde_json::from_str(output.text.trim()).map_err(|e| {
         let hint = if output.stats.hit_max_tokens { " (output hit max_tokens)" } else { "" };
         EngineError::BadJson(format!("{e}{hint}"))
     })?;
+    // A runaway repeat ("404 normal" seventeen times) becomes one item.
+    crate::dental::merge_repeats(&mut note);
     validate(template, &note)?;
     let vet_numbers = options.reference.as_ref().map(|r| r.vet_numbers.clone()).unwrap_or_default();
     // Word-level alignment only when the note is in the consultation's language
     // (English here; other consultation languages pass through untranslated).
     let align = options.language.as_deref().is_none_or(|l| l == "en");
     let dentition = template.chart().and_then(|(_, d)| d);
-    let faithfulness = faithfulness::check_full(&note, transcript, &vet_numbers, align, dentition);
+    // Checked against the lines the draft was written from: in a multi-pet
+    // visit, this animal's own lines, so a cited line about another animal is
+    // invalid evidence.
+    let faithfulness =
+        faithfulness::check_for_pet(&note, &scoped, &vet_numbers, align, dentition, &options.other_pets);
     let markdown = render::markdown(template, &note, transcript, &faithfulness);
     Ok(NoteResult {
         status: "draft",
@@ -775,10 +781,11 @@ pub fn refine_note(
         json_schema: Some(schema.to_string()),
     };
     let output = llm.generate(&generate, on_token)?;
-    let redrafted: Value = serde_json::from_str(output.text.trim()).map_err(|e| {
+    let mut redrafted: Value = serde_json::from_str(output.text.trim()).map_err(|e| {
         let hint = if output.stats.hit_max_tokens { " (output hit max_tokens)" } else { "" };
         EngineError::BadJson(format!("{e}{hint}"))
     })?;
+    crate::dental::merge_repeats(&mut redrafted);
     let mut note = note.clone();
     match part {
         Some(key) => note[sec][key] = redrafted,
@@ -786,7 +793,15 @@ pub fn refine_note(
     }
     // The rest of the note may hold the vet's own edits.
     crate::edit::validate_edited(template, &note)?;
-    let faithfulness = faithfulness::check_template(&note, transcript, template);
+    let dentition = template.chart().and_then(|(_, d)| d);
+    let faithfulness = faithfulness::check_for_pet(
+        &note,
+        transcript,
+        &std::collections::HashSet::new(),
+        true,
+        dentition,
+        &options.other_pets,
+    );
     let markdown = render::markdown(template, &note, transcript, &faithfulness);
     Ok(NoteResult {
         status: "draft",
@@ -1051,5 +1066,46 @@ mod tests {
         // The budget doubles for a chart, and stays for everything else.
         assert_eq!(max_tokens_for(&dental, 4096), CHART_MAX_TOKENS);
         assert_eq!(max_tokens_for(&soap, 4096), 4096);
+    }
+
+    /// The app's prompt for a dog's dental (ADR-0021): the patient details
+    /// the clinic entered go with the transcript, and the prompt says that
+    /// today's extractions are charted, even beside "no sectioning", with no
+    /// "or under Findings by tooth" left for a dog. Drafted from that prompt,
+    /// E4B left every extraction off the dental-chart consult (the eval now
+    /// drafts with the same patient details, docs/eval/M2.md).
+    #[test]
+    fn the_dental_prompt_with_patient_details_still_asks_for_extractions_on_the_chart() {
+        let dental = LoadedTemplate::builtin("dental").unwrap().for_species(Some("Dog"));
+        let t = Transcript {
+            segments: vec![Segment {
+                id: 0,
+                start: 0.0,
+                end: 1.0,
+                speaker: Some(0),
+                text: "The lower incisors come out closed, no sectioning.".into(),
+                hints: Vec::new(),
+                check: None,
+            }],
+        };
+        let context = "patient name Juno; reason for visit: Dental; species: Dog";
+        let messages = build_messages(&dental, &t, Some(context));
+        assert!(messages[1].content.contains(context), "{}", messages[1].content);
+        assert!(messages[1].content.contains("[teeth: 301, 302, 303, 401, 402, 403]"));
+        let system = &messages[0].content;
+        assert!(
+            system.contains(
+                "An extraction or crown amputation done in this visit is charted too, on each tooth"
+            )
+        );
+        assert!(
+            system.contains(
+                "Extractions and crown amputations go in the dental chart too, one item per tooth."
+            )
+        );
+        assert!(
+            !system.contains("or under Findings by tooth, one item per tooth"),
+            "the weaker wording dropped extractions"
+        );
     }
 }

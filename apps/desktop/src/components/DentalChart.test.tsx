@@ -283,4 +283,134 @@ describe("DentalChart", () => {
     );
     expect(screen.getByText("Normal").closest("em")?.getAttribute("data-path")).toBe("/dental_chart/0");
   });
+
+  it("words every new tooth flag for the vet", () => {
+    const kinds = ["not_planned", "history", "uncertain", "ambiguous", "contradicted", "other_pet"] as const;
+    const items = kinds.map((_, i) => f(String(301 + i), "extraction", { planned: i === 0 }));
+    const faithfulness = {
+      ...clean,
+      tooth_flags: kinds.map((kind, i) => ({ path: `/dental_chart/${i}`, tooth: String(301 + i), kind })),
+    } as ChartFaithfulness;
+    const { container } = render(<DentalChart dentition="canine" items={items} faithfulness={faithfulness} />);
+    const title = (tooth: string) => container.querySelector(`li[data-tooth="${tooth}"] .stmt`)?.getAttribute("title");
+    expect(title("301")).toBe("Charted as a plan, but the cited line says it was done. Check before signing.");
+    expect(title("302")).toBe("The cited line says this was done at an earlier visit. Check before signing.");
+    expect(title("303")).toMatch(/only as possible, to be checked, or as someone's belief/);
+    expect(title("304")).toMatch(/pairs teeth and findings by their order/);
+    expect(title("305")).toBe("Another line of the transcript says something else about this tooth. Check before signing.");
+    expect(title("306")).toBe("The cited line says this about another animal in the visit. Check before signing.");
+  });
+
+  it("keeps a flag clear of the tooth number", () => {
+    const faithfulness = {
+      ...clean,
+      passed: false,
+      tooth_flags: [
+        { path: "/dental_chart/0", tooth: "204", kind: "not_in_mouth", expected: ["cat"] },
+        { path: "/dental_chart/1", tooth: "101", kind: "cue_missing" },
+      ],
+    } as ChartFaithfulness;
+    const { container } = render(
+      <DentalChart dentition="canine" items={[f("204", "fracture"), f("101", "missing")]} faithfulness={faithfulness} />,
+    );
+    // Three digits of the 12 px mono number are about 22 px wide, centred on its x.
+    const numberRight = (id: string) => Number(toothEl(container, id).querySelector(".dc-num")!.getAttribute("x")) + 11;
+    const badge = toothEl(container, "204").querySelector(".dc-flag-badge")!;
+    expect(Number(badge.getAttribute("cx")) - Number(badge.getAttribute("r"))).toBeGreaterThanOrEqual(numberRight("204"));
+    expect(Number(badge.getAttribute("cx")) + Number(badge.getAttribute("r"))).toBeLessThanOrEqual(32);
+    const mark = toothEl(container, "101").querySelector(".dc-flag")!;
+    expect(Number(mark.getAttribute("x")) - 3.6).toBeGreaterThanOrEqual(numberRight("101"));
+  });
+});
+
+describe("DentalChart: the vet confirms each drafted tooth (ADR-0021 decision 10)", () => {
+  const items = [f("108", "fracture"), f("108", "extraction", { evidence: [2] }), f("209", "missing"), f("104", "normal", { entered_by: "Dr Rivera" })];
+
+  it("says the chart is a draft, and gives each drafted tooth a labelled checkbox", () => {
+    const onConfirm = vi.fn();
+    const { container } = render(
+      <DentalChart dentition="canine" items={items} editable unconfirmed={["108", "209"]} checks={[]} onConfirm={onConfirm} />,
+    );
+    expect(screen.getByRole("status").textContent).toMatch(/Draft chart: check every tooth/);
+    expect(screen.getByRole("status").textContent).toMatch(/0 of 2 drafted teeth confirmed/);
+    const box = screen.getByRole("checkbox", { name: "108: checked against the recording" }) as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    expect(screen.getByRole("checkbox", { name: "209: checked against the recording" })).toBeTruthy();
+    // The vet's own entry is theirs: no checkbox.
+    expect(screen.queryByRole("checkbox", { name: /104/ })).toBeNull();
+    // A tooth with no flag is never shown as checked: the diagram says draft.
+    expect(toothEl(container, "209").getAttribute("aria-label")).toMatch(/Draft, not confirmed yet\.$/);
+    expect(toothEl(container, "104").getAttribute("aria-label")).not.toMatch(/Draft|Confirmed/);
+    fireEvent.click(box);
+    expect(onConfirm).toHaveBeenCalledWith(["108"], true);
+  });
+
+  it("shows who confirmed a tooth and when, and lets it be taken back", () => {
+    const onConfirm = vi.fn();
+    const { container } = render(
+      <DentalChart
+        dentition="canine"
+        items={items}
+        editable
+        unconfirmed={["209"]}
+        checks={[{ tooth: "108", items: ["a", "b"], by: "Dr Rivera", at: "2026-10-19T10:05:00-04:00" }]}
+        onConfirm={onConfirm}
+      />,
+    );
+    expect(screen.getByRole("status").textContent).toMatch(/1 of 2 drafted teeth confirmed/);
+    const box = screen.getByRole("checkbox", { name: "108: checked against the recording" }) as HTMLInputElement;
+    expect(box.checked).toBe(true);
+    expect(container.querySelector('li[data-tooth="108"] .dc-confirmed')?.textContent).toMatch(/^Confirmed by Dr Rivera, 2026-10-19 \d\d:\d\d$/);
+    expect(toothEl(container, "108").getAttribute("aria-label")).toMatch(/Confirmed by Dr Rivera\.$/);
+    fireEvent.click(box);
+    expect(onConfirm).toHaveBeenCalledWith(["108"], false);
+  });
+
+  it("says when every drafted tooth is confirmed", () => {
+    render(
+      <DentalChart
+        dentition="canine"
+        items={items}
+        editable
+        unconfirmed={[]}
+        checks={[
+          { tooth: "108", items: [], by: "Dr Rivera", at: "2026-10-19T10:05:00-04:00" },
+          { tooth: "209", items: [], by: "Dr Rivera", at: "2026-10-19T10:06:00-04:00" },
+        ]}
+        onConfirm={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("status").textContent).toBe("Every drafted tooth is confirmed.");
+  });
+
+  it("without the right to confirm, says a veterinarian confirms, with no checkbox", () => {
+    render(<DentalChart dentition="canine" items={items} editable unconfirmed={["108", "209"]} checks={[]} />);
+    expect(screen.getByRole("status").textContent).toMatch(/A veterinarian checks each drafted tooth/);
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.getAllByText("Draft, not confirmed yet")).toHaveLength(2);
+  });
+
+  it("shows a signed chart's confirmations read-only", () => {
+    const { container } = render(
+      <DentalChart
+        dentition="canine"
+        items={items}
+        unconfirmed={[]}
+        checks={[{ tooth: "108", items: [], by: "Dr Rivera", at: "2026-10-19T10:05:00-04:00" }]}
+      />,
+    );
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(container.querySelector('li[data-tooth="108"] .dc-confirmed')?.textContent).toMatch(/^Confirmed by Dr Rivera/);
+    // A tooth signed before confirmations existed says nothing about them.
+    expect(container.querySelector('li[data-tooth="209"] .dc-confirm')?.textContent ?? "").toBe("");
+    expect(toothEl(container, "209").getAttribute("aria-label")).not.toMatch(/Draft|Confirmed/);
+  });
+
+  it("says nothing about confirmation when it isn't given", () => {
+    const { container } = render(<DentalChart dentition="canine" items={items} />);
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(container.textContent).not.toMatch(/Confirmed|Draft/);
+  });
 });

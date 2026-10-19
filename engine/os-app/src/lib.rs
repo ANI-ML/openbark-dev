@@ -17,7 +17,7 @@ use os_engine::live::{LiveOptions, LiveRecorder, LiveSink, LiveSource};
 pub use os_engine::live::{Progress, Stage};
 use os_engine::patients::{PatientRecord, PatientStore};
 pub use os_engine::session::AudioDeleted;
-use os_engine::session::{self, Addendum, Consent, PatientInfo, Session};
+use os_engine::session::{self, Addendum, ChartCheck, Consent, PatientInfo, Session};
 use os_engine::template::{LoadedTemplate, Scope, Template};
 use os_engine::trash::{self, DeletedInfo, Recovered, Trash};
 use os_engine::users::{Role, User, UserStore, Who};
@@ -530,6 +530,12 @@ pub struct SessionView {
     pub has_audio: bool,
     /// When only the recording was deleted, and by whom.
     pub audio_deleted: Option<AudioDeleted>,
+    /// The latest draft's tooth chart confirmations, by tooth: who confirmed
+    /// the drafted entries against the recording, and when (ADR-0021).
+    pub chart_checks: Vec<ChartCheck>,
+    /// The latest draft's teeth with a drafted chart entry that no
+    /// veterinarian has confirmed yet. Signing waits until it is empty.
+    pub unconfirmed_teeth: Vec<String>,
 }
 
 /// A visit just moved to Deleted visits.
@@ -712,7 +718,9 @@ impl App {
         let allowed = match need {
             Need::Any => true,
             Need::Notes | Need::Delete => user.role.can_write_notes(),
-            Need::Sign | Need::DeleteSigned | Need::DeleteSignedRecording => user.role.can_sign(),
+            Need::Sign | Need::ConfirmChart | Need::DeleteSigned | Need::DeleteSignedRecording => {
+                user.role.can_sign()
+            }
             Need::Team => user.role.can_manage_team(),
         };
         if !allowed {
@@ -726,6 +734,12 @@ impl App {
                     user.name
                 ),
                 Need::Sign => format!("Only a veterinarian can sign. {} is using OpenBark now.", user.name),
+                Need::ConfirmChart => {
+                    format!(
+                        "Only a veterinarian can confirm the tooth chart. {} is using OpenBark now.",
+                        user.name
+                    )
+                }
                 Need::DeleteSigned => {
                     format!(
                         "Only a veterinarian can delete a signed visit. {} is using OpenBark now.",
@@ -1640,7 +1654,30 @@ impl App {
         Ok((pdf, format!("{name}.pdf")))
     }
 
-    /// Mark the latest draft as signed by `by` (refused while numbers are unsupported).
+    /// Confirm, or take back, a veterinarian's check of the drafted tooth
+    /// chart entries on these teeth of the latest draft (ADR-0021 decision
+    /// 10). Signing waits until every drafted entry is confirmed; a signed
+    /// chart can't change.
+    pub fn confirm_chart(
+        &self,
+        id: &str,
+        teeth: &[String],
+        confirmed: bool,
+        by: &str,
+        pet: Option<&str>,
+    ) -> Result<SessionView> {
+        let _work = self.begin_work()?;
+        let who = self
+            .who(Some(by), Need::ConfirmChart)?
+            .ok_or_else(|| AppError("Add your name in Settings, then confirm the chart.".into()))?;
+        let _lock = self.lock_visit(id, Holder::Saving)?;
+        let mut s = self.open(id, pet)?;
+        s.confirm_teeth_by(teeth, confirmed, &who)?;
+        Ok(view(&s, None))
+    }
+
+    /// Mark the latest draft as signed by `by` (refused while numbers are
+    /// unsupported or a drafted chart entry isn't confirmed).
     pub fn sign(&self, id: &str, by: &str, pet: Option<&str>) -> Result<SessionView> {
         let _work = self.begin_work()?;
         let who = self
@@ -2470,6 +2507,8 @@ enum Need {
     Any,
     Notes,
     Sign,
+    /// Confirm drafted tooth chart entries against the recording (veterinarian).
+    ConfirmChart,
     Team,
     /// Delete, restore or remove an unsigned visit, or see Deleted visits
     /// (veterinarian or technician; ADR-0022 section 1).
@@ -2681,6 +2720,14 @@ fn source_label(source: &str) -> String {
 fn view(s: &Session, transcript: Option<Transcript>) -> SessionView {
     let record = s.latest_record();
     let latest = record.map(|r| s.dir.join(&r.dir));
+    let latest_run: Option<serde_json::Value> = latest
+        .as_ref()
+        .and_then(|d| os_engine::vault::read_to_string(&d.join("note.json")).ok())
+        .and_then(|t| serde_json::from_str(&t).ok());
+    let unconfirmed_teeth = match (record, &latest_run) {
+        (Some(r), Some(saved)) => session::unconfirmed_teeth(r, &saved["note"]),
+        _ => Vec::new(),
+    };
     let latest_template = record.and_then(|r| s.run_template(r).ok()).map(|t| t.template);
     let addenda = record.map(|r| r.addenda.clone()).unwrap_or_default();
     // The latest run of each client document, in the order first drafted.
@@ -2711,10 +2758,7 @@ fn view(s: &Session, transcript: Option<Transcript>) -> SessionView {
         source: source_label(&s.meta.source),
         transcript: transcript.or_else(|| s.load_transcript().ok()),
         stats: s.meta.transcription.as_ref().map(|t| t.stats.clone()),
-        latest_run: latest
-            .as_ref()
-            .and_then(|d| os_engine::vault::read_to_string(&d.join("note.json")).ok())
-            .and_then(|t| serde_json::from_str(&t).ok()),
+        latest_run,
         latest_markdown: latest
             .and_then(|d| os_engine::vault::read_to_string(&d.join("note.md")).ok())
             .map(|md| with_addenda(md, &addenda)),
@@ -2731,6 +2775,8 @@ fn view(s: &Session, transcript: Option<Transcript>) -> SessionView {
         any_signed: s.any_signed(),
         has_audio: s.has_audio(),
         audio_deleted: s.meta.audio_deleted.clone(),
+        chart_checks: record.map(|r| r.chart_checks.clone()).unwrap_or_default(),
+        unconfirmed_teeth,
     }
 }
 

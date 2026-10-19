@@ -915,3 +915,51 @@ fn every_animal_drafts_with_its_own_species_and_a_redraft_keeps_the_chosen_mouth
     let redraft = App::with_last_dentition(&handle, unknown);
     assert_eq!(redraft.chart().and_then(|c| c.1).map(|d| d.key()), Some("feline"));
 }
+
+/// ADR-0021 decision 10 through the app: the view lists the drafted teeth
+/// that aren't confirmed, signing is refused until a veterinarian confirms
+/// each, a technician can't confirm, and the signed chart can't change.
+#[test]
+fn the_app_signs_a_drafted_chart_only_after_a_vet_confirms_each_tooth() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app = app_in(tmp.path());
+    let s = seed_visit(&app.sessions_root, "Juno Abara", &[], false);
+    let dental = LoadedTemplate::builtin("dental").unwrap().for_species(Some("dog"));
+    let mut result = note_result();
+    result.template = dental.label();
+    result.note = os_engine::template::empty_note(&dental.template);
+    result.note["dental_chart"] = serde_json::json!([
+        {"tooth": "208", "text": "slab fracture", "finding": "fracture", "detail": null, "grade": null,
+         "mm": null, "planned": false, "evidence": [0]},
+        {"tooth": "104", "text": "normal", "finding": "normal", "detail": null, "grade": null,
+         "mm": null, "planned": false, "evidence": [0], "entered_by": "Dr Rivera"}
+    ]);
+    Session::open(&s.dir).unwrap().save_run("gemma", &result, &dental).unwrap();
+    let id = id_of(&s);
+
+    let view = app.open_session(&id, None).unwrap();
+    assert_eq!(view.unconfirmed_teeth, ["208"], "104 is the vet's own entry");
+    assert!(view.chart_checks.is_empty());
+    let refused = err(app.sign(&id, "Dr Rivera", None));
+    assert!(refused.contains("Not confirmed yet: 208"), "{refused}");
+
+    let view = app.confirm_chart(&id, &["208".to_string()], true, "Dr Rivera", None).unwrap();
+    assert!(view.unconfirmed_teeth.is_empty());
+    assert_eq!(view.chart_checks[0].by, "Dr Rivera");
+    let signed = app.sign(&id, "Dr Rivera", None).unwrap();
+    assert!(signed.signed_at.is_some());
+    let after = err(app.confirm_chart(&id, &["208".to_string()], false, "Dr Rivera", None));
+    assert!(after.contains("signed"), "{after}");
+
+    // With a team, only a veterinarian confirms.
+    let t = tempfile::tempdir().unwrap();
+    let app = app_in(t.path());
+    let (dvm, rvt, _) = team(&app);
+    let s = seed_visit(&app.sessions_root, "Juno Abara", &[], false);
+    Session::open(&s.dir).unwrap().save_run("gemma", &result, &dental).unwrap();
+    let id = id_of(&s);
+    let no = err(app.confirm_chart(&id, &["208".to_string()], true, &rvt.id, None));
+    assert!(no.contains("Only a veterinarian can confirm"), "{no}");
+    let view = app.confirm_chart(&id, &["208".to_string()], true, &dvm.id, None).unwrap();
+    assert_eq!(view.chart_checks[0].who.as_ref().and_then(|w| w.role), Some(Role::Dvm));
+}

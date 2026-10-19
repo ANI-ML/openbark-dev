@@ -11,6 +11,12 @@
 // voiced with Kokoro by tools/fixture-tts) and drafts them with the Dental
 // procedure template on the demo's own models.
 //
+// A drafted chart is a draft until a veterinarian confirms each drafted tooth
+// (ADR-0021 decision 10): the script checks that the engine refuses to sign
+// before that, confirms one tooth by keyboard and the rest by click, takes
+// screenshots of the draft and confirmed states (light, dark, 360 px), and
+// signs from the Sign button.
+//
 // Before doing anything the script refuses unless:
 //   1. the URL is this computer, on port 4321 or 4329, and never 4317 (the clinic's own server);
 //   2. <demo folder> holds an OPENBARK-DEMO marker and isn't inside OpenBark's own data folder;
@@ -177,9 +183,12 @@ for (const v of [variants.light, variants.dark, variants.phone, variants.phoneDa
   const strayMarks = await chart.locator(".dc-tooth:not([data-charted]) .dc-mark").count();
   check(strayMarks === 0, `${v.name}: ${strayMarks} marks on teeth that weren't charted`);
   check((await chart.locator(".dc-legend").innerText()).includes("Blank: not charted in this recording"), `${v.name}: the legend has no "Blank" line`);
+  // The mouth splits by the chart's own width (768 px), not the window's.
   const blocks = await chart.locator(".dc-svg").evaluateAll((els) => els.map((e) => e.dataset.block));
+  const chartWidth = await chart.locator(".dc-diagrams").evaluate((e) => e.getBoundingClientRect().width);
+  const wanted = chartWidth < 768 ? "right,left" : "both";
+  check(blocks.join() === wanted, `${v.name}: a ${Math.round(chartWidth)} px chart shows blocks ${blocks.join()}, not ${wanted}`);
   if (v.isMobile) check(blocks.join() === "right,left", `${v.name}: phone width shows blocks ${blocks.join()}`);
-  else check(blocks.join() === "both", `${v.name}: desktop shows blocks ${blocks.join()}`);
   // Each tooth is at least 24 px wide (WCAG 2.2 target size).
   const narrow = await chart.locator(".dc-tooth .dc-hit").evaluateAll((els) => els.filter((e) => e.getBoundingClientRect().width < 23.5).length);
   check(narrow === 0, `${v.name}: ${narrow} teeth narrower than 24 px`);
@@ -333,15 +342,103 @@ step("Coco (no species): no diagram, and the editor asks dog or cat");
   await ctx.close();
 }
 
-// ---- 4. Signed: read-only; the PDF has the chart ---------------------------------
+// ---- 4. The draft chart: each drafted tooth confirmed by the vet --------------------
 
-step("Sign Juno's note: the chart is read-only, and the PDF draws it");
+/** Wait until `fn` is true (or fail after `ms`). */
+async function until(fn, ms, what) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    if (await fn()) return true;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return check(false, what);
+}
+const boxFor = (chart, tooth) => chart.getByRole("checkbox", { name: `${tooth}: checked against the recording` });
+
+step("The draft chart: the engine refuses to sign until each drafted tooth is confirmed");
+const draft = (await ok("GET", `/api/sessions/${JUNO}`)).json;
+check(draft.unconfirmed_teeth.length > 0, "Juno's draft has no unconfirmed teeth");
+console.log(`  Juno to confirm: ${draft.unconfirmed_teeth.join(", ")}`);
 {
-  await ok("POST", `/api/sessions/${JUNO}/sign`, { by: SIGNER });
+  const refused = await api("POST", `/api/sessions/${JUNO}/sign`, { by: SIGNER });
+  check(refused.status === 400 && refused.text.includes("Not confirmed yet"), `signing with unconfirmed teeth gave ${refused.status} ${refused.text.slice(0, 200)}`);
+  check(!(await ok("GET", `/api/sessions/${JUNO}`)).json.signed_at, "the note was signed with unconfirmed teeth");
+}
+for (const v of [variants.light, variants.dark, variants.phone, variants.phoneDark]) {
+  step(`${v.name}: "Draft chart: check every tooth", a checkbox per drafted tooth, Sign off`);
+  const { ctx, page } = await open(v);
+  await openVisit(page, v, "Juno", "Dental chart e2e: dog");
+  const chart = page.locator("#note-dental_chart");
+  const banner = chart.locator(".dc-draft[data-state='draft']");
+  check(await banner.isVisible(), `${v.name}: no draft notice on the chart`);
+  check((await banner.innerText()).includes("Draft chart: check every tooth"), `${v.name}: the draft notice doesn't say "Draft chart: check every tooth"`);
+  const boxes = chart.getByRole("checkbox", { name: /: checked against the recording$/ });
+  check((await boxes.count()) === draft.unconfirmed_teeth.length, `${v.name}: ${await boxes.count()} checkboxes for ${draft.unconfirmed_teeth.length} drafted teeth`);
+  const small = await chart.locator(".dc-confirm-check").evaluateAll((els) => els.filter((e) => e.getBoundingClientRect().height < 23.5).length);
+  check(small === 0, `${v.name}: ${small} confirm targets shorter than 24 px`);
+  // No tooth is shown as checked until the vet confirms it.
+  check((await chart.locator(".dc-confirmed").count()) === 0, `${v.name}: a tooth shows as confirmed before anyone confirmed it`);
+  const sign = page.getByRole("button", { name: "Sign note" });
+  if (await sign.count()) check(await sign.isDisabled(), `${v.name}: Sign is on with unconfirmed teeth`);
+  check((await page.locator(".note-summary").innerText()).includes("aren't confirmed yet"), `${v.name}: the summary doesn't say teeth aren't confirmed`);
+  await shot(page, v, "08-draft-confirm", banner, { top: true });
+  await chart.locator(".dc-list").scrollIntoViewIfNeeded();
+  await shot(page, v, "08b-draft-confirm-list", chart.locator(`.dc-line[data-tooth="${draft.unconfirmed_teeth[0]}"]`));
+  await ctx.close();
+}
+step("Desktop light: confirm one tooth by keyboard (Space), the rest by click; Sign comes on");
+{
   const v = variants.light;
   const { ctx, page } = await open(v);
   await openVisit(page, v, "Juno", "Dental chart e2e: dog");
   const chart = page.locator("#note-dental_chart");
+  const first = draft.unconfirmed_teeth[0];
+  await boxFor(chart, first).focus();
+  await page.keyboard.press("Space");
+  await until(() => boxFor(chart, first).isChecked(), 5000, `Space didn't confirm ${first}`);
+  const mid = (await ok("GET", `/api/sessions/${JUNO}`)).json;
+  check(!mid.unconfirmed_teeth.includes(first), `${first} is still unconfirmed after Space`);
+  check(mid.chart_checks.some((c) => c.tooth === first && c.by === SIGNER && c.at), `${first}'s confirmation doesn't record who and when`);
+  check((await chart.locator(`.dc-line[data-tooth="${first}"] .dc-confirmed`).innerText()).startsWith(`Confirmed by ${SIGNER}`), `${first}'s line doesn't say who confirmed it`);
+  // Taken back and confirmed again.
+  await boxFor(chart, first).click();
+  await until(async () => !(await boxFor(chart, first).isChecked()), 5000, `unticking ${first} didn't take it back`);
+  check((await ok("GET", `/api/sessions/${JUNO}`)).json.unconfirmed_teeth.includes(first), `${first} wasn't taken back`);
+  for (const t of draft.unconfirmed_teeth) {
+    await boxFor(chart, t).click();
+    await until(() => boxFor(chart, t).isChecked(), 5000, `clicking ${t} didn't confirm it`);
+  }
+  const done = (await ok("GET", `/api/sessions/${JUNO}`)).json;
+  check(done.unconfirmed_teeth.length === 0, `still unconfirmed: ${done.unconfirmed_teeth.join(", ")}`);
+  check(await chart.locator(".dc-draft[data-state='confirmed']").isVisible(), "no 'Every drafted tooth is confirmed' line");
+  check(!(await page.getByRole("button", { name: "Sign note" }).isDisabled()), "Sign is still off after every tooth is confirmed");
+  await shot(page, v, "09-confirmed", chart, { top: true });
+  await ctx.close();
+}
+for (const v of [variants.dark, variants.phone]) {
+  const { ctx, page } = await open(v);
+  await openVisit(page, v, "Juno", "Dental chart e2e: dog");
+  const chart = page.locator("#note-dental_chart");
+  await chart.locator(".dc-list").scrollIntoViewIfNeeded();
+  await shot(page, v, "09-confirmed", chart.locator(`.dc-line[data-tooth="${draft.unconfirmed_teeth[0]}"]`));
+  await ctx.close();
+}
+
+// ---- 5. Signed: read-only; the PDF has the chart ---------------------------------
+
+step("Sign Juno's note from the Sign button: the chart is read-only, and the PDF draws it");
+{
+  const v = variants.light;
+  const { ctx, page } = await open(v);
+  await openVisit(page, v, "Juno", "Dental chart e2e: dog");
+  await page.getByRole("button", { name: "Sign note" }).click();
+  await page.getByText(`Signed by ${SIGNER}`).first().waitFor();
+  check(!!(await ok("GET", `/api/sessions/${JUNO}`)).json.signed_at, "the Sign button didn't sign the note");
+  const chart = page.locator("#note-dental_chart");
+  check((await chart.getByRole("checkbox").count()) === 0, "a signed chart still has confirm checkboxes");
+  check((await chart.locator(".dc-confirmed").count()) > 0, "a signed chart doesn't show who confirmed its teeth");
+  const after = await api("POST", `/api/sessions/${JUNO}/chart/confirm`, { teeth: [draft.unconfirmed_teeth[0]], confirmed: false, by: SIGNER });
+  check(after.status === 400 && after.text.includes("signed"), `a signed chart's confirmation could be taken back: ${after.status}`);
   check((await page.getByRole("button", { name: "Edit Dental chart" }).count()) === 0, "a signed note still offers Edit");
   await chart.locator(".dc-tooth[data-tooth='309']").first().click();
   await page.waitForTimeout(300);

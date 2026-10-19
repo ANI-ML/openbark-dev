@@ -102,6 +102,42 @@ pub struct RunInfo {
     /// version's table to draw the run's chart and PDF.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chart_version: Option<u32>,
+    /// A veterinarian's confirmations of the drafted tooth chart entries, by
+    /// tooth (ADR-0021 decision 10). Signing needs one for every drafted
+    /// entry; entries the vet edited or added are their own.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub chart_checks: Vec<ChartCheck>,
+}
+
+/// A veterinarian's confirmation that the drafted chart entries on one tooth
+/// match the recording (ADR-0021 decision 10): who, when, and exactly which
+/// entries, so a changed or redrafted entry is unconfirmed again.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ChartCheck {
+    pub tooth: String,
+    /// The drafted entries confirmed ([`crate::dental::item_key`]).
+    pub items: Vec<String>,
+    pub by: String,
+    /// The confirmer with their role, when the clinic has a team set up.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub who: Option<Who>,
+    pub at: DateTime<Local>,
+}
+
+/// The teeth of a run's chart with a drafted entry that no veterinarian has
+/// confirmed, in Triadan order. `note`: the run's note.
+pub fn unconfirmed_teeth(run: &RunInfo, note: &serde_json::Value) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for item in crate::dental::drafted_items(note) {
+        let tooth = item["tooth"].as_str().unwrap_or_default();
+        let key = crate::dental::item_key(item);
+        let confirmed = run.chart_checks.iter().any(|c| c.tooth == tooth && c.items.contains(&key));
+        if !confirmed && !out.iter().any(|t| t == tooth) {
+            out.push(tooth.to_string());
+        }
+    }
+    out.sort_by_key(|t| crate::dental::triadan_order(t));
+    out
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -487,6 +523,34 @@ impl Session {
         crate::vault::write(&md, result.markdown.as_bytes()).map_err(io(&md))?;
         let snapshot = dir.join(RUN_TEMPLATE_FILE);
         crate::vault::write(&snapshot, template.to_yaml().as_bytes()).map_err(io(&snapshot))?;
+        // A veterinarian's chart confirmations carry over to a hand edit or a
+        // redraft of one heading, for the drafted entries that didn't change.
+        let carried: Vec<ChartCheck> = match self.latest_record() {
+            Some(prev)
+                if template.template.document.is_record()
+                    && (result.edit.is_some() || result.refinement.is_some()) =>
+            {
+                let drafted: Vec<(String, String)> = crate::dental::drafted_items(&result.note)
+                    .into_iter()
+                    .map(|i| {
+                        (i["tooth"].as_str().unwrap_or_default().to_string(), crate::dental::item_key(i))
+                    })
+                    .collect();
+                prev.chart_checks
+                    .iter()
+                    .filter_map(|c| {
+                        let items: Vec<String> = c
+                            .items
+                            .iter()
+                            .filter(|k| drafted.iter().any(|(t, key)| *t == c.tooth && key == *k))
+                            .cloned()
+                            .collect();
+                        (!items.is_empty()).then(|| ChartCheck { items, ..c.clone() })
+                    })
+                    .collect()
+            }
+            _ => Vec::new(),
+        };
         self.meta.runs.push(RunInfo {
             dir: format!("runs/{name}"),
             llm: llm_id.into(),
@@ -512,6 +576,7 @@ impl Session {
             template_name: Some(template.template.name.clone()),
             template_icon: Some(template.template.icon.clone()),
             chart_version: template.chart().map(|_| crate::dental::chart().version),
+            chart_checks: carried,
         });
         self.save_meta()?;
         Ok(dir)
@@ -573,15 +638,13 @@ impl Session {
     }
 
     /// Sign as a team member (their role is kept with the signature).
+    /// Refused while a drafted tooth chart entry isn't confirmed by a
+    /// veterinarian (ADR-0021 decision 10).
     pub fn sign_latest_by(&mut self, who: &Who) -> Result<(), EngineError> {
-        let pet = self.pet.clone();
-        let run = self
-            .meta
-            .runs
-            .iter_mut()
-            .rev()
-            .find(|r| r.document.is_record() && r.pet == pet)
+        let at = self
+            .latest_record_index()
             .ok_or_else(|| EngineError::Session("There is no draft to sign yet.".into()))?;
+        let run = &self.meta.runs[at];
         if run.signed_at.is_some() {
             return Err(EngineError::Session("This note is already signed.".into()));
         }
@@ -590,6 +653,16 @@ impl Session {
                 "Something in this draft blocks signing: a number that isn't in the transcript, or a tooth chart that needs dog or cat chosen. Check the flagged items and correct the draft before signing.".into(),
             ));
         }
+        // The note itself, so a chart that can't be read never signs unchecked.
+        let (_, note) = self.latest_note()?;
+        let waiting = unconfirmed_teeth(&self.meta.runs[at], &note);
+        if !waiting.is_empty() {
+            return Err(EngineError::Session(format!(
+                "The tooth chart is a draft until a veterinarian confirms it. Check each drafted tooth against the recording and confirm it before signing. Not confirmed yet: {}.",
+                waiting.join(", ")
+            )));
+        }
+        let run = &mut self.meta.runs[at];
         run.signed_at = Some(Local::now());
         run.signed_by = Some(who.name.clone());
         run.signer = who.role.is_some().then(|| who.clone());
@@ -599,6 +672,71 @@ impl Session {
     /// The latest medical-record run (client documents aside).
     pub fn latest_record(&self) -> Option<&RunInfo> {
         self.meta.runs.iter().rev().find(|r| r.document.is_record() && self.mine(r))
+    }
+
+    fn latest_record_index(&self) -> Option<usize> {
+        self.meta.runs.iter().rposition(|r| r.document.is_record() && self.mine(r))
+    }
+
+    /// The latest draft's tooth chart teeth with a drafted entry that no
+    /// veterinarian has confirmed (none when there is no draft or no chart).
+    pub fn unconfirmed_teeth(&self) -> Vec<String> {
+        match self.latest_note() {
+            Ok((run, note)) => unconfirmed_teeth(&run, &note),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    /// Confirm, or take back the confirmation of, the drafted chart entries
+    /// on these teeth of the latest draft, as `who`, now (ADR-0021 decision
+    /// 10). Refused once the note is signed: a signed chart never changes.
+    pub fn confirm_teeth_by(
+        &mut self,
+        teeth: &[String],
+        confirmed: bool,
+        who: &Who,
+    ) -> Result<(), EngineError> {
+        let by = who.name.trim();
+        if by.is_empty() {
+            return Err(EngineError::Session(
+                "Enter the name of the veterinarian confirming the chart.".into(),
+            ));
+        }
+        let (run, note) = self.latest_note()?;
+        if run.signed_at.is_some() {
+            return Err(EngineError::Session(
+                "This note is signed, so its chart can't change. Add an addendum instead.".into(),
+            ));
+        }
+        let at = self
+            .latest_record_index()
+            .ok_or_else(|| EngineError::Session("There is no draft yet.".into()))?;
+        let drafted = crate::dental::drafted_items(&note);
+        let now = Local::now();
+        for tooth in teeth {
+            let items: Vec<String> = drafted
+                .iter()
+                .filter(|i| i["tooth"].as_str() == Some(tooth.as_str()))
+                .map(|i| crate::dental::item_key(i))
+                .collect();
+            if items.is_empty() {
+                return Err(EngineError::Session(format!(
+                    "{tooth} has no drafted chart entries to confirm."
+                )));
+            }
+            let checks = &mut self.meta.runs[at].chart_checks;
+            checks.retain(|c| c.tooth != *tooth);
+            if confirmed {
+                checks.push(ChartCheck {
+                    tooth: tooth.clone(),
+                    items,
+                    by: by.to_string(),
+                    who: who.role.is_some().then(|| who.clone()),
+                    at: now,
+                });
+            }
+        }
+        self.save_meta()
     }
 
     /// Runs of this handle's animal (all of them, in order).
@@ -1036,5 +1174,93 @@ mod tests {
                 assert!(!raw.windows(5).any(|w| w == b"Mochi" || w == b"39.4 "), "{} leaks", f.display());
             }
         });
+    }
+
+    /// ADR-0021 decision 10: drafted chart entries are unconfirmed until a
+    /// veterinarian confirms each tooth; the engine refuses to sign until
+    /// then, records who and when, carries confirmations over a hand edit
+    /// for the entries that didn't change, and a signed chart never changes.
+    #[test]
+    fn a_drafted_tooth_chart_signs_only_once_a_vet_confirms_every_tooth() {
+        let _plain = crate::vault::tests::SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("Juno dental.wav");
+        fs::write(&src, b"RIFF....WAVE").unwrap();
+        let mut s = Session::create_from_file(&tmp.path().join("sessions"), &src, 3.0).unwrap();
+        let template = LoadedTemplate::builtin("dental").unwrap().for_species(Some("dog"));
+        let item = |tooth: &str, finding: &str, ev: u32| {
+            serde_json::json!({"tooth": tooth, "text": finding, "finding": finding, "detail": null,
+                "grade": null, "mm": null, "planned": false, "evidence": [ev]})
+        };
+        let mut result = note_result();
+        result.template = template.label();
+        result.note = serde_json::json!({"dental_chart": [
+            item("108", "fracture", 0), item("108", "extraction", 1), item("209", "missing", 2)
+        ]});
+        s.save_run("gemma", &result, &template).unwrap();
+        let vet = Who::named("Dr Rivera");
+
+        // Every drafted tooth is a draft: signing is refused, by the engine.
+        assert_eq!(s.unconfirmed_teeth(), ["108", "209"]);
+        let err = s.sign_latest("Dr Rivera").unwrap_err().to_string();
+        assert!(err.contains("Not confirmed yet: 108, 209"), "{err}");
+        assert!(!s.is_signed());
+
+        // One tooth confirmed: still refused for the other.
+        s.confirm_teeth_by(&["108".into()], true, &vet).unwrap();
+        assert_eq!(s.unconfirmed_teeth(), ["209"]);
+        assert!(s.sign_latest("Dr Rivera").unwrap_err().to_string().contains("209"));
+        // Who and when, with exactly the entries confirmed, kept with the visit.
+        let reopened = Session::open(&s.dir).unwrap();
+        let check = &reopened.latest_record().unwrap().chart_checks[0];
+        assert_eq!((check.tooth.as_str(), check.by.as_str(), check.items.len()), ("108", "Dr Rivera", 2));
+        assert!(check.at <= Local::now());
+        // Taken back; a tooth with no drafted entry can't be confirmed.
+        s.confirm_teeth_by(&["108".into()], false, &vet).unwrap();
+        assert_eq!(s.unconfirmed_teeth(), ["108", "209"]);
+        assert!(s.confirm_teeth_by(&["404".into()], true, &vet).is_err());
+        assert!(s.confirm_teeth_by(&["108".into()], true, &Who::named("  ")).is_err());
+
+        // A new draft starts unconfirmed, even with the same entries.
+        s.confirm_teeth_by(&["108".into(), "209".into()], true, &vet).unwrap();
+        assert!(s.unconfirmed_teeth().is_empty());
+        s.save_run("gemma", &result, &template).unwrap();
+        assert_eq!(s.unconfirmed_teeth(), ["108", "209"], "a fresh draft is checked again");
+
+        // A hand edit: the changed entry is the vet's own; the unchanged
+        // entries keep their confirmation.
+        s.confirm_teeth_by(&["108".into()], true, &vet).unwrap();
+        let mut edited = result.clone();
+        edited.note["dental_chart"][2]["finding"] = serde_json::json!("normal");
+        edited.note["dental_chart"][2]["entered_by"] = serde_json::json!("Dr Rivera");
+        edited.edit = Some(crate::edit::Edit {
+            heading: "dental_chart".into(),
+            by: "Dr Rivera".into(),
+            from_run: None,
+            changed: vec!["/dental_chart/2".into()],
+            removed: 1,
+            before: serde_json::Value::Null,
+        });
+        s.save_run("edited", &edited, &template).unwrap();
+        assert!(s.unconfirmed_teeth().is_empty(), "108 carried over, 209 is the vet's own");
+
+        // Signed: the chart is read-only.
+        s.sign_latest("Dr Rivera").unwrap();
+        let err = s.confirm_teeth_by(&["108".into()], false, &vet).unwrap_err().to_string();
+        assert!(err.contains("signed"), "{err}");
+        assert_eq!(Session::open(&s.dir).unwrap().latest_record().unwrap().chart_checks.len(), 1);
+    }
+
+    /// A note without a tooth chart signs as before.
+    #[test]
+    fn a_note_without_a_chart_needs_no_confirmation() {
+        let _plain = crate::vault::tests::SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("Mochi.wav");
+        fs::write(&src, b"RIFF....WAVE").unwrap();
+        let mut s = Session::create_from_file(&tmp.path().join("sessions"), &src, 3.0).unwrap();
+        s.save_run("gemma", &note_result(), &LoadedTemplate::builtin("soap").unwrap()).unwrap();
+        assert!(s.unconfirmed_teeth().is_empty());
+        s.sign_latest("Dr Rivera").unwrap();
     }
 }

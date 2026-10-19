@@ -34,7 +34,7 @@ sections:
     kind: statements
     presence: required
   - title: Conscious oral exam
-    instruction: What was seen before anaesthesia. Findings on named teeth also go in the dental chart or under Findings by tooth.
+    instruction: What was seen before anaesthesia. Findings on named teeth go in the dental chart too.
     kind: statements
   - title: Anaesthesia and nerve blocks
     examples:
@@ -72,7 +72,7 @@ sections:
       - "Name the extraction technique for each tooth (simple or surgical)"
       - "List gingival closures with suture used"
     kind: statements
-    instruction: Scaling, polishing, radiographs, flaps, closures and other procedures as said. Extractions and crown amputations also go in the dental chart or under Findings by tooth, one item per tooth.
+    instruction: Scaling, polishing, radiographs, flaps, closures and other procedures as said. Extractions and crown amputations go in the dental chart too, one item per tooth.
   - title: Medications to go home
     kind: medications
   - title: Home care and follow-up
