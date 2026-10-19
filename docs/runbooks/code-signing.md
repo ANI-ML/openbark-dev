@@ -15,6 +15,7 @@ The release pipeline is ready. Each platform starts signing by itself on the nex
 - [ ] **Apple (Part A):** make sure the membership is an Organization for ANI.ML Health Inc. (D-U-N-S number, conversion if needed). Then create the notarization API key (A3) and the Developer ID Application certificate (A4 to A6).
 - [ ] **Microsoft (Part B):** create the Azure subscription and Artifact Signing account, then pass the company identity validation (1 to 20 business days). Then create the certificate profile and the GitHub sign-in (B7, B8).
 - [ ] **OpenPGP key (Part C):** create the OpenBark Releases key and keep its revocation certificate.
+- [ ] **Before the first signed release tag:** publish the OpenBark Releases public key (`openbark-release-key.asc`) and its fingerprint on www.openbark.io, from your own copy of the key (Part C), not from a release. The release notes send people there to check the fingerprint. The key and fingerprint inside a release both come from the same CI secret, so only an independent copy on the website lets someone catch a swapped key.
 - [ ] **GitHub (Part D):** create the `release` environment with its `v*` tag rule, protect `v*` tags, and add the secrets and variables in D3. You can add one platform at a time.
 - [ ] Tell engineering, who will tag a test release and check it with you (Part F).
 
@@ -369,7 +370,7 @@ Engineering pushes a test tag. It creates **draft** releases in both repos; draf
 2. Or in PowerShell:
 
    ```powershell
-   Get-AuthenticodeSignature "$env:USERPROFILE\Downloads\OpenBark_*_x64-setup.exe" | Format-List Status, SignerCertificate, TimeStamperCertificate
+   Get-AuthenticodeSignature "$env:USERPROFILE\Downloads\OpenBark-Setup.exe" | Format-List Status, SignerCertificate, TimeStamperCertificate
    ```
 
    Expect `Status : Valid`, a signer subject starting `CN=ANI.ML Health Inc., O=ANI.ML Health Inc.`, and a time-stamper certificate that isn't empty.
@@ -392,8 +393,8 @@ The release workflow checks this on its Mac runner and fails if anything is wron
 4. In Terminal:
 
    ```bash
-   spctl -a -vvv -t open --context context:primary-signature ~/Downloads/OpenBark_*.dmg
-   xcrun stapler validate ~/Downloads/OpenBark_*.dmg
+   spctl -a -vvv -t open --context context:primary-signature ~/Downloads/OpenBark.dmg
+   xcrun stapler validate ~/Downloads/OpenBark.dmg
    spctl -a -vvv /Applications/OpenBark.app
    ```
 
@@ -414,7 +415,7 @@ sha256sum --check --ignore-missing SHA256SUMS.txt
 
 The warning "This key is not certified with a trusted signature" is normal: it means you haven't personally vouched for the key.
 
-On Fedora or openSUSE: `sudo rpm --import openbark-release-key.asc`, then `rpm -K OpenBark-*.rpm`. Expect `digests signatures OK`.
+On Fedora or openSUSE: `sudo rpm --import openbark-release-key.asc`, then `rpm -K openbark.x86_64.rpm`. Expect `digests signatures OK`.
 
 ### iPhone (later)
 
@@ -548,13 +549,13 @@ The shared code lives in `scripts/ci/`: `signing-plan.sh`, `windows-signing.ps1`
       - Silently install it (`/S`) on the runner, then run `signtool verify /pa /v` on every `.exe` and `.dll` in `%LOCALAPPDATA%\Programs\OpenBark`.
       - Fail the job if any file isn't signed by ANI.ML Health Inc. or has no timestamp.
 
-   **Done** in `scripts/ci/windows-signing.ps1` (`-Mode Setup -Kind Artifact`, then `-Mode Verify`). The client package is downloaded from NuGet's flat container and checked against a pinned SHA-256, instead of `nuget install`. The .NET 8 runtime is already on the windows-2025 image, and the script fails if it's missing. The token step runs inside the bundle step, straight before Tauri. `az logout` runs at the end. The verify step expects the certificate subject to start `CN=ANI.ML Health Inc.`, so a different spelling in Microsoft's validation fails the release (ADR-0020, "Name spelling"). The self-test runs the same overlay, `tauri bundle` and verify code with a throwaway certificate.
+   **Done** in `scripts/ci/windows-signing.ps1` (`-Mode Setup -Kind Artifact`, then `-Mode Verify`). The client package is downloaded from NuGet's flat container and checked against a pinned SHA-256, instead of `nuget install`. The .NET 8 runtime is already on the windows-2025 image, and the script fails if it's missing. The token step runs inside the bundle step, straight before Tauri. `az logout` runs at the end. The verify step expects the certificate subject to start `CN=ANI.ML Health Inc.`, so a different spelling in Microsoft's validation fails the release (ADR-0020, "Name spelling"). The self-test runs the same overlay, `tauri bundle` and verify code with a throwaway certificate. Tauri signs the DLLs in `target/release` in place, so the self-test only restores build caches and never saves one. Unsigned Windows builds install the setup on the runner and fail if any file carries a signature from anyone but ANI.ML Health Inc. (`-Mode CheckUnsigned`). Every build deletes `target/release/bundle` after restoring its cache, so an older version's installer can't be picked up.
 5. **macOS, signed (tags):**
    1. **Temporary keychain** (the pattern in Tauri's macOS guide):
       - decode `APPLE_CERTIFICATE` to a `.p12` in `$RUNNER_TEMP`;
       - create `build.keychain` with a random password generated in the step (no secret needed);
       - make it the default keychain and unlock it, with a lock timeout longer than the build (for example 21600 seconds);
-      - `security import` the `.p12` with `-T /usr/bin/codesign`;
+      - `security import` the `.p12` with `-x -T /usr/bin/codesign` (`-x`: the private key can't be exported);
       - `security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k <password> build.keychain`;
       - delete the `.p12` file.
 
@@ -573,7 +574,7 @@ The shared code lives in `scripts/ci/`: `signing-plan.sh`, `windows-signing.ps1`
       - `codesign -d --entitlements -` on the app, which must show `com.apple.security.device.audio-input`.
    5. With `if: always()`, run `security delete-keychain build.keychain` and remove the `.p8`.
 
-   **Done**: `scripts/ci/macos-keychain.sh setup|cleanup` and `scripts/ci/macos-verify.sh <dmg> --notarized`. The verify script also checks that every Mach-O file in both apps is signed by `APPLE_SIGNING_IDENTITY` with a secure timestamp and the hardened runtime. In signing mode, `macos-dmg.sh` compiles with `tauri build --no-bundle` first, with no signing values in the environment, and then runs `tauri bundle --bundles app`. That way npm and cargo build scripts never see them.
+   **Done**: `scripts/ci/macos-keychain.sh setup|cleanup` and `scripts/ci/macos-verify.sh <dmg> --notarized`. The verify script also checks that every Mach-O file in both apps is signed by `APPLE_SIGNING_IDENTITY` with a secure timestamp and the hardened runtime. The workflow compiles in its own step (`tauri build --no-bundle`) before the keychain and the `.p8` exist, so npm and cargo build scripts and proc macros run while neither is on the runner. Then `macos-dmg.sh --bundle-only` runs `tauri bundle --bundles app` and the disk image steps; in CI the script refuses to sign without `--bundle-only`. The key is imported with `-x`, so it can sign but no process can export it, and only `codesign` is trusted to use it. create-dmg runs without the `APPLE_API_*` variables, from a pinned commit checked by SHA-256. The keychain is still unlocked while bundling, so everything that runs then is pinned: Tauri by the lockfile, create-dmg by its hashes.
 6. **Linux, signed (tags):** set `TAURI_SIGNING_RPM_KEY` from `OPENBARK_RELEASE_GPG_KEY` and `TAURI_SIGNING_RPM_KEY_PASSPHRASE` from `OPENBARK_RELEASE_GPG_PASSPHRASE` on the `tauri build` step. These names come from the tauri-bundler 2.10.3 source and aren't in Tauri's docs. Then check the result: import the public key into a throwaway rpm database and run `rpm -K` on the `.rpm`. Leave the AppImage unsigned.
    - **Changed:** the `.rpm` is signed after the build with `rpmsign` (`scripts/ci/gpg-sign.sh rpm`), not through Tauri's undocumented variables. The build step then never holds the key, and the self-test can exercise the same code. The `rpm -K` check is as specified.
 7. Upload paths stay the same. **Done.** Each job also uploads a small `signing-status-<platform>` artifact for the release notes. Both release jobs download only the `openbark-*` artifacts.
@@ -660,7 +661,7 @@ Items 16 to 21 are **done**. Additions:
 
 | File | Change |
 |---|---|
-| `docs/network.md` (**done**, rows C1 to C6) | Build-time rows: Windows signing (`login.microsoftonline.com`, `eus.codesigning.azure.net`, `timestamp.acs.microsoft.com`, `www.nuget.org`) and macOS notarization (`timestamp.apple.com` and `appstoreconnect.apple.com`, believed). A note that Windows and macOS may check certificates or notarization online on their own, and that OpenBark itself makes no such call |
+| `docs/network.md` (**done**, rows C1 to C6) | Build-time rows: Windows signing (`login.microsoftonline.com`, `eus.codesigning.azure.net`, `timestamp.acs.microsoft.com`, `api.nuget.org`) and macOS notarization (`timestamp.apple.com` and `appstoreconnect.apple.com`, believed). A note that Windows and macOS may check certificates or notarization online on their own, and that OpenBark itself makes no such call |
 | `docs/versions.md` (**done**, section 5) | Pins: `azure/login` v3.1.0 (2026-09-10), `Microsoft.ArtifactSigning.Client` 1.0.128 (2026-03-30), and `azure/artifact-signing-action` v2.0.0 (2026-05-14) when the CLI and `ggml-cuda.dll` are signed |
 | `docs/runbooks/macos.md` step 5 | Signed builds no longer need Open Anyway. Ad-hoc local builds still do |
 | `install/README.md` and www.openbark.io | What users see on first download (decision 9 of ADR-0020), and a "Check your download" page with the public key, its fingerprint and the commands in Part F |

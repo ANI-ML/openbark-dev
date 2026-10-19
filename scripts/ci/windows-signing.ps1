@@ -19,13 +19,20 @@ Windows code signing for the release workflow (ADR-0020, decision 2).
       every .exe and .dll installed. Each must have a valid signature from
       <name> with a timestamp. Exits non-zero otherwise.
 
+  windows-signing.ps1 -Mode CheckUnsigned -Installer <setup.exe> -Publisher "<name>"
+      For unsigned builds. Checks the installer, installs it silently, then
+      checks every .exe and .dll installed. Each must be unsigned or validly
+      signed by <name>, so a file signed by anyone else (for example the
+      self-test's throwaway certificate, restored from a build cache) stops
+      the release.
+
 Setup writes the overlay's path to OPENBARK_SIGN_OVERLAY in GITHUB_ENV, for
 `tauri bundle --config`. The overlay never goes into tauri.conf.json, so local
 builds stay unsigned. No secret is written anywhere: Artifact Signing keys stay
 in Microsoft's HSMs and the sign-in comes from the Azure CLI's token.
 #>
 param(
-  [Parameter(Mandatory = $true)][ValidateSet("Setup", "Verify")][string]$Mode,
+  [Parameter(Mandatory = $true)][ValidateSet("Setup", "Verify", "CheckUnsigned")][string]$Mode,
   [ValidateSet("Artifact", "SelfSigned")][string]$Kind = "Artifact",
   [string]$Publisher = "ANI.ML Health Inc.",
   [string]$Installer = ""
@@ -144,12 +151,20 @@ function Test-Signed([string]$path, [string]$signtool) {
   Write-Host ("ok  {0}  ({1})" -f $path, $subject)
 }
 
-function Verify-Installer {
-  if (-not $Installer -or -not (Test-Path $Installer)) { Fail "-Installer must point at the setup .exe" }
-  $signtool = Find-Signtool
-  $setup = (Resolve-Path $Installer).Path
-  Test-Signed $setup $signtool
+function Test-NoForeignSignature([string]$path) {
+  $sig = Get-AuthenticodeSignature -FilePath $path
+  if ($sig.Status -eq "NotSigned") { Write-Host "ok  $path  (unsigned)"; return }
+  $subject = if ($sig.SignerCertificate) { $sig.SignerCertificate.Subject } else { "" }
+  $ours = $subject -eq "CN=$Publisher" -or $subject.StartsWith("CN=$Publisher, ")
+  if ($sig.Status -ne "Valid" -or -not $ours) {
+    Fail "carries a signature from '$subject' (status $($sig.Status)); an unsigned build may hold only unsigned files or files validly signed by $Publisher`: $path"
+  }
+  Write-Host ("ok  {0}  ({1})" -f $path, $subject)
+}
 
+# Installs the setup silently on the runner and returns every .exe and .dll
+# it installed, after checking that the expected ones are there.
+function Install-Silently([string]$setup) {
   Write-Host "Installing silently to check the installed files"
   $p = Start-Process -FilePath $setup -ArgumentList "/S" -Wait -PassThru
   if ($p.ExitCode -ne 0) { Fail "silent install exited with $($p.ExitCode)" }
@@ -161,11 +176,33 @@ function Verify-Installer {
     if ($names -notcontains $must) { Fail "$must is missing from the installed files" }
   }
   if (@($files | Where-Object { $_.Extension -eq ".exe" -and $_.Name -ne "uninstall.exe" }).Count -lt 1) { Fail "the app's .exe is missing" }
+  return $files
+}
+
+function Get-Setup {
+  if (-not $Installer -or -not (Test-Path $Installer)) { Fail "-Installer must point at the setup .exe" }
+  return (Resolve-Path $Installer).Path
+}
+
+function Verify-Installer {
+  $setup = Get-Setup
+  $signtool = Find-Signtool
+  Test-Signed $setup $signtool
+  $files = @(Install-Silently $setup)
   foreach ($f in $files) { Test-Signed $f.FullName $signtool }
   Write-Host "All $($files.Count) installed program files and the installer are signed by $Publisher, with timestamps."
+}
+
+function Check-Unsigned {
+  $setup = Get-Setup
+  Test-NoForeignSignature $setup
+  $files = @(Install-Silently $setup)
+  foreach ($f in $files) { Test-NoForeignSignature $f.FullName }
+  Write-Host "None of the $($files.Count) installed program files or the installer carries a signature from anyone but $Publisher."
 }
 
 switch ($Mode) {
   "Setup" { if ($Kind -eq "Artifact") { Setup-Artifact } else { Setup-SelfSigned } }
   "Verify" { Verify-Installer }
+  "CheckUnsigned" { Check-Unsigned }
 }

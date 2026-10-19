@@ -6,6 +6,8 @@ name: Signing self-test
 # macOS and Windows, and a fresh OpenPGP key on Linux. Nothing is published,
 # no environment and no repository secret is used, and notarization and
 # Microsoft Artifact Signing are skipped (they need the real accounts).
+# It restores the release's build caches but never saves one, because it
+# signs files in target/ with the throwaway certificates.
 # Manual only (ADR-0020).
 
 on:
@@ -25,7 +27,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Unsigned without secrets, signed with all, stop when half set
         run: |
           set -u
@@ -54,7 +56,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - run: sudo apt-get update && sudo apt-get install -y rpm
       - name: Sign and verify with a throwaway key
         run: |
@@ -104,13 +106,15 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 150
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
-      - uses: actions/cache@v4
+      # Restore only: this job signs files in target/ with the throwaway
+      # certificate, so it must never save a cache a release could restore.
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~/.cargo/registry
@@ -118,8 +122,18 @@ jobs:
             target
           key: cargo-release-macos-${{ hashFiles('Cargo.lock') }}
           restore-keys: cargo-release-macos-
-      - name: Throwaway code-signing certificate
-        id: cert
+      - name: Drop installers from an earlier build
+        run: rm -rf target/release/bundle
+      # As the release does: compile before any signing credential exists.
+      - name: Compile
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "13.0"
+        run: cd apps/desktop && pnpm tauri build --no-bundle --features metal
+      # One step, shell variables only: a step output or an env: entry would
+      # print the .p12 in the log.
+      - name: Throwaway certificate and signing keychain (shared script)
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ env.SELFTEST_NAME }}
         run: |
           umask 077
           d="$RUNNER_TEMP/selfcert"
@@ -136,22 +150,16 @@ jobs:
             -passout "pass:$pw" -out "$d/cert.p12"
           # Trust it on this runner only, as a Developer ID would be by Apple's roots.
           sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$d/cert.pem"
-          {
-            echo "p12<<P12EOF"; base64 < "$d/cert.p12" | tr -d '\n'; echo; echo "P12EOF"
-            echo "pw=$pw"
-          } >> "$GITHUB_OUTPUT"
+          p12="$(base64 < "$d/cert.p12" | tr -d '\n')"
+          echo "::add-mask::$p12"
           rm -f "$d/key.pem" "$d/cert.p12"
-      - name: Signing keychain (shared script)
-        env:
-          APPLE_CERTIFICATE: ${{ steps.cert.outputs.p12 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ steps.cert.outputs.pw }}
-          APPLE_SIGNING_IDENTITY: ${{ env.SELFTEST_NAME }}
-        run: bash scripts/ci/macos-keychain.sh setup
-      - name: Build and sign the disk image (shared script, no notarization)
+          APPLE_CERTIFICATE="$p12" APPLE_CERTIFICATE_PASSWORD="$pw" bash scripts/ci/macos-keychain.sh setup
+          unset p12 pw
+      - name: Bundle and sign the disk image (shared script, no notarization)
         env:
           MACOSX_DEPLOYMENT_TARGET: "13.0"
           APPLE_SIGNING_IDENTITY: ${{ env.SELFTEST_NAME }}
-        run: scripts/macos-dmg.sh --features metal --no-notarize
+        run: scripts/macos-dmg.sh --features metal --bundle-only --no-notarize
       - name: Check signatures (shared script)
         env:
           APPLE_SIGNING_IDENTITY: ${{ env.SELFTEST_NAME }}
@@ -189,7 +197,7 @@ jobs:
         run: |
           rm -rf "$RUNNER_TEMP/selfcert"
           echo "Throwaway certificate files removed. Its System keychain trust entry goes with this single-use runner."
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: selftest-macos-dmg
           path: target/release/bundle/dmg/*.dmg
@@ -200,13 +208,15 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 150
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
-      - uses: actions/cache@v4
+      # Restore only: Tauri signs the DLLs in target/release in place with the
+      # throwaway certificate, so this job must never save a cache.
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~/.cargo/registry
@@ -214,6 +224,9 @@ jobs:
             target
           key: cargo-release-windows-${{ hashFiles('Cargo.lock') }}
           restore-keys: cargo-release-windows-
+      - name: Drop installers from an earlier build
+        shell: bash
+        run: rm -rf target/release/bundle
       - name: Build tools
         shell: bash
         run: |
@@ -246,6 +259,23 @@ jobs:
           Write-Host "Apps & features: Publisher='$($arp.Publisher)'"
           if ($arp.Publisher -ne "ANI.ML Health Inc.") { throw "Apps & features publisher is '$($arp.Publisher)'" }
           if ($vi.CompanyName -ne "ANI.ML Health Inc.") { throw "installer CompanyName is '$($vi.CompanyName)'" }
+      # The release's unsigned path must refuse files signed by anyone but
+      # ANI.ML Health Inc., such as these.
+      - name: Unsigned-build guard refuses the throwaway signatures (shared script)
+        shell: pwsh
+        run: |
+          $setup = @(Get-ChildItem target/release/bundle/nsis/*.exe)
+          # The expected failure's ::error:: line shouldn't mark this run.
+          $t = [guid]::NewGuid().ToString("N")
+          Write-Host "::stop-commands::$t"
+          $out = pwsh -NoProfile -File ./scripts/ci/windows-signing.ps1 -Mode CheckUnsigned -Installer $setup[0].FullName -Publisher "ANI.ML Health Inc." *>&1 | Out-String
+          $code = $LASTEXITCODE
+          Write-Host $out
+          Write-Host "::$t::"
+          if ($code -eq 0) { throw "the unsigned-build guard accepted files signed by $env:SELFTEST_NAME" }
+          if ($out -notmatch [regex]::Escape("signature from 'CN=$env:SELFTEST_NAME'")) { throw "the guard failed for another reason" }
+          Write-Host "The guard refused them, as it should."
+          exit 0
       - name: Remove the certificate
         if: always()
         shell: pwsh

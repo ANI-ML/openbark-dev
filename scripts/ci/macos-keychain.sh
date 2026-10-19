@@ -24,14 +24,17 @@ case "${1:-}" in
     kc_pass="$(/usr/bin/openssl rand -base64 32)"
     security delete-keychain "$KC" 2>/dev/null || true
     security create-keychain -p "$kc_pass" "$KC"
-    # Stay unlocked for 6 hours: longer than any build.
+    # Stay unlocked for 6 hours: longer than bundling, signing and Apple's
+    # notarization waits.
     security set-keychain-settings -lut 21600 "$KC"
     security unlock-keychain -p "$kc_pass" "$KC"
     p12="$(mktemp "$TMP/devid.XXXXXX")"
     trap 'rm -f "$p12"' EXIT
     printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$p12"
+    # -x: the private key can sign but can't be exported, by any process.
+    # Only codesign is trusted to use it.
     security import "$p12" -k "$KC" -f pkcs12 -P "$APPLE_CERTIFICATE_PASSWORD" \
-      -T /usr/bin/codesign -T /usr/bin/security >/dev/null
+      -x -T /usr/bin/codesign >/dev/null
     rm -f "$p12"
     security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$kc_pass" "$KC" >/dev/null
     # Search this keychain first, then the existing ones; make it the default.

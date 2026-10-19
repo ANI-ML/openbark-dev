@@ -203,7 +203,7 @@ The install guide and the website say this plainly, including that a SmartScreen
   - The Apple Distribution certificate: believed yearly.
   - The OpenPGP key: extend within 3 years.
 - Build-time network hosts are added to docs/network.md:
-  - Windows: `login.microsoftonline.com`, `eus.codesigning.azure.net`, `timestamp.acs.microsoft.com` and `www.nuget.org`;
+  - Windows: `login.microsoftonline.com`, `eus.codesigning.azure.net`, `timestamp.acs.microsoft.com` and `api.nuget.org`;
   - macOS: Apple's timestamp and notary services (`timestamp.apple.com` and `appstoreconnect.apple.com`, believed).
 
   The app gains no run-time hosts. Windows and macOS may check certificates or notarization online on their own. That is the operating system, not OpenBark, and network.md says so.
@@ -245,7 +245,7 @@ The release pipeline is built on branch `ci/signing`, before any certificate exi
 - **Manual runs never publish.** `draft-release` and `public-draft` require `github.event_name == 'push'` as well as a `v*` ref, so a `workflow_dispatch` on a tag can't create a release either. The installers job takes the `release` environment only for a tag push. The first manual run confirmed that an empty environment name means no environment.
 - **Windows** follows decision 2: `tauri build --no-bundle`, then `azure/login` (OIDC), then `tauri bundle` with a CI-only `signCommand` overlay (signtool plus the Artifact Signing dlib, client 1.0.128 checked by SHA-256). Tauri 2.12.3's bundler source confirms that the overlay signs the app's .exe, the four DLLs in `bundle.resources`, the NSIS plugins, `uninstall.exe` (`!uninstfinalize`) and the installer. The job then installs the setup silently and checks every installed .exe and .dll for a valid, timestamped signature from ANI.ML Health Inc.
 - **macOS** follows decision 3, with two additions:
-  - the build compiles first with no signing values in the environment, then bundles and signs;
+  - the workflow compiles in its own step before the signing keychain and the notarization key exist, then `macos-dmg.sh --bundle-only` bundles, signs and notarizes. The key is imported non-extractable (`-x`), and create-dmg runs from a pinned commit checked by SHA-256, without the notarization variables;
   - in signed builds the uninstaller gets a compiled launcher and an Apple Events entitlement, so under the hardened runtime it can still ask OpenBark to quit.
 
   The app keeps a single entitlement, the microphone (`com.apple.security.device.audio-input`). llama.cpp's Metal shaders compile through Metal's compiler service, so no JIT exception is needed.

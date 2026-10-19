@@ -2,12 +2,15 @@
 # Build OpenBark's macOS disk image: the app, a drag-to-Applications link and
 # "Uninstall OpenBark", laid out in one Finder window.
 #
-#   scripts/macos-dmg.sh [--features metal] [--skip-build] [--no-notarize]
+#   scripts/macos-dmg.sh [--features metal] [--bundle-only | --skip-build] [--no-notarize]
 #
 # Runs on a Mac (the release workflow's macos-15 job, or the product owner's
-# Mac). Builds the app with `pnpm tauri build --bundles app` unless
-# --skip-build, then writes target/release/bundle/dmg/OpenBark_<version>_<arch>.dmg.
-# create-dmg is downloaded at a pinned version (docs/versions.md).
+# Mac). Builds the app with `pnpm tauri build --bundles app`, then writes
+# target/release/bundle/dmg/OpenBark_<version>_<arch>.dmg. --bundle-only
+# bundles an app already compiled with `pnpm tauri build --no-bundle`;
+# --skip-build reuses target/release/bundle/macos/OpenBark.app as it is.
+# create-dmg is downloaded at a pinned commit and checked by SHA-256
+# (docs/versions.md).
 #
 # Signing (ADR-0020): with APPLE_SIGNING_IDENTITY set to a Developer ID (not
 # "-"), the identity must already be in a keychain (scripts/ci/macos-keychain.sh).
@@ -15,20 +18,24 @@
 # notarizes and staples it; this script signs, notarizes and staples the
 # uninstaller and the disk image. Notarizing needs APPLE_API_KEY,
 # APPLE_API_ISSUER and APPLE_API_KEY_PATH (an App Store Connect .p8).
-# --no-notarize signs without notarizing (the CI self-test's throwaway
+# In CI, signing needs --bundle-only: the workflow compiles in an earlier step,
+# before the signing keychain and the .p8 exist, so build scripts can't reach
+# them. --no-notarize signs without notarizing (the CI self-test's throwaway
 # certificate only). Without APPLE_SIGNING_IDENTITY, everything is signed
 # ad-hoc, as local builds always are.
 set -euo pipefail
 
 FEATURES="metal"
 BUILD=1
+COMPILE=1
 NOTARIZE=1
 while [ $# -gt 0 ]; do
   case "$1" in
     --features) FEATURES="$2"; shift 2 ;;
+    --bundle-only) COMPILE=0; shift ;;
     --skip-build) BUILD=0; shift ;;
     --no-notarize) NOTARIZE=0; shift ;;
-    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
     *) echo "Unknown option: $1 (try --help)"; exit 2 ;;
   esac
 done
@@ -52,6 +59,10 @@ if [ "$SIGNING" = 1 ] && [ "$NOTARIZE" = 1 ]; then
   done
   [ -f "$APPLE_API_KEY_PATH" ] || { echo "APPLE_API_KEY_PATH doesn't point at a file."; exit 1; }
 fi
+if [ "$SIGNING" = 1 ] && [ "$BUILD" = 1 ] && [ "$COMPILE" = 1 ] && [ -n "${CI:-}" ]; then
+  echo "In CI, compile with 'pnpm tauri build --no-bundle' in an earlier step, before the signing keychain and the notarization key exist, then pass --bundle-only."
+  exit 1
+fi
 if [ "$SIGNING" = 1 ]; then
   echo "==> Signing mode: Developer ID$( [ "$NOTARIZE" = 1 ] && echo ", notarized and stapled" || echo ", not notarized (--no-notarize)")"
 else
@@ -59,7 +70,13 @@ else
 fi
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# create-dmg 1.3.0, by the tag's commit, and the SHA-256 of each file of it
+# that runs here (docs/versions.md). Checked before it runs.
 CREATE_DMG_VERSION="1.3.0"
+CREATE_DMG_COMMIT="a2b71d0fda6d0df2a86dc7f67082d4d73e84c59f"
+CREATE_DMG_SHA256="bb9ea3194e55f2f76a821e87541513748d0fedc69f45cf4f0951cad15ae0cae5  create-dmg
+b5dd7c55ddaa5db1884ac5cf523c4413d452a75df967daf55b8d45ba501fe457  support/template.applescript
+a804e533e9c99491a74cb4502c435b00d902dc7a45d3693057a29674e584a70b  support/eula-resources-template.xml"
 VERSION="$(node -p "require('$ROOT/apps/desktop/src-tauri/tauri.conf.json').version")"
 case "$(uname -m)" in arm64) ARCH=aarch64 ;; *) ARCH=x64 ;; esac
 ICNS="$ROOT/apps/desktop/src-tauri/icons/icon.icns"
@@ -88,13 +105,17 @@ notarize() {
 }
 
 if [ "$BUILD" = 1 ]; then
-  if [ "$SIGNING" = 1 ]; then
-    # Compile first with no signing values in the environment, so npm and
-    # cargo build scripts never see them. Then Tauri bundles and signs
-    # (APPLE_SIGNING_IDENTITY) and, with APPLE_API_*, notarizes and staples.
-    (cd "$ROOT/apps/desktop" && env -u APPLE_SIGNING_IDENTITY -u APPLE_API_KEY -u APPLE_API_ISSUER \
-      -u APPLE_API_KEY_PATH -u APPLE_CERTIFICATE -u APPLE_CERTIFICATE_PASSWORD \
-      pnpm tauri build --no-bundle --features "$FEATURES")
+  if [ "$SIGNING" = 1 ] || [ "$COMPILE" = 0 ]; then
+    if [ "$COMPILE" = 1 ]; then
+      # Signing on a Mac by hand: compile first with no signing values in the
+      # environment. (The identity stays in the login keychain, as it always
+      # does on that Mac. CI compiles before its keychain exists instead.)
+      (cd "$ROOT/apps/desktop" && env -u APPLE_SIGNING_IDENTITY -u APPLE_API_KEY -u APPLE_API_ISSUER \
+        -u APPLE_API_KEY_PATH -u APPLE_CERTIFICATE -u APPLE_CERTIFICATE_PASSWORD \
+        pnpm tauri build --no-bundle --features "$FEATURES")
+    fi
+    # Tauri bundles and signs (APPLE_SIGNING_IDENTITY, or ad-hoc) and, with
+    # APPLE_API_*, notarizes and staples.
     if [ "$NOTARIZE" = 1 ]; then
       (cd "$ROOT/apps/desktop" && env -u APPLE_CERTIFICATE -u APPLE_CERTIFICATE_PASSWORD \
         pnpm tauri bundle --bundles app --features "$FEATURES")
@@ -118,9 +139,16 @@ fi
 
 rm -rf "$WORK" && mkdir -p "$WORK/stage" "$OUT_DIR"
 
-echo "==> create-dmg $CREATE_DMG_VERSION"
-curl -fsSL "https://github.com/create-dmg/create-dmg/archive/refs/tags/v$CREATE_DMG_VERSION.tar.gz" | tar -xz -C "$WORK"
-CREATE_DMG="$WORK/create-dmg-$CREATE_DMG_VERSION/create-dmg"
+echo "==> create-dmg $CREATE_DMG_VERSION ($CREATE_DMG_COMMIT)"
+curl -fsSL "https://github.com/create-dmg/create-dmg/archive/$CREATE_DMG_COMMIT.tar.gz" | tar -xz -C "$WORK"
+CREATE_DMG_DIR="$WORK/create-dmg-$CREATE_DMG_COMMIT"
+printf '%s\n' "$CREATE_DMG_SHA256" | (cd "$CREATE_DMG_DIR" && /usr/bin/shasum -a 256 -c -) \
+  || { echo "create-dmg doesn't match its pinned SHA-256 (docs/versions.md)."; exit 1; }
+# Third-party code: it runs without the notarization key's variables.
+create_dmg() {
+  env -u APPLE_API_KEY -u APPLE_API_ISSUER -u APPLE_API_KEY_PATH -u APPLE_SIGNING_IDENTITY \
+    "$CREATE_DMG_DIR/create-dmg" "$@"
+}
 
 echo "==> Uninstall OpenBark.app"
 UNINSTALLER="$WORK/Uninstall OpenBark.app"
@@ -176,10 +204,10 @@ layout=(
 echo "==> $OUT"
 # The Finder layout step uses AppleScript, which can time out on a busy CI Mac:
 # then build the same image without the icon positions.
-if ! "$CREATE_DMG" "${layout[@]}" "$OUT" "$WORK/stage"; then
+if ! create_dmg "${layout[@]}" "$OUT" "$WORK/stage"; then
   echo "Finder layout failed; building without it."
   rm -f "$OUT" "$OUT_DIR"/rw.*.dmg
-  "$CREATE_DMG" "${layout[@]}" --skip-jenkins "$OUT" "$WORK/stage"
+  create_dmg "${layout[@]}" --skip-jenkins "$OUT" "$WORK/stage"
 fi
 
 if [ "$SIGNING" = 1 ]; then
