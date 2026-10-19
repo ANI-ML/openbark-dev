@@ -56,6 +56,34 @@ export interface Faithfulness {
   /** Items a veterinarian wrote or edited by hand (listed, not checked). */
   vet_entered?: string[];
   invalid_evidence: string[];
+  /**
+   * Flags on charted teeth (ADR-0021): soft (look before signing), except
+   * not_in_mouth and choose_dentition, which block signing.
+   */
+  tooth_flags?: {
+    path: string;
+    tooth: string;
+    kind:
+      | "name_conflict"
+      | "cue_missing"
+      | "other_tooth"
+      | "negated"
+      | "other_type"
+      | "planned"
+      | "not_planned"
+      | "history"
+      | "uncertain"
+      | "ambiguous"
+      | "contradicted"
+      | "other_pet"
+      | "conflict"
+      | "shape"
+      | "duplicate"
+      | "not_in_mouth"
+      | "choose_dentition";
+    other?: string;
+    expected?: string[];
+  }[];
 }
 
 export interface NoteRun {
@@ -171,6 +199,20 @@ export interface SessionView {
   has_audio?: boolean;
   /** When only the recording was deleted, and by whom. */
   audio_deleted?: AudioDeleted | null;
+  /** The latest draft's tooth chart confirmations, by tooth (ADR-0021 decision 10). */
+  chart_checks?: ChartCheck[];
+  /** Teeth with a drafted chart entry no veterinarian has confirmed; signing waits until it's empty. */
+  unconfirmed_teeth?: string[];
+}
+
+/** A veterinarian's confirmation of the drafted chart entries on one tooth (ADR-0021 decision 10). */
+export interface ChartCheck {
+  tooth: string;
+  /** The drafted entries confirmed (the engine's item keys). */
+  items: string[];
+  by: string;
+  who?: Who | null;
+  at: string;
 }
 
 // ---- deleting (ADR-0022) ----------------------------------------------------
@@ -299,7 +341,8 @@ export interface HubRepoView {
 
 /** What goes under a heading: bullet points, named measurements, or medications. */
 /** "text" is a text box: cited sentences shown as a paragraph. */
-export type ContentKind = "statements" | "fields" | "medications" | "text";
+/** "teeth" is a tooth chart for dogs and cats (ADR-0021): one item per finding on one tooth. */
+export type ContentKind = "statements" | "fields" | "medications" | "text" | "teeth";
 
 export interface TemplateField {
   /** JSON key; the engine derives it from the label when empty. */
@@ -322,6 +365,8 @@ export interface TemplatePart {
   /** Shown only for these species ("show when species is feline"). */
   when?: TemplateCondition | null;
   fields?: TemplateField[];
+  /** A tooth chart's dentition, set from the species or chosen when editing. */
+  dentition?: "canine" | "feline" | null;
 }
 
 export interface TemplateSection {
@@ -335,6 +380,8 @@ export interface TemplateSection {
   when?: TemplateCondition | null;
   fields?: TemplateField[];
   parts?: TemplatePart[];
+  /** A tooth chart's dentition, set from the species or chosen when editing. */
+  dentition?: "canine" | "feline" | null;
 }
 
 /** A re-prompt saved against a heading, applied to every later draft. */
@@ -1005,18 +1052,26 @@ export const updatePatient = (id: string, patient: Patient) =>
   isDesktop
     ? invoke<SessionView>("update_patient", { id, patient })
     : api<SessionView>(`/api/sessions/${enc(id)}/patient`, post(patient));
-/** Save the vet's own version of one heading as a new draft. */
-export const editNote = (id: string, heading: string, value: unknown, by: string, pet?: string | null) =>
+/**
+ * Save the vet's own version of one heading as a new draft. `dentition`: the
+ * animal chosen in the tooth chart editor when the chart had none.
+ */
+export const editNote = (id: string, heading: string, value: unknown, by: string, pet?: string | null, dentition?: "canine" | "feline" | null) =>
   isDesktop
-    ? invoke<{ markdown: string; run: NoteRun }>("edit_note", { id, heading, value, by, pet: pet ?? null })
+    ? invoke<{ markdown: string; run: NoteRun }>("edit_note", { id, heading, value, by, pet: pet ?? null, dentition: dentition ?? null })
     : api<{ markdown: string; run: NoteRun }>(
         `/api/sessions/${enc(id)}/edit`,
-        post({ heading, value, by, pet: pet ?? null }),
+        post({ heading, value, by, pet: pet ?? null, dentition: dentition ?? null }),
       );
 export const addAddendum = (id: string, text: string, by: string, pet?: string | null) =>
   isDesktop
     ? invoke<SessionView>("add_addendum", { id, text, by, pet: pet ?? null })
     : api<SessionView>(`/api/sessions/${enc(id)}/addenda`, post({ text, by, pet: pet ?? null }));
+/** Confirm (or take back) the drafted tooth chart entries on these teeth, as a veterinarian. */
+export const confirmChart = (id: string, teeth: string[], confirmed: boolean, by: string, pet?: string | null) =>
+  isDesktop
+    ? invoke<SessionView>("confirm_chart", { id, teeth, confirmed, by, pet: pet ?? null })
+    : api<SessionView>(`/api/sessions/${enc(id)}/chart/confirm`, post({ teeth, confirmed, by, pet: pet ?? null }));
 export const signNote = (id: string, by: string, pet?: string | null) =>
   isDesktop
     ? invoke<SessionView>("sign_note", { id, by, pet: pet ?? null })

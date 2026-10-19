@@ -423,6 +423,7 @@ const KINDS: { value: Kind; label: string }[] = [
   { value: "text", label: "Text box" },
   { value: "fields", label: "Measurements" },
   { value: "medications", label: "Medications" },
+  { value: "teeth", label: "Tooth chart" },
   { value: "parts", label: "Subheadings" },
 ];
 
@@ -1286,7 +1287,13 @@ function HeadingRow({
         parts: parts.length ? parts : [{ key: "", label: "", kind: "statements", _uid: uid() } as TemplatePart],
       });
     } else {
-      onChange({ kind: k, parts: [], fields: k === "fields" && !(s.fields ?? []).length ? [{ key: "", label: "" }] : s.fields });
+      onChange({
+        kind: k,
+        parts: [],
+        fields: k === "fields" && !(s.fields ?? []).length ? [{ key: "", label: "" }] : s.fields,
+        // A tooth chart is for dogs and cats (ADR-0021): never another animal's.
+        ...(k === "teeth" ? { when: { species: ["canine", "feline"] } } : {}),
+      });
     }
   };
   // Read-only, a built-in's text shows in the app language; editable, inputs show what notes will show.
@@ -1502,7 +1509,11 @@ function PartRow({
           disabled={readOnly}
           onChange={(e) => {
             const kind = e.target.value as ContentKind;
-            onChange({ kind, fields: kind === "fields" && !(p.fields ?? []).length ? [{ key: "", label: "" }] : p.fields });
+            onChange({
+              kind,
+              fields: kind === "fields" && !(p.fields ?? []).length ? [{ key: "", label: "" }] : p.fields,
+              ...(kind === "teeth" ? { when: { species: ["canine", "feline"] } } : {}),
+            });
           }}
         >
           {KINDS.filter((k) => k.value !== "parts").map((k) => (
@@ -1660,6 +1671,7 @@ const KIND_HINT: Record<ContentKind, string> = {
   statements: "Bullet points, each linked to where it was said",
   fields: "",
   medications: "Drug, dose, route, frequency, duration",
+  teeth: "Teeth by Triadan number, for dogs and cats. Filled from what was said; teeth not mentioned stay blank.",
 };
 
 /** The note's shape: every heading, with what the model will put there. */

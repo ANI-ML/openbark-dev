@@ -1,0 +1,104 @@
+[
+  {
+    "speaker": "dvm",
+    "start": 0.0,
+    "end": 4.837,
+    "text": "This is Juno, a nine year old spayed Labrador, in for her dental under anaesthesia."
+  },
+  {
+    "speaker": "tech",
+    "start": 5.437,
+    "end": 12.463688,
+    "text": "She weighs thirty-one kilos. Premed was methadone and dexmedetomidine, propofol to induce, and she's on isoflurane."
+  },
+  {
+    "speaker": "dvm",
+    "start": 13.063687,
+    "end": 16.6725,
+    "text": "Charting now. One oh one through one oh three are missing."
+  },
+  {
+    "speaker": "dvm",
+    "start": 17.2725,
+    "end": 19.47425,
+    "text": "The upper right canine is normal."
+  },
+  {
+    "speaker": "dvm",
+    "start": 20.07425,
+    "end": 23.230312,
+    "text": "Two oh eight has a slab fracture with pulp exposure."
+  },
+  {
+    "speaker": "dvm",
+    "start": 23.830313,
+    "end": 27.075813,
+    "text": "Two oh four has an uncomplicated crown fracture."
+  },
+  {
+    "speaker": "dvm",
+    "start": 27.675812,
+    "end": 31.456688,
+    "text": "Three oh four is fractured as well. I can't tell how deep yet."
+  },
+  {
+    "speaker": "dvm",
+    "start": 32.056686,
+    "end": 39.26769,
+    "text": "Three oh nine has stage three periodontal disease, a seven millimetre pocket, grade two mobility and a class two furcation."
+  },
+  {
+    "speaker": "dvm",
+    "start": 39.867687,
+    "end": 42.700375,
+    "text": "All the lower incisors are mobile, grade three."
+  },
+  {
+    "speaker": "dvm",
+    "start": 43.300377,
+    "end": 47.42819,
+    "text": "Overall I'd call her stage two across the mouth, with heavy calculus."
+  },
+  {
+    "speaker": "dvm",
+    "start": 48.028187,
+    "end": 50.60494,
+    "text": "Radiographs show no tooth resorption."
+  },
+  {
+    "speaker": "dvm",
+    "start": 51.204937,
+    "end": 56.2765,
+    "text": "Extracting two oh eight surgically with a flap. Three oh nine is a simple extraction."
+  },
+  {
+    "speaker": "dvm",
+    "start": 56.8765,
+    "end": 59.989376,
+    "text": "The lower incisors come out closed, no sectioning."
+  },
+  {
+    "speaker": "dvm",
+    "start": 60.589375,
+    "end": 64.89475,
+    "text": "Three oh four may need to come out. We'll radiograph it again at the recheck."
+  },
+  {
+    "speaker": "tech",
+    "start": 65.49475,
+    "end": 67.12588,
+    "text": "Scaling and polishing done."
+  },
+  {
+    "speaker": "dvm",
+    "start": 67.725876,
+    "end": 74.696625,
+    "text": "She goes home on carprofen, seventy-five milligrams by mouth twice a day for five days. Soft food for two weeks."
+  },
+  {
+    "speaker": "dvm",
+    "start": 75.29662,
+    "end": 76.86425,
+    "text": "Recheck in ten days."
+  }
+]

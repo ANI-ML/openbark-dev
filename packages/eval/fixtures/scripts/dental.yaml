@@ -3,6 +3,8 @@ id: dental
 title: Canine dental under anaesthesia, with extractions
 species: canine
 template: dental
+# As the clinic enters it before the visit; the app sends it with every draft.
+patient: { name: Biscuit, reason: Dental, species: Dog }
 speakers:
   dvm: am_michael
   tech: af_nicole
@@ -29,3 +31,24 @@ expected:
     - { drug: meloxicam, dose: "0.1", duration: "5" }
   must_mention: ["108", "309", "6 mm", "ten days", "two weeks", Monocryl]
   must_not_mention: [resorption present, stage 4]
+  # ADR-0021: this consult says "One oh eight, upper left fourth premolar"
+  # (108 is the right maxillary fourth premolar), so it is the name-conflict
+  # test: 108 is charted as said and flagged, never corrected.
+  chart:
+    - { tooth: "108", finding: fracture, detail: complicated_crown }
+    # Planned, then done in the same recording: charted once, as done.
+    - { tooth: "108", finding: extraction, detail: open, planned: false }
+    - { tooth: "209", finding: missing }
+    - { tooth: "309", finding: periodontal_stage, grade: 3 }
+    - { tooth: "309", finding: probing_depth, mm: 6 }
+    - { tooth: "309", finding: mobility, grade: 2 }
+    - { tooth: "309", finding: extraction, detail: closed, planned: false }
+    # Said with its name: "four oh four, the lower right canine, looks fine".
+    - { tooth: "404", finding: normal }
+  chart_flags:
+    - { tooth: "108", kind: name_conflict }
+  chart_not_allowed:
+    - { finding: resorption }
+    - { finding: resorption_type }
+    - { finding: periodontal_stage, except: ["309"] }
+    - { finding: normal, except: ["404"] }

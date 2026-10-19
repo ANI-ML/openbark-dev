@@ -10,9 +10,9 @@
     "prompt": "6b4459575fd0740d448fb7fd5e1d19c188b559a8d3f0109a1f9a83d918ca13cb"
   },
   "dental": {
-    "version": "0.1.1",
-    "fingerprint": "5cccdef125ce055629e266e855ab0c67360ec8e42683b89cbbb716cf4f473787",
-    "prompt": "7bb0f5af8b2bf3311d203c44282b60ad321d09676698ebeb851930aa492f1c4d"
+    "version": "0.2.0",
+    "fingerprint": "7abeae74e85ee4b91210e8d91b357a02b45ef8f75950383b776550cbb72b26e6",
+    "prompt": "1a9b4dcc7143e09083b4b3ffb09d4ab9af94f2cc342fa2163470b9d652980e18"
   },
   "dermatology": {
     "version": "0.1.1",

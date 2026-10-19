@@ -43,6 +43,7 @@ pub fn markdown(
                 PartKind::Text => paragraph(sec_value, &sec_path, &flagged),
                 PartKind::Fields => fields(&section.fields, sec_value, &sec_path, &flagged),
                 PartKind::Medications => medications(sec_value, &sec_path, &flagged),
+                PartKind::Teeth => teeth(sec_value, &sec_path, &flagged),
             });
             continue;
         }
@@ -55,6 +56,7 @@ pub fn markdown(
                 PartKind::Text => paragraph(value, &path, &flagged),
                 PartKind::Fields => fields(&part.fields, value, &path, &flagged),
                 PartKind::Medications => medications(value, &path, &flagged),
+                PartKind::Teeth => teeth(value, &path, &flagged),
             });
         }
     }
@@ -171,6 +173,31 @@ fn medications(value: &Value, path: &str, flagged: &HashSet<String>) -> String {
         .collect()
 }
 
+/// A tooth chart (ADR-0021 §9): one line per tooth in Triadan order, each
+/// finding in words with its AVDC code, citation and flag:
+/// `- 108: complicated crown fracture (T/FX/CCF) [4]; open extraction (XSS) [8]`.
+fn teeth(value: &Value, path: &str, flagged: &HashSet<String>) -> String {
+    let items = value.as_array().map(Vec::as_slice).unwrap_or_default();
+    if items.is_empty() {
+        return format!("{NOT_DISCUSSED}\n");
+    }
+    crate::dental::by_tooth(items)
+        .into_iter()
+        .map(|(tooth, findings)| {
+            let words: Vec<String> = findings
+                .iter()
+                .map(|item| {
+                    let i = items.iter().position(|x| std::ptr::eq(x, *item)).unwrap_or_default();
+                    let p = format!("{path}/{i}");
+                    let text = crate::dental::lower_first(&crate::dental::code_of(item).english());
+                    format!("{text}{}{}", cite(item), flag(&p, flagged))
+                })
+                .collect();
+            format!("- {tooth}: {}\n", words.join("; "))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -254,5 +281,25 @@ pub(crate) mod tests {
             "{md}"
         );
         assert!(md.contains("2 item(s) could not be matched"));
+    }
+
+    #[test]
+    fn renders_a_tooth_chart_one_line_per_tooth() {
+        let template = LoadedTemplate::builtin("dental").unwrap();
+        let mut note = crate::template::empty_note(&template.template);
+        let md = markdown(&template, &note, &transcript(), &faithfulness::check(&note, &transcript()));
+        assert!(md.contains("## Dental chart\n\nNot discussed.\n"), "{md}");
+        note["dental_chart"] = json!([
+            {"tooth": "108", "text": "slab fracture", "finding": "extraction", "detail": "open", "grade": null,
+             "mm": null, "planned": false, "evidence": [1]},
+            {"tooth": "108", "text": "slab fracture", "finding": "fracture", "detail": "complicated_crown",
+             "grade": null, "mm": null, "planned": false, "evidence": [0]},
+            {"tooth": "104", "text": "normal", "finding": "normal", "detail": null, "grade": null,
+             "mm": null, "planned": false, "evidence": [], "entered_by": "Dr Patel"}
+        ]);
+        let md = markdown(&template, &note, &transcript(), &faithfulness::check(&note, &transcript()));
+        assert!(md.contains("- 104: normal [entered by Dr Patel]\n- 108: "), "{md}");
+        assert!(md.contains("open extraction (XSS) [1] [check against recording]"), "{md}");
+        assert!(md.contains("; complicated crown fracture (T/FX/CCF) [0] [check against recording]"), "{md}");
     }
 }

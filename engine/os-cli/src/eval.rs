@@ -8,6 +8,12 @@
 //!   expected number
 //! - must_mention / must_not_mention: phrases in or absent from the note
 //! - invented numbers (hard fail) and citation errors, from the faithfulness pass
+//! - tooth charts (ADR-0021): each expected finding (`chart`), per-tooth and
+//!   per-finding precision and recall, invented teeth (charted but not
+//!   expected: errors), invented normals, wrong values (an expected tooth and
+//!   finding charted with the wrong type, grade, mm or plan: errors), findings that must not be charted
+//!   (`chart_not_allowed`), items without evidence, and expected flags
+//!   (`chart_flags`, such as a name conflict)
 //!
 //! Transcripts are cached in target/eval-cache so prompt changes re-run only
 //! the note step (`--retranscribe` to refresh).
@@ -40,6 +46,11 @@ pub struct EvalArgs {
     /// own (e.g. a client document from the euthanasia consult).
     #[arg(long)]
     pub force_template: bool,
+    /// Leave out the patient details a script declares (`patient:`). By
+    /// default they go into the prompt as the app sends them, as entered by
+    /// the clinic: name, reason for visit and species.
+    #[arg(long)]
+    pub no_patient: bool,
     #[command(flatten)]
     pub llm: LlmArgs,
 }
@@ -58,6 +69,206 @@ struct Expected {
     /// the eval drafts one note per animal and checks for cross-contamination.
     #[serde(default)]
     vitals_by_patient: BTreeMap<String, BTreeMap<String, String>>,
+    /// Tooth chart findings, one fact each: `tooth` and `finding`, and any of
+    /// `detail`, `grade`, `mm`, `planned` (a key given as null must be null).
+    #[serde(default)]
+    chart: Vec<serde_json::Map<String, Value>>,
+    /// Tooth flags the faithfulness pass must raise: `tooth` and `kind`.
+    #[serde(default)]
+    chart_flags: Vec<ExpectedFlag>,
+    /// Findings that must not be charted, except on the teeth listed.
+    #[serde(default)]
+    chart_not_allowed: Vec<NotAllowed>,
+}
+
+#[derive(Deserialize, Clone)]
+struct ExpectedFlag {
+    tooth: String,
+    kind: String,
+}
+
+#[derive(Deserialize, Clone)]
+struct NotAllowed {
+    finding: String,
+    #[serde(default)]
+    except: Vec<String>,
+}
+
+/// How a drafted tooth chart compares with the script's expected chart.
+#[derive(Serialize, Default, Clone)]
+struct ChartScore {
+    /// Expected findings found / expected.
+    found: u32,
+    expected: u32,
+    /// Charted findings that match an expected one / charted.
+    matched: u32,
+    charted: u32,
+    /// Distinct teeth: charted and expected, charted, expected.
+    teeth_hit: u32,
+    teeth_charted: u32,
+    teeth_expected: u32,
+    /// Charted teeth that aren't in any expected finding (errors).
+    invented_teeth: Vec<String>,
+    /// `normal` findings that weren't expected.
+    invented_normals: Vec<String>,
+    /// Charted findings on an expected tooth and finding whose type, grade,
+    /// millimetres or plan is wrong ("108 extraction detail closed, expected
+    /// open"): errors, like an invented tooth, not only a precision miss.
+    wrong_values: Vec<String>,
+    /// Findings charted where `chart_not_allowed` forbids them.
+    not_allowed: Vec<String>,
+    /// Model findings citing no evidence.
+    no_evidence: u32,
+    /// Expected flags raised / expected.
+    flags_found: u32,
+    flags_expected: u32,
+    misses: Vec<String>,
+}
+
+impl ChartScore {
+    fn add(&mut self, o: &ChartScore) {
+        self.found += o.found;
+        self.expected += o.expected;
+        self.matched += o.matched;
+        self.charted += o.charted;
+        self.teeth_hit += o.teeth_hit;
+        self.teeth_charted += o.teeth_charted;
+        self.teeth_expected += o.teeth_expected;
+        self.invented_teeth.extend(o.invented_teeth.iter().cloned());
+        self.invented_normals.extend(o.invented_normals.iter().cloned());
+        self.wrong_values.extend(o.wrong_values.iter().cloned());
+        self.not_allowed.extend(o.not_allowed.iter().cloned());
+        self.no_evidence += o.no_evidence;
+        self.flags_found += o.flags_found;
+        self.flags_expected += o.flags_expected;
+    }
+}
+
+fn pct(n: u32, d: u32) -> String {
+    if d == 0 { "-".into() } else { format!("{:.0}%", 100.0 * n as f64 / d as f64) }
+}
+
+/// Does a charted item match an expected one? Tooth and finding, and every
+/// other key given (numbers compared as numbers, null as null). `cites`: a
+/// word one of its cited lines must hold ("radiograph").
+fn chart_match(want: &serde_json::Map<String, Value>, got: &Value, transcript: &Transcript) -> bool {
+    want.iter().all(|(k, w)| {
+        if k == "cites" {
+            let word = w.as_str().unwrap_or_default().to_lowercase();
+            return got["evidence"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_u64)
+                .any(|id| transcript.get(id as u32).is_some_and(|s| s.text.to_lowercase().contains(&word)));
+        }
+        let g = &got[k.as_str()];
+        match (w, g) {
+            (Value::Number(a), Value::Number(b)) => a.as_f64() == b.as_f64(),
+            (Value::String(a), Value::Number(b)) => a.parse::<f64>().ok() == b.as_f64(),
+            _ => w == g,
+        }
+    })
+}
+
+/// Score a drafted chart against the expected one (ADR-0021 plan step 15).
+fn score_chart(
+    expected: &Expected,
+    items: &[Value],
+    faith: &os_engine::FaithfulnessReport,
+    transcript: &Transcript,
+) -> ChartScore {
+    use std::collections::BTreeSet;
+    let mut c = ChartScore {
+        expected: expected.chart.len() as u32,
+        charted: items.len() as u32,
+        flags_expected: expected.chart_flags.len() as u32,
+        ..Default::default()
+    };
+    let mut used = vec![false; items.len()];
+    let mut hit_wants = vec![false; expected.chart.len()];
+    for (w, want) in expected.chart.iter().enumerate() {
+        let hit = items.iter().enumerate().find(|(i, got)| !used[*i] && chart_match(want, got, transcript));
+        match hit {
+            Some((i, _)) => {
+                used[i] = true;
+                hit_wants[w] = true;
+                c.found += 1;
+            }
+            None => c.misses.push(format!("chart {}", serde_json::to_string(want).unwrap_or_default())),
+        }
+    }
+    // A charted finding on an expected tooth and finding, with the wrong
+    // type, grade, millimetres or plan: an error in the record.
+    for got in items.iter().enumerate().filter(|(i, _)| !used[*i]).map(|(_, got)| got) {
+        let same = |want: &serde_json::Map<String, Value>| {
+            want.get("tooth") == Some(&got["tooth"]) && want.get("finding") == Some(&got["finding"])
+        };
+        let Some((w, want)) =
+            expected.chart.iter().enumerate().find(|(w, want)| !hit_wants[*w] && same(want))
+        else {
+            continue;
+        };
+        hit_wants[w] = true;
+        let wrong: Vec<String> = ["detail", "grade", "mm", "planned"]
+            .into_iter()
+            .filter(|k| want.contains_key(*k))
+            .filter(|k| {
+                let one = serde_json::Map::from_iter([(k.to_string(), want[*k].clone())]);
+                !chart_match(&one, got, transcript)
+            })
+            .map(|k| format!("{k} {}, expected {}", got[k], want[k]))
+            .collect();
+        if !wrong.is_empty() {
+            c.wrong_values.push(format!(
+                "{} {} {}",
+                got["tooth"].as_str().unwrap_or_default(),
+                got["finding"].as_str().unwrap_or_default(),
+                wrong.join(", ")
+            ));
+        }
+    }
+    c.matched = used.iter().filter(|u| **u).count() as u32;
+    let tooth = |v: &Value| v["tooth"].as_str().unwrap_or_default().to_string();
+    let want_teeth: BTreeSet<String> = expected
+        .chart
+        .iter()
+        .filter_map(|w| w.get("tooth").and_then(Value::as_str).map(String::from))
+        .collect();
+    let got_teeth: BTreeSet<String> = items.iter().map(tooth).collect();
+    c.teeth_expected = want_teeth.len() as u32;
+    c.teeth_charted = got_teeth.len() as u32;
+    c.teeth_hit = got_teeth.intersection(&want_teeth).count() as u32;
+    c.invented_teeth = got_teeth.difference(&want_teeth).cloned().collect();
+    for (i, item) in items.iter().enumerate() {
+        let t = tooth(item);
+        let finding = item["finding"].as_str().unwrap_or_default();
+        if finding == "normal" && !used[i] {
+            c.invented_normals.push(t.clone());
+        }
+        for rule in &expected.chart_not_allowed {
+            if rule.finding == finding && !rule.except.contains(&t) {
+                c.not_allowed.push(format!("{t} {finding}"));
+            }
+        }
+        let vet = item["entered_by"].as_str().is_some_and(|b| !b.is_empty());
+        if !vet && item["evidence"].as_array().is_none_or(|e| e.is_empty()) {
+            c.no_evidence += 1;
+        }
+    }
+    for want in &expected.chart_flags {
+        let raised = faith.tooth_flags.iter().any(|f| {
+            f.tooth == want.tooth
+                && serde_json::to_value(f.kind).ok().and_then(|k| k.as_str().map(String::from)).as_deref()
+                    == Some(want.kind.as_str())
+        });
+        if raised {
+            c.flags_found += 1;
+        } else {
+            c.misses.push(format!("flag {} on {}", want.kind, want.tooth));
+        }
+    }
+    c
 }
 
 #[derive(Deserialize)]
@@ -71,8 +282,42 @@ struct Script {
     /// `--template` option is used when absent.
     #[serde(default)]
     template: Option<String>,
+    /// What the clinic would have entered before the visit. The app sends
+    /// these details with every draft (`PatientInfo::prompt_context`), so the
+    /// eval does too, unless `--no-patient`.
+    #[serde(default)]
+    patient: Option<ScriptPatient>,
     #[serde(default)]
     expected: Expected,
+}
+
+/// The patient details a script declares, as the clinic types them.
+#[derive(Deserialize, Default)]
+struct ScriptPatient {
+    name: String,
+    #[serde(default)]
+    reason: String,
+    /// As typed ("Dog"); the script's `species` when absent.
+    #[serde(default)]
+    species: Option<String>,
+}
+
+/// The draft options for a script: the app's prompt context when the script
+/// declares its patient, so the eval drafts from the prompt the app sends.
+fn script_options(args: &EvalArgs, script: &Script) -> os_engine::NoteOptions {
+    let mut options = note_options(&args.llm);
+    if !args.no_patient
+        && let Some(p) = &script.patient
+    {
+        let info = os_engine::session::PatientInfo {
+            name: p.name.clone(),
+            reason: p.reason.clone(),
+            species: p.species.clone().or_else(|| script.species.clone()).unwrap_or_default(),
+            ..Default::default()
+        };
+        options.context = Some(info.prompt_context()).filter(|c| !c.is_empty());
+    }
+    options
 }
 
 #[derive(Serialize, Default)]
@@ -90,11 +335,19 @@ struct Score {
     word_flags: Vec<String>,
     /// Multi-pet visits: another animal's value found in this animal's note.
     contaminated: Vec<String>,
+    /// The tooth chart, when the template has one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    chart: Option<ChartScore>,
     note_secs: f64,
+    completion_tokens: u32,
     /// The template that drafted it, "soap@0.1.1", and its fingerprint, so a
     /// run can be traced to the exact template text (ADR-0024 step 12).
     template: String,
     fingerprint: String,
+    /// The patient details sent with the draft, as the app sends them
+    /// (none with `--no-patient`, or when the script declares none).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    context: Option<String>,
 }
 
 struct Quiet;
@@ -126,7 +379,14 @@ fn note_text(v: &Value) -> String {
                 out.push('\n');
             }
             Value::Array(a) => a.iter().for_each(|x| walk(x, out)),
-            Value::Object(o) => o.iter().filter(|(k, _)| *k != "evidence").for_each(|(_, x)| walk(x, out)),
+            Value::Object(o) => {
+                o.iter().filter(|(k, _)| *k != "evidence").for_each(|(_, x)| walk(x, out));
+                // A charted tooth also reads as the record prints it ("Probing depth 6 mm").
+                if os_engine::dental::is_tooth_item(o) {
+                    out.push_str(&os_engine::dental::code_of(v).english().to_lowercase());
+                    out.push('\n');
+                }
+            }
             _ => {}
         }
     }
@@ -370,20 +630,30 @@ pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
             _ => default_template.clone(),
         }
         .for_species(script.species.as_deref());
+        let options = script_options(&args, &script);
         let s = if script.expected.vitals_by_patient.is_empty() {
-            let result =
-                generate_note(&llm, &template, &transcript, &note_options(&args.llm), &mut |_| true)?;
+            let result = generate_note(&llm, &template, &transcript, &options, &mut |_| true)?;
             std::fs::write(
                 format!("target/eval/{}.note.json", script.id),
                 serde_json::to_string_pretty(&result.note)?,
             )?;
             let mut s = score(&script.id, &script.expected, &result.note, &result.faithfulness);
             s.note_secs = result.stats.total_ms as f64 / 1000.0;
+            s.completion_tokens = result.stats.completion_tokens;
+            if let Some((path, _)) = template.chart() {
+                let pointer = format!("/{path}");
+                let items =
+                    result.note.pointer(&pointer).and_then(Value::as_array).cloned().unwrap_or_default();
+                let c = score_chart(&script.expected, &items, &result.faithfulness, &transcript);
+                s.misses.extend(c.misses.iter().cloned());
+                s.chart = Some(c);
+            }
             s
         } else {
             score_pets(&llm, &template, &transcript, &script, &args.llm)?
         };
         let mut s = s;
+        s.context = options.context.clone();
         s.template = template.label();
         s.fingerprint = os_engine::template::fingerprint(&template.template);
         println!(
@@ -397,17 +667,63 @@ pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
             s.misses.join("; ")
         );
         println!("    template: {} ({})", s.template, &s.fingerprint[..12]);
+        if let Some(context) = &s.context {
+            println!("    patient details in the prompt: {context}");
+        }
         for number in &s.invented {
             println!("    invented: {number}");
         }
         for flag in &s.word_flags {
             println!("    check: {flag}");
         }
+        if let Some(c) = &s.chart {
+            println!(
+                "    chart: findings {}/{} (recall {}, precision {}), teeth recall {} precision {}, invented teeth {:?}, invented normals {:?}, wrong values {:?}, not allowed {:?}, without evidence {}, flags {}/{}, {} completion tokens",
+                c.found,
+                c.expected,
+                pct(c.found, c.expected),
+                pct(c.matched, c.charted),
+                pct(c.teeth_hit, c.teeth_expected),
+                pct(c.teeth_hit, c.teeth_charted),
+                c.invented_teeth,
+                c.invented_normals,
+                c.wrong_values,
+                c.not_allowed,
+                c.no_evidence,
+                c.flags_found,
+                c.flags_expected,
+                s.completion_tokens,
+            );
+        }
         report.push(s);
     }
     let (p, c): (u32, u32) = report.iter().fold((0, 0), |a, s| (a.0 + s.passed, a.1 + s.checks));
     let invented: usize = report.iter().map(|s| s.invented_numbers).sum();
     println!("TOTAL facts {p}/{c} ({:.0}%), invented numbers {invented}", 100.0 * p as f64 / c.max(1) as f64);
+    let mut chart = ChartScore::default();
+    let mut charts = 0;
+    for c in report.iter().filter_map(|s| s.chart.as_ref()).filter(|c| c.expected > 0) {
+        chart.add(c);
+        charts += 1;
+    }
+    if charts > 0 {
+        println!(
+            "TOTAL chart ({charts} fixtures): findings {}/{} (recall {}, precision {}), teeth recall {} precision {}, invented teeth {}, invented normals {}, wrong values {}, not allowed {}, without evidence {}, flags {}/{}",
+            chart.found,
+            chart.expected,
+            pct(chart.found, chart.expected),
+            pct(chart.matched, chart.charted),
+            pct(chart.teeth_hit, chart.teeth_expected),
+            pct(chart.teeth_hit, chart.teeth_charted),
+            chart.invented_teeth.len(),
+            chart.invented_normals.len(),
+            chart.wrong_values.len(),
+            chart.not_allowed.len(),
+            chart.no_evidence,
+            chart.flags_found,
+            chart.flags_expected,
+        );
+    }
     if let Some(path) = &args.json {
         std::fs::write(path, serde_json::to_string_pretty(&report)?)?;
     }
@@ -435,5 +751,35 @@ mod tests {
         assert_eq!(numbers("4/9"), vec!["4", "9"]);
         assert_eq!(numbers("100 mL LRS"), vec!["100"]);
         assert_eq!(numbers("6.0%"), vec!["6"]);
+    }
+
+    #[test]
+    fn chart_scoring_counts_found_invented_and_forbidden_findings() {
+        let expected: Expected = serde_yaml_ng::from_str(
+            "chart:\n  - { tooth: '101', finding: missing }\n  - { tooth: '304', finding: fracture, detail: null }\n  - { tooth: '309', finding: probing_depth, mm: 7 }\nchart_flags:\n  - { tooth: '108', kind: name_conflict }\nchart_not_allowed:\n  - { finding: normal, except: ['104'] }\n",
+        )
+        .unwrap();
+        let item = |t: &str, f: &str, detail: Value, mm: Value| {
+            serde_json::json!({"tooth": t, "text": "", "finding": f, "detail": detail, "grade": null,
+                "mm": mm, "planned": false, "evidence": [1]})
+        };
+        let items = vec![
+            item("101", "missing", Value::Null, Value::Null),
+            // A guessed type doesn't match "detail: null".
+            item("304", "fracture", serde_json::json!("complicated_crown"), Value::Null),
+            item("309", "probing_depth", Value::Null, serde_json::json!(7.0)),
+            // An invented tooth, charted normal.
+            item("206", "normal", Value::Null, Value::Null),
+        ];
+        let c =
+            score_chart(&expected, &items, &os_engine::FaithfulnessReport::default(), &Transcript::default());
+        assert_eq!((c.found, c.expected, c.matched, c.charted), (2, 3, 2, 4));
+        assert_eq!((c.teeth_hit, c.teeth_expected, c.teeth_charted), (3, 3, 4));
+        assert_eq!(c.invented_teeth, vec!["206"]);
+        assert_eq!(c.invented_normals, vec!["206"]);
+        assert_eq!(c.wrong_values, vec!["304 fracture detail \"complicated_crown\", expected null"]);
+        assert_eq!(c.not_allowed, vec!["206 normal"]);
+        assert_eq!((c.flags_found, c.flags_expected), (0, 1));
+        assert!(note_text(&serde_json::json!([items[2]])).contains("probing depth 7 mm"));
     }
 }

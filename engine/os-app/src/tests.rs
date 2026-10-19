@@ -806,3 +806,160 @@ fn removing_a_signed_visit_for_good_checks_the_folder_itself() {
 
 #[path = "tests/templates.rs"]
 mod templates;
+
+/// A tooth chart edit (ADR-0021 decision 4): with no species entered, the vet
+/// chooses dog or cat in the chart editor; that choice goes into the new run's
+/// template snapshot, a second, different choice is refused, and a tooth the
+/// animal doesn't have is refused with a plain message.
+#[test]
+fn a_chart_edit_records_the_chosen_animal_and_refuses_teeth_it_doesnt_have() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app = app_in(tmp.path());
+    let s = seed_visit(&app.sessions_root, "Pepper Silva", &[], false);
+    let id = id_of(&s);
+    // Redraft the seeded visit with the dental template, species not entered.
+    let dental = LoadedTemplate::builtin("dental").unwrap();
+    assert_eq!(dental.chart().map(|c| c.1), Some(None), "no species, no dentition");
+    let mut result = note_result();
+    result.template = format!("dental@{}", dental.template.version);
+    result.note = os_engine::template::empty_note(&dental.template);
+    Session::open(&s.dir).unwrap().save_run("gemma", &result, &dental).unwrap();
+
+    let normal = |tooth: &str| {
+        serde_json::json!({"tooth": tooth, "text": "normal", "finding": "normal", "detail": null,
+            "grade": null, "mm": null, "planned": false, "evidence": []})
+    };
+    // 105 isn't a cat's tooth: refused, and nothing is saved.
+    let refused = err(app.edit_note(
+        &id,
+        "dental_chart",
+        serde_json::json!([normal("105")]),
+        "Dr Rivera",
+        None,
+        Some("feline"),
+    ));
+    assert!(refused.contains("105") && refused.contains("cat"), "{refused}");
+    // A cat's tooth with "feline": saved, and the snapshot now draws a cat's mouth.
+    app.edit_note(&id, "dental_chart", serde_json::json!([normal("204")]), "Dr Rivera", None, Some("feline"))
+        .unwrap();
+    let opened = Session::open(&s.dir).unwrap();
+    let (run, note) = opened.latest_note().unwrap();
+    let snapshot = opened.run_template(&run).unwrap();
+    assert_eq!(snapshot.chart().and_then(|c| c.1).map(|d| d.key()), Some("feline"));
+    assert_eq!(note["dental_chart"][0]["entered_by"], "Dr Rivera");
+    // The animal can't change afterwards, and later edits keep to its teeth.
+    let other = err(app.edit_note(
+        &id,
+        "dental_chart",
+        serde_json::json!([normal("204")]),
+        "Dr Rivera",
+        None,
+        Some("canine"),
+    ));
+    assert!(!other.is_empty());
+    assert!(
+        app.edit_note(&id, "dental_chart", serde_json::json!([normal("105")]), "Dr Rivera", None, None)
+            .is_err()
+    );
+    app.edit_note(
+        &id,
+        "dental_chart",
+        serde_json::json!([normal("204"), normal("104")]),
+        "Dr Rivera",
+        None,
+        None,
+    )
+    .unwrap();
+}
+
+/// Drafting a chart (ADR-0021 decision 4): each animal of a multi-pet visit
+/// drafts with its own species from its patient record, and a redraft of a
+/// chart whose animal still isn't entered keeps the dog or cat the vet chose.
+#[test]
+fn every_animal_drafts_with_its_own_species_and_a_redraft_keeps_the_chosen_mouth() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app = app_in(tmp.path());
+    let s = seed_visit(&app.sessions_root, "Olive Haddad", &["Pickles"], false);
+    let cat = app.patients.create("Pickles", "Haddad", "Cat").unwrap();
+    let mut s = Session::open(&s.dir).unwrap();
+    let mut info = s.meta.patient.clone().unwrap();
+    info.species = "Dog".into();
+    info.other_ids = vec![cat.id.clone()];
+    s.set_patient(info).unwrap();
+    let main = Session::open(&s.dir).unwrap().for_pet(Some("Olive"));
+    let other = Session::open(&s.dir).unwrap().for_pet(Some("Pickles"));
+    assert_eq!(app.species_of(&main).as_deref(), Some("Dog"));
+    assert_eq!(app.species_of(&other).as_deref(), Some("Cat"), "from Pickles's patient record");
+    let dental = LoadedTemplate::builtin("dental").unwrap();
+    let pickles = dental.for_species(app.species_of(&other).as_deref());
+    assert_eq!(pickles.chart().and_then(|c| c.1).map(|d| d.key()), Some("feline"));
+
+    // No species anywhere: the last draft's chosen mouth carries over.
+    let t = tempfile::tempdir().unwrap();
+    let app = app_in(t.path());
+    let s = seed_visit(&app.sessions_root, "Pepper Silva", &[], false);
+    let mut handle = Session::open(&s.dir).unwrap();
+    assert!(app.species_of(&handle).is_none());
+    let unknown = dental.for_species(None);
+    assert_eq!(App::with_last_dentition(&handle, unknown.clone()).chart().and_then(|c| c.1), None);
+    let chosen = unknown.with_dentition("dental_chart", os_engine::dental::Dentition::Feline).unwrap();
+    let mut result = note_result();
+    result.template = chosen.label();
+    result.note = os_engine::template::empty_note(&chosen.template);
+    handle.save_run("gemma", &result, &chosen).unwrap();
+    let handle = Session::open(&s.dir).unwrap();
+    assert_eq!(
+        handle.latest_record().and_then(|r| r.chart_version),
+        Some(os_engine::dental::chart().version)
+    );
+    let redraft = App::with_last_dentition(&handle, unknown);
+    assert_eq!(redraft.chart().and_then(|c| c.1).map(|d| d.key()), Some("feline"));
+}
+
+/// ADR-0021 decision 10 through the app: the view lists the drafted teeth
+/// that aren't confirmed, signing is refused until a veterinarian confirms
+/// each, a technician can't confirm, and the signed chart can't change.
+#[test]
+fn the_app_signs_a_drafted_chart_only_after_a_vet_confirms_each_tooth() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app = app_in(tmp.path());
+    let s = seed_visit(&app.sessions_root, "Juno Abara", &[], false);
+    let dental = LoadedTemplate::builtin("dental").unwrap().for_species(Some("dog"));
+    let mut result = note_result();
+    result.template = dental.label();
+    result.note = os_engine::template::empty_note(&dental.template);
+    result.note["dental_chart"] = serde_json::json!([
+        {"tooth": "208", "text": "slab fracture", "finding": "fracture", "detail": null, "grade": null,
+         "mm": null, "planned": false, "evidence": [0]},
+        {"tooth": "104", "text": "normal", "finding": "normal", "detail": null, "grade": null,
+         "mm": null, "planned": false, "evidence": [0], "entered_by": "Dr Rivera"}
+    ]);
+    Session::open(&s.dir).unwrap().save_run("gemma", &result, &dental).unwrap();
+    let id = id_of(&s);
+
+    let view = app.open_session(&id, None).unwrap();
+    assert_eq!(view.unconfirmed_teeth, ["208"], "104 is the vet's own entry");
+    assert!(view.chart_checks.is_empty());
+    let refused = err(app.sign(&id, "Dr Rivera", None));
+    assert!(refused.contains("Not confirmed yet: 208"), "{refused}");
+
+    let view = app.confirm_chart(&id, &["208".to_string()], true, "Dr Rivera", None).unwrap();
+    assert!(view.unconfirmed_teeth.is_empty());
+    assert_eq!(view.chart_checks[0].by, "Dr Rivera");
+    let signed = app.sign(&id, "Dr Rivera", None).unwrap();
+    assert!(signed.signed_at.is_some());
+    let after = err(app.confirm_chart(&id, &["208".to_string()], false, "Dr Rivera", None));
+    assert!(after.contains("signed"), "{after}");
+
+    // With a team, only a veterinarian confirms.
+    let t = tempfile::tempdir().unwrap();
+    let app = app_in(t.path());
+    let (dvm, rvt, _) = team(&app);
+    let s = seed_visit(&app.sessions_root, "Juno Abara", &[], false);
+    Session::open(&s.dir).unwrap().save_run("gemma", &result, &dental).unwrap();
+    let id = id_of(&s);
+    let no = err(app.confirm_chart(&id, &["208".to_string()], true, &rvt.id, None));
+    assert!(no.contains("Only a veterinarian can confirm"), "{no}");
+    let view = app.confirm_chart(&id, &["208".to_string()], true, &dvm.id, None).unwrap();
+    assert_eq!(view.chart_checks[0].who.as_ref().and_then(|w| w.role), Some(Role::Dvm));
+}

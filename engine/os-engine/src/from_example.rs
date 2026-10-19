@@ -23,6 +23,7 @@ For each heading choose what goes under it:\n\
 - \"text\": a narrative paragraph (a surgical report, an assessment written as prose);\n\
 - \"fields\": named measurements such as Weight, Temperature or HR; list the field names;\n\
 - \"medications\": drugs with dose, route, frequency and duration;\n\
+- \"teeth\": a tooth chart for dogs and cats: findings by Triadan tooth number (at most one per note);\n\
 - \"parts\": the heading has its own subheadings; list them, each with its own kind.\n\
 Write a short instruction for each heading saying in general terms what belongs there \
 (\"Findings by body system as stated\"), only when the heading name alone isn't clear.\n\
@@ -35,7 +36,7 @@ surgical reports, rechecks). Choose \"pet owner\" only when the note speaks to t
 /// The shape the model fills.
 fn draft_schema() -> Value {
     let kind = |with_parts: bool| {
-        let mut kinds = vec!["statements", "text", "fields", "medications"];
+        let mut kinds = vec!["statements", "text", "fields", "medications", "teeth"];
         if with_parts {
             kinds.push("parts");
         }
@@ -83,8 +84,10 @@ fn draft_schema() -> Value {
 }
 
 /// Turn the model's draft into a template, mending what would fail validation
-/// (measurements with no names become bullet points, empty subheadings too).
+/// (measurements with no names become bullet points, empty subheadings too,
+/// and a second tooth chart, since a template has at most one).
 pub fn template_from_draft(draft: &Value) -> Result<LoadedTemplate, EngineError> {
+    let charts = std::cell::Cell::new(0u32);
     let text = |v: &Value| v.as_str().map(str::trim).filter(|s| !s.is_empty()).map(String::from);
     let names = |v: &Value| -> Vec<Value> {
         v.as_array().into_iter().flatten().filter_map(text).map(|label| json!({ "label": label })).collect()
@@ -93,6 +96,10 @@ pub fn template_from_draft(draft: &Value) -> Result<LoadedTemplate, EngineError>
         "fields" if !fields.is_empty() => "fields",
         "medications" => "medications",
         "text" => "text",
+        "teeth" if charts.get() == 0 => {
+            charts.set(1);
+            "teeth"
+        }
         _ => "statements",
     };
     let mut sections = Vec::new();
@@ -210,6 +217,25 @@ mod tests {
         assert_eq!(s[4].parts[1].kind, PartKind::Statements);
         assert_eq!(s[5].kind, Some(PartKind::Statements));
         assert!(t.template.document.is_record());
+    }
+
+    #[test]
+    fn a_dental_chart_heading_becomes_the_one_tooth_chart() {
+        let draft = json!({
+            "name": "Dental procedure note",
+            "audience": "veterinary record",
+            "sections": [
+                { "title": "Dental chart", "kind": "teeth" },
+                { "title": "Second chart", "kind": "teeth" },
+                { "title": "Findings", "kind": "parts", "parts": [{ "title": "Chart", "kind": "teeth" }] }
+            ]
+        });
+        let t = template_from_draft(&draft).unwrap();
+        let s = &t.template.sections;
+        assert_eq!(s[0].kind, Some(PartKind::Teeth));
+        assert_eq!(s[1].kind, Some(PartKind::Statements), "a template has one tooth chart");
+        assert_eq!(s[2].parts[0].kind, PartKind::Statements);
+        assert_eq!(t.chart().map(|c| c.0), Some("dental_chart".to_string()));
     }
 
     #[test]

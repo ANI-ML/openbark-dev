@@ -12,7 +12,7 @@ Make templates your own, choose the model that writes your notes, and chart teet
 
 - Change any template, built-ins included, as your own version; a hospital-wide templates setting; admins approve hospital changes with their PIN.
 - MLX models on Macs with Apple silicon, models of your choice, and removing models you no longer need. (being tested)
-- A dental chart with canine and feline tooth numbering, linked to the transcript and included in the note and PDF. (being tested)
+- A dental chart for dogs and cats, drafted from the conversation, linked to the transcript and included in the note and PDF. You confirm every tooth before signing.
 - Help videos re-recorded, in light and dark.
 - Installers now name ANI.ML Health Inc. as the publisher.
 

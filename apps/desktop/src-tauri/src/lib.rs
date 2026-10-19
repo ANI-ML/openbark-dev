@@ -292,6 +292,21 @@ async fn sign_note(
     work(move || app.sign(&id, &by, pet.as_deref())).await
 }
 
+/// A veterinarian confirms (or takes back) the drafted tooth chart entries
+/// on these teeth (ADR-0021).
+#[tauri::command]
+async fn confirm_chart(
+    app: State<'_, AppState>,
+    id: String,
+    teeth: Vec<String>,
+    confirmed: bool,
+    by: String,
+    pet: Option<String>,
+) -> Result<os_app::SessionView, String> {
+    let app = app.inner().clone();
+    work(move || app.confirm_chart(&id, &teeth, confirmed, &by, pet.as_deref())).await
+}
+
 #[tauri::command]
 async fn refine_note(
     handle: AppHandle,
@@ -311,9 +326,10 @@ async fn edit_note(
     value: serde_json::Value,
     by: String,
     pet: Option<String>,
+    dentition: Option<String>,
 ) -> Result<os_app::NoteResponse, String> {
     let app = app.inner().clone();
-    work(move || app.edit_note(&id, &heading, value, &by, pet.as_deref())).await
+    work(move || app.edit_note(&id, &heading, value, &by, pet.as_deref(), dentition.as_deref())).await
 }
 
 #[tauri::command]
@@ -725,6 +741,7 @@ pub fn run() {
             stop_recording,
             generate_note,
             sign_note,
+            confirm_chart,
             update_patient,
             refine_note,
             edit_note,

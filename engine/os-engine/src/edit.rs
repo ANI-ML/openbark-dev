@@ -35,20 +35,56 @@ pub struct Edit {
 }
 
 /// The template's schema, loosened for hand-written items: evidence may be
-/// empty, and items may carry `entered_by`.
+/// empty, items may carry `entered_by`, and a tooth chart has no item limit
+/// (the limit is the drafting budget, not a limit on the record).
 pub fn editable_schema(template: &LoadedTemplate) -> Value {
     let mut schema = template.schema.clone();
+    fn unlimit_charts(v: &mut Value) {
+        match v {
+            Value::Object(m) => {
+                if m.get("items").and_then(|i| i.get("$ref")).and_then(Value::as_str)
+                    == Some("#/$defs/tooth_finding")
+                {
+                    m.remove("maxItems");
+                }
+                m.values_mut().for_each(unlimit_charts);
+            }
+            Value::Array(a) => a.iter_mut().for_each(unlimit_charts),
+            _ => {}
+        }
+    }
+    unlimit_charts(&mut schema);
     if let Some(defs) = schema.get_mut("$defs") {
         if let Some(evidence) = defs.get_mut("evidence").and_then(Value::as_object_mut) {
             evidence.remove("minItems");
         }
-        for pointer in ["/statement/properties", "/medication/properties", "/field/anyOf/1/properties"] {
+        for pointer in [
+            "/statement/properties",
+            "/medication/properties",
+            "/field/anyOf/1/properties",
+            "/tooth_finding/properties",
+        ] {
             if let Some(props) = defs.pointer_mut(pointer).and_then(Value::as_object_mut) {
                 props.insert("entered_by".into(), json!({ "type": "string" }));
             }
         }
     }
     schema
+}
+
+/// Where an edited note doesn't fit the editable schema: JSON pointers.
+fn misfit_paths(template: &LoadedTemplate, note: &Value) -> Vec<String> {
+    let schema = editable_schema(template);
+    let Ok(validator) = jsonschema::validator_for(&schema) else { return Vec::new() };
+    let mut out: Vec<String> = Vec::new();
+    for e in validator.iter_errors(note) {
+        let path = e.instance_path().to_string();
+        let path = if path.is_empty() { "/".to_string() } else { path };
+        if !out.contains(&path) {
+            out.push(path);
+        }
+    }
+    out
 }
 
 pub fn validate_edited(template: &LoadedTemplate, note: &Value) -> Result<(), EngineError> {
@@ -102,6 +138,36 @@ fn mark(old: &Value, new: &mut Value, by: &str, path: &str, changed: &mut Vec<St
     }
 }
 
+/// A hand edit of a tooth chart (ADR-0021 decision 8): every changed or
+/// added item must fit its finding and use a tooth of the dentition, or the
+/// edit is refused with a plain message. The model's own items, unchanged,
+/// are never refused here; the faithfulness pass flags them instead. The
+/// saved array is ordered by tooth, then by the finding table's order.
+fn check_chart_edit(
+    before: &Value,
+    value: Value,
+    dentition: Option<crate::dental::Dentition>,
+) -> Result<Value, EngineError> {
+    let Value::Array(mut items) = value else {
+        return Err(EngineError::SchemaViolation("A tooth chart is a list of findings.".into()));
+    };
+    let old = before.as_array().map(Vec::as_slice).unwrap_or_default();
+    for item in items.iter().filter(|i| !old.contains(i)) {
+        let tooth = item["tooth"].as_str().unwrap_or_default();
+        if let Some(misfit) = crate::dental::tooth_misfit(tooth, dentition) {
+            return Err(EngineError::Template(misfit.to_string()));
+        }
+        crate::dental::fits(item).map_err(|m| EngineError::Template(format!("{tooth}: {m}")))?;
+    }
+    let order = |item: &Value| {
+        let finding = item["finding"].as_str().unwrap_or_default();
+        let rank = crate::dental::chart().findings.iter().position(|f| f.id == finding).unwrap_or(usize::MAX);
+        (crate::dental::triadan_order(item["tooth"].as_str().unwrap_or_default()), rank)
+    };
+    items.sort_by_key(order);
+    Ok(Value::Array(items))
+}
+
 /// Replace one heading of `note` with the vet's version.
 pub fn apply_edit(
     template: &LoadedTemplate,
@@ -125,6 +191,11 @@ pub fn apply_edit(
         None => note[sec].clone(),
     };
     let mut value = value;
+    if let Some((chart, dentition)) = template.chart()
+        && chart == heading
+    {
+        value = check_chart_edit(&before, value, dentition)?;
+    }
     let mut changed = Vec::new();
     mark(&before, &mut value, by, &format!("/{heading}"), &mut changed);
     let kept = items(&value).len() - changed.len();
@@ -134,8 +205,20 @@ pub fn apply_edit(
         Some(key) => note[sec][key] = value,
         None => note[sec] = value,
     }
-    validate_edited(template, &note)?;
-    let faithfulness = faithfulness::check(&note, transcript);
+    // A hand edit that doesn't fit is the vet's to correct, in plain words
+    // (never a schema dump that blames the model).
+    match validate_edited(template, &note) {
+        Ok(()) => {}
+        Err(EngineError::SchemaViolation(_)) => {
+            let paths = misfit_paths(template, &note);
+            return Err(EngineError::Template(format!(
+                "This edit doesn't fit the template at {}, so it wasn't saved. Check those items and save again.",
+                if paths.is_empty() { format!("/{heading}") } else { paths.join(", ") }
+            )));
+        }
+        Err(e) => return Err(e),
+    }
+    let faithfulness = faithfulness::check_template(&note, transcript, template);
     let markdown = render::markdown(template, &note, transcript, &faithfulness);
     Ok(NoteResult {
         status: "draft",
@@ -226,10 +309,119 @@ mod tests {
         let soap = LoadedTemplate::builtin("soap").unwrap();
         let err =
             apply_edit(&soap, &transcript(), &note(), "plan/follow_up", json!("free text"), "Dr P", "m");
-        assert!(matches!(err, Err(EngineError::SchemaViolation(_))));
+        // Plain words naming where, never a schema dump that blames the model.
+        let msg = err.unwrap_err().to_string();
+        assert!(msg.contains("doesn't fit the template at /plan/follow_up"), "{msg}");
+        assert!(!msg.contains("model output"), "{msg}");
         assert!(apply_edit(&soap, &transcript(), &note(), "plan/nope", json!([]), "Dr P", "m").is_err());
         assert!(apply_edit(&soap, &transcript(), &note(), "plan/follow_up", json!([]), " ", "m").is_err());
         // The model's schema still demands evidence; the editable one doesn't.
         assert_eq!(soap.schema["$defs"]["evidence"]["minItems"], 1);
+    }
+
+    fn dental_note(t: &LoadedTemplate) -> Value {
+        let mut n = crate::template::empty_note(&t.template);
+        n["dental_chart"] = json!([
+            {"tooth": "309", "text": "309 fractured", "finding": "fracture", "detail": null, "grade": null,
+             "mm": null, "planned": false, "evidence": [0]},
+            {"tooth": "104", "text": "104 normal", "finding": "normal", "detail": null, "grade": null,
+             "mm": null, "planned": false, "evidence": [1]}
+        ]);
+        n
+    }
+
+    fn dental_transcript() -> Transcript {
+        let seg = |id, text: &str| crate::transcript::Segment {
+            id,
+            start: 0.0,
+            end: 1.0,
+            speaker: Some(0),
+            text: text.into(),
+            hints: Vec::new(),
+            check: None,
+        };
+        Transcript {
+            segments: vec![
+                seg(0, "Three oh nine is fractured."),
+                seg(1, "The upper right canine is normal."),
+            ],
+        }
+    }
+
+    #[test]
+    fn chart_edits_are_the_vets_own_and_must_fit_the_finding_table() {
+        let dental = LoadedTemplate::builtin("dental").unwrap().for_species(Some("cat"));
+        let note = dental_note(&dental);
+        let old = note["dental_chart"].as_array().unwrap().clone();
+        // Change 309's fracture type, keep 104, add 209 missing.
+        let mut changed = old[0].clone();
+        changed["detail"] = json!("complicated_crown");
+        let added = json!({"tooth": "209", "text": "Missing", "finding": "missing", "detail": null,
+            "grade": null, "mm": null, "planned": false, "evidence": []});
+        let value = json!([added, old[1].clone(), changed]);
+        let r =
+            apply_edit(&dental, &dental_transcript(), &note, "dental_chart", value, "Dr Patel", "m").unwrap();
+        let chart = r.note["dental_chart"].as_array().unwrap();
+        // Ordered by tooth.
+        let teeth: Vec<&str> = chart.iter().map(|i| i["tooth"].as_str().unwrap()).collect();
+        assert_eq!(teeth, ["104", "209", "309"]);
+        assert!(chart[0].get("entered_by").is_none(), "unchanged items keep their link");
+        assert_eq!(chart[1]["entered_by"], "Dr Patel");
+        assert_eq!(chart[2]["entered_by"], "Dr Patel");
+        assert!(r.faithfulness.passed, "{:?}", r.faithfulness);
+        assert_eq!(r.edit.as_ref().unwrap().removed, 1, "the old 309 item was replaced");
+
+        // A tooth a cat doesn't have, and a grade outside the table, are refused.
+        let bad_tooth = json!([{"tooth": "105", "text": "Missing", "finding": "missing", "detail": null,
+            "grade": null, "mm": null, "planned": false, "evidence": []}]);
+        let err = apply_edit(&dental, &dental_transcript(), &note, "dental_chart", bad_tooth, "Dr P", "m");
+        assert!(err.unwrap_err().to_string().contains("105 isn't a cat's tooth"));
+        let bad_grade = json!([{"tooth": "309", "text": "Mobility 4", "finding": "mobility", "detail": null,
+            "grade": 4, "mm": null, "planned": false, "evidence": []}]);
+        let err = apply_edit(&dental, &dental_transcript(), &note, "dental_chart", bad_grade, "Dr P", "m");
+        assert!(err.unwrap_err().to_string().contains("from 0 to 3"));
+        // A persistent deciduous tooth on a permanent number is refused.
+        let wrong_kind = json!([{"tooth": "104", "text": "Persistent deciduous", "finding": "persistent_deciduous",
+            "detail": null, "grade": null, "mm": null, "planned": false, "evidence": []}]);
+        let err = apply_edit(&dental, &dental_transcript(), &note, "dental_chart", wrong_kind, "Dr P", "m");
+        assert!(err.unwrap_err().to_string().contains("only for deciduous teeth"));
+    }
+
+    /// The drafting budget (96 findings) is not a limit on the vet's record: a
+    /// full mouth charted by hand saves.
+    #[test]
+    fn a_full_mouth_charted_by_hand_has_no_item_limit() {
+        let dental = LoadedTemplate::builtin("dental").unwrap().for_species(Some("dog"));
+        let note = dental_note(&dental);
+        let mut items = Vec::new();
+        for id in
+            crate::dental::ids(Some(crate::dental::Dentition::Canine)).into_iter().filter(|id| id < &"500")
+        {
+            for (finding, grade, mm) in [
+                ("periodontal_stage", json!(1), Value::Null),
+                ("probing_depth", Value::Null, json!(2)),
+                ("gingival_recession", Value::Null, json!(1)),
+            ] {
+                items.push(
+                    json!({"tooth": id, "text": "", "finding": finding, "detail": null, "grade": grade,
+                    "mm": mm, "planned": false, "evidence": []}),
+                );
+            }
+        }
+        items.push(json!({"tooth": "309", "text": "", "finding": "mobility", "detail": null, "grade": 1,
+            "mm": null, "planned": false, "evidence": []}));
+        assert!(items.len() > crate::template::MAX_CHART_ITEMS);
+        let n = items.len();
+        let r = apply_edit(
+            &dental,
+            &dental_transcript(),
+            &note,
+            "dental_chart",
+            Value::Array(items),
+            "Dr P",
+            "m",
+        )
+        .unwrap();
+        assert_eq!(r.note["dental_chart"].as_array().unwrap().len(), n);
     }
 }

@@ -127,7 +127,7 @@ The model never writes a code string. The renderer derives the printed words and
 | `persistent_deciduous`, `unerupted`, `retained_root`, `caries` | DT/P, T/U, RTR, CA, each with its word |
 | `wear` | Wear; Abrasion (AB); Attrition (AT) |
 | `discoloured` | Discoloured (no code; T/NV means non-vital, which is a different claim) |
-| `malposition` | Malpositioned; with a version: Linguoversion (MAL1/LV), and so on |
+| `malposition` | Malpositioned; with a version: Linguoversion (LV), and so on (the version alone; see Review fixes) |
 | `extraction` | Extraction; Closed extraction (X); Closed extraction, sectioned (XS); Open extraction (XSS). Planned: "Planned: open extraction (XSS)" |
 | `crown_amputation` | Crown amputation (CR/A) |
 | `other` | The as-said text |
@@ -231,9 +231,16 @@ The plan gives the exact keyboard and pointer behaviour.
 
 **Text forms.** The Markdown note (`render.rs`), Copy note (`copyFormats.ts`) and a heading's Copy all render the chart as the per-tooth list, for example `- 108: complicated crown fracture (T/FX/CCF) [4]; open extraction (XSS) [8]`. PIMS text boxes get the record in words. Client documents, which take the vet's note as reference, can describe extractions.
 
-### 10. Signing and addenda
+### 10. Signing and addenda: the vet confirms every drafted tooth
 
-Signing is unchanged. A hard fail (a tooth not said anywhere) blocks it, like an invented number. Once signed, the chart is read-only: clicking a tooth only highlights its findings. Corrections are free-text addenda, as today. Structured chart addenda are left for later.
+A hard fail (a tooth not said anywhere) blocks signing, like an invented number. And, decided on 2026-10-19 after the clinical re-attack (below), **a drafted chart is a draft until a veterinarian confirms it**:
+- Every chart entry the model drafted is unconfirmed. The chart says **Draft chart: check every tooth**, and each tooth with a drafted entry has a **Checked against the recording** checkbox under its findings (keyboard and screen reader: a native checkbox named "108: checked against the recording"; the tooth's name in the diagram ends "Draft, not confirmed yet" or "Confirmed by Dr …").
+- **Per tooth, not one button for the whole chart.** One tick per tooth makes the vet look at each tooth's lines; a single "confirm all" would be a rubber stamp. A full mouth is one tick per charted tooth, not per finding.
+- Entries the vet edited or added (`entered_by`) are their own and count as confirmed.
+- A confirmation records who, when and exactly which entries (`RunInfo::chart_checks`: tooth, item keys of tooth, finding, fields and citations, the confirmer with their role, a time). A hand edit or a redraft of one heading carries confirmations over for entries that didn't change; a changed entry, or a fresh draft, is unconfirmed again.
+- **The engine enforces it.** `Session::sign_latest_by` reads the run's note and refuses while a drafted entry is unconfirmed ("Not confirmed yet: 108, 209"), whatever the client (`POST /api/sessions/{id}/chart/confirm` and the `confirm_chart` command record a confirmation; with a team, only a veterinarian can). The Sign button stays off and the summary above the note says how many teeth wait.
+- A tooth with no flag is never shown as checked. Only the vet's tick says checked.
+- Once signed, the chart is read-only: clicking a tooth only highlights its findings, each tooth shows who confirmed it, and confirmations can't change. Corrections are free-text addenda, as today. Structured chart addenda are left for later.
 
 ### 11. Translations
 
@@ -280,3 +287,71 @@ Signing is unchanged. A hard fail (a tooth not said anywhere) blocks it, like an
 | Structured chart addenda after signing | Useful later. v1 addenda stay free text, as for every heading |
 | Equine, rabbit and rodent dentitions now | Different numbering and anatomy. The chart is gated to dogs and cats in v1 |
 | A six-site probing grid by voice | Too much to dictate reliably in v1. One probing depth per item, with the site kept in `text` |
+
+## Implementation notes (2026-10-19)
+
+Built on branch `feat/dental-chart`, on top of template editing (ADR-0024). The status stays proposed until the owner approves.
+
+What shipped as decided:
+- `PartKind::Teeth`, the `dentition` on the chart heading, `$defs/tooth_finding` only for templates with a chart (every other built-in's schema and prompt are byte-identical; SOAP's prompt file is unchanged), `for_species` setting the dentition, and `LoadedTemplate::with_dentition` for the edit command.
+- `packages/dental/chart.json`, read by `engine/os-engine/src/dental.rs` and `apps/desktop/src/dental.ts`: tooth lists, rows, five outlines, the finding table with AVDC codes and cue words.
+- The tooth reader (numbers, spoken numbers, names, ranges, groups), the tooth check in the faithfulness pass (hard fail for a tooth said nowhere; citation mismatch; soft `tooth_flags`: name conflict, cue missing, shape, duplicate) and the chart rules in drafting and re-prompting.
+- Dental template 0.2.0: "Dental chart" (`kind: teeth`, dogs and cats) and "Whole-mouth findings"; the wrong-side example corrected. Fingerprints rewritten with `openbark templates fingerprints --write`.
+- The app: `DentalChart` (diagram, per-tooth list with evidence links, legend) and `DentalChartEditor` (click, Ctrl or Cmd-click, keyboard, Mark missing or normal, Add finding with only the valid controls, the dog-or-cat choice). The plan called them `ToothChart` and `ChartEditor`. Edits go through the existing edit command, with `dentition` on the Tauri command and `POST /api/sessions/{id}/edit`; the earlier draft is kept; signed charts are read-only.
+- Markdown, Copy note, a heading's Copy (words, never the diagram's numbers) and the PDF (`pdf.rs` path operator, greys, the same legend, translated words in the five PDF languages).
+- Template from an example note proposes a `teeth` heading (at most one; a second becomes bullet points).
+
+Added during the build, beyond the decision:
+- **Tooth hints in the prompt.** For a template with a chart, each transcript line that names teeth gets `[teeth: …]` with the Triadan numbers the tooth reader finds in it, limited to the dentition, and a chart rule says to go through every such line and never to copy the list into `text`. Only the prompt sees them; the saved transcript is unchanged; templates without a chart are untouched. It took chart recall on Gemma 4 E4B from 50% to 79%, with no charted tooth outside the expected set (docs/eval/M2.md). It works because the model then numbers names and groups the same way the faithfulness pass checks them.
+- **A finding table in the prompt.** The JSON formats of a chart template list what each finding takes (its `detail` values with the words that signal them, `grade` range, `mm`, `planned`), generated from `chart.json`, since the grammar allows every detail on every finding.
+- **The word check skips charted findings** except `other`. A charted finding prints its words from the finding table, and the cue-word check is its word check ("the lower incisors come out" supports an extraction, which the generic word check flagged).
+- `os_llm::grammar_for_schema` exposes the grammar conversion, and a test converts the dental schema for a dog, a cat and no species.
+- An os-app test covers the dog-or-cat choice: written into the new run's snapshot, a different second choice refused, a tooth the animal doesn't have refused.
+- Eval keys: `chart`, `chart_flags`, `chart_not_allowed` (with `except`), and `cites` in an expected item (a word its cited line must hold).
+- `apps/desktop/e2e/dental-chart.mjs`: imports the three new fixtures on a scratch demo, drafts them, and checks the chart in desktop light and dark and at 360 px (light and dark), the evidence link, editing by click and keyboard, the cat's teeth, the dog-or-cat question, the signed read-only chart and the PDF.
+
+Not done yet, or different from the plan:
+- Chart recall on Gemma 4 E4B is 83% after the review fixes (79% at first) against the plan's 90% target (12B: 88% at first). On the four fixtures, no charted tooth was outside the expected set, no unexpected normal, no forbidden finding from a script's `chart_not_allowed`, and no number absent from the transcript. That is what the eval measures: a wrong finding on an expected tooth that no script forbids only lowers precision, and the fixtures don't hold the phrasings of the clinical re-attack below. It is not a claim that nothing is invented. Most misses are blank teeth or missing findings, mostly in the cat consult, but not all: E4B charts 108 as a closed extraction where the flap was closed and 309 was the simple extraction. The faithfulness pass now flags that (below).
+- The property-order trial (`text` after `finding`) wasn't run.
+- No schema snapshot files (`schema.canine.json`, `schema.feline.json`); the tests check the tooth enum counts and that other templates have no tooth definition instead.
+- Dental shots are taken by the new e2e script, not by `screenshots.mjs`, and the PDF page isn't rendered to PNG.
+- Tooth names are read in English only. French, Spanish, German and Portuguese name tables, and a native-speaking vet's review of every chart translation (app and PDF), are still to do.
+
+### Review fixes (2026-10-19)
+
+A code review showed the faithfulness pass could pass a wrong chart with no flag. Decided and built on the branch:
+- **Evidence is the tooth's own clause.** Cue words, a type's words, and the grade and millimetres count only in the clause that names the tooth: its sentence, split from another tooth's at a comma, "and", "but" or the next tooth (with no break, the words go to the first tooth). Words said about another tooth raise the soft flag `other_tooth`; a finding said once for two teeth in one sentence ("309 is fractured and 409 too", "309 has grade one mobility and 409 is grade three") passes. A group said elsewhere no longer turns a tooth said nowhere into a citation mismatch: only a number, a name or a range does.
+- **Negation, plans, conflicts and types.** New soft flags: `negated` (said to be absent, or a word that rules the type out, from each detail's `exclude` list in `chart.json`), `planned` (charted as done, said as a plan), `other_type` (the clause also has the words for another type of a one-per-tooth finding), `conflict` (normal beside another finding, missing beside a finding done, two different items of a one-per-tooth finding: `one_per_tooth` in `chart.json`). "Closed" meaning a sutured flap ("closed with 4-0 Monocryl") is not a closed extraction.
+- **Kind of tooth.** `teeth: deciduous` on persistent deciduous and `teeth: permanent` on unerupted in `chart.json`: a misfit (shape flag) in the check, refused in the edit command and the editor.
+- **The mouth blocks signing.** Two flags block signing like a number said nowhere: `not_in_mouth` (a tooth outside the chart's dentition) and `choose_dentition` (no dentition recorded and a tooth only a dog has). The faithfulness pass takes the template's dentition (`faithfulness::check_template`, `check_full`). Each animal of a multi-pet visit drafts with its own species from its patient record; a redraft with no species keeps the dog or cat chosen on the last draft; a draft offers the patient's species when it is a dog or a cat.
+- **The tooth reader** gives no tooth for a group with a count, a vague amount, a negation or "other" in front of it, or with no side or jaw (unless "all", "both" or a count that matches); "to" and a hyphen make a range only inside one quadrant ("through" still crosses the midline); side and jaw are read after the tooth word and carried to a second name said with the first. The `[teeth: …]` hint leaves out a name that disagrees with its number, and a name conflict is flagged whichever of the two teeth was charted.
+- **Codes.** Tooth versions print alone ("Linguoversion (LV)"): AVDC uses them with every malocclusion class, so "MAL1/" was dropped rather than guessed.
+- **Signed records.** `chart.json` has a `version`, recorded in each run (`chart_version`); a test pins the finding table to its version, so a change to a word, code or id can't ship without a new version. A later version must keep the old table to draw older runs; there is only version 1 so far.
+- **Other animals.** A `teeth` heading with no condition is for dogs and cats (normalised, and set by the editor); one shown for another species is refused. Dental 0.2.0 has **Findings by tooth** (sentences) for every other species, and its instructions point to the chart or that heading.
+- **The record and the screen.** The summary above the note counts tooth flags (once per item) and blocking ones stop Sign; a blocking flag is a filled badge in the diagram, not colour alone, and every tooth's accessible name says whether it needs checking or blocks signing; teeth are toggle buttons only where activating one toggles it; **Select several** gives touch screens multi-select; the editor says why a finding can't be added; the diagram splits into two blocks by its own width (under 768 px), not the window's. The PDF's chart words come from the app's translation files (`packages/i18n`), so the screen and the signed PDF word a finding the same way. Hand edits have no 96-item limit (that is the drafting budget) and a schema problem in an edit is a plain message.
+- **Eval.** A charted finding with the wrong type, grade, millimetres or plan on an expected tooth and finding is scored as a wrong value, an error, not only a precision miss.
+
+Not changed: findings are still read in English only, and the cue lists are heuristics. A vet's reading of every flag stays the safeguard.
+
+### Clinical re-attack: the confirmation gate and checker fixes (2026-10-19)
+
+An independent clinical re-attack drafted natural phrasings with E4B and found that a rule-based word check can't catch every way an unsaid finding reaches the chart: "a handful of the lower premolars are mobile" charted all eight with no flag; "all the lower incisors are missing except 401" put missing on 401; "neither 108 nor 208 is fractured", "mobility not detected" and "resorption not seen" charted the finding; "owner declined extraction" and "extracted at her last dental" charted an extraction done today. The owner decided the chart ships in 0.1.1 with both of the following.
+
+**A. The safety gate** is decision 10 above: drafted entries are unconfirmed until a veterinarian ticks each tooth, the engine refuses to sign until then, and the confirmation (who, when, which entries) is kept with the visit.
+
+**B. The checker,** with every phrasing of the re-attack as a permanent test (`engine/os-engine/src/dental/reattack.rs`):
+- **Groups.** A plural group names its teeth only with nothing before it but "the"/"its"/"her", place words and a whole-group word (all, every, both, or a count of the whole group). "A pair of", "a handful of", "a number of", "the majority of", any "a … of", "all but one", "mostly", "two of them" make it ambiguous: no tooth, no `[teeth: …]` hint, and a tooth charted from it is a hard fail. Teeth named after "except", "other than", "apart from", "besides" or "but not" leave the group. A tooth said by number, name or range is spoken about only in those clauses; a group's clause counts only for teeth said by the group alone.
+- **Negation** reads backward as well as forward: "not seen/detected/needed", "ruled out" (both orders), "absent", "negative", "-free", a clause that is only "none" or "absent" ("mobility: none"), both arms of "neither … nor", a "no" carried through a list ("no fracture, mobility, or resorption"), "nothing", "absence of", "lacks", "non-", "rather than", "instead of", "declined", "decided against", a question answered "No", "appeared … but", and "was … but now". "Pulp intact" rules out a complicated fracture.
+- **Plans and history.** Plan or done is decided by scope: a done word after a modal, "need", "consider", "recommend", "is to be" or "should" is a plan. "Indicated", "pending", "candidate", "next visit/dental", "discussed" are plan words. New flags: `history` (done at an earlier visit: "last dental", "ago", "previously") and `not_planned` (charted as a plan, the line says done).
+- **Uncertainty** (`uncertain`): possible, suspected, "rule out", "r/o", if, whether, "check for", might/may/could, likely, a question, and hearsay ("owner thinks", "I thought").
+- **Whose clause.** With no punctuation between two teeth, words after "with", "next to", "beside" and the like go to the second tooth ("209 looks fine next to the fractured 208"). "Too" and "also" borrow the other clause's finding only when this clause names none; the equal-grade relaxer is gone. "Respectively" and "the first … the second" raise `ambiguous`.
+- **Values.** A grade or millimetre value is tied to the nearest word of a finding that takes a number ("stage two resorption, type one"); tied to another finding, it raises `other_type`. Numbers before a unit other than millimetres ("three weeks") and ordinals ("fourth premolar") are never values; a value not said as a value raises `cue_missing`.
+- **Names.** A number and a disagreeing name in one sentence conflict when only restating words sit between ("I mean", "so", "which I think is", "on the upper left, the fourth premolar"), and across two lines when a line only names a number ("Next is 108.") and the next opens with the name.
+- **Cue words** (finding table version 2; words and codes unchanged, so version 1 runs draw the same): no bare "out", "pull", "remove(d)", "gone", "lesion", "pink" or "dark"; "come out", "take out" and "pink tooth" as phrases; periodontal stage needs a periodontal word; "socket left open to heal" is no open extraction; "the gum around it looks healthy" is no normal tooth.
+- **Elsewhere and other animals.** `contradicted`: another line names the tooth and says it is fine (or, for normal, names a finding). `other_pet`: in a multi-pet visit, the cited clause names another animal; the draft is also checked against that animal's own lines, so a cited line about another animal is invalid evidence.
+- **Conflicts** add an extraction and a crown amputation both done, and an unerupted tooth with a crown finding.
+- **Other headings.** A tooth number in any statement ("Extraction of 301, 302, 303 …" in Treatment performed) is supported when the statement reads it as a tooth and its cited line says that tooth by number, name, range or group. This was the false hard fail on the standard dog consult.
+- **Repeats.** Identical drafted chart items are merged into the first, with every citation (a model loop once wrote "404 normal" seventeen times).
+- **The prompt.** The weaker template wording "also go in the dental chart or under Findings by tooth" made E4B leave every extraction off the chart when the app sent its patient details; the treatment and oral exam instructions say "go in the dental chart too" again, and the first chart rule says today's extractions are charted even beside "no sectioning". The eval now drafts with the patient details the app sends (`patient:` in the scripts; `--no-patient` for the bare prompt) and reports both.
+
+Still not caught by the checker, and left to the vet's confirmation: a missing tooth beside a planned extraction (allowed by design), anaphora ("308 looks bad. We should extract it next time" flags a cue missing, not a plan), and any phrasing outside the lists above. The checker is an aid; the vet's tick on each tooth is the gate.

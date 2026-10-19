@@ -16,7 +16,7 @@ Each template is a type of visit with its own icon. On **Record**, the common ty
 | Clinician rounds (hospitalised patient handover: since last rounds, treatments, plan, to do) | people | The medical record |
 | SOAP note | clipboard | The medical record |
 | Emergency and triage (with treatment times and disposition) | siren | The medical record |
-| Dental procedure (findings by tooth, Triadan numbers as said) | tooth | The medical record |
+| Dental procedure (a tooth chart for dogs and cats, in Triadan numbers; see [Tooth chart](#tooth-chart)) | tooth | The medical record |
 | Surgery and anaesthesia (protocol, monitoring, surgical report) | scissors | The medical record |
 | Dermatology consult | hand | The medical record |
 | Oncology visit (doses copied as said, never calculated) | microscope | The medical record |
@@ -112,7 +112,8 @@ Open **Templates**, then **New template** or **Start from SOAP**.
   - **Text box:** connected sentences shown as a paragraph, such as a surgical report or an assessment written as prose. Every sentence is still linked to where it was said, and checked like any other line.
   - **Measurements:** named values, such as Weight, Temperature or Teeth extracted, each with its unit.
   - **Medications:** drug, dose, route, frequency and duration.
-  - **Subheadings:** each of these holds one of the three kinds above.
+  - **Tooth chart:** teeth by modified Triadan number, for dogs and cats (see [Tooth chart](#tooth-chart)). A template has at most one.
+  - **Subheadings:** each of these holds one of the kinds above.
 - **Icon** and **Level of detail** (for the whole template). The icon marks the visit type on Record and in lists. Level of detail is concise (the fewest words that keep every fact), standard, or thorough (every relevant detail that was said); it never allows anything that wasn't said.
 - **Instructions** (optional, per heading): plain language, for example "Injections and fluids given during the visit." The model follows them only where the recording supports them. Under each instruction, **Examples** offers instructions suited to that heading (Triadan numbers under a dental heading, lameness grade by limb under a lameness heading); choosing one adds it to the instruction.
 - **Examples by kind of practice** (under the whole-note rules): emergency, feline-only, equine ambulatory, exotics, farm, shelter and referral. Choosing one adds it as a rule.
@@ -122,9 +123,29 @@ The right-hand pane shows the note's shape and, under **What the model is told**
 
 Saving a changed template increases its version. Every note keeps a copy of the template it was written with (`runs/NNN/template.yaml` in the encounter folder), so older notes keep their own headings.
 
+## Tooth chart
+
+A heading of kind `teeth` holds a tooth chart (ADR-0021). The built-in **Dental procedure** template (0.2.0) has one, **Dental chart**, shown for dogs and cats; for every other species it has **Findings by tooth** (sentences) instead. Whole-mouth findings (overall periodontal stage, calculus, "no resorptive lesions") go under **Whole-mouth findings**, never on a tooth. A tooth chart is for dogs and cats only: one with no condition gets `when: { species: [canine, feline] }`, and one shown for another species is refused.
+
+```yaml
+  - title: Dental chart
+    kind: teeth
+    when: { species: [canine, feline] }
+```
+
+- **What it holds.** One item per finding on one tooth: the Triadan number (`tooth`), what was found (`finding`: normal, missing, fracture, periodontal stage, mobility, furcation, probing depth, gingival recession, resorption stage and type, persistent deciduous, unerupted, retained root, caries, wear, discoloured, malpositioned, extraction, crown amputation, other), its type when said (`detail`), a stage or grade (`grade`), millimetres (`mm`), whether it is still `planned`, the words said (`text`) and the transcript lines (`evidence`). The data table is `packages/dental/chart.json`, shared by the app, the engine and the PDF.
+- **Blank means not charted.** Teeth that weren't mentioned have no items and are drawn blank; the legend says "Blank: not charted in this recording. It doesn't mean normal." Nothing charted shows "Not discussed". There is no "mark the rest normal".
+- **The dentition** (dog: 42 permanent and 28 deciduous teeth; cat: 30 and 26) comes from the patient's species, entered by the clinic (each animal's own in a multi-pet visit). It is kept in the run's template snapshot, so a signed chart is always redrawn with the same teeth, and the run records the finding table's version (`chart_version`). With no species, the chart lists findings without a diagram, the editor asks "Dog or cat?", and a tooth only a dog has blocks signing until one is chosen.
+- **Codes.** The model writes words, never codes. The app and the PDF print AVDC codes from the finding table, always next to their word: "Mobility 2 (M2)", "Complicated crown fracture (T/FX/CCF)", "Open extraction (XSS)", "Linguoversion (LV)" (a tooth version alone, never a malocclusion class). Probing depth is printed in millimetres, never "PD", which AVDC uses for the periodontal disease stage. There is no AVDC code for missing or normal, so the words are printed.
+- **Checked against the recording.** Every charted tooth must be said in its cited lines, by number ("one oh eight", "108"), name ("upper right canine", "the fourth premolar on the upper right", "left mandibular carnassial", "baby upper right canine"), range ("101 through 103", "106 to 108") or group ("all the lower incisors"). A group needs a side or a jaw, or "all"; "two of the lower incisors", "a few premolars", "a pair of lower incisors", "the majority of", "all but one", "mostly" and "none of the canines" name no tooth, and teeth named after "except", "other than" or "apart from" leave the group. A tooth said nowhere is a hard fail, like an invented number, and blocks signing; so does a tooth outside the chart's mouth, or a tooth only a dog has with no dentition chosen. A tooth said elsewhere by number, name or range is a citation mismatch. The finding, its type, grade and millimetres must be said in the clause that names the tooth. Soft flags: a number and a name that mean different teeth (whichever was charted), no word for the finding, words said about another tooth, a finding said to be absent, a plan or a declined treatment charted as done (or done charted as a plan), a treatment from an earlier visit, a finding said only as possible or as someone's belief, teeth paired with findings by order ("respectively"), another line saying something else about the tooth, another animal's tooth in a multi-pet visit, a grade or measure said with another finding, words for another type, findings on one tooth that contradict each other, details that don't fit the finding or the kind of tooth, and a finding listed twice. Stages, grades and millimetres also go through the number check.
+- **Confirmed by the vet before signing.** Every drafted entry is a draft until a veterinarian ticks **Checked against the recording** on its tooth; the engine refuses to sign until every drafted tooth is confirmed, and keeps who confirmed each and when (ADR-0021 decision 10). The vet's own entries need no tick. The flags above say where to look; they never stand in for the tick.
+- **The prompt.** A template with a chart adds the chart rules (they can't be removed), one tooth example and a table of what each finding takes, and each transcript line that names teeth gets a prompt-only hint with their Triadan numbers (`[teeth: 301, 302, 303, 401, 402, 403]`), read by the same tooth reader the check uses. The drafting budget is 8192 tokens. Templates without a chart are unchanged.
+- **Editing.** Click a tooth in Review (see the guide, [The dental chart](guide/review.md#the-dental-chart)). Hand edits must fit the finding table ("Mobility takes a grade from 0 to 3"), the kind of tooth (a persistent deciduous tooth is a 500-800 tooth) and the animal's teeth; they become the vet's own entries. A hand-charted full mouth has no item limit.
+- Tooth names are read in English; other languages follow, with review by native-speaking vets.
+
 ## A template from an example note
 
-**From an example note** (Templates) takes a note your clinic already writes. Paste it, choose **Propose headings**, and the note model lists its headings in order, what goes under each (bullet points, measurements, medications or subheadings), and short instructions. The proposal opens in the builder, unsaved, to check, change and save.
+**From an example note** (Templates) takes a note your clinic already writes. Paste it, choose **Propose headings**, and the note model lists its headings in order, what goes under each (bullet points, text, measurements, medications, a tooth chart or subheadings), and short instructions. The proposal opens in the builder, unsaved, to check, change and save.
 
 - The model works to a fixed structure, so the result is always a valid template.
 - It keeps the clinic's own heading names, and decides whether the note is for the medical record or for the pet owner.
@@ -146,7 +167,7 @@ Species are dogs, cats, horses, cattle, sheep and goats, pigs, birds, reptiles, 
 - The species comes from the patient's details (**Species**, entered by the clinic). It's never guessed from the recording.
 - When drafting, headings for other species are removed before the model sees the template, so neither the prompt nor the schema asks for them. The note's saved template copy has the same headings, so Review shows only what applied.
 - With no species entered, or for the other animals in a multi-pet visit (only the main animal has a species), every heading stays.
-- The built-in wellness template has heartworm testing for dogs and FeLV/FIV status for cats; the dental template has tooth resorption for cats.
+- The built-in wellness template has heartworm testing for dogs and FeLV/FIV status for cats; the dental template's chart is shown for dogs and cats, with the right teeth for each.
 
 ## Asking for changes, and standards
 
@@ -154,7 +175,7 @@ In Review, every heading and subheading has **Ask**. Describe what should change
 - "List every fluid with its volume and rate";
 - "One line per follow-up: when, why, and what will be reviewed".
 
-Above the general suggestions, **Examples for <template>** lists requests written for that heading of that template: for the dental template's findings, "Use the Triadan number for every tooth"; for the production-animal template's withdrawal times, "Give meat and milk withdrawal in days for each drug". Headings a team made get examples matched on their title.
+Above the general suggestions, **Examples for <template>** lists requests written for that heading of that template: for the dental template's chart, "Chart every tooth that was named, by its Triadan number"; for the production-animal template's withdrawal times, "Give meat and milk withdrawal in days for each drug". Headings a team made get examples matched on their title.
 
 OpenBark then redrafts just that heading from the recording. The request steers the model but isn't evidence: anything not said stays out, and numbers are checked again. Each redraft is saved as a new draft, and earlier drafts are kept.
 

@@ -262,6 +262,122 @@ const JSON_FORMATS: &str = r#"JSON formats:
 - a medication is {"drug": "Maropitant", "dose": "1 mg/kg", "route": "SC", "frequency": "once", "duration": null, "evidence": [34]}
 "#;
 
+/// The tooth line of the JSON formats, only for templates with a chart. Its
+/// example is not taken from any eval fixture.
+const TOOTH_FORMAT: &str = r#"- a tooth finding is {"tooth": "407", "text": "3 mm of gingival recession", "finding": "gingival_recession", "detail": null, "grade": null, "mm": 3, "planned": false, "evidence": [12]}
+"#;
+
+/// The drafting budget for a template with a tooth chart: a finding costs
+/// about 50 tokens (ADR-0021 decision 5; the context limit is 32768).
+pub const CHART_MAX_TOKENS: u32 = 8192;
+
+/// The drafting budget: `default`, or [`CHART_MAX_TOKENS`] when the template
+/// has a chart and `default` is smaller.
+pub fn max_tokens_for(template: &LoadedTemplate, default: u32) -> u32 {
+    if template.chart().is_some() { default.max(CHART_MAX_TOKENS) } else { default }
+}
+
+/// The JSON formats for a template: the tooth line and the finding guide only
+/// when it has a chart.
+fn json_formats(template: &LoadedTemplate) -> String {
+    if template.chart().is_some() {
+        format!("{JSON_FORMATS}{TOOTH_FORMAT}{}", tooth_findings_guide())
+    } else {
+        JSON_FORMATS.to_string()
+    }
+}
+
+/// What each tooth finding takes, from the shared finding table
+/// (`packages/dental/chart.json`), so the model pairs a type, a stage or a
+/// measurement with the right finding. The grammar allows every detail on
+/// every finding; this guide and the shape flag keep them together.
+pub fn tooth_findings_guide() -> String {
+    let chart = crate::dental::chart();
+    let mut plain: Vec<&str> = Vec::new();
+    let mut lines: Vec<String> = Vec::new();
+    for f in &chart.findings {
+        let mut parts: Vec<String> = Vec::new();
+        let details: Vec<String> = f
+            .details
+            .iter()
+            .filter(|d| d.with_grade.is_none())
+            .map(|d| {
+                // Every group of words the type needs: "complicated or pulp + root".
+                let take = if d.cues.len() > 1 { 2 } else { 3 };
+                let said: Vec<String> = d
+                    .cues
+                    .iter()
+                    .map(|g| {
+                        g.iter()
+                            .take(take)
+                            .map(String::as_str)
+                            .collect::<Vec<_>>()
+                            .join(if d.cues.len() > 1 { " or " } else { ", " })
+                    })
+                    .collect();
+                if said.is_empty() { d.id.clone() } else { format!("{} ({})", d.id, said.join(" + ")) }
+            })
+            .collect();
+        if !details.is_empty() {
+            parts.push(format!("detail {}, or null when the type wasn't said", details.join(", ")));
+        }
+        if let Some(g) = &f.grade {
+            let word = match f.id.as_str() {
+                "periodontal_stage" | "resorption" => "stage",
+                "resorption_type" => "type",
+                _ => "grade",
+            };
+            parts.push(format!("grade = the {word} {}-{}", g.min, g.max));
+        }
+        let staged: Vec<String> = f
+            .details
+            .iter()
+            .filter_map(|d| d.with_grade.map(|g| format!("{} ({g}{})", d.id, d.code)))
+            .collect();
+        if !staged.is_empty() {
+            parts.push(format!("with stage 4, detail {}", staged.join(", ")));
+        }
+        match f.mm {
+            crate::dental::MmUse::Required => parts.push("mm, the depth said".into()),
+            crate::dental::MmUse::Optional => parts.push("mm if said".into()),
+            crate::dental::MmUse::None => {}
+        }
+        if f.plannable {
+            parts.push("planned true only while it is still to be done".into());
+        }
+        if f.text_required {
+            parts.push("text says what was found".into());
+        }
+        if parts.is_empty() {
+            plain.push(f.id.as_str());
+        } else {
+            lines.push(format!("- {}: {}\n", f.id, parts.join("; ")));
+        }
+    }
+    format!(
+        "Tooth findings (detail, grade and mm are null unless listed here):\n- {}: nothing else\n{}",
+        plain.join(", "),
+        lines.concat()
+    )
+}
+
+/// Rules for a tooth chart (ADR-0021 decision 5), added whenever the template
+/// has one, in drafting and re-prompting. Teams can't remove them.
+pub const CHART_RULES: &[&str] = &[
+    "Tooth chart: chart a tooth only when it was named, by number or by name, and a finding was said about it. Teeth not mentioned are left out. Chart every finding said about a named tooth, even when it also belongs under another heading (oral exam, radiographs, treatment). An extraction or crown amputation done in this visit is charted too, on each tooth, even when the line also says what wasn't done (\"closed, no sectioning\").",
+    "Tooth chart: one item per finding. A tooth with a fracture and an extraction has two items; a stage, a pocket depth and a mobility said together are three items.",
+    "Tooth chart: use the tooth number as said. When only a name was said, use its modified Triadan number: 100 right upper, 200 left upper, 300 left lower, 400 right lower; 500-800 the same for deciduous teeth; the incisors are x01 to x03, the canine x04 and the first molar x09.",
+    "Tooth chart: never chart a tooth as normal unless normal, fine, healthy or the like was said about that tooth.",
+    "Tooth chart: chart a tooth as missing only when it was said to be missing or absent. Never infer missing from an extraction or from silence.",
+    "Tooth chart: whole-mouth statements (\"stage two across the mouth\", \"no resorptive lesions\", \"everything else looks normal\") never go on teeth.",
+    "Tooth chart: a range or group (\"101 to 103\", \"all the lower incisors\") becomes one item per tooth, only when every tooth in it is clear.",
+    "Tooth chart: grade and mm only when said. detail is null when the type wasn't said: \"fractured\" alone is never a guessed complicated fracture.",
+    "Tooth chart: planned is true for a plan or a possibility (\"may need to come out\", \"we'll extract it at the recheck\"). A treatment planned and then done in the same recording is charted once, as done.",
+    "Tooth chart: never chart a finding said to be absent (\"no resorption on 307\", \"404 is not fractured\", \"doesn't need to come out\"), and never give a tooth what was said about another tooth in the same line.",
+    "Tooth chart: if a number and a name disagree (\"108, upper left fourth premolar\"), chart the number as said and keep both in text.",
+    "Tooth chart: a line that names teeth ends with [teeth: ...], the Triadan numbers read from that line (by number, name, range or group). Go through every such line, exams and treatments alike, and chart what it says about each of those teeth. The list is not evidence of a finding, and never write it in text.",
+];
+
 fn with_instruction(instruction: Option<&str>) -> String {
     instruction.map(|i| format!(" — {i}")).unwrap_or_default()
 }
@@ -292,6 +408,10 @@ fn guidance_line(
         }
         PartKind::Text => format!(
             "- {name}: {label} (a text box: connected sentences that read as a paragraph, each sentence one statement with its own evidence){}",
+            with_instruction(instruction)
+        ),
+        PartKind::Teeth => format!(
+            "- {name}: {label} (a tooth chart: one item per finding on one tooth; teeth not mentioned are left out){}",
             with_instruction(instruction)
         ),
         _ => format!("- {name}: {label}{}", with_instruction(instruction)),
@@ -385,10 +505,12 @@ const REFINE_RULES: &[&str] = &[
 /// [`rules`], with more rules that always apply after the template's fixed rules.
 fn rules_with(template: &LoadedTemplate, also_always: &[&str]) -> String {
     let mut out = String::from("\nRules that always apply:\n");
+    let chart: &[&str] = if template.chart().is_some() { CHART_RULES } else { &[] };
     let always = CORE_RULES
         .iter()
         .copied()
         .chain(template.template.fixed_rules.iter().map(String::as_str))
+        .chain(chart.iter().copied())
         .chain(also_always.iter().copied());
     for rule in always {
         out.push_str(&format!("- {rule}\n"));
@@ -423,10 +545,11 @@ pub fn system_prompt(template: &LoadedTemplate) -> String {
     format!(
         "You are the documentation assistant inside {PRODUCT_NAME}, a veterinary scribe. \
          You turn a consultation transcript into a structured draft for the veterinarian to review.\n\n{}\n{}\
-         \nWhat each part of the JSON should contain:\n{}\n{JSON_FORMATS}\nRespond with the JSON object only.",
+         \nWhat each part of the JSON should contain:\n{}\n{}\nRespond with the JSON object only.",
         template.template.instructions.trim(),
         rules(template),
         guidance(template, None),
+        json_formats(template),
     )
 }
 
@@ -442,6 +565,37 @@ fn reference_message(reference: Option<&Reference>) -> String {
             )
         })
         .unwrap_or_default()
+}
+
+/// For a template with a tooth chart, each line that names teeth ends with
+/// `[teeth: 301, 302, 303, 401, 402, 403]`: the Triadan numbers the tooth
+/// reader ([`crate::dental::hint_teeth`]) finds in it, by number, name, range or
+/// group, limited to the chart's dentition. A name that disagrees with the
+/// number beside it is left out, and a group with a count, a vague amount or
+/// a negation in front of it ("two of the lower incisors") names no tooth. The model then numbers teeth said
+/// by name or as a group the same way the faithfulness pass checks them, and
+/// sees every line that names a tooth. Only the prompt sees these hints; the
+/// saved transcript is unchanged, and templates without a chart are untouched.
+pub fn with_tooth_hints<'a>(
+    template: &LoadedTemplate,
+    transcript: &'a Transcript,
+) -> std::borrow::Cow<'a, Transcript> {
+    let Some((_, dentition)) = template.chart() else {
+        return std::borrow::Cow::Borrowed(transcript);
+    };
+    let mut hinted = transcript.clone();
+    let mut changed = false;
+    for s in &mut hinted.segments {
+        let teeth: Vec<String> = crate::dental::hint_teeth(&s.text)
+            .into_iter()
+            .filter(|t| crate::dental::has_tooth(dentition, t))
+            .collect();
+        if !teeth.is_empty() {
+            s.text = format!("{} [teeth: {}]", s.text, teeth.join(", "));
+            changed = true;
+        }
+    }
+    if changed { std::borrow::Cow::Owned(hinted) } else { std::borrow::Cow::Borrowed(transcript) }
 }
 
 fn user_message(transcript: &Transcript, context: Option<&str>) -> String {
@@ -463,7 +617,8 @@ pub fn build_messages(
     transcript: &Transcript,
     context: Option<&str>,
 ) -> Vec<ChatMessage> {
-    vec![ChatMessage::system(system_prompt(template)), ChatMessage::user(user_message(transcript, context))]
+    let hinted = with_tooth_hints(template, transcript);
+    vec![ChatMessage::system(system_prompt(template)), ChatMessage::user(user_message(&hinted, context))]
 }
 
 /// Messages for redrafting one heading of an existing note.
@@ -479,14 +634,16 @@ pub fn build_refine_messages(
     let system = format!(
         "You are the documentation assistant inside {PRODUCT_NAME}, a veterinary scribe. \
          A veterinarian is reviewing a draft note and asked you to redraft one part of it.\n\n{}\n{}\
-         \nThe part to redraft is \"{title}\":\n{}\n{JSON_FORMATS}\nRespond with the JSON for this part only.",
+         \nThe part to redraft is \"{title}\":\n{}\n{}\nRespond with the JSON for this part only.",
         template.template.instructions.trim(),
         rules_with(template, REFINE_RULES),
         guidance(template, Some(heading)),
+        json_formats(template),
     );
+    let hinted = with_tooth_hints(template, transcript);
     let user = format!(
         "{}\n\nCurrent draft of \"{title}\" (may be incomplete or wrong):\n{}\n\nThe veterinarian asks: {}",
-        user_message(transcript, context),
+        user_message(&hinted, context),
         serde_json::to_string(current).unwrap_or_default(),
         request.trim()
     );
@@ -535,22 +692,29 @@ pub fn generate_note(
     }
     let request = GenerateRequest {
         messages,
-        max_tokens: options.max_tokens,
+        max_tokens: max_tokens_for(template, options.max_tokens),
         temperature: options.temperature,
         seed: options.seed,
         json_schema: Some(template.schema_text.clone()),
     };
     let output = llm.generate(&request, on_token)?;
-    let note: Value = serde_json::from_str(output.text.trim()).map_err(|e| {
+    let mut note: Value = serde_json::from_str(output.text.trim()).map_err(|e| {
         let hint = if output.stats.hit_max_tokens { " (output hit max_tokens)" } else { "" };
         EngineError::BadJson(format!("{e}{hint}"))
     })?;
+    // A runaway repeat ("404 normal" seventeen times) becomes one item.
+    crate::dental::merge_repeats(&mut note);
     validate(template, &note)?;
     let vet_numbers = options.reference.as_ref().map(|r| r.vet_numbers.clone()).unwrap_or_default();
     // Word-level alignment only when the note is in the consultation's language
     // (English here; other consultation languages pass through untranslated).
     let align = options.language.as_deref().is_none_or(|l| l == "en");
-    let faithfulness = faithfulness::check_opts(&note, transcript, &vet_numbers, align);
+    let dentition = template.chart().and_then(|(_, d)| d);
+    // Checked against the lines the draft was written from: in a multi-pet
+    // visit, this animal's own lines, so a cited line about another animal is
+    // invalid evidence.
+    let faithfulness =
+        faithfulness::check_for_pet(&note, &scoped, &vet_numbers, align, dentition, &options.other_pets);
     let markdown = render::markdown(template, &note, transcript, &faithfulness);
     Ok(NoteResult {
         status: "draft",
@@ -611,16 +775,17 @@ pub fn refine_note(
             options.pet.as_deref(),
             &options.other_pets,
         ),
-        max_tokens: options.max_tokens,
+        max_tokens: max_tokens_for(template, options.max_tokens),
         temperature: options.temperature,
         seed: options.seed,
         json_schema: Some(schema.to_string()),
     };
     let output = llm.generate(&generate, on_token)?;
-    let redrafted: Value = serde_json::from_str(output.text.trim()).map_err(|e| {
+    let mut redrafted: Value = serde_json::from_str(output.text.trim()).map_err(|e| {
         let hint = if output.stats.hit_max_tokens { " (output hit max_tokens)" } else { "" };
         EngineError::BadJson(format!("{e}{hint}"))
     })?;
+    crate::dental::merge_repeats(&mut redrafted);
     let mut note = note.clone();
     match part {
         Some(key) => note[sec][key] = redrafted,
@@ -628,7 +793,15 @@ pub fn refine_note(
     }
     // The rest of the note may hold the vet's own edits.
     crate::edit::validate_edited(template, &note)?;
-    let faithfulness = faithfulness::check(&note, transcript);
+    let dentition = template.chart().and_then(|(_, d)| d);
+    let faithfulness = faithfulness::check_for_pet(
+        &note,
+        transcript,
+        &std::collections::HashSet::new(),
+        true,
+        dentition,
+        &options.other_pets,
+    );
     let markdown = render::markdown(template, &note, transcript, &faithfulness);
     Ok(NoteResult {
         status: "draft",
@@ -835,5 +1008,104 @@ mod tests {
         let mut note = render::tests::empty_note();
         note.as_object_mut().unwrap().remove("plan");
         assert!(matches!(validate(&template, &note), Err(EngineError::SchemaViolation(_))));
+    }
+
+    #[test]
+    fn tooth_hints_only_in_chart_prompts() {
+        let seg = |id: u32, text: &str| Segment {
+            id,
+            start: 0.0,
+            end: 1.0,
+            speaker: Some(0),
+            text: text.into(),
+            hints: Vec::new(),
+            check: None,
+        };
+        let t = Transcript {
+            segments: vec![
+                seg(0, "All the lower incisors are mobile, grade three."),
+                seg(1, "The upper left canine looks healthy."),
+                seg(2, "Recheck in ten days."),
+            ],
+        };
+        let dental = LoadedTemplate::builtin("dental").unwrap();
+        let user = &build_messages(&dental, &t, None)[1].content;
+        assert!(user.contains("grade three. [teeth: 301, 302, 303, 401, 402, 403]"), "{user}");
+        assert!(user.contains("looks healthy. [teeth: 204]"), "{user}");
+        assert!(user.contains("Recheck in ten days.\n"), "{user}");
+        assert!(!t.segments[0].text.contains("[teeth"));
+        // A cat's chart lists only a cat's teeth.
+        let cat = dental.for_species(Some("Cat"));
+        let t2 = Transcript { segments: vec![seg(0, "105 and 106 are missing.")] };
+        assert!(build_messages(&cat, &t2, None)[1].content.contains("missing. [teeth: 106]"));
+        // Re-prompting the chart sees them too; a template without a chart never does.
+        let refine =
+            build_refine_messages(&dental, &t, None, "dental_chart", &serde_json::json!([]), "Add 108");
+        assert!(refine[1].content.contains("[teeth: 204]"));
+        let soap = LoadedTemplate::builtin("soap").unwrap();
+        assert!(!build_messages(&soap, &t, None)[1].content.contains("[teeth"));
+    }
+
+    #[test]
+    fn chart_rules_and_tooth_format_only_for_templates_with_a_chart() {
+        let dental = LoadedTemplate::builtin("dental").unwrap();
+        let prompt = system_prompt(&dental);
+        for rule in CHART_RULES {
+            assert!(prompt.contains(rule), "missing chart rule: {rule}");
+        }
+        assert!(prompt.contains("- a tooth finding is {\"tooth\": \"407\""));
+        assert!(prompt.contains("- dental_chart: Dental chart (a tooth chart:"));
+        let soap = LoadedTemplate::builtin("soap").unwrap();
+        assert!(!system_prompt(&soap).contains("Tooth chart"));
+        assert!(!system_prompt(&soap).contains("tooth finding"));
+        // Re-prompting the chart keeps its rules.
+        let t = Transcript::default();
+        let messages =
+            build_refine_messages(&dental, &t, None, "dental_chart", &serde_json::json!([]), "Add 108");
+        assert!(messages[0].content.contains(CHART_RULES[0]));
+        // The budget doubles for a chart, and stays for everything else.
+        assert_eq!(max_tokens_for(&dental, 4096), CHART_MAX_TOKENS);
+        assert_eq!(max_tokens_for(&soap, 4096), 4096);
+    }
+
+    /// The app's prompt for a dog's dental (ADR-0021): the patient details
+    /// the clinic entered go with the transcript, and the prompt says that
+    /// today's extractions are charted, even beside "no sectioning", with no
+    /// "or under Findings by tooth" left for a dog. Drafted from that prompt,
+    /// E4B left every extraction off the dental-chart consult (the eval now
+    /// drafts with the same patient details, docs/eval/M2.md).
+    #[test]
+    fn the_dental_prompt_with_patient_details_still_asks_for_extractions_on_the_chart() {
+        let dental = LoadedTemplate::builtin("dental").unwrap().for_species(Some("Dog"));
+        let t = Transcript {
+            segments: vec![Segment {
+                id: 0,
+                start: 0.0,
+                end: 1.0,
+                speaker: Some(0),
+                text: "The lower incisors come out closed, no sectioning.".into(),
+                hints: Vec::new(),
+                check: None,
+            }],
+        };
+        let context = "patient name Juno; reason for visit: Dental; species: Dog";
+        let messages = build_messages(&dental, &t, Some(context));
+        assert!(messages[1].content.contains(context), "{}", messages[1].content);
+        assert!(messages[1].content.contains("[teeth: 301, 302, 303, 401, 402, 403]"));
+        let system = &messages[0].content;
+        assert!(
+            system.contains(
+                "An extraction or crown amputation done in this visit is charted too, on each tooth"
+            )
+        );
+        assert!(
+            system.contains(
+                "Extractions and crown amputations go in the dental chart too, one item per tooth."
+            )
+        );
+        assert!(
+            !system.contains("or under Findings by tooth, one item per tooth"),
+            "the weaker wording dropped extractions"
+        );
     }
 }

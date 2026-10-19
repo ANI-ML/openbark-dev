@@ -1,5 +1,6 @@
 // What "Copy note" puts on the clipboard (M1 item 12): plain text for PIMS
 // text boxes, formatted text (HTML) for rich editors, or Markdown.
+import { asItems, byTooth, findingText, lowerFirst } from "./dental";
 import type { ContentKind, NoteRun, Template, TemplateField } from "./engine";
 
 export type CopyFormat = "plain" | "formatted" | "markdown";
@@ -14,7 +15,15 @@ export interface CopyOptions {
   addenda: [string, string][];
   /** "Not discussed" in the interface language. */
   notDiscussed?: string;
+  /** The translator, for a tooth chart's finding words (English without it). */
+  t?: Translate;
+  /** Lowercase words inside a line (not in German). */
+  lowerInner?: boolean;
 }
+
+type Translate = (text: string, vars?: Record<string, string | number>) => string;
+
+const english: Translate = (text, vars) => text.replace(/\{(\w+)\}/g, (m, k: string) => (vars && k in vars ? String(vars[k]) : m));
 
 type Item = Record<string, unknown> & { evidence?: number[]; text?: string; value?: unknown; unit?: string | null };
 
@@ -34,7 +43,27 @@ function cite(item: Item, on: boolean): string {
   return on && ev.length ? ` [${ev.join(", ")}]` : "";
 }
 
-function lines(kind: ContentKind, fields: TemplateField[] | undefined, value: unknown, citations: boolean): string[] {
+/** A tooth chart in words: one line per tooth, "108: complicated crown fracture (T/FX/CCF) [4]; open extraction (XSS) [8]". */
+function teethLines(value: unknown, citations: boolean, t: Translate, lowerInner: boolean): string[] {
+  return byTooth(asItems(value)).map(([tooth, entries]) => {
+    const findings = entries.map(({ item }) => {
+      const text = findingText(t, item, lowerInner);
+      return `${lowerInner ? lowerFirst(text) : text}${cite(item as unknown as Item, citations)}`;
+    });
+    return `${tooth}: ${findings.join("; ")}`;
+  });
+}
+
+/** One heading's lines as Copy note writes them (also a chart heading's own Copy). */
+export function headingLines(
+  kind: ContentKind,
+  fields: TemplateField[] | undefined,
+  value: unknown,
+  citations: boolean,
+  t: Translate = english,
+  lowerInner = true,
+): string[] {
+  if (kind === "teeth") return teethLines(value, citations, t, lowerInner);
   if (kind === "fields") {
     return (fields ?? []).flatMap((f) => {
       const v = get(value, f.key) as Item | null | undefined;
@@ -55,16 +84,16 @@ function lines(kind: ContentKind, fields: TemplateField[] | undefined, value: un
   });
 }
 
-function blocks(template: Template, run: NoteRun, citations: boolean): Block[] {
+function blocks(template: Template, run: NoteRun, citations: boolean, t?: Translate, lowerInner?: boolean): Block[] {
   const out: Block[] = [];
   for (const sec of template.sections) {
     const value = run.note[sec.id];
     if (sec.kind) {
-      const l = lines(sec.kind, sec.fields, value, citations);
+      const l = headingLines(sec.kind, sec.fields, value, citations, t, lowerInner);
       out.push({ heading: sec.title, lines: l, empty: l.length === 0, paragraph: sec.kind === "text" });
     } else {
       (sec.parts ?? []).forEach((p, i) => {
-        const l = lines(p.kind, p.fields, get(value, p.key), citations);
+        const l = headingLines(p.kind, p.fields, get(value, p.key), citations, t, lowerInner);
         out.push({ heading: i === 0 ? sec.title : "", sub: p.label, lines: l, empty: l.length === 0, paragraph: p.kind === "text" });
       });
     }
@@ -77,7 +106,7 @@ const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;")
 /** The note as text for the chosen format, plus HTML for rich pasting. */
 export function formatNote(template: Template, run: NoteRun, o: CopyOptions): { text: string; html?: string } {
   const nd = o.notDiscussed ?? "Not discussed";
-  const bs = blocks(template, run, o.citations);
+  const bs = blocks(template, run, o.citations, o.t, o.lowerInner);
   if (o.format === "markdown") {
     const md: string[] = [`# ${template.name}`, "", ...o.header.map((h) => `${h}  `)];
     for (const b of bs) {

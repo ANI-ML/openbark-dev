@@ -17,8 +17,8 @@ use os_engine::live::{LiveOptions, LiveRecorder, LiveSink, LiveSource};
 pub use os_engine::live::{Progress, Stage};
 use os_engine::patients::{PatientRecord, PatientStore};
 pub use os_engine::session::AudioDeleted;
-use os_engine::session::{self, Addendum, Consent, PatientInfo, Session};
-use os_engine::template::{Scope, Template};
+use os_engine::session::{self, Addendum, ChartCheck, Consent, PatientInfo, Session};
+use os_engine::template::{LoadedTemplate, Scope, Template};
 use os_engine::trash::{self, DeletedInfo, Recovered, Trash};
 use os_engine::users::{Role, User, UserStore, Who};
 use os_engine::{NoteOptions, Segment, TemplateStore, TranscribeStats, Transcript};
@@ -530,6 +530,12 @@ pub struct SessionView {
     pub has_audio: bool,
     /// When only the recording was deleted, and by whom.
     pub audio_deleted: Option<AudioDeleted>,
+    /// The latest draft's tooth chart confirmations, by tooth: who confirmed
+    /// the drafted entries against the recording, and when (ADR-0021).
+    pub chart_checks: Vec<ChartCheck>,
+    /// The latest draft's teeth with a drafted chart entry that no
+    /// veterinarian has confirmed yet. Signing waits until it is empty.
+    pub unconfirmed_teeth: Vec<String>,
 }
 
 /// A visit just moved to Deleted visits.
@@ -712,7 +718,9 @@ impl App {
         let allowed = match need {
             Need::Any => true,
             Need::Notes | Need::Delete => user.role.can_write_notes(),
-            Need::Sign | Need::DeleteSigned | Need::DeleteSignedRecording => user.role.can_sign(),
+            Need::Sign | Need::ConfirmChart | Need::DeleteSigned | Need::DeleteSignedRecording => {
+                user.role.can_sign()
+            }
             Need::Team => user.role.can_manage_team(),
         };
         if !allowed {
@@ -726,6 +734,12 @@ impl App {
                     user.name
                 ),
                 Need::Sign => format!("Only a veterinarian can sign. {} is using OpenBark now.", user.name),
+                Need::ConfirmChart => {
+                    format!(
+                        "Only a veterinarian can confirm the tooth chart. {} is using OpenBark now.",
+                        user.name
+                    )
+                }
                 Need::DeleteSigned => {
                     format!(
                         "Only a veterinarian can delete a signed visit. {} is using OpenBark now.",
@@ -1075,12 +1089,36 @@ impl App {
 
     /// Note options for this encounter: patient context and, in a
     /// multi-pet visit, which animal the note is about.
-    /// The species entered for the animal this handle works on. Other animals
-    /// in a multi-pet visit have no species entered, so they get every heading.
-    fn species_of(s: &Session) -> Option<String> {
+    /// The species entered for the animal this handle works on: the visit's
+    /// for the main animal, and another animal's from its patient record in a
+    /// multi-pet visit. None when it wasn't entered (every heading applies).
+    fn species_of(&self, s: &Session) -> Option<String> {
         let p = s.meta.patient.as_ref()?;
         let main = s.pet.as_deref().is_none_or(|pet| pet.trim().eq_ignore_ascii_case(p.name.trim()));
-        (main && !p.species.trim().is_empty()).then(|| p.species.trim().to_string())
+        let species = if main {
+            p.species.clone()
+        } else {
+            let pet = s.pet.as_deref().unwrap_or_default().trim();
+            let at = p.others.iter().position(|o| o.trim().eq_ignore_ascii_case(pet))?;
+            self.patients.get(p.other_ids.get(at)?)?.species
+        };
+        let species = species.trim();
+        (!species.is_empty()).then(|| species.to_string())
+    }
+
+    /// A redraft of a chart whose animal still isn't entered keeps the dog or
+    /// cat the vet chose on the last draft (ADR-0021 decision 4).
+    fn with_last_dentition(s: &Session, template: LoadedTemplate) -> LoadedTemplate {
+        let Some((heading, None)) = template.chart() else { return template };
+        let chosen = s
+            .latest_record()
+            .and_then(|run| s.run_template(run).ok())
+            .and_then(|t| t.chart())
+            .and_then(|(_, d)| d);
+        match chosen {
+            Some(d) => template.with_dentition(&heading, d).unwrap_or(template),
+            None => template,
+        }
     }
 
     fn note_options(&self, s: &Session, language: Option<String>) -> NoteOptions {
@@ -1319,7 +1357,8 @@ impl App {
         let wanted = if template.is_empty() { templates::DEFAULT_TEMPLATE } else { template };
         let (template, notice) = self.drafting_template(wanted, who.as_ref())?;
         // Headings for other species are left out (M2 item 4).
-        let mut template = template.for_species(Self::species_of(&s).as_deref());
+        let mut template =
+            Self::with_last_dentition(&s, template.for_species(self.species_of(&s).as_deref()));
         // The run records exactly what drafted it.
         let exact = os_engine::template::fingerprint(&template.template);
         if let Some(origin) = template.template.origin.as_mut() {
@@ -1455,6 +1494,12 @@ impl App {
 
     /// Save a veterinarian's own version of one heading as a new draft.
     /// Changed items are marked as entered by them; the earlier draft is kept.
+    ///
+    /// `dentition` ("canine" or "feline"): the animal the vet chose in the
+    /// chart editor when the chart had none (ADR-0021 decision 4). It is
+    /// written into the new run's template snapshot, so later edits, re-prompts
+    /// and the PDF draw the same mouth.
+    #[allow(clippy::too_many_arguments)]
     pub fn edit_note(
         &self,
         id: &str,
@@ -1462,6 +1507,7 @@ impl App {
         value: serde_json::Value,
         by: &str,
         pet: Option<&str>,
+        dentition: Option<&str>,
     ) -> Result<NoteResponse> {
         let _work = self.begin_work()?;
         let who = self
@@ -1475,7 +1521,10 @@ impl App {
             ));
         }
         let (run, note) = s.latest_note()?;
-        let template = s.run_template(&run)?;
+        let mut template = s.run_template(&run)?;
+        if let Some(chosen) = dentition.map(str::trim).filter(|d| !d.is_empty()) {
+            template = Self::with_chosen_dentition(&template, heading, chosen, &value)?;
+        }
         let transcript = s.load_transcript()?;
         let mut result =
             os_engine::edit::apply_edit(&template, &transcript, &note, heading, value, &who.name, &run.llm)?;
@@ -1490,6 +1539,41 @@ impl App {
             run: serde_json::to_value(&result)?,
             notice: None,
         })
+    }
+
+    /// The run's template with the chart's dentition the vet chose. Refused
+    /// when the heading isn't the chart, when it already has another
+    /// dentition, or when a charted tooth isn't in the chosen animal's mouth.
+    fn with_chosen_dentition(
+        template: &LoadedTemplate,
+        heading: &str,
+        chosen: &str,
+        value: &serde_json::Value,
+    ) -> Result<LoadedTemplate> {
+        use os_engine::dental::{Dentition, tooth_misfit};
+        let d = os_engine::template::species_key(chosen)
+            .and_then(Dentition::from_species_key)
+            .ok_or_else(|| AppError(format!("A tooth chart is for a dog or a cat, not \"{chosen}\".")))?;
+        match template.chart() {
+            Some((path, _)) if path == heading => {}
+            _ => return Err(AppError(format!("'{heading}' isn't a tooth chart."))),
+        }
+        let refused: Vec<String> = value
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|i| i["tooth"].as_str())
+            .filter(|t| tooth_misfit(t, Some(d)).is_some())
+            .map(String::from)
+            .collect();
+        if !refused.is_empty() {
+            return Err(AppError(format!(
+                "{} aren't in a {}'s mouth. Remove them or choose another animal.",
+                refused.join(", "),
+                d.animal()
+            )));
+        }
+        Ok(template.with_dentition(heading, d)?)
     }
 
     /// Add a signed addendum to a signed note.
@@ -1570,7 +1654,30 @@ impl App {
         Ok((pdf, format!("{name}.pdf")))
     }
 
-    /// Mark the latest draft as signed by `by` (refused while numbers are unsupported).
+    /// Confirm, or take back, a veterinarian's check of the drafted tooth
+    /// chart entries on these teeth of the latest draft (ADR-0021 decision
+    /// 10). Signing waits until every drafted entry is confirmed; a signed
+    /// chart can't change.
+    pub fn confirm_chart(
+        &self,
+        id: &str,
+        teeth: &[String],
+        confirmed: bool,
+        by: &str,
+        pet: Option<&str>,
+    ) -> Result<SessionView> {
+        let _work = self.begin_work()?;
+        let who = self
+            .who(Some(by), Need::ConfirmChart)?
+            .ok_or_else(|| AppError("Add your name in Settings, then confirm the chart.".into()))?;
+        let _lock = self.lock_visit(id, Holder::Saving)?;
+        let mut s = self.open(id, pet)?;
+        s.confirm_teeth_by(teeth, confirmed, &who)?;
+        Ok(view(&s, None))
+    }
+
+    /// Mark the latest draft as signed by `by` (refused while numbers are
+    /// unsupported or a drafted chart entry isn't confirmed).
     pub fn sign(&self, id: &str, by: &str, pet: Option<&str>) -> Result<SessionView> {
         let _work = self.begin_work()?;
         let who = self
@@ -2400,6 +2507,8 @@ enum Need {
     Any,
     Notes,
     Sign,
+    /// Confirm drafted tooth chart entries against the recording (veterinarian).
+    ConfirmChart,
     Team,
     /// Delete, restore or remove an unsigned visit, or see Deleted visits
     /// (veterinarian or technician; ADR-0022 section 1).
@@ -2611,6 +2720,14 @@ fn source_label(source: &str) -> String {
 fn view(s: &Session, transcript: Option<Transcript>) -> SessionView {
     let record = s.latest_record();
     let latest = record.map(|r| s.dir.join(&r.dir));
+    let latest_run: Option<serde_json::Value> = latest
+        .as_ref()
+        .and_then(|d| os_engine::vault::read_to_string(&d.join("note.json")).ok())
+        .and_then(|t| serde_json::from_str(&t).ok());
+    let unconfirmed_teeth = match (record, &latest_run) {
+        (Some(r), Some(saved)) => session::unconfirmed_teeth(r, &saved["note"]),
+        _ => Vec::new(),
+    };
     let latest_template = record.and_then(|r| s.run_template(r).ok()).map(|t| t.template);
     let addenda = record.map(|r| r.addenda.clone()).unwrap_or_default();
     // The latest run of each client document, in the order first drafted.
@@ -2641,10 +2758,7 @@ fn view(s: &Session, transcript: Option<Transcript>) -> SessionView {
         source: source_label(&s.meta.source),
         transcript: transcript.or_else(|| s.load_transcript().ok()),
         stats: s.meta.transcription.as_ref().map(|t| t.stats.clone()),
-        latest_run: latest
-            .as_ref()
-            .and_then(|d| os_engine::vault::read_to_string(&d.join("note.json")).ok())
-            .and_then(|t| serde_json::from_str(&t).ok()),
+        latest_run,
         latest_markdown: latest
             .and_then(|d| os_engine::vault::read_to_string(&d.join("note.md")).ok())
             .map(|md| with_addenda(md, &addenda)),
@@ -2661,6 +2775,8 @@ fn view(s: &Session, transcript: Option<Transcript>) -> SessionView {
         any_signed: s.any_signed(),
         has_audio: s.has_audio(),
         audio_deleted: s.meta.audio_deleted.clone(),
+        chart_checks: record.map(|r| r.chart_checks.clone()).unwrap_or_default(),
+        unconfirmed_teeth,
     }
 }
 

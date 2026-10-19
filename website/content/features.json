@@ -968,8 +968,8 @@
         {
           "name": "Dental chart",
           "benefit": "A tooth chart could be filled from the transcript and edited by click.",
-          "detail": "The plan is a chart with canine and feline Triadan numbering for missing, fractured and mobile teeth, periodontal stage, extraction and resorption. Each finding would link to its transcript line and appear in the note and PDF.",
-          "evidence": "docs/plans/M2.md item 7 ('Not started'); docs/design/DESIGN.md section 5 Dental chart",
+          "detail": "Being tested: a chart with canine and feline Triadan numbering for missing, fractured and mobile teeth, periodontal stage, extraction and resorption. Each finding links to its transcript line and appears in the note and PDF. It isn't released yet.",
+          "evidence": "docs/plans/M2.md item 7 ('Built, awaiting approval'); docs/adr/0021-dental-chart.md (proposed); docs/design/DESIGN.md section 5 Dental chart",
           "status": "coming"
         },
         {
