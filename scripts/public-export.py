@@ -500,12 +500,15 @@ def run_gitleaks(out: Path, candidates: list[str], allow_fp: set[str]) -> tuple[
         results = json.loads(report.read_text(encoding="utf-8") or "[]")
     findings = []
     for r in results:
-        if r.get("Fingerprint") in allow_fp:
-            continue
         try:
             rel = Path(r.get("File", "")).resolve().relative_to(out.resolve()).as_posix()
         except ValueError:
             rel = r.get("File", "")
+        # gitleaks' own fingerprint embeds the absolute export path, so the
+        # config lists `<path in the tree>:<rule>:<line>` instead, which stays
+        # the same wherever the export is written. A moved line is flagged again.
+        if f"{rel}:{r.get('RuleID')}:{r.get('StartLine')}" in allow_fp or r.get("Fingerprint") in allow_fp:
+            continue
         findings.append(Finding("fail", f"gitleaks:{r.get('RuleID')}", rel, r.get("StartLine"),
                                 f"{r.get('Description')} (fingerprint {r.get('Fingerprint')})"))
     version = subprocess.run([exe, "version"], capture_output=True, text=True).stdout.strip()

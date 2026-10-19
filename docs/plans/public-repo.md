@@ -1,23 +1,23 @@
 # Plan: the public source repository
 
-Status: **prepared, not published.** Date: 2026-10-18. Last export: commit `17f2195` of `main`.
+Status: **ready, not published.** Date: 2026-10-19. Last export: branch `chore/public-export` (v0.1.1, `44e9269`, plus the repo-role wording in this repo's docs).
 
-OpenBark's public source repository starts from **one clean commit**, built from this repository's committed tree by `scripts/public-export.py`. This repository and its history stay private. The public tree leaves out the AI working files, carries no co-author lines, names no individuals, and credits only "the ANI.ML Health team".
+OpenBark's public source repository, `ANI-ML/openbark`, is a **published copy**: one clean commit per release, built from this repository's committed tree by `scripts/public-export.py` and authored as "ANI.ML Health". Development, CI, releases and their secrets stay in this repository, which is renamed `ANI-ML/openbark-dev`. Outside pull requests are reviewed on the public repo and ported here by hand. The public tree leaves out the AI working files, carries no co-author lines, names no individuals, and credits only "the ANI.ML Health team".
 
 This file is private process documentation. The export leaves it out, together with the export script and its config.
 
 ## Outcome
 
-- The export runs end to end and **the gate passes**: no forbidden words, no personal details, no "the repo is private" claims, and no secrets (gitleaks 8.30.1 found nothing, and the built-in secret patterns found nothing).
-- **Three blockers remain**, so the export is not ready to publish (the script exits with code 3): the help videos, the public repo's name, and the public repo's role. See [Blockers](#blockers).
-- 456 committed files were exported, 9 left out, 447 kept (382 text, 65 binary), 6.59 MB in total. `git init` and `git add -A` in the export folder stage all 447 files, ignore none, and there is no remote and no commit.
+- The export runs end to end and **the gate passes with exit code 0**: no forbidden words, no personal details, no "the repo is private" claims, and no secrets. gitleaks 8.30.1 reports 14 findings, every one a test value, a hash or the portal's publishable key, each reviewed and listed by location in the config; the built-in secret patterns find nothing outside six reviewed exceptions (see [The final gate](#the-final-gate)).
+- **No blockers remain.** The three earlier blockers were resolved by owner decisions on 2026-10-19 (see [Decisions that resolved the blockers](#decisions-that-resolved-the-blockers)).
+- 590 committed files were exported, 7 left out, 583 kept (504 text, 79 binary), 114.80 MB in total, of which 103 MB are the 14 Help videos. `git init` and `git add -A` in the export folder stage all 583 files, ignore none, and there is no remote and no commit.
 
 ## How the export works
 
 `scripts/public-export.py` (Python 3.11+, standard library only) does five things, in order:
 
 1. **Archive.** `git archive <ref>` (default `HEAD`) into an empty folder, so untracked and ignored files are never exported. Line endings follow `.gitattributes`.
-2. **Exclude.** Removes the files listed under `[[exclude]]` and under any `[[blocker]]` with `action = "exclude"`.
+2. **Exclude.** Removes the files listed under `[[exclude]]` and under any `[[blocker]]` with `action = "exclude"` (there are none now).
 3. **Scrub.** Applies the reviewed `[[scrub]]` rules: exact phrases (or a few anchored regular expressions) replaced in the exported copy only. **Every rule must still match** (at least once, or exactly `expect` times). If the source changed and a rule no longer matches, the export stops with a configuration error, so the change gets reviewed instead of slipping through.
 4. **Rebuild.** Re-runs the generators inside the export folder (`[[rebuild]]`: `scripts/website-build.py`), so `website/dist` and `CHANGELOG.md` match the scrubbed sources.
 5. **Gate.** Scans every exported file, by name and content, text and binary, against the `[gate]` patterns, runs gitleaks when it is available plus the built-in secret patterns in every case, and checks that the files a public repo needs are present. Optionally (`--git-init`) runs `git init` and `git add -A` inside the export folder only.
@@ -36,31 +36,31 @@ python scripts/public-export.py --out ../openbark-public --ref <commit>      # e
 
 Exit codes: **0** gate passed and no blockers (ready to publish); **3** gate passed but blockers remain; **1** gate failed; **2** configuration error, including a scrub rule that no longer matches. Each run writes a full JSON report beside the folder (`../openbark-public.report.json`): the excluded files, every replacement by file, every gate finding, the blockers and the file statistics.
 
-The gitleaks location is configured under `[gate] gitleaks` in the config; if it isn't found, `gitleaks` on `PATH` is used, and if neither exists the built-in secret patterns still run.
+The gitleaks location is configured under `[gate] gitleaks` in the config; if it isn't found, `gitleaks` on `PATH` is used, and if neither exists the built-in secret patterns still run. Reviewed gitleaks findings are listed as `<path in the export>:<rule>:<line>` under `gitleaks_allow_fingerprints`, so the list doesn't depend on where the export is written; a finding that moves to another line is flagged again.
 
 ## What is excluded, and why
 
-The exact names and patterns are under `[[exclude]]` and `[[blocker]]` in `scripts/public-export.toml`.
+The exact names and patterns are under `[[exclude]]` in `scripts/public-export.toml`.
 
 | What | Files in this export | Why |
 |---|---|---|
 | The AI coding assistant's working-notes file at the repository root | 1 | Internal working notes for the coding tool, and its name names the tool. |
 | The original product brief at the repository root | 1 | Written as a prompt for the coding tool. Contains open decisions for the owner and a competitor feature and pricing comparison. |
-| The seven in-app Help videos, `apps/desktop/public/help/*.webm` | 7 | **Blocked:** the recordings show local folder paths that include a Windows username. Left out until re-recorded. |
+| The daily download-stats workflow and its script (`.github/workflows/download-stats.yml`, `scripts/download-stats.py`) | 2 | It runs only in the development repo (`docs/network.md` B7 says so). In the public copy its schedule would run too and push a public `stats` branch. |
 | AI assistant settings and instruction folders, scratch files, logs, editor and merge leftovers, Python caches, `.env` files and key material | 0 | Guards: nothing like this is committed today, but the rules stay in case something is. |
-| This export tooling: `scripts/public-export.py`, `scripts/public-export.toml` and this file | 0 (not committed yet) | Private process documents; the config spells out the forbidden words. |
+| This export tooling: `scripts/public-export.py`, `scripts/public-export.toml` and this file | 3 | Private process documents; the config spells out the forbidden words. |
 
-Leaving out the Help videos removes `apps/desktop/public` entirely, since it holds nothing else. The app still builds; the Help screen shows empty players until the videos are back.
+The 14 Help videos (`apps/desktop/public/help/*.webm`, light and dark) are exported. They were re-recorded on a demo with neutral `C:\OpenBark-demo` folders; a frame every 3 seconds of each was checked for user names, AppData, Temp, scratch folders and personal names, and none appear. The demo names on screen (Dr. Demo, Dr. Laurent, Okonkwo, Tanaka) are invented.
 
 ## Text scrubs
 
-249 rules made 295 replacements in 52 files. All of them are in the appendix, with what each one changes and why. In short:
+270 rules made 316 replacements in 60 files. All of them are in the appendix, with what each one changes and why. In short:
 
-- **AI working traces.** The original brief was called the "master prompt"; every mention becomes "product brief" (32 places, including two Rust doc comments). References to the excluded working-notes file, an instruction addressed to the coding tool by name in `docs/design/DESIGN.md`, mentions of AI design "skills" and "agents", an assistant speaking in the first person to the owner ("I'll install these", "the GitHub connector here isn't authorised", "paste it into the chat"), and verbatim quotes of the owner's requests to the coding tool are reworded or removed. The "Original decision notes" section of `docs/plans/M0.md` is removed: it was a conversation between the assistant and the owner, named third parties' personal GitHub accounts and held trademark research. The resolved table above it keeps every outcome.
-- **Personal details.** The owner's personal email address (four places), the owner's iPhone, Mac, mobile number, accounts and real data, the owner's games and streaming during benchmarks, and owner to-do lists become neutral wording ("a test iPhone", "a development machine", "Setup still needed: ...").
-- **Internal company matters.** Another ANI.ML product, the internal Supabase project identifier (11 places), budget and "new spend" lines, the GitHub billing problem, "spun out" wording and a planned trademark search.
-- **Private-repo claims.** Every "the repo is private" line becomes neutral wording, and `website/README.md` no longer says the main repo stays private.
-- **The website copy in the export.** `scripts/website-build.py` gets `SOURCE_URL = "https://github.com/ANI-ML/openbark"`, the landing-page template keeps only its "source public" text, the "source will be public" feature becomes "shipped", and the site is rebuilt. The public copy therefore says "open source" and links to its own source instead of "isn't public yet". The live site is switched separately (publish step 9).
+- **AI working traces.** The original brief was called the "master prompt"; every mention becomes "product brief" (32 places, including two Rust doc comments). References to the excluded working-notes file, an instruction addressed to the coding tool by name in `docs/design/DESIGN.md`, mentions of AI design "skills", "agents" and an agent "track brief", an assistant speaking in the first person to the owner ("I'll install these", "the GitHub connector here isn't authorised", "paste it into the chat"), and verbatim quotes of the owner's requests to the coding tool are reworded or removed. The "Original decision notes" section of `docs/plans/M0.md` is removed: it was a conversation between the assistant and the owner, named third parties' personal GitHub accounts and held trademark research. The resolved table above it keeps every outcome. One entry of the help-video frame-leak guard named the assistant's scratch folder; the AppData, Temp and Users entries beside it still catch such paths.
+- **Personal details.** The owner's personal email address (four places), the owner's iPhone, Mac, mobile number, accounts and real data, the owner's games and streaming during benchmarks, owner to-do lists and "the owner decided" phrasing become neutral wording ("a test iPhone", "a development machine", "Setup still needed: ...", "it was decided").
+- **Internal company matters.** Another ANI.ML product, the internal Supabase project identifier where it appears in plans (ADR-0017, M3 and the sync line of `docs/network.md`), budget and "new spend" lines, the GitHub billing problem, "spun out" wording and a planned trademark search.
+- **Private-repo claims.** Lines that said "the repo is private" become neutral wording. The docs that describe the repos (`CONTRIBUTING.md`, `website/README.md`, ADR-0020, the code-signing runbook, `docs/network.md`, `release.yml`) were reworded in this repository on 2026-10-19 to describe the development repo and the public copy accurately, so they need no scrubs.
+- **The website copy in the export.** `scripts/website-build.py` gets `SOURCE_URL = "https://github.com/ANI-ML/openbark"`, the landing-page template keeps only its "source public" text, the "source will be public" feature becomes "shipped", and the site is rebuilt. The public copy therefore says "open source" and links to its own source. The live site is switched separately: branch `chore/source-public` (publish step 9).
 - **A real bug.** `README.md` has an editing instruction pasted inside the build commands ("Add `pnpm --filter ...` before the serve line, with the comment: ..."). The export replaces it with the two commands from `CONTRIBUTING.md`. **Fix it in this repository too.**
 
 Facts are never invented: rewordings keep every technical fact and drop only the personal or internal part. Where a sentence's only content was internal (a to-do item, a quote), it is removed.
@@ -86,85 +86,102 @@ Every exported file is checked, by name and content, in text and in binary form.
 | required files | `LICENSE`, `NOTICE`, `README.md`, `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `CHANGELOG.md`, `.gitignore` and `.gitattributes` must exist. |
 | secrets | gitleaks (`gitleaks dir`, run from a temporary folder with inline allow comments ignored, and refused if the tree contains its own gitleaks config), plus built-in patterns for AWS, GitHub, Slack, Google, Stripe, SendGrid, Twilio, Hugging Face and OpenAI-style keys, JWTs, private-key blocks and literal credentials. |
 
-Two warning patterns are listed for a human look but don't fail: "product owner" (31 remaining mentions, all of them the role in ADR deciders lines, approvals and requirements) and first-person assistant phrasing (none left). "Owner" on its own is not flagged, because it almost always means the animal's owner.
+**Reviewed exceptions** (`[[gate.allow]]`, each limited to named files and exact text; none of the patterns was changed):
 
-Third-party names that stay on purpose: the pyannote credit "CNRS (Herve Bredin)" in `NOTICE` (a licence attribution), upstream model and library repositories in `docs/versions.md`, and the invented patient, client and clinician names in the fixtures and UI examples.
+| Pattern | Files | Why |
+|---|---|---|
+| supabase-project-ref | `website/src/portal.js`, `website/dist/**`, `scripts/website-build.py`, both `vercel.json`, `apps/desktop/e2e/website.mjs`, `docs/network.md`, `supabase/README.md`, the delete-account function | The account portal's project URL and session key. They are in the live website's code that every visitor downloads, the CSP must name the host, and `docs/network.md` must list every host. The key in `portal.js` is the **publishable** key (`sb_publishable_...`); no `sb_secret_` or service-role key is anywhere in the tree. |
+| twilio-key | `engine/os-connect/**` | Test placeholders: sequential-hex or all-f SIDs. |
+| jwt | `engine/os-connect/fixtures/twilio-node-access-tokens.json` | Test vectors made by twilio-node from those placeholders and the secret `fixture-secret-not-a-real-key-000`; their HMAC signatures were re-checked with that secret. |
+| openai-hf-keys, assigned-secret | two test files | A made-up Hugging Face token (the alphabet). |
+| internal-projects | `apps/desktop/public/help/*.webm` | Three bytes, "ARC", inside compressed video data in three of the videos. The gate's binary scan reports only the first match per file, so the audit scanned every binary file for every internal name and found nothing else. |
 
-## Blockers
+The 14 gitleaks findings are the same Twilio test values and fixture tokens, a git blob hash in `scripts/mlx-test-env.sh`, and the publishable key in `website/src/portal.js` and `website/dist/portal.js`.
 
-The export leaves blocked files out, and lists the rest. While any blocker is in the config the script exits with code 3.
+Two warning patterns are listed for a human look but don't fail: "product owner" (32 remaining mentions, all of them the role in ADR deciders lines, approvals and requirements) and first-person assistant phrasing (none left). "Owner" on its own is not flagged, because it almost always means the animal's owner.
 
-1. **Help videos (`help-videos`).** All seven Help videos show local folder paths that include a Windows username. Re-record them with `apps/desktop/e2e/help-videos.mjs` using neutral data folders (for example `OPENBARK_SESSIONS_DIR=C:\OpenBark-demo\visits` and `OPENBARK_MODELS_DIR=C:\OpenBark-demo\models`), scan every frame, commit them, then delete the blocker so they are exported again.
-2. **The public repo's name (`public-repo-name`).** Owner decision: rename this repository (for example to `openbark-dev`) so the public one can be `ANI-ML/openbark`, or give the public one a new name. Links to `github.com/ANI-ML/openbark` appear in `SECURITY.md`, `.github/ISSUE_TEMPLATE`, `Cargo.toml`, `apps/desktop/src-tauri/tauri.conf.json`, `docs/runbooks/code-signing.md`, `apps/desktop/e2e/website.mjs` and the export's `SOURCE_URL`. If the name differs, add scrub rules for those links, or change them here first.
-3. **The public repo's role (`public-repo-role`).** Owner decision: is the public repo a one-time snapshot, a periodic export from here, or the new home of development (issues, pull requests, CI and releases)? Several files assume releases are built from this private repo: `.github/workflows/release.yml` and `website-release.yml` (the `PUBLIC_RELEASES_TOKEN` secret and the releases repo), `docs/adr/0020-code-signing.md` and `docs/runbooks/code-signing.md` (signing secrets in an environment on `ANI-ML/openbark`), and `website/README.md` (Vercel imports `ANI-ML/openbark`). In a public repo without those secrets, the release workflows fail when a tag is pushed. Reword those files here once the answer is known.
+Third-party names that stay on purpose: the pyannote credit "CNRS (Herve Bredin)" in `NOTICE` (a licence attribution), upstream model and library repositories in `docs/versions.md`, and the invented patient, client and clinician names in the fixtures, UI examples and Help videos.
+
+## Decisions that resolved the blockers
+
+Owner decisions, 2026-10-19:
+
+1. **Help videos (`help-videos`).** Re-recorded on a demo with neutral `C:\OpenBark-demo` folders and checked frame by frame; exported again.
+2. **The public repo's name (`public-repo-name`).** The public repo is `ANI-ML/openbark`. This repository is renamed `ANI-ML/openbark-dev` first, so every `github.com/ANI-ML/openbark` link in the tree (`SECURITY.md`, `.github/ISSUE_TEMPLATE`, `CONTRIBUTING.md`, `Cargo.toml`, the website's Source links) points at the public repo.
+3. **The public repo's role (`public-repo-role`).** A published copy, refreshed each release with one clean commit authored as "ANI.ML Health". Development stays private; outside pull requests are ported by hand. `CONTRIBUTING.md` explains this to contributors, and `website/README.md`, ADR-0020, the code-signing runbook, `docs/network.md` and `release.yml` say that releases, signing secrets, the Azure federated credential, the releases token and the Vercel connection belong to `ANI-ML/openbark-dev`.
 
 ## Owner decisions and follow-ups (not blocking)
 
+- **Credit for ported pull requests.** One commit per release, authored as ANI.ML Health, leaves an outside contributor's name out of the public history. Decide whether to thank them in the release notes or the changelog entry, or with a `Co-authored-by` line in the release commit (that line is in the commit message, which the gate doesn't scan, but the publish check in step 6 expects no trailers; change one or the other).
+- **Tags and workflows on the public copy.** `release.yml` runs on any pushed `v*` tag: on the public copy it would build unsigned installers, create a draft release there and fail at the releases repo. Don't push tags there, or, once the rename is done, add `if: github.repository == 'ANI-ML/openbark-dev'` to the release and website-release jobs (not before: today this repo is still `ANI-ML/openbark`). CI on pull requests to the public repo is fine and useful.
+- **Dependabot on the public copy.** `.github/dependabot.yml` will open version-update pull requests on the public repo too. They can't be merged there; turn version updates off on the public repo (keep alerts and security updates), or port them like any other pull request.
+- **Repository size.** The Help videos add 103 MB, and each release that re-records them adds that much again to the public history. Consider serving them from the website or a release instead.
+- **The Supabase project identifier in plans.** ADR-0017, M3 and the sync line of `docs/network.md` still hide it, although the portal files now publish it. Fine as is; drop those scrubs if the plans should name the project.
 - **Trademark search.** The plans said a formal trademark search on "OpenBark" should happen before the public launch. The export removes that internal to-do; the search itself is still open.
 - **"Product brief" citations.** About 60 places (docs, `website/content/features.json` evidence, two code comments) cite sections of the product brief, which is not published. Leave them, publish a cleaned brief, or reword them here.
-- **Commit hashes in the features list.** 15 `evidence` fields in `website/content/features.json` cite commits (for example `3888f20`) that won't exist in the public history. Consider citing files instead.
-- **An out-of-date feature fact.** `website/content/features.json` still says there is "no delete-visit function", but deleting visits (phase 1) has shipped. Fix it here.
+- **Commit hashes in the features list.** About 15 `evidence` fields in `website/content/features.json` cite commits (for example `3888f20`) that won't exist in the public history. Consider citing files instead.
 - **The README build block** (see Text scrubs). Fix it here.
-- **Social image.** `website/public/og-image.png` still has the "free" wording. Re-render it with `SOURCE_PUBLIC=1 node e2e/brand-images.mjs --og` when the live site is switched.
-- **The account portal (in progress, not committed at this export).** It puts the Supabase project URL and its publishable key into `website/src/portal.js`, `website/dist`, `scripts/website-build.py`, `docs/network.md` and `supabase/`. A publishable key is public by design, since every visitor's browser receives it, but once that work is committed the gate will flag the project identifier (and possibly the key as a JWT or token). Decide whether it is fine to publish, then add reviewed `[[gate.allow]]` rules for those files, and retire the scrub rules that hide the identifier in `docs/network.md`, ADR-0017 and M3 (they will stop matching, which stops the export until they are updated).
+- **Social image.** `website/public/og-image.png` in this export still has the "free" wording. `chore/source-public` re-renders it; the next export after that branch is merged carries the new one.
 - **`SECURITY.md` response targets** (five and ten business days) are still to be confirmed.
-- **Publisher name.** `apps/desktop/src-tauri/tauri.conf.json` says "ANI-ML", while `NOTICE` says "ANI.ML Health Inc.".
 - **`scripts/bench.sh`** names its results folder after the computer's host name, which can put a contributor's machine name into the repo, and downloads fixture audio from a `fixtures-v1` release that a fresh public repo won't have unless it is recreated (or regenerated with `tools/fixture-tts`).
 - **`.gitignore`** has no `__pycache__/` entry, although the repo has Python scripts.
-- **Same fixes here.** Most scrubs are improvements this repository could take as well (owner to-dos, quotes, the private-repo lines). Applying them here makes the scrub list shorter and the export easier to keep up to date.
+- **Same fixes here.** Most scrubs are improvements this repository could take as well (owner to-dos, quotes, "the owner decided"). Applying them here makes the scrub list shorter and the export easier to keep up to date. "Dev box" references to the reference Windows machine are kept: they describe test hardware, not a person.
 
 ## Export size and file list
 
 | Folder | Files | Size |
 |---|---|---|
 | (root) | 19 | 0.29 MB |
-| `.github` | 9 | 0.02 MB |
-| `apps` | 148 | 1.50 MB |
-| `docs` | 75 | 0.89 MB |
-| `engine` | 62 | 0.81 MB |
-| `install` | 11 | 0.04 MB |
-| `packages` | 89 | 2.39 MB |
-| `scripts` | 11 | 0.05 MB |
+| `.github` | 10 | 0.06 MB |
+| `apps` | 194 | 107.40 MB |
+| `docs` | 79 | 1.14 MB |
+| `engine` | 115 | 2.39 MB |
+| `install` | 13 | 0.04 MB |
+| `packages` | 98 | 2.62 MB |
+| `scripts` | 23 | 0.13 MB |
+| `supabase` | 5 | 0.02 MB |
 | `tools` | 2 | 0.01 MB |
-| `website` | 21 | 0.61 MB |
-| **Total** | **447** (382 text, 65 binary) | **6.59 MB** |
+| `website` | 25 | 0.71 MB |
+| **Total** | **583** (504 text, 79 binary) | **114.80 MB** |
 
-The largest file is the CI smoke clip `packages/eval/fixtures/audio/smoke.wav` (1.6 MB). With the Help videos back, the tree grows by about 26 MB.
+The largest files are the Help videos (`record.webm` 15.5 MB, `record-dark.webm` 15.3 MB, `review-dark.webm` 12.3 MB); every file is under GitHub's 100 MB limit.
 
 ## Checks run on the exported tree
 
-- **README** reads correctly for the public: "free, open-source", the ANI.ML Health team credit, beta caveats, and no "private" claims. The build block now has real commands.
+- **Independent audit** beyond the gate, case-insensitive: no AI tool or vendor name, no owner name or personal email (only we.care@animl.health and `example.com` addresses), no Windows user name, AppData only as the product's own install and data paths, no scratch folders, no other ANI.ML product, no budget or spending notes (only public list prices and token "budgets"), no TODOs naming people, no absolute local paths except invented test paths (`/Users/sam`, `/Users/x`, `/home/vet`, `<other user>`). Every remaining "owner" is the animal's owner or the product-owner role. ADR-0017, ADR-0018 and M3 carry no name, email, ARC or budget.
+- **No key material**: no `.p12`, `.p8`, `.key`, `.pem`, `.pfx`, `.env` or `.asc` files, and no Supabase secret or service-role key.
+- **Help videos**: a frame every 3 seconds of all 14 was checked: only `C:\OpenBark-demo` paths and invented names.
 - **`LICENSE`, `NOTICE`, `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `CHANGELOG.md`** are present. `NOTICE` credits "ANI.ML Health Inc. and OpenBark contributors" and "the ANI.ML Health team".
-- **Code is unchanged except comments.** Compared with the archived commit, the only code changes are two Rust doc comments, comments in `scripts/bench.sh` (an echo line), `scripts/macos-dmg.sh`, `apps/desktop/e2e/brand-images.mjs` and `.github/workflows/release.yml`, and in `scripts/website-build.py` the `SOURCE_URL` value and a comment. The changed scripts pass `python -m py_compile`, `bash -n` and `node --check`, and `website/content/features.json` is valid JSON.
-- **Website.** The rebuild in the export succeeded. Against this repository's `website/dist`, the only differences are the intended ones: "open-source" wording, the Source code links, and the scrubbed feature text. `CHANGELOG.md` is byte-identical.
-- **`git init` and `git add -A`** inside the export folder stage all 447 files; `.gitignore` drops none, there is no remote, and nothing is committed.
+- **Code is unchanged except comments and one string.** The only code changes are doc comments (two Rust files from the "product brief" rule, `twiml.rs`, two template files), comments in `scripts/bench.sh`, `scripts/macos-dmg.sh`, `brand-images.mjs` and the delete-account function, the `SOURCE_URL` value and a comment in `scripts/website-build.py`, and one entry removed from the help-video leak guard. The changed scripts pass `node --check`, `python -m py_compile` and `bash -n`, and `website/content/features.json` is valid JSON.
+- **Website.** The rebuild in the export succeeded.
+- **`git init` and `git add -A`** inside the export folder stage all 583 files; `.gitignore` drops none, there is no remote, and nothing is committed.
 
 ## Publish steps (for later)
 
-Do these only after the blockers are cleared and the owner says go. None of this has been done.
+Do these only when the owner says go. None of this has been done.
 
-1. **Clear the blockers.** Re-record and commit the Help videos, decide the name and the role, update the config to match, and delete the three `[[blocker]]` entries.
-2. **Name.** If the public repo is to be `ANI-ML/openbark`, rename this repository first (for example to `ANI-ML/openbark-dev`; GitHub redirects the old URL until a new repo takes the name). Update this repository's remote and any secrets or webhooks that name it (Vercel's Git connection, `PUBLIC_RELEASES_TOKEN`).
-3. **Create the public repo** in the ANI-ML organisation, empty (no README, licence or `.gitignore` from GitHub), with **private** visibility for now.
-4. **Turn on protections before the first push** (Settings, then Code security, or Advanced Security): secret scanning, **push protection**, private vulnerability reporting (`SECURITY.md` relies on it), Dependabot alerts and Dependabot security updates. `.github/dependabot.yml` is in the tree for version updates.
+1. **Blockers.** Cleared (see above).
+2. **Rename.** Rename this repository to `ANI-ML/openbark-dev` (GitHub redirects the old URL until a new repo takes the name). Update local remotes. Check what names the repo: Vercel's Git connection (it follows a rename, but confirm the next deploy), the Azure federated credential's subject if signing is set up (runbook B8: it must become `repo:ANI-ML/openbark-dev:environment:release`), and any webhooks. `PUBLIC_RELEASES_TOKEN` is a secret on this repo and moves with it.
+3. **Create the public repo** `ANI-ML/openbark` in the ANI-ML organisation, empty (no README, licence or `.gitignore` from GitHub), with **private** visibility for now.
+4. **Turn on protections before the first push** (Settings, then Code security, or Advanced Security): secret scanning, **push protection**, private vulnerability reporting (`SECURITY.md` relies on it), Dependabot alerts and Dependabot security updates (and decide on version updates, see follow-ups).
 5. **Export and check.** `python scripts/public-export.py --out ../openbark-public --git-init --force` must end with `RESULT: gate passed` and exit code 0. Read through `README.md` and skim the JSON report.
 6. **Make the single commit as the company.** In `../openbark-public` only:
    ```bash
    git config user.name "ANI.ML Health"
    git config user.email "we.care@animl.health"       # or the company's GitHub noreply address
-   git commit -m "OpenBark: first public release"     # signed with a company key, if commits are signed
+   git commit -m "OpenBark 0.1.1"                     # signed with a company key, if commits are signed
    git log --format='%an <%ae> | %cn <%ce>%n%B'        # check: only the company identity, no trailers
    git rev-list --count HEAD                           # check: 1
    ```
-   This computer has no global git identity, so these local settings decide the author. To keep AI working files out of future commits without naming them in `.gitignore`, list them in `.git/info/exclude` of this clone.
-7. **Push.** `git remote add origin https://github.com/ANI-ML/<name>.git`, then `git push -u origin main`. Never push this private repository's history there, and never make this repository public.
-8. **Protect `main`** (a branch ruleset): require a pull request with one approval, require the CI status checks to pass, block force pushes and deletion, and require linear history (signed commits optional). Set the description, the homepage `https://www.openbark.io`, topics, and the social preview image (`docs/brand/images/github-social-preview.png`). Then switch the visibility to **public**.
-9. **Switch the live website.** In this repository: set `SOURCE_URL` in `scripts/website-build.py` to the public repo's URL, run `python scripts/website-build.py`, re-render the social image (`cd apps/desktop && SOURCE_PUBLIC=1 node e2e/brand-images.mjs --og`), rebuild so `website/dist` gets it, commit and push to `main`. Vercel deploys it. Dropping the template's "source private" branches (as the export does) is worth doing at the same time.
+   The local settings decide the author, whatever the computer's global identity is. To keep AI working files out of future commits without naming them in `.gitignore`, list them in `.git/info/exclude` of this clone.
+7. **Push.** `git remote add origin https://github.com/ANI-ML/openbark.git`, then `git push -u origin main`. Never push this private repository's history there, and never make this repository public.
+8. **Protect `main`** (a branch ruleset): block force pushes and deletion, and require linear history. Pull-request rules matter less, since outside pull requests are ported rather than merged. Set the description, the homepage `https://www.openbark.io`, topics, and the social preview image (`docs/brand/images/github-social-preview.png`). Then switch the visibility to **public**.
+9. **Switch the live website.** Merge branch `chore/source-public` into `main` here: it sets `SOURCE_URL`, rebuilds `website/dist` and re-renders the social image. Vercel deploys it.
 10. **Check from outside.** Open the public repo signed out: the README renders, the licence is detected, and the Security tab offers "Report a vulnerability". Search the public repo with GitHub code search for the gate words. Confirm secret scanning shows no alerts, and that the website's Source code links open the repo.
 
 ### Later updates
 
-If the public repo stays an export (blocker 3), update it by exporting again into a fresh folder, copying the result over a clone of the public repo (everything except `.git`), and committing as the company, as in step 6. Every scrub rule must still match, so source changes that touch a scrubbed line stop the export until the rule is reviewed. If development moves to the public repo instead, the export is used once and this repository is archived.
+For each release: export again into a fresh folder, copy the result over a clone of the public repo (everything except `.git`, deleting files that are gone), and commit once as the company, as in step 6 (for example "OpenBark 0.1.2"). Every scrub rule must still match, so source changes that touch a scrubbed line stop the export until the rule is reviewed. Outside pull requests on the public repo are reviewed there, ported to this repository by hand, and closed with a note naming the release that includes them.
 
 ## Appendix: every scrub rule
 
@@ -176,12 +193,6 @@ Rules run in the order they appear in the config, global rules first; they are g
 |---|---|---|
 | `global-master-prompt` | 32 (docs/adr/0001-inference-libraries.md: 2, docs/adr/0004-monorepo-and-tooling.md: 1, docs/adr/0005-optional-cloud-sync.md: 2, docs/adr/0018-iphone-app.md: 2, docs/network.md: 1, docs/perf/M0.md: 2, docs/plans/M0.md: 9, docs/spikes/S1-mobile-audio-and-inference.md: 4, docs/spikes/S2-native-linking.md: 4, docs/versions.md: 2, engine/os-engine/src/faithfulness.rs: 1, engine/os-llm/src/lib.rs: 1, website/content/features.json: 1) | The 'master prompt' is the original product brief written for the AI coding assistant (excluded above). Neutral name for the same document. |
 | `global-master-prompt-capital` | 1 (docs/plans/M0.md: 1) | As global-master-prompt, sentence case. |
-
-**.github/workflows/release.yml**
-
-| Rule | Changes | Why |
-|---|---|---|
-| `release-yml-private` | 1 | Private-repo claim in a comment. |
 
 **README.md**
 
@@ -338,7 +349,7 @@ Rules run in the order they appear in the config, global rules first; they are g
 |---|---|---|
 | `adr0020-deciders` | 1 | Private-conversation phrasing. |
 | `adr0020-apple-membership` | 1 | The owner's personal account and spending. |
-| `adr0020-private-repo` | 1 | Private-repo claim and an internal account question; the GitHub facts are kept. |
+| `adr0020-private-repo` | 1 | An internal account question (which GitHub plan). The paragraph now describes the repos accurately, so only that line goes. |
 | `adr0020-individual` | 1 | The owner's personal account status. |
 | `adr0020-account-holder` | 1 | Owner errand. |
 | `adr0020-mac-cost` | 1 | Company spending status. |
@@ -352,9 +363,9 @@ Rules run in the order they appear in the config, global rules first; they are g
 | `adr0020-risk-enrol` | 1 | The owner's personal account. |
 | `adr0020-cost-summary` | 1 | Company spending status ('new spend', 'already paid'); public list prices are kept. |
 | `adr0020-eligibility` | 1 | Internal company detail. |
-| `adr0020-alt-signpath` | 1 | Private-repo claim. |
 | `adr0020-alt-attestations` | 1 | Private-repo claim. |
 | `adr0020-alt-cosign` | 1 | Private-repo claim. |
+| `adr0020-unsigned-decision` | 1 | Owner-personal phrasing. |
 
 **docs/adr/0021-dental-chart.md**
 
@@ -362,6 +373,8 @@ Rules run in the order they appear in the config, global rules first; they are g
 |---|---|---|
 | `adr0021-deciders` | 1 | Verbatim quote of the owner's instruction to the coding assistant. |
 | `adr0021-access-refused` | 1 | Reads as an automated fetch-tool error. |
+| `adr0021-status-approval` | 1 | Owner-personal phrasing. |
+| `adr0021-chart-decision` | 1 | Owner-personal phrasing. |
 
 **docs/adr/0022-deleting-visits.md**
 
@@ -398,6 +411,18 @@ Rules run in the order they appear in the config, global rules first; they are g
 | `adr0024-standing-rules` | 1 | Refers to the excluded assistant working-notes file. |
 | `adr0024-decisions-heading` | 1 | Owner-addressed heading (section number kept; it is cited). |
 | `adr0024-owner-decisions` | 1 | Owner-personal phrasing. |
+| `adr0024-decisions-built` | 1 | Owner-personal phrasing. |
+
+**docs/adr/0025-mlx-and-models-of-your-choice.md**
+
+| Rule | Changes | Why |
+|---|---|---|
+| `adr0025-deciders` | 1 | Verbatim quotes of the owner's requests to the coding assistant; paraphrased. |
+| `adr0025-amends` | 1 | Owner-personal phrasing. |
+| `adr0025-what-was-asked` | 1 | Private-conversation phrasing. |
+| `adr0025-owner-wants` | 1 | Owner-personal phrasing and owner hardware. |
+| `adr0025-dev-box` | 1 | Owner hardware. |
+| `adr0025-alt-labels` | 1 | Owner-personal phrasing. |
 
 **docs/design/DESIGN.md**
 
@@ -406,6 +431,13 @@ Rules run in the order they appear in the config, global rules first; they are g
 | `design-provided-by` | 1 | Owner-personal phrasing. |
 | `design-amended` | 1 | Owner-personal phrasing. |
 | `design-assistant-instruction` | 1 | Instruction addressed to the AI coding assistant by name. |
+
+**docs/eval/M2.md**
+
+| Rule | Changes | Why |
+|---|---|---|
+| `eval-m2-owner-decide` | 1 | Owner-personal phrasing. |
+| `eval-m2-chart-decision` | 1 | Owner-personal phrasing. |
 
 **docs/network.md**
 
@@ -509,6 +541,15 @@ Rules run in the order they appear in the config, global rules first; they are g
 | `dental-never-4317` | 1 | Points at the owner's real instance. |
 | `dental-approves` | 1 | Owner-personal phrasing. |
 
+**docs/plans/mlx-models.md**
+
+| Rule | Changes | Why |
+|---|---|---|
+| `mlx-never-real-folder` | 1 | Owner's machine and real data. |
+| `mlx-removal-real-folder` | 1 | Owner's machine. |
+| `mlx-track-brief-probes` | 1 | Points at an AI-agent working brief and research files outside the repository. |
+| `mlx-track-brief-prototype` | 1 | The same. |
+
 **docs/plans/telephony.md**
 
 | Rule | Changes | Why |
@@ -533,7 +574,7 @@ Rules run in the order they appear in the config, global rules first; they are g
 
 | Rule | Changes | Why |
 |---|---|---|
-| `tpl-status` | 1 | Owner-personal phrasing. The ADR records the decisions; the plan predates them. |
+| `tpl-status` | 1 | Owner-personal phrasing in the plan's status line. |
 | `tpl-never-4317` | 1 | Owner's machine and real data. |
 | `tpl-eval-row` | 1 | Owner hardware. |
 | `tpl-owner-decides` | 1 | Owner-personal phrasing. |
@@ -543,6 +584,7 @@ Rules run in the order they appear in the config, global rules first; they are g
 | Rule | Changes | Why |
 |---|---|---|
 | `sign-audience` | 1 | Owner-personal audience. |
+| `sign-still-to-do` | 1 | Owner errand heading. |
 | `sign-cost-row` | 1 | Company spending status. |
 | `sign-new-spending` | 1 | Company spending. |
 | `sign-personal-name` | 1 | The owner's personal account. |
@@ -618,7 +660,6 @@ Rules run in the order they appear in the config, global rules first; they are g
 | Rule | Changes | Why |
 |---|---|---|
 | `dmg-owner-mac` | 1 | Owner hardware. |
-| `dmg-owner-call` | 1 | Internal spending decision. |
 
 **scripts/website-build.py**
 
@@ -627,12 +668,34 @@ Rules run in the order they appear in the config, global rules first; they are g
 | `site-source-url` | 1 | The public copy is the public source, so the site it generates links to it instead of saying the code isn't public. Change the URL here if the public repo gets another name. |
 | `site-preview-comment` | 1 | Names an AI-assistant preview feature. |
 
+**apps/desktop/e2e/help-videos.mjs**
+
+| Rule | Changes | Why |
+|---|---|---|
+| `help-videos-leak-list` | 1 | One entry of the frame-leak guard names the assistant's scratch folder; the AppData, Temp and Users entries still catch such paths. |
+
+**engine/os-connect/src/twiml.rs, engine/os-app/src/templates.rs, engine/os-app/src/tests/templates.rs**
+
+| Rule | Changes | Why |
+|---|---|---|
+| `twiml-owner-decision` | 1 | Owner-personal phrasing in a doc comment; the decision is ADR-0023's. |
+| `templates-rs-owner` | 1 | Owner-personal phrasing in a doc comment. |
+| `templates-tests-owner` | 1 | Owner-personal phrasing in a doc comment. |
+
+**supabase/**
+
+| Rule | Changes | Why |
+|---|---|---|
+| `supabase-readme-owner` | 1 | Owner errand. |
+| `supabase-readme-chat` | 1 | Refers to a private chat with the coding assistant. |
+| `supabase-function-owner` | 1 | Owner errand, in a comment. |
+
 **website/README.md**
 
 | Rule | Changes | Why |
 |---|---|---|
-| `website-readme-private` | 1 | Private-repo claim. |
 | `website-readme-domain` | 1 | Internal purchase step (the domain is live). |
+| `website-readme-supabase-owner` | 1 | Owner errand. |
 
 **website/content/features.json**
 

@@ -54,29 +54,24 @@ paths = ["**/*scratch*/**", "**/*scratchpad*", "**/*.bak", "**/*.orig", "**/*.re
 reason = "Scratch files, editor and merge leftovers, logs, Python caches, environment files and key material, if any are ever committed."
 
 [[exclude]]
+paths = [".github/workflows/download-stats.yml", "scripts/download-stats.py"]
+reason = "The daily download-stats job runs only in the private development repo (docs/network.md B7 says so). In the public copy its schedule would run too and push a public `stats` branch, which the published-copy model (one commit per release) does not allow."
+
+[[exclude]]
 paths = ["scripts/public-export.py", "scripts/public-export.toml", "docs/plans/public-repo.md"]
 reason = "This export tooling and its report. Private process documents; the config necessarily spells out the forbidden words the gate searches for."
 
 # --------------------------------------------------------------- blockers
-
-[[blocker]]
-id = "help-videos"
-action = "exclude"
-paths = ["apps/desktop/public/help/*.webm"]
-summary = "The seven in-app Help videos show local folder paths that include a Windows username."
-resolve = "Re-record them with apps/desktop/e2e/help-videos.mjs using neutral data folders (for example OPENBARK_SESSIONS_DIR=C:\\OpenBark-demo\\visits and OPENBARK_MODELS_DIR=C:\\OpenBark-demo\\models), scan every frame, commit them, then delete this blocker so they are exported. Until then the export leaves them out and the Help screen shows empty players."
-
-[[blocker]]
-id = "public-repo-name"
-action = "keep"
-summary = "The public repository's name is not decided: rename the private repo (for example to openbark-dev) so the public one can be ANI-ML/openbark, or give the public repo a new name."
-resolve = "Owner decides. If the public repo is not ANI-ML/openbark, add scrub rules that rewrite github.com/ANI-ML/openbark links (SECURITY.md, .github/ISSUE_TEMPLATE, apps/desktop/src-tauri/tauri.conf.json, docs) to the new name, re-run the export, then delete this blocker."
-
-[[blocker]]
-id = "public-repo-role"
-action = "keep"
-summary = "Whether the public repo is a one-time snapshot, a periodic export from the private repo, or the new home of development (issues, pull requests, CI and releases) is not decided."
-resolve = "Owner decides. Several docs (docs/adr/0020-code-signing.md, docs/runbooks/code-signing.md, website/README.md, .github/workflows/release.yml) describe releases built from the private repo; reword them in the private repo once the answer is known, then delete this blocker."
+# None. The three earlier blockers were resolved by owner decisions:
+#   help-videos       re-recorded with neutral C:\OpenBark-demo folders; frames
+#                     checked; exported again.
+#   public-repo-name  the public repo is ANI-ML/openbark; the private one is
+#                     renamed ANI-ML/openbark-dev, so github.com/ANI-ML/openbark
+#                     links stay correct.
+#   public-repo-role  the public repo is a published copy, one clean commit per
+#                     release authored as ANI.ML Health; development stays
+#                     private and outside pull requests are ported by hand. The
+#                     docs that describe this were reworded in the private repo.
 
 # ----------------------------------------------------------------- scrubs
 # Global rules first, then one block per file, in path order.
@@ -624,9 +619,9 @@ reason = "The owner's personal account and spending."
 [[scrub]]
 id = "adr0020-private-repo"
 files = ["docs/adr/0020-code-signing.md"]
-find = "- The main repo (ANI-ML/openbark) is private. On a private repo:\n  - environments, environment secrets and tag rules need GitHub Pro, Team or Enterprise;\n  - required reviewers need Enterprise.\n\n  Which plan the ANI-ML organisation is on is to confirm.\n"
-replace = "- On a private GitHub repository:\n  - environments, environment secrets and tag rules need GitHub Pro, Team or Enterprise;\n  - required reviewers need Enterprise.\n"
-reason = "Private-repo claim and an internal account question; the GitHub facts are kept."
+find = "\n\n  Which plan the ANI-ML organisation is on is to confirm.\n"
+replace = "\n"
+reason = "An internal account question. The paragraph above it now describes the repos accurately (private development repo, public copy), so only this line goes."
 
 [[scrub]]
 id = "adr0020-individual"
@@ -720,13 +715,6 @@ replace = "- **Microsoft eligibility.** If Microsoft applies a minimum business 
 reason = "Internal company detail."
 
 [[scrub]]
-id = "adr0020-alt-signpath"
-files = ["docs/adr/0020-code-signing.md"]
-find = "not ANI.ML Health Inc., and it needs a public repository the team owns. Ours is private |"
-replace = "not ANI.ML Health Inc. |"
-reason = "Private-repo claim."
-
-[[scrub]]
 id = "adr0020-alt-attestations"
 files = ["docs/adr/0020-code-signing.md"]
 find = "| GitHub artifact attestations | Need GitHub Enterprise Cloud for a private repository |"
@@ -739,6 +727,13 @@ files = ["docs/adr/0020-code-signing.md"]
 find = "| Keyless cosign | Works from a private repo, but writes the workflow identity, including the private repo's name, to the public Rekor log."
 replace = "| Keyless cosign | Writes the workflow identity, including the repository name, to the public Rekor log."
 reason = "Private-repo claim."
+
+[[scrub]]
+id = "adr0020-unsigned-decision"
+files = ["docs/adr/0020-code-signing.md"]
+find = "The owner decided that 0.1.1 ships unsigned."
+replace = "It was decided that 0.1.1 ships unsigned."
+reason = "Owner-personal phrasing."
 
 # ---- docs/adr/0021-dental-chart.md
 
@@ -755,6 +750,20 @@ files = ["docs/adr/0021-dental-chart.md"]
 find = "could not be read (access refused)."
 replace = "were not available for this review."
 reason = "Reads as an automated fetch-tool error."
+
+[[scrub]]
+id = "adr0021-status-approval"
+files = ["docs/adr/0021-dental-chart.md"]
+find = "The status stays proposed until the owner approves."
+replace = "The status stays proposed until it is approved."
+reason = "Owner-personal phrasing."
+
+[[scrub]]
+id = "adr0021-chart-decision"
+files = ["docs/adr/0021-dental-chart.md"]
+find = "The owner decided the chart ships in 0.1.1 with both of the following."
+replace = "It was decided that the chart ships in 0.1.1 with both of the following."
+reason = "Owner-personal phrasing."
 
 # ---- docs/adr/0022-deleting-visits.md
 
@@ -909,6 +918,57 @@ find = "**Owner decisions (2026-10-18).**"
 replace = "**Decisions (2026-10-18).**"
 reason = "Owner-personal phrasing."
 
+[[scrub]]
+id = "adr0024-decisions-built"
+files = ["docs/adr/0024-per-user-template-editing.md"]
+find = "How the owner's decisions were built,"
+replace = "How the decisions were built,"
+reason = "Owner-personal phrasing."
+
+# ---- docs/adr/0025-mlx-and-models-of-your-choice.md
+
+[[scrub]]
+id = "adr0025-deciders"
+files = ["docs/adr/0025-mlx-and-models-of-your-choice.md"]
+find = "- Deciders: product owner (asked: \"Allow users to load models of their choice\", specifically MLX models browsed on Hugging Face, which can be listed but not downloaded; later, \"that seems to only be for MLX models, all the rest download\"; and, while this was being designed, \"Allow users to uninstall models as well to save space or swap in / out those of choice\"), engineering"
+replace = "- Deciders: product owner (requirement: users can load models of their choice, including the MLX models listed on Hugging Face, which could be listed but not downloaded, and can uninstall models to save space or swap them), engineering"
+reason = "Verbatim quotes of the owner's requests to the coding assistant; paraphrased, the requirement is kept."
+
+[[scrub]]
+id = "adr0025-amends"
+files = ["docs/adr/0025-mlx-and-models-of-your-choice.md"]
+find = "MLX becomes an opt-in engine because the owner asked for it,"
+replace = "MLX becomes an opt-in engine because it was requested,"
+reason = "Owner-personal phrasing."
+
+[[scrub]]
+id = "adr0025-what-was-asked"
+files = ["docs/adr/0025-mlx-and-models-of-your-choice.md"]
+find = "### What was asked, and what was found"
+replace = "### The need, and what was found"
+reason = "Private-conversation phrasing (as adr0024-what-was-asked)."
+
+[[scrub]]
+id = "adr0025-owner-wants"
+files = ["docs/adr/0025-mlx-and-models-of-your-choice.md"]
+find = "The owner wants those models to download and write notes. Other Hub models download fine on the owner's Mac."
+replace = "Those models should download and write notes. Other Hub models download fine on a Mac."
+reason = "Owner-personal phrasing and owner hardware."
+
+[[scrub]]
+id = "adr0025-dev-box"
+files = ["docs/adr/0025-mlx-and-models-of-your-choice.md"]
+find = "The dev box is Windows with WSL (Ubuntu 24.04)."
+replace = "Development is on Windows with WSL (Ubuntu 24.04)."
+reason = "Owner hardware (as tel-win and adr0023-dev-box)."
+
+[[scrub]]
+id = "adr0025-alt-labels"
+files = ["docs/adr/0025-mlx-and-models-of-your-choice.md"]
+find = "| The owner asked for MLX models to run |"
+replace = "| MLX models need to run, not only be listed |"
+reason = "Owner-personal phrasing."
+
 # ---- docs/design/DESIGN.md
 
 [[scrub]]
@@ -931,6 +991,22 @@ files = ["docs/design/DESIGN.md"]
 find = "Claude Code: read this before touching `packages/ui`, and run the pre-flight checklist in §12 before closing any UI task."
 replace = "Read this before changing `packages/ui`, and run the pre-flight checklist in §12 before opening a UI pull request."
 reason = "Instruction addressed to the AI coding assistant by name."
+
+# ---- docs/eval/M2.md
+
+[[scrub]]
+id = "eval-m2-owner-decide"
+files = ["docs/eval/M2.md"]
+find = "It's for the owner to decide, and would bump"
+replace = "It is still to be decided, and would bump"
+reason = "Owner-personal phrasing."
+
+[[scrub]]
+id = "eval-m2-chart-decision"
+files = ["docs/eval/M2.md"]
+find = "The owner decided the chart ships in 0.1.1 with a gate:"
+replace = "It was decided that the chart ships in 0.1.1 with a gate:"
+reason = "Owner-personal phrasing."
 
 # ---- docs/network.md
 
@@ -1356,6 +1432,36 @@ find = "Steps 1 to 6 alone would have shown the product owner, on the first visi
 replace = "Steps 1 to 6 alone would have shown, on the first visit,"
 reason = "Owner-personal phrasing."
 
+# ---- docs/plans/mlx-models.md
+
+[[scrub]]
+id = "mlx-never-real-folder"
+files = ["docs/plans/mlx-models.md"]
+find = "or the dev box's real `<local data>/OpenBark` folder (the owner's real copy and data)."
+replace = "or a real `<local data>/OpenBark` folder (a clinic's real copy and data)."
+reason = "Owner's machine and real data (as tpl-never-4317)."
+
+[[scrub]]
+id = "mlx-removal-real-folder"
+files = ["docs/plans/mlx-models.md"]
+find = "never on the dev box's real `OpenBark` folders."
+replace = "never on a real `OpenBark` folder."
+reason = "Owner's machine."
+
+[[scrub]]
+id = "mlx-track-brief-probes"
+files = ["docs/plans/mlx-models.md"]
+find = "(start from the research probes, whose location is in the track brief, and save new ones with `curl` for:"
+replace = "(save them with `curl` for:"
+reason = "Points at an AI-agent working brief and research files that aren't in the repository."
+
+[[scrub]]
+id = "mlx-track-brief-prototype"
+files = ["docs/plans/mlx-models.md"]
+find = " A working prototype from the research exists; its location is in the track brief."
+replace = ""
+reason = "Points at an AI-agent working brief and research files that aren't in the repository."
+
 # ---- docs/plans/telephony.md
 
 [[scrub]]
@@ -1470,9 +1576,9 @@ expect = 1
 [[scrub]]
 id = "tpl-status"
 files = ["docs/plans/template-editing.md"]
-find = "Waits for the owner's decisions D1 to D7 (ADR-0024 section 17); the steps below assume the proposed answers."
-replace = "The steps below assume the proposed answers to decisions D1 to D7 (ADR-0024 section 17); where the recorded decisions differ, ADR-0024 wins."
-reason = "Owner-personal phrasing. The ADR records the decisions; the plan predates them."
+find = "The owner decided D1 to D7 on 2026-10-18 (ADR-0024 section 17); where they differ from the proposals,"
+replace = "D1 to D7 were decided on 2026-10-18 (ADR-0024 section 17); where the decisions differ from the proposals,"
+reason = "Owner-personal phrasing (the plan's status line was rewritten when the work shipped)."
 
 [[scrub]]
 id = "tpl-never-4317"
@@ -1503,6 +1609,13 @@ files = ["docs/runbooks/code-signing.md"]
 find = "This runbook is for the product owner. It sets up signing so that:"
 replace = "This runbook is for whoever administers the company's Apple, Microsoft Azure and GitHub accounts. It sets up signing so that:"
 reason = "Owner-personal audience."
+
+[[scrub]]
+id = "sign-still-to-do"
+files = ["docs/runbooks/code-signing.md"]
+find = "## What the owner must still do"
+replace = "## What is still to do"
+reason = "Owner errand heading (the audience line above is already neutral; nothing links to this heading)."
 
 [[scrub]]
 id = "sign-cost-row"
@@ -1774,15 +1887,6 @@ find = "Every change that matters to a clinic, newest first, with the commit and
 replace = "Every change that matters to a clinic, newest first: see"
 reason = "CHANGELOG.md lists no commits, and the public repo has fresh history, so private commit hashes mean nothing there."
 
-# ---- .github/workflows/release.yml
-
-[[scrub]]
-id = "release-yml-private"
-files = [".github/workflows/release.yml"]
-find = "  # The public downloads: a draft release in the public releases repo (the\n  # main repo stays private). Publish it on GitHub when ready, then run the\n"
-replace = "  # The public downloads: a draft release in the separate public releases\n  # repo (ANI-ML/openbark-releases). Publish it on GitHub when ready, then run the\n"
-reason = "Private-repo claim in a comment."
-
 # ---- apps/desktop/e2e/brand-images.mjs
 
 [[scrub]]
@@ -1817,12 +1921,63 @@ find = "# Runs on a Mac (the release workflow's macos-15 job, or the product own
 replace = "# Runs on a Mac (the release workflow's macos-15 job, or a developer's own\n# Mac)."
 reason = "Owner hardware."
 
+# ---- apps/desktop/e2e/help-videos.mjs
+
 [[scrub]]
-id = "dmg-owner-call"
-files = ["scripts/macos-dmg.sh"]
-find = "a Developer ID is the product owner's call."
-replace = "Developer ID signing is proposed in ADR-0020."
-reason = "Internal spending decision."
+id = "help-videos-leak-list"
+files = ["apps/desktop/e2e/help-videos.mjs"]
+find = "\"scratchpad\", "
+replace = ""
+reason = "One entry of the frame-leak guard names the AI assistant's scratch folder. The AppData, Temp and Users entries beside it still catch any such path."
+expect = 1
+
+# ---- engine/os-connect/src/twiml.rs
+
+[[scrub]]
+id = "twiml-owner-decision"
+files = ["engine/os-connect/src/twiml.rs"]
+find = "(owner decision 3: Bins, no code deployed into"
+replace = "(ADR-0023 section 15, decision 3: Bins, no code deployed into"
+reason = "Owner-personal phrasing in a doc comment; the decision is ADR-0023's."
+
+# ---- engine/os-app/src/templates.rs, engine/os-app/src/tests/templates.rs
+
+[[scrub]]
+id = "templates-rs-owner"
+files = ["engine/os-app/src/templates.rs"]
+find = "(ADR-0024, with the owner's decisions in section 17)."
+replace = "(ADR-0024, with the decisions in section 17)."
+reason = "Owner-personal phrasing in a doc comment."
+
+[[scrub]]
+id = "templates-tests-owner"
+files = ["engine/os-app/src/tests/templates.rs"]
+find = "with the\n//! owner's decisions: the personal/hospital setting,"
+replace = "with the\n//! decisions of section 17: the personal/hospital setting,"
+reason = "Owner-personal phrasing in a doc comment."
+
+# ---- supabase/
+
+[[scrub]]
+id = "supabase-readme-owner"
+files = ["supabase/README.md"]
+find = "## One-time setup (the owner)"
+replace = "## One-time setup"
+reason = "Owner errand."
+
+[[scrub]]
+id = "supabase-readme-chat"
+files = ["supabase/README.md"]
+find = "in this repository, the website or a chat.**"
+replace = "in this repository, the website or an issue.**"
+reason = "Refers to a private chat with the coding assistant."
+
+[[scrub]]
+id = "supabase-function-owner"
+files = ["supabase/functions/delete-account/index.ts"]
+find = "// Deploy (the owner, once; see supabase/README.md):"
+replace = "// Deploy (once; see supabase/README.md):"
+reason = "Owner errand, in a comment."
 
 # ---- scripts/website-build.py and website/src/index.html
 # The site is generated. In the public copy the source link is switched on
@@ -1923,11 +2078,11 @@ reason = "Internal legal to-do (listed as an owner item in docs/plans/public-rep
 # ---- website/README.md
 
 [[scrub]]
-id = "website-readme-private"
+id = "website-readme-supabase-owner"
 files = ["website/README.md"]
-find = "Installers are published from the public repo **ANI-ML/openbark-releases**. The main repo stays private. One-time setup:"
-replace = "Installers are published from the separate public repo **ANI-ML/openbark-releases**. One-time setup:"
-reason = "Private-repo claim."
+find = "**`supabase/README.md` has the owner's one-time setup**"
+replace = "**`supabase/README.md` has the one-time setup**"
+reason = "Owner errand."
 
 [[scrub]]
 id = "website-readme-domain"
@@ -1952,7 +2107,65 @@ reason = "Regenerates website/dist and CHANGELOG.md from the scrubbed website so
 gitleaks = [
   "C:/Users/sshuser/AppData/Local/Temp/claude/c--Users-sshuser-Documents/ef729326-7284-4605-972d-e4bbd2a71a0b/scratchpad/public-audit/gitleaks/gitleaks.exe",
 ]
-gitleaks_allow_fingerprints = []
+# `<path in the export>:<gitleaks rule>:<line>`. Each one was checked by hand.
+gitleaks_allow_fingerprints = [
+  # Twilio test values: sequential-hex SIDs (AC0123..., SK0123...) and tokens that
+  # twilio-node made from them with the secret "fixture-secret-not-a-real-key-000"
+  # (signatures re-checked with that secret).
+  "engine/os-connect/src/settings.rs:twilio-api-key:200",
+  "engine/os-connect/fixtures/twilio-node-access-tokens.json:twilio-api-key:5",
+  "engine/os-connect/fixtures/twilio-node-access-tokens.json:twilio-api-key:12",
+  "engine/os-connect/fixtures/twilio-node-access-tokens.json:twilio-api-key:13",
+  "engine/os-connect/fixtures/twilio-node-access-tokens.json:jwt:12",
+  "engine/os-connect/fixtures/twilio-node-access-tokens.json:jwt:13",
+  "engine/os-connect/src/token.rs:twilio-api-key:267",
+  "engine/os-connect/src/token.rs:twilio-api-key:274",
+  "engine/os-connect/src/token.rs:twilio-api-key:306",
+  # A git blob SHA-1 in the pinned test-model file list.
+  "scripts/mlx-test-env.sh:generic-api-key:53",
+  # The portal's Supabase publishable key (sb_publishable_...), public by design:
+  # every visitor's browser receives it, and row level security protects the data.
+  "website/src/portal.js:generic-api-key:18",
+  "website/dist/portal.js:generic-api-key:18",
+]
+
+# Reviewed exceptions. Each names one pattern, the files and the exact text.
+
+[[gate.allow]]
+pattern = "supabase-project-ref"
+files = ["website/src/portal.js", "website/dist/**", "scripts/website-build.py", "vercel.json", "website/vercel.json", "apps/desktop/e2e/website.mjs", "docs/network.md", "supabase/README.md", "supabase/functions/delete-account/index.ts"]
+context = 'https://nmecovtmijnfnjuadicp\.supabase\.co|sb-nmecovtmijnfnjuadicp-auth-token|`nmecovtmijnfnjuadicp\.supabase\.co`|--project-ref nmecovtmijnfnjuadicp|^Project: `nmecovtmijnfnjuadicp`'
+reason = "The account portal's Supabase project. Its URL and session key are in the live website's code that every visitor downloads, the CSP must name it, and docs/network.md must list every host. Decided fine to publish; the scrubs that hide it in ADR-0017, M3 and the sync line of docs/network.md remain, because those passages are about plans."
+
+[[gate.allow]]
+pattern = "twilio-key"
+files = ["engine/os-connect/**"]
+context = '\b(?:AC|SK)(?:0123456789abcdef){2}\b|\b(?:AC|SK)f{32}\b'
+reason = "Test placeholders: sequential-hex or all-f SIDs, never real ones."
+
+[[gate.allow]]
+pattern = "jwt"
+files = ["engine/os-connect/fixtures/twilio-node-access-tokens.json"]
+context = '^  "(?:outgoing_only|with_incoming)": "eyJ'
+reason = "Test vectors made by twilio-node from the placeholder SIDs and the secret fixture-secret-not-a-real-key-000; their signatures were re-checked with that secret."
+
+[[gate.allow]]
+pattern = "openai-hf-keys"
+files = ["apps/desktop/src/components/HfTokenField.test.tsx", "engine/os-engine/src/secrets.rs"]
+context = '"hf_abcdefghijklmnopqrstuvwxyz0123"'
+reason = "A made-up Hugging Face token (the alphabet) used by tests."
+
+[[gate.allow]]
+pattern = "assigned-secret"
+files = ["apps/desktop/src/components/HfTokenField.test.tsx"]
+context = '"hf_abcdefghijklmnopqrstuvwxyz0123"'
+reason = "The same made-up test token."
+
+[[gate.allow]]
+pattern = "internal-projects"
+files = ["apps/desktop/public/help/*.webm"]
+context = '^ARC$'
+reason = "Three bytes inside compressed video data, not text: the binary scan matches the whole word ARC anywhere. Every Help video was checked frame by frame (a frame every 3 s), and the audit scans each file for every internal name, not only the first match."
 
 # Forbidden in any file name or content, text or binary.
 [[gate.fail]]
