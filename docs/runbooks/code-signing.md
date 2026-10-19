@@ -243,12 +243,14 @@ This sets up a trust between GitHub and Azure, so no Azure password is ever stor
    |---|---|
    | Scenario | GitHub Actions deploying Azure resources |
    | Organization | `ANI-ML` |
-   | Repository | `openbark` |
+   | Repository | `openbark-dev` |
    | Entity type | **Environment** |
    | GitHub environment name | `release` |
    | Name | `github-release` |
 
-   The subject shown should read `repo:ANI-ML/openbark:environment:release`. Click Add.
+   The subject shown should read `repo:ANI-ML/openbark-dev:environment:release`. Click Add.
+
+   The subject names the repository. Releases are built in the private development repo, ANI-ML/openbark-dev, never in the public source copy, ANI-ML/openbark. If the development repo is still named ANI-ML/openbark when you do this, use that name, and edit this credential when it is renamed: signing fails until the subject matches.
 
    If your GitHub plan has no environments (Part 0, fact 3), skip this step and tell engineering. They'll use the fallback in Part H.
 4. Go back to the signing account, open **Access control (IAM)**, then Add role assignment.
@@ -292,7 +294,7 @@ Set a reminder 33 months from today to extend the key's expiry.
 
 ### D1. Create the `release` environment
 
-1. Go to github.com/ANI-ML/openbark, then Settings, then **Environments**, then New environment. Name it `release`.
+1. Go to github.com/ANI-ML/openbark-dev (the development repo, not the public source copy), then Settings, then **Environments**, then New environment. Name it `release`.
 2. Under **Deployment branches and tags**, choose "Selected branches and tags". Add a rule with ref type **Tag** and pattern `v*`. Save.
 3. Required reviewers aren't available on private repos below GitHub Enterprise, so the tag rule plus D2 are the protection.
 
@@ -334,7 +336,7 @@ Add these in Settings, then Environments, then `release`. Use **Add secret** for
 `PUBLIC_RELEASES_TOKEN` stays where it is.
 
 If you have the GitHub CLI, you can load files without copy and paste, for example:
-`gh secret set APPLE_CERTIFICATE --repo ANI-ML/openbark --env release < developer-id.p12.base64.txt`
+`gh secret set APPLE_CERTIFICATE --repo ANI-ML/openbark-dev --env release < developer-id.p12.base64.txt`
 
 When all of this is in GitHub and in the password manager, delete the `~/openbark-signing` folder.
 

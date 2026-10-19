@@ -19,7 +19,7 @@ To look at it locally, serve `website/dist` with any static server, for example 
 
 ## Publish on Vercel (first time)
 
-1. In Vercel, **Add New > Project**, and import the GitHub repo **ANI-ML/openbark**.
+1. In Vercel, **Add New > Project**, and import the development repo, **ANI-ML/openbark-dev** (see "Repositories" below). Not the public source copy: it changes only once per release.
 2. Set **Root Directory** to `website` (recommended) or leave it blank: both work. `website/vercel.json` and the root `vercel.json` set no install or build step and point at the committed `website/dist`. Leave **Framework Preset** as **Other** and the build settings empty.
 3. Deploy. Vercel gives the site a `*.vercel.app` address.
 4. When the domain is bought: **Project > Settings > Domains**, add it, and follow Vercel's DNS instructions at the registrar.
@@ -30,16 +30,22 @@ Every push to the repo's default branch redeploys the site.
 
 The download buttons read `public/release.json`. Until a release is published they show "Coming with the public beta", and the iPhone card shows "App Store: coming soon" until `app_store` is set to the App Store link.
 
-Installers are published from the public repo **ANI-ML/openbark-releases**. The main repo stays private. One-time setup:
+Installers are built in the development repo and published to the public repo **ANI-ML/openbark-releases**. One-time setup:
 
 1. Create the public repo `ANI-ML/openbark-releases` (it can be empty).
-2. Create a fine-grained GitHub token with **Contents: read and write** on that repo, and add it to `ANI-ML/openbark` as the Actions secret `PUBLIC_RELEASES_TOKEN`.
+2. Create a fine-grained GitHub token with **Contents: read and write** on that repo, and add it to `ANI-ML/openbark-dev` as the Actions secret `PUBLIC_RELEASES_TOKEN`.
 
 Then, for each version:
 
-1. Tag the main repo (`git tag v0.1.0 && git push --tags`). The **Release installers** workflow builds Windows, macOS and Linux installers and creates a *draft* release, with checksums, in the public repo.
+1. Tag the development repo (`git tag v0.1.0 && git push --tags`). The **Release installers** workflow builds Windows, macOS and Linux installers and creates a *draft* release, with checksums, in the public repo.
 2. Check the draft on GitHub and publish it.
 3. Run the **Website release** workflow (Actions tab) with the tag. It points `release.json` at the published files, with their sizes, rebuilds the site and commits; Vercel redeploys.
+
+## Repositories
+
+- **ANI-ML/openbark-dev** (private; it was named ANI-ML/openbark until the public copy took that name): where development happens. CI, the release and website workflows, the signing secrets and the Vercel connection all live here.
+- **ANI-ML/openbark** (public): a published copy of the source, refreshed once per release with one commit authored as ANI.ML Health. It has no release secrets and builds no releases, so don't push tags to it. Pull requests sent there are reviewed there and ported to the development repo by hand (`CONTRIBUTING.md`).
+- **ANI-ML/openbark-releases** (public): the installers and their checksums.
 
 ## Account portal
 

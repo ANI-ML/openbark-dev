@@ -9,6 +9,9 @@ name: Release installers
 # Publishing: only a pushed v* tag creates releases (drafts, in this repo and
 # in ANI-ML/openbark-releases). A manual run (workflow_dispatch) builds the
 # installers as workflow artifacts and never publishes, on any branch or tag.
+# Releases are built only in the development repo (ANI-ML/openbark-dev). The
+# public source repo, ANI-ML/openbark, is a copy refreshed once per release:
+# it has none of the secrets below, so no tags are pushed there.
 #
 # Signing (ADR-0020, docs/runbooks/code-signing.md): only for a pushed v* tag,
 # and per platform only once that platform's secrets exist in the `release`
@@ -325,8 +328,8 @@ jobs:
             --notes "Installers: Windows (setup wizard), macOS (disk image), Linux (.deb, .rpm, AppImage). See install/README.md." \
             dist/*/*
 
-  # The public downloads: a draft release in the public releases repo (the
-  # main repo stays private). Publish it on GitHub when ready, then run the
+  # The public downloads: a draft release in the public releases repo
+  # (ANI-ML/openbark-releases). Publish it on GitHub when ready, then run the
   # "Website release" workflow to point the website's buttons at it.
   # Needs the PUBLIC_RELEASES_TOKEN secret (contents: write on that repo).
   public-draft:

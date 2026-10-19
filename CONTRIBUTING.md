@@ -10,6 +10,10 @@ This guide covers the rules every change follows, how to build and test, and how
 2. **Clinical safety.** A note stays a draft until a veterinarian signs it. The software must never invent vitals, doses or findings. Anything not discussed in the consult is shown as "Not discussed". Changes to drafting are measured before and after (see [Testing](#testing)).
 3. **Local-first.** Recording, transcription and drafting run on the clinic's computer. There is no telemetry and no cloud fallback. Every network connection OpenBark can make is listed in [docs/network.md](docs/network.md). A change that adds one must add it there, with an off switch where that makes sense, and CI checks that only the `os-models` crate has an HTTP client.
 
+## How this repository works
+
+The public repository, [ANI-ML/openbark](https://github.com/ANI-ML/openbark), is a published copy of OpenBark's source, refreshed with one commit for each release. Day-to-day development happens in a private repository. Pull requests are welcome all the same: a maintainer reviews yours on the public repository, ports the change to the development repository by hand, and it ships in the next release. The pull request is then closed with a note saying which release includes it, rather than merged. Issues are read and answered on the public repository too.
+
 ## Before you start
 
 - **Small fixes** (a typo, a clear bug with a test): open a pull request directly.
@@ -60,7 +64,7 @@ pnpm -r run test
 - **Write the test first** for the engine pipeline, template rendering, the faithfulness checks and connectors.
 - **End-to-end scripts** in `apps/desktop/e2e` drive the browser version with Playwright. Run them against a demo server with demo data in a scratch folder, never against a clinic's own data. Point the data folders somewhere neutral, because screenshots and videos can show them, for example:
   `OPENBARK_SESSIONS_DIR=<scratch>/visits OPENBARK_TEMPLATES_DIR=<scratch>/templates OPENBARK_USERS_FILE=<scratch>/users.json openbark serve --port 4318`
-- **Drafting changes** (prompts, templates, the faithfulness checks, model choice): run `openbark eval` on the synthetic consults before and after, and put both results in the pull request. The method and earlier results are in [docs/eval](docs/eval). A change that adds an invented number does not merge.
+- **Drafting changes** (prompts, templates, the faithfulness checks, model choice): run `openbark eval` on the synthetic consults before and after, and put both results in the pull request. The method and earlier results are in [docs/eval](docs/eval). A change that adds an invented number is not accepted.
 
 ## Dependencies
 
@@ -82,7 +86,7 @@ In short: design tokens only (no raw hex values), Manrope, JetBrains Mono and Lu
 - One topic per pull request. Fill in the pull request template.
 - If the change matters to a clinic, add an entry to `website/content/history.json`. `CHANGELOG.md` and the website's Version history page are generated from it by `scripts/website-build.py`; don't edit `CHANGELOG.md` by hand.
 - AI-assisted contributions are welcome. You are responsible for every line you submit: read it, test it, and make sure you have the right to contribute it.
-- CI must pass, and a maintainer reviews every pull request before it merges.
+- CI must pass, and a maintainer reviews every pull request before it is ported (see [How this repository works](#how-this-repository-works)).
 
 ## Licensing of contributions
 

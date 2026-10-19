@@ -69,7 +69,7 @@ Checked live on 2026-10-18 against Microsoft Learn, the Azure retail price list,
 - Tauri's iOS guide signs automatically with `APPLE_API_ISSUER`, `APPLE_API_KEY` and `APPLE_API_KEY_PATH`, using a key with Admin access. Manual signing uses `IOS_CERTIFICATE`, `IOS_CERTIFICATE_PASSWORD` and `IOS_MOBILE_PROVISION`, all base64.
 
 **GitHub**
-- The main repo (ANI-ML/openbark) is private. On a private repo:
+- Releases are built and signed in the development repo, ANI-ML/openbark-dev, which is private. The public source repo, ANI-ML/openbark, is a copy refreshed once per release: it holds no signing secrets and builds no releases. On a private GitHub repository:
   - environments, environment secrets and tag rules need GitHub Pro, Team or Enterprise;
   - required reviewers need Enterprise.
 
@@ -95,7 +95,7 @@ Every signature names the company. We don't use individual validation at Microso
 | How | Tauri's `bundle.windows.signCommand` runs `signtool` with Microsoft's Artifact Signing dlib, SHA-256 digests and the timestamp server `http://timestamp.acs.microsoft.com`. The command lives in a config overlay that only the release workflow passes (`--config`), so local builds stay unsigned |
 | Identity | Organisation, Public Trust, validated as ANI.ML Health Inc. Certificate profile without street address or postal code |
 | Region | East US (`https://eus.codesigning.azure.net`). There is no Canadian region, and only file digests are sent |
-| Login from CI | GitHub OIDC with an Entra app registration whose federated credential trusts only `repo:ANI-ML/openbark:environment:release`. The app holds one role, Artifact Signing Certificate Profile Signer. No long-lived Azure secret is stored |
+| Login from CI | GitHub OIDC with an Entra app registration whose federated credential trusts only `repo:ANI-ML/openbark-dev:environment:release` (the subject names the repository, so it is edited if the repository is renamed). The app holds one role, Artifact Signing Certificate Profile Signer. No long-lived Azure secret is stored |
 | Build order | `tauri build --no-bundle`, then `azure/login`, then `tauri bundle --bundles nsis` with the signing overlay. The login lands inside the 5-minute window |
 | Cost | US$9.99 a month (CA$14.15), about US$120 (CA$170) a year before tax. Azure pay-as-you-go subscription, no other fixed fee |
 | Secrets | `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` (secrets). `AZURE_SIGNING_ENDPOINT`, `AZURE_SIGNING_ACCOUNT`, `AZURE_SIGNING_PROFILE` (variables) |
@@ -139,7 +139,7 @@ The App Store seller name comes from the membership. An organisation membership 
 
 ### 6. Where secrets live
 
-- **GitHub:** encrypted Actions secrets in an environment named `release` on ANI-ML/openbark. The environment accepts only tags matching `v*`. If the plan has no environments for private repos, they become repository secrets instead (decision 8).
+- **GitHub:** encrypted Actions secrets in an environment named `release` on the development repo, ANI-ML/openbark-dev. The public source repo never holds them. The environment accepts only tags matching `v*`. If the plan has no environments for private repos, they become repository secrets instead (decision 8).
 - **Originals and backups:** the `.p12`, the certificate request key, the `.p8` files, the OpenPGP private key and its revocation certificate, and every password go into the company password manager (which one is to confirm). Nothing goes in the repo or on a shared drive.
 - **Windows keys** never leave Microsoft's HSMs. No Azure secret exists to leak.
 - **Who holds what:** the owner holds the Azure Identity Verifier role and the Apple Account Holder role. Engineering doesn't need either to maintain the workflow.
@@ -224,7 +224,7 @@ The install guide and the website say this plainly, including that a SmartScreen
 | EV certificate (SSL.com eSigner EV from US$100 a month, or DigiCert) | Microsoft says EV no longer bypasses SmartScreen. It costs more for nothing we need |
 | OV certificate from SSL.com with eSigner | Kept as the Windows fallback. About 2.5 times the price, re-validation every 15 months, and a per-signing quota |
 | DigiCert or Sectigo OV | DigiCert lists US$44 to US$62 a month per certificate, and its cloud-signing price isn't published. We found only reseller prices for Sectigo. Both cost more than SSL.com |
-| SignPath Foundation (free for open source) | The publisher would read "SignPath Foundation", not ANI.ML Health Inc., and it needs a public repository the team owns. Ours is private |
+| SignPath Foundation (free for open source) | The publisher would read "SignPath Foundation", not ANI.ML Health Inc., and it signs only builds made in a public repository the team owns. Ours are built in the private development repo |
 | Microsoft individual validation, or an individual Apple membership | Puts a person's legal name (and on Windows their town) in every signature, and on the App Store as seller. Breaks the rule against naming individuals |
 | Signing the finished installer with `azure/artifact-signing-action` after the build | Leaves the app's .exe, the DLLs and `uninstall.exe` inside the installer unsigned. Kept for files outside the installer, such as the planned CLI and `ggml-cuda.dll` |
 | `artifact-signing-cli` with a client secret as the main route (Tauri's documented way) | Needs a long-lived Azure secret that expires and must be rotated, and it downloads Microsoft's client from NuGet as it runs. Kept as the fallback for a GitHub plan without environments |
