@@ -149,6 +149,14 @@ impl TwilioClient {
         Self::with_base_url(API_BASE, account_sid, api_key_sid, secret)
     }
 
+    /// A client for [`api_base`]: `https://api.twilio.com`, unless
+    /// `OPENBARK_TWILIO_API_BASE` names a loopback mock (demos and the
+    /// end-to-end test). Any other value is refused, so the secret still goes
+    /// only to Twilio or to this computer.
+    pub fn for_account(account_sid: &str, api_key_sid: &str, secret: Secret) -> Result<Self, ConnectError> {
+        Self::with_base_url(&api_base(), account_sid, api_key_sid, secret)
+    }
+
     /// A client for another base URL: only `https://api.twilio.com` or a
     /// loopback address (a local mock in tests).
     pub fn with_base_url(
@@ -431,6 +439,16 @@ impl TwilioClient {
         Ok(OutgoingSetup { app, app_change, caller_id })
     }
 }
+
+/// Where the REST calls go: `OPENBARK_TWILIO_API_BASE` if set (only a
+/// loopback address is then accepted, by [`TwilioClient::with_base_url`]),
+/// otherwise [`API_BASE`].
+pub fn api_base() -> String {
+    std::env::var(API_BASE_ENV).ok().filter(|v| !v.trim().is_empty()).unwrap_or_else(|| API_BASE.to_string())
+}
+
+/// Points the REST calls at a local mock (loopback only).
+pub const API_BASE_ENV: &str = "OPENBARK_TWILIO_API_BASE";
 
 fn refused_base() -> ConnectError {
     ConnectError::Invalid("OpenBark only sends the Twilio key to https://api.twilio.com.".into())

@@ -31,6 +31,8 @@ fn test_env() -> &'static Path {
             std::env::set_var("OPENBARK_KEY_FILE", dir.join("data.key"));
             // The MLX engine pack's folder and its checks (ADR-0025).
             std::env::set_var("OPENBARK_ENGINES_DIR", dir.join("engines"));
+            // Twilio settings and secrets (ADR-0023): a scratch folder, no keychain.
+            std::env::set_var("OPENBARK_CONNECTIONS_DIR", dir.join("connections"));
         }
         dir
     })
@@ -810,6 +812,9 @@ fn removing_a_signed_visit_for_good_checks_the_folder_itself() {
 
 #[path = "tests/templates.rs"]
 mod templates;
+
+#[path = "tests/phone.rs"]
+mod phone;
 
 /// A tooth chart edit (ADR-0021 decision 4): with no species entered, the vet
 /// chooses dog or cat in the chart editor; that choice goes into the new run's

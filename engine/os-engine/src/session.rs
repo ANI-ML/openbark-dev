@@ -191,6 +191,70 @@ pub struct SessionMeta {
     /// transcript, drafts, signatures and `audio_sha256` stay.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio_deleted: Option<AudioDeleted>,
+    /// Set for a phone call made through the clinic's own Twilio account
+    /// (ADR-0023 section 8): the other number, when, how long, Twilio's call
+    /// SID. Kept in `session.json`, encrypted like the rest of the visit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub call: Option<CallInfo>,
+}
+
+/// Which way a phone call went.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CallDirection {
+    /// The clinic phoned the client (the first release only makes these).
+    Outgoing,
+    /// The client phoned the clinic (a later release).
+    Incoming,
+}
+
+/// The source of a recorded phone call.
+pub const PHONE_CALL_SOURCE: &str = "Phone call";
+
+/// Speaker label for the client's side of a call (channel 2).
+pub const CLIENT_LABEL: &str = "Client";
+
+/// A phone call's details (ADR-0023 section 8). The recording has two
+/// channels: 1 is the clinic, 2 the client, so speaker labels come from the
+/// channel, never from voice embeddings.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CallInfo {
+    pub direction: CallDirection,
+    /// The other side's number, in E.164 ("+15555550142").
+    pub number: String,
+    /// When the call was answered and recording started.
+    pub started_at: DateTime<Local>,
+    /// How long the call lasted, from answer to hang-up.
+    #[serde(default)]
+    pub duration_secs: f32,
+    /// Twilio's call SID (`CA...`), so the clinic can match its Twilio logs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub call_sid: Option<String>,
+    /// The clinic's side (channel 1): "Vet", "Tech", or "Clinic" without a team.
+    pub clinic_label: String,
+    /// When the client declined and the recording was deleted, in seconds
+    /// into the call. The call went on unrecorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub declined_at_secs: Option<f32>,
+}
+
+impl CallInfo {
+    /// Speaker names by channel: the clinic's role, then "Client".
+    pub fn speaker_names(&self) -> [String; 2] {
+        [self.clinic_label.clone(), CLIENT_LABEL.to_string()]
+    }
+
+    /// Context for the note model: who is who on the call.
+    pub fn prompt_context(&self) -> String {
+        let way = match self.direction {
+            CallDirection::Outgoing => "the clinic phoned the client",
+            CallDirection::Incoming => "the client phoned the clinic",
+        };
+        format!(
+            "this is a phone call ({way}); Speaker 1 is the clinic ({}), Speaker 2 is the client",
+            self.clinic_label
+        )
+    }
 }
 
 /// When the recording was deleted, and by whom. The rest of the visit stays.
@@ -222,6 +286,24 @@ pub enum ConsentMethod {
     OnFile,
     /// Only the clinician consented (allowed only under a one-party rule).
     ClinicianOnly,
+    /// A phone call's announcement was played from the clinic's own
+    /// recording (ADR-0023 section 7). An announcement the user read out is
+    /// `Verbal`. Allowed under both rules: the client heard it and could say no.
+    Announced,
+}
+
+/// What the client said after a phone call's announcement (ADR-0023 section 7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConsentOutcome {
+    /// "Yes, keep recording": express consent, in the recording.
+    Agreed,
+    /// "No, stop recording": what was recorded was deleted, and the call
+    /// went on unrecorded.
+    Declined,
+    /// Nobody answered "Did the client agree?": the client stayed on the
+    /// line after the announcement.
+    StayedOnLine,
 }
 
 /// Consent to record one encounter, confirmed by a member of the team.
@@ -236,6 +318,13 @@ pub struct Consent {
     /// What was read to the client, if a script was used.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub script: Option<String>,
+    /// Phone calls: what the client said after the announcement.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<ConsentOutcome>,
+    /// Phone calls: when the announcement started, in seconds into the
+    /// recording (normally 0: it is the first thing recorded).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub announced_at_secs: Option<f32>,
 }
 
 impl ConsentRule {
@@ -255,6 +344,7 @@ impl ConsentMethod {
             "written" => Some(Self::Written),
             "on_file" => Some(Self::OnFile),
             "clinician_only" => Some(Self::ClinicianOnly),
+            "announced" => Some(Self::Announced),
             _ => None,
         }
     }
@@ -399,6 +489,7 @@ impl Session {
             consent: None,
             recorded_by: None,
             audio_deleted: None,
+            call: None,
         };
         let session = Self { dir, meta, pet: None };
         session.save_meta()?;
@@ -429,6 +520,7 @@ impl Session {
             consent: None,
             recorded_by: None,
             audio_deleted: None,
+            call: None,
         };
         let session = Self { dir, meta, pet: None };
         session.save_meta()?;
@@ -438,6 +530,8 @@ impl Session {
     /// Record the finished live audio: device, duration and checksum.
     pub fn finish_live_audio(&mut self, device: &str, audio_secs: f32) -> Result<(), EngineError> {
         self.meta.source = match device.strip_prefix("file: ") {
+            // A phone call keeps its source.
+            _ if self.meta.call.is_some() => PHONE_CALL_SOURCE.to_string(),
             // An imported file run through the live pipeline keeps its origin.
             Some(path) => {
                 std::path::absolute(path).map(|p| p.display().to_string()).unwrap_or_else(|_| path.into())
@@ -618,6 +712,48 @@ impl Session {
 
     pub fn set_recorded_by(&mut self, who: Who) -> Result<(), EngineError> {
         self.meta.recorded_by = Some(who);
+        self.save_meta()
+    }
+
+    /// Save a phone call's details and mark the visit's source "Phone call".
+    pub fn set_call(&mut self, call: CallInfo) -> Result<(), EngineError> {
+        self.meta.source = PHONE_CALL_SOURCE.to_string();
+        self.meta.call = Some(call);
+        self.save_meta()
+    }
+
+    /// Record what the client said after a call's announcement, keeping when
+    /// the consent was first confirmed.
+    pub fn set_consent_outcome(
+        &mut self,
+        outcome: ConsentOutcome,
+        announced_at_secs: Option<f32>,
+    ) -> Result<(), EngineError> {
+        let consent = self
+            .meta
+            .consent
+            .as_mut()
+            .ok_or_else(|| EngineError::Session("This visit has no consent to record.".into()))?;
+        consent.outcome = Some(outcome);
+        if announced_at_secs.is_some() {
+            consent.announced_at_secs = announced_at_secs;
+        }
+        self.save_meta()
+    }
+
+    /// A call the client declined (ADR-0023 section 7): remove the audio and
+    /// anything transcribed, whatever the recorder had saved, and mark the
+    /// recording deleted. The visit itself stays, to say so.
+    pub fn forget_recording(&mut self, who: &Who) -> Result<(), EngineError> {
+        for path in [self.audio_path(), self.dir.join(format!("{AUDIO_FILE}.tmp")), self.transcript_path()] {
+            if path.exists() {
+                crate::trash::remove_file_retrying(&path)?;
+            }
+        }
+        self.meta.transcription = None;
+        self.meta.audio_secs = 0.0;
+        self.meta.audio_sha256 = String::new();
+        self.meta.audio_deleted = Some(AudioDeleted { at: Local::now(), by: who.clone() });
         self.save_meta()
     }
 
@@ -1016,6 +1152,8 @@ mod tests {
 
         // Consent: checked against its rule, stamped, saved.
         let mut consent = Consent {
+            outcome: None,
+            announced_at_secs: None,
             rule: ConsentRule::AllParties,
             method: ConsentMethod::ClinicianOnly,
             confirmed_by: "Dr Patel".into(),
@@ -1029,6 +1167,8 @@ mod tests {
         assert!(saved.confirmed_at.is_some());
         assert_eq!(saved.script.as_deref(), Some("I'd like to record our conversation."));
         let one_party = Consent {
+            outcome: None,
+            announced_at_secs: None,
             rule: ConsentRule::OneParty,
             method: ConsentMethod::ClinicianOnly,
             confirmed_by: "Dr Patel".into(),
@@ -1041,6 +1181,59 @@ mod tests {
         // A second session from the same file in the same second gets its own folder.
         let other = Session::create_from_file(&root, &src, 12.5).unwrap();
         assert_ne!(other.dir, s.dir);
+    }
+
+    /// ADR-0023 sections 7 and 8: a phone call's details and its announcement.
+    #[test]
+    fn a_phone_call_keeps_its_details_and_the_clients_answer() {
+        let _plain = crate::vault::tests::SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = tempfile::tempdir().unwrap();
+        let mut s = Session::create_live(&tmp.path().join("sessions"), "Bella").unwrap();
+        let call = CallInfo {
+            direction: CallDirection::Outgoing,
+            number: "+15555550142".into(),
+            started_at: Local::now(),
+            duration_secs: 0.0,
+            call_sid: None,
+            clinic_label: "Vet".into(),
+            declined_at_secs: None,
+        };
+        s.set_call(call.clone()).unwrap();
+        // An announcement played from the clinic's clip is allowed under both rules.
+        let announced = Consent {
+            rule: ConsentRule::AllParties,
+            method: ConsentMethod::Announced,
+            confirmed_by: "Dr Lee".into(),
+            confirmed_at: None,
+            script: Some("This call is recorded.".into()),
+            outcome: Some(ConsentOutcome::Agreed),
+            announced_at_secs: Some(0.0),
+        };
+        announced.check().unwrap();
+        s.set_consent(announced).unwrap();
+        std::fs::write(s.audio_path(), b"RIFF").unwrap();
+        s.finish_live_audio("phone call", 252.0).unwrap();
+        let back = Session::open(&s.dir).unwrap().meta;
+        assert_eq!(back.source, PHONE_CALL_SOURCE, "a call keeps its source after the audio is saved");
+        assert_eq!(back.call.as_ref().unwrap(), &call);
+        let consent = back.consent.unwrap();
+        assert_eq!(consent.outcome, Some(ConsentOutcome::Agreed));
+        assert_eq!(consent.announced_at_secs, Some(0.0));
+        s.set_consent_outcome(ConsentOutcome::StayedOnLine, None).unwrap();
+        let again = Session::open(&s.dir).unwrap().meta.consent.unwrap();
+        assert_eq!(again.outcome, Some(ConsentOutcome::StayedOnLine));
+        assert_eq!(again.confirmed_at, consent.confirmed_at, "first confirmation time kept");
+        assert_eq!(again.announced_at_secs, Some(0.0));
+        assert_eq!(ConsentMethod::parse("announced"), Some(ConsentMethod::Announced));
+        assert_eq!(call.speaker_names(), ["Vet".to_string(), "Client".to_string()]);
+        assert!(call.prompt_context().contains("Speaker 2 is the client"));
+        // Visits saved before calls existed still open, with no call.
+        let mut old: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(s.dir.join(SESSION_FILE)).unwrap()).unwrap();
+        old.as_object_mut().unwrap().remove("call");
+        old["consent"].as_object_mut().unwrap().remove("outcome");
+        let meta: SessionMeta = serde_json::from_value(old).unwrap();
+        assert!(meta.call.is_none() && meta.consent.unwrap().outcome.is_none());
     }
 
     /// ADR-0022 section 2: one animal's signed note makes the whole visit signed.

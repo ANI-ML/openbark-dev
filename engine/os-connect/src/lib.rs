@@ -27,16 +27,18 @@ pub mod token;
 pub mod twilio;
 pub mod twiml;
 
-#[cfg(test)]
-mod mock;
+/// A loopback stand-in for Twilio: this crate's tests, and other crates'
+/// tests and the demo through the `mock` feature. Never in a release build.
+#[cfg(any(test, feature = "mock"))]
+pub mod mock;
 #[cfg(test)]
 mod redaction_tests;
 #[cfg(test)]
 mod test_support;
 
-pub use secrets::{Keychain, OsKeychain, Secret, SecretId, SecretLocation, SecretStatus};
+pub use secrets::{Keychain, NoKeychain, OsKeychain, Secret, SecretId, SecretLocation, SecretStatus};
 pub use settings::TwilioSettings;
-pub use store::{ConnectStore, Removed, TwilioCredentials};
+pub use store::{ConnectStore, DEFAULT_ANNOUNCEMENT, PhonePrefs, REMOVE_NOTE, Removed, TwilioCredentials};
 pub use token::{AccessToken, TOKEN_TTL_SECS, VoiceGrant};
 pub use twilio::TwilioClient;
 

@@ -101,6 +101,8 @@ fn consent_from(args: &RecordArgs) -> Result<Option<Consent>> {
             .unwrap_or_default(),
         confirmed_at: None,
         script: None,
+        outcome: None,
+        announced_at_secs: None,
     };
     consent.check()?;
     Ok(Some(consent))

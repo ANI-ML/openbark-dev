@@ -149,6 +149,29 @@ impl Keychain for OsKeychain {
     }
 }
 
+/// No keychain at all: every call fails, so secrets go to the sealed file.
+/// Used when `OPENBARK_CONNECTIONS_DIR` moves the store (demos, tests and
+/// scratch runs), so they never touch this computer's real keychain entry.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct NoKeychain;
+
+/// Why [`NoKeychain`] refuses.
+pub const NO_KEYCHAIN: &str = "the keychain isn't used with OPENBARK_CONNECTIONS_DIR";
+
+impl Keychain for NoKeychain {
+    fn get(&self, _: &str) -> Result<Option<String>, String> {
+        Err(NO_KEYCHAIN.into())
+    }
+
+    fn set(&self, _: &str, _: &str) -> Result<(), String> {
+        Err(NO_KEYCHAIN.into())
+    }
+
+    fn delete(&self, _: &str) -> Result<bool, String> {
+        Err(NO_KEYCHAIN.into())
+    }
+}
+
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 impl Keychain for OsKeychain {
     fn get(&self, _: &str) -> Result<Option<String>, String> {
