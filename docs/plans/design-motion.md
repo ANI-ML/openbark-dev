@@ -46,7 +46,7 @@ Reduced motion: every `--dur-*` token becomes `0ms`, `--press-scale` becomes 1 a
 | The demo's recording timer ticks, so the "Recording" chip is live, not a picture | Kokonut **ai-voice** and **synced-transcript** (live state from data) | A text update; nothing moves. The pulse is still the one expressive animation. |
 | One ink marker glides between transcript lines as you move along the note | Kokonut **ai-citations** ("one preview glides between chips and lights up the sentence it backs") | This is OpenBark's evidence link. The marker is ink, a 2 px bar, moved with transform only. |
 | "Built carefully" as a flat bento grid: one large tile for the evidence link and four smaller ones, each with a small real-interface figure | Kokonut **bento-grid** (the 6-column layout only, not the drag and resize) | Flat tiles with 1 px borders, no shadows, no hover lift. Every claim is a shipped feature on the features page. |
-| Sections fade up 16 px as they scroll into view | Motion scroll-linked animation (`animation-timeline: view()`) | Pure CSS, runs on the compositor, no JS, no observers. Browsers without scroll timelines show everything at once. Off with reduced motion. |
+| Sections fade up 16 px as they come into view, once | Motion's scroll-triggered animation (`inView`), done with an IntersectionObserver | Armed by the first scroll: only sections still below the fold wait, so a page that is never scrolled (a full-page capture, a reader view, print) shows everything. A CSS scroll timeline (`animation-timeline: view()`) was tried first and dropped: full-page captures rendered every section below the fold blank. Off with reduced motion. |
 | Download cards: an icon per platform, "This computer" on the visitor's card, which comes first in the list | Kokonut **file-upload** (clear per-item state) | Ink border and a status chip, no accent fill. Reordered in the DOM so keyboard order matches. |
 | Version history as a timeline: a rail with a dot per entry, the newest filled and marked "Latest"; the contents list marks where you are | Kokonut **scroll-index** (a rail that shows where you are on a long page) | Ink dots on a 1 px rail. `aria-current="location"` on the contents link. |
 
@@ -81,7 +81,7 @@ Reduced motion: every `--dur-*` token becomes `0ms`, `--press-scale` becomes 1 a
 
 ## Dependency
 
-`motion` 14.1.0 (MIT) is added to `apps/desktop` only, for `AnimatePresence`, layout animations and `layoutId`. CSS can't animate an element that is leaving the page or a list reflowing. The app loads `domMax` through `LazyMotion` and uses the light `m` components. Versions, licence and size are recorded in `docs/versions.md`. The website uses no JS animation library: everything there is CSS (transitions, keyframes, `linear()` springs, scroll timelines), within its `script-src 'self'` policy.
+`motion` 14.1.0 (MIT) is added to `apps/desktop` only, for `AnimatePresence`, layout animations and `layoutId`. CSS can't animate an element that is leaving the page or a list reflowing. The app loads `domMax` through `LazyMotion` and uses the light `m` components. Versions, licence and size are recorded in `docs/versions.md`. The website uses no JS animation library: its motion is CSS (transitions, keyframes, `linear()` springs) plus a few lines in the site's own `site.js` (an IntersectionObserver for the reveals, the demo's marker and timer), all within its `script-src 'self'` policy.
 
 ## Accessibility checklist
 

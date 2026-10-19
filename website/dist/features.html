@@ -70,6 +70,29 @@
 </section>
 <script>
 (function () {
+  var toc = document.querySelector(".fx-toc");
+  if (!toc || !window.IntersectionObserver) return;
+  var links = {};
+  toc.querySelectorAll('a[href^="#"]').forEach(function (a) { links[a.getAttribute("href").slice(1)] = a; });
+  var seen = {};
+  var mark = function () {
+    var ids = Object.keys(links), current = null;
+    for (var i = 0; i < ids.length; i++) if (seen[ids[i]]) { current = ids[i]; break; }
+    if (!current) return; // Between sections: keep the last mark.
+    ids.forEach(function (id) {
+      if (id === current) links[id].setAttribute("aria-current", "location");
+      else links[id].removeAttribute("aria-current");
+    });
+  };
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (en) { seen[en.target.id] = en.isIntersecting; });
+    mark();
+  }, { rootMargin: "-96px 0px -55% 0px" });
+  Object.keys(links).forEach(function (id) { var el = document.getElementById(id); if (el) io.observe(el); });
+})();
+</script>
+<script>
+(function () {
   var q = document.getElementById("fx-q");
   if (!q) return;
   q.addEventListener("input", function () {
