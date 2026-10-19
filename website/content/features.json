@@ -1870,10 +1870,10 @@
         },
         {
           "name": "Source code on GitHub",
-          "benefit": "Anyone will be able to read, check and build the code.",
-          "detail": "The source will be public on GitHub under the Apache-2.0 licence, so any clinic or developer can inspect it, build it and improve it.",
-          "evidence": "LICENSE; website/README.md",
-          "status": "coming"
+          "benefit": "Anyone can read, check and build the code.",
+          "detail": "The source is public on GitHub (github.com/ANI-ML/openbark) under the Apache-2.0 licence, so any clinic or developer can inspect it, build it and improve it. It is refreshed with each release.",
+          "evidence": "LICENSE; CONTRIBUTING.md",
+          "status": "shipped"
         },
         {
           "name": "Every decision written down",
