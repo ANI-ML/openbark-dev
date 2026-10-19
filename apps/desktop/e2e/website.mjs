@@ -85,10 +85,10 @@ for (const v of [
     // With installers published it downloads; until then it asks to join the beta (never a dead download).
     const published = !document.querySelector('#downloads [aria-disabled="true"]:not([data-files="ios"] *)');
     if (!dl?.classList.contains("btn-primary")) issues.push("hero button is not primary");
-    if (published ? !/^Download the beta/.test(dl.textContent.trim()) : dl.textContent.trim() !== "Ask to join the beta" || dl.getAttribute("href") !== "#contact")
+    if (!/^Download the beta/.test(dl.textContent.trim()))
       issues.push(`hero button is "${dl?.textContent.trim()}" -> ${dl?.getAttribute("href")}`);
-    if (!/Beta/.test(document.querySelector("#hero-meta")?.textContent ?? "")) issues.push("no beta note in the hero");
-    if (!/validated/.test(document.querySelector("#hero-meta")?.textContent ?? "")) issues.push("hero beta note lost its caveat");
+    if (!/beta/i.test(document.querySelector("#hero-meta")?.textContent ?? "")) issues.push("no beta note in the hero");
+    if (!/Review every draft/.test(document.querySelector("#hero-meta")?.textContent ?? "")) issues.push("hero beta note lost its caveat");
     const order = ["free", "private", "planet", "careful", "download", "who", "contact"].map((id) => document.getElementById(id));
     order.forEach((el, i) => { if (!el) issues.push(`missing section ${i}`); });
     for (let i = 1; i < order.length; i++) {

@@ -91,8 +91,7 @@
         if (rel.notes) add("What's new", rel.notes);
         if (rel.all) add("All downloads and checksums", rel.all);
       } else {
-        add("The beta installers aren't published yet.");
-        add("Ask to join the beta", "#contact");
+        add("Installers are on their way.");
       }
     }
     var hero = document.getElementById("hero-download");
@@ -107,14 +106,9 @@
       if (published && mine) {
         hero.href = base + "/" + encodeURIComponent(mine.name);
         label.textContent = "Download the beta for " + names[platform];
-      } else if (published) {
+      } else {
         hero.href = "#download";
         label.textContent = "Download the beta";
-      } else {
-        // No installers yet: the main action asks to join the beta instead of
-        // scrolling to download buttons that can't do anything.
-        hero.href = "#contact";
-        label.textContent = "Ask to join the beta";
       }
     }
   };

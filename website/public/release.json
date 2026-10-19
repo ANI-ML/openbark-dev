@@ -1,19 +1,43 @@
 {
   "product": "OpenBark",
-  "version": "0.0.1",
-  "published": false,
-  "date": null,
-  "download_base": "https://github.com/ANI-ML/openbark-releases/releases/download/v0.0.1",
-  "all": "https://github.com/ANI-ML/openbark-releases/releases",
-  "notes": null,
+  "version": "0.1.0",
+  "published": true,
+  "date": "2026-10-19",
+  "download_base": "https://github.com/ANI-ML/openbark-releases/releases/download/v0.1.0",
+  "all": "https://github.com/ANI-ML/openbark-releases/releases/tag/v0.1.0",
+  "notes": "https://github.com/ANI-ML/openbark-releases/releases/tag/v0.1.0",
   "app_store": null,
   "files": {
-    "windows": [{ "label": "Windows setup (.exe)", "name": "OpenBark_0.0.1_x64-setup.exe", "size": "" }],
-    "mac": [{ "label": "Disk image (.dmg)", "name": "OpenBark_0.0.1_aarch64.dmg", "size": "" }],
+    "windows": [
+      {
+        "label": "Windows setup (.exe)",
+        "name": "OpenBark-Setup.exe",
+        "size": "43 MB"
+      }
+    ],
+    "mac": [
+      {
+        "label": "Disk image (.dmg)",
+        "name": "OpenBark.dmg",
+        "size": "45 MB"
+      }
+    ],
     "linux": [
-      { "label": "Ubuntu, Debian (.deb)", "name": "OpenBark_0.0.1_amd64.deb", "size": "" },
-      { "label": "Fedora (.rpm)", "name": "OpenBark-0.0.1-1.x86_64.rpm", "size": "" },
-      { "label": "Any distribution (AppImage)", "name": "OpenBark_0.0.1_amd64.AppImage", "size": "" }
+      {
+        "label": "Any distribution (AppImage)",
+        "name": "OpenBark.AppImage",
+        "size": "135 MB"
+      },
+      {
+        "label": "Fedora (.rpm)",
+        "name": "openbark.x86_64.rpm",
+        "size": "60 MB"
+      },
+      {
+        "label": "Ubuntu, Debian (.deb)",
+        "name": "openbark_amd64.deb",
+        "size": "60 MB"
+      }
     ]
   }
 }
