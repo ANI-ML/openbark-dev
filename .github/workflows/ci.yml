@@ -19,8 +19,8 @@ jobs:
     name: UI (typecheck + tests)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
       - run: corepack enable
@@ -32,12 +32,12 @@ jobs:
     name: Engine (Linux) + offline e2e
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: System packages (Tauri webview, libclang)
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libclang-dev cmake libasound2-dev
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -56,7 +56,7 @@ jobs:
         run: bash scripts/ci/check-symbols.sh target/release/openbark
       - name: Restore models
         id: models
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/models
           key: models-${{ hashFiles('engine/os-models/catalog.json') }}-e2b
@@ -77,7 +77,7 @@ jobs:
           export OPENBARK_MODELS_DIR=~/models
           target/release/openbark models verify
           bash scripts/ci/e2e-offline.sh target/release/openbark smoke gemma-4-e2b-it-q4_0
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: e2e-linux
@@ -87,8 +87,8 @@ jobs:
     name: Engine (Windows x64, CPU build)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/cache@v4
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -109,8 +109,8 @@ jobs:
     name: Engine (macOS arm64, Metal build)
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/cache@v4
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
