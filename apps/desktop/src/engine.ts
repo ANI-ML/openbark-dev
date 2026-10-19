@@ -280,8 +280,16 @@ export interface ModelRow {
   installed: boolean;
   fit: Fit;
   builtin: boolean;
-  /** Bytes on disk, `.part` files included (0 when used where it is). */
+  /**
+   * Bytes on disk that are OpenBark's alone, `.part` files included: what
+   * removing it frees (0 when used where it is).
+   */
   disk_bytes: number;
+  /**
+   * Bytes on disk whose data another name also holds (a hard link: a copy
+   * from this computer on the same drive). Removing them frees nothing.
+   */
+  shared_bytes: number;
   /** Bytes of a download that stopped part-way. */
   partial_bytes: number;
   origin: Origin;
@@ -300,7 +308,10 @@ export interface ModelRow {
 /** What a removal did (ADR-0025 §10). */
 export interface Removal {
   id: string;
+  /** Space really freed. */
   freed_bytes: number;
+  /** Bytes deleted whose data another name still holds (a hard link): nothing freed for them. */
+  shared_bytes?: number;
   files_removed: number;
   /** Dropped from the list. */
   forgotten: boolean;
@@ -957,11 +968,11 @@ export const removeModel = (id: string, noteModel: string | null, forget = false
     ? invoke<Removal>("remove_model", { id, noteModel, forget, by: actor })
     : api<Removal>("/api/models/remove", post({ id, note_model: noteModel, forget, by: actor }));
 
-/** Look at a .gguf file or an MLX folder without changing anything. */
+/** Look at a .gguf file or an MLX folder without changing anything (with a team, a veterinarian only). */
 export const inspectImport = (path: string) =>
   isDesktop
-    ? invoke<ImportPreview>("inspect_import", { path })
-    : api<ImportPreview>("/api/models/import/inspect", post({ path }));
+    ? invoke<ImportPreview>("inspect_import", { path, by: actor })
+    : api<ImportPreview>("/api/models/import/inspect", post({ path, by: actor }));
 
 /** Add it: copied into the models folder, or used where it is. Progress comes as `download` events. */
 export const importModel = (path: string, mode: ImportMode) =>
@@ -1037,6 +1048,7 @@ export const MODEL_MESSAGES = (t: Translate) => [
   t("Your note model uses the MLX engine. Choose another one under In use first."),
   t("A note is being written with an MLX model. Remove the engine when that's finished."),
   t("Download the MLX engine on the Models screen first."),
+  t("The MLX engine didn't pass its check on this computer. Choose Try again on the MLX engine card in Models."),
   t("MLX models run on a Mac with Apple silicon and macOS 14 or later."),
   t("The MLX engine is already downloading."),
   t("{name} isn't where it was ({path}). Add it again from this computer."),
@@ -1052,6 +1064,8 @@ export const MODEL_MESSAGES = (t: Translate) => [
   t("That's a helper file ({0}), not a model. Choose the main model file."),
   t("Some parts of this model are missing from the folder: {0}."),
   t("That folder isn't an MLX model OpenBark can run: {0}"),
+  t("{0} is a link to a file outside the folder you chose, so OpenBark won't add it."),
+  t("An older version of this model is on this computer. Remove it on the Models screen, then add it again."),
   t("Not enough space: this needs {need} bytes and {available} are free."),
   t("OpenBark won't delete {0}: it's outside the models folder."),
   t("OpenBark won't delete {0}: it's a link to somewhere else."),

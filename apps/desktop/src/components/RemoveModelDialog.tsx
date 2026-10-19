@@ -18,8 +18,20 @@ export interface Removed {
   message: string;
 }
 
-/** Bytes a row has on this computer: its files, or what a stopped download left. */
-export const rowBytes = (r: engine.ModelRow) => r.disk_bytes || (r.installed ? r.size_bytes : r.partial_bytes);
+/**
+ * Bytes removing a row frees: its own files, or what a stopped download left.
+ * A copy that is a hard link to the original frees nothing (its bytes are
+ * shared), so it counts 0, not its size.
+ */
+export const rowBytes = (r: engine.ModelRow) =>
+  (r.disk_bytes ?? 0) > 0 || (r.shared_bytes ?? 0) > 0
+    ? (r.disk_bytes ?? 0)
+    : r.installed
+      ? r.size_bytes
+      : r.partial_bytes;
+
+/** Everything the row has on disk is shared with another file: removing it frees nothing. */
+const onlyShared = (r: engine.ModelRow) => (r.shared_bytes ?? 0) > 0 && (r.disk_bytes ?? 0) === 0;
 
 /**
  * Remove a model or an engine pack (ADR-0025 §10), with what it frees and
@@ -60,9 +72,11 @@ export function RemoveModelDialog({
       const freed = removal ? removal.freed_bytes : target.kind === "gpu" ? target.bytes : 0;
       const message = removal?.kept_in_place
         ? t("Forgotten. Nothing was deleted.")
-        : removal?.forgotten && freed === 0
-          ? t("Removed from the list.")
-          : t("Removed. {size} freed.", { size: fmtBytes(freed) });
+        : freed === 0 && (removal?.shared_bytes ?? 0) > 0
+          ? t("Removed. It was linked to another file, so no space was freed.")
+          : removal?.forgotten && freed === 0
+            ? t("Removed from the list.")
+            : t("Removed. {size} freed.", { size: fmtBytes(freed) });
       toast(message);
       onRemoved({ removal, gpu, message });
       close();
@@ -141,9 +155,23 @@ function copy(t: T, target: RemoveTarget): { title: string; body: string; confir
   if (r.remove === "delete_and_forget" || r.origin === "local_copy") {
     return {
       title: t("Remove {name}?", { name }),
-      body: t("This deletes OpenBark's copy and frees {size}. The original file stays where it was.", { size }),
+      body: onlyShared(r)
+        ? t(
+            "OpenBark's copy is linked to the original file, so removing it frees no space. The original file stays where it was.",
+          )
+        : t("This deletes OpenBark's copy and frees {size}. The original file stays where it was.", { size }),
       confirm: t("Remove"),
       hub: false,
+    };
+  }
+  if (onlyShared(r)) {
+    return {
+      title: t("Remove {name}?", { name }),
+      body: t(
+        "This model's file is linked to another file on this computer, so removing it frees no space. You can download it again from the catalog.",
+      ),
+      confirm: t("Remove"),
+      hub: r.origin === "hub",
     };
   }
   if (!r.installed && r.partial_bytes > 0) {

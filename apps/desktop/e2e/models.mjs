@@ -12,12 +12,16 @@
 // CPU in test mode), and every folder in a scratch folder called
 // openbark-models-demo: OPENBARK_MODELS_DIR, OPENBARK_ENGINES_DIR,
 // OPENBARK_SESSIONS_DIR, OPENBARK_TEMPLATES_DIR, OPENBARK_USERS_FILE,
-// OPENBARK_LOCATIONS_FILE, OPENBARK_KEY_FILE and a throwaway OPENBARK_DATA_KEY.
+// OPENBARK_LOCATIONS_FILE, OPENBARK_KEY_FILE, OPENBARK_HF_TOKEN_FILE (so the
+// demo never reads or changes this computer's Hugging Face token) and a
+// throwaway OPENBARK_DATA_KEY. The binary must honour test mode (a debug
+// build, or one built with --features mlx-test-mode).
 //
 // Before doing anything the script refuses unless the URL is this computer
 // on port 4327 or 4326 (never 4317), the server's models and visits folders
 // are inside an openbark-models-demo folder (never OpenBark's own data
-// folder), it shows the Mac screens with MLX in test mode, and it has no team.
+// folder), it shows the Mac screens with MLX in test mode, it has no team,
+// and it sees no saved Hugging Face token (a fresh scratch token store).
 // It only ever removes models it added in this run.
 //
 // It downloads, from Hugging Face and the pinned MLX pack hosts: the Linux
@@ -33,6 +37,7 @@ const MLX_REPO = "mlx-community/Qwen3-0.6B-4bit";
 const MLX_ID = `hf:${MLX_REPO}/@mlx`;
 const SPLIT_REPO = "unsloth/Qwen3-235B-A22B-Instruct-2507-GGUF";
 const GATED_REPO = "google/gemma-3-1b-it-qat-q4_0-gguf";
+const NOTHING_REPO = "meta-llama/Llama-3.2-1B-Instruct";
 const GGUF_REPO = "bartowski/SmolLM2-135M-Instruct-GGUF";
 const GGUF_FILE = "SmolLM2-135M-Instruct-Q2_K.gguf";
 const GGUF_ID = `hf:${GGUF_REPO}/SmolLM2-135M-Instruct-Q2_K`;
@@ -60,6 +65,8 @@ if (status.team) refuse("this demo has a team; start a fresh one");
 if (status.platform !== "macos") refuse("start the demo with OPENBARK_PLATFORM=macos");
 const mlx0 = await fetch(`${base}/api/mlx`).then((r) => r.json());
 if (mlx0.support !== "test_mode") refuse("start the demo with OPENBARK_MLX_DEV=1 (MLX in test mode)");
+const token0 = await fetch(`${base}/api/hf-token`).then((r) => r.json());
+if (token0.saved) refuse("the demo sees a Hugging Face token; start it with OPENBARK_HF_TOKEN_FILE in its scratch folder");
 
 mkdirSync(out, { recursive: true });
 const problems = [];
@@ -228,11 +235,25 @@ try {
   const gated = (await api("GET", `/api/hub/repo?id=${encodeURIComponent(GATED_REPO)}`)).json;
   check(gated.repo?.access === "needs_token", `gated access: ${gated.repo?.access}`);
 
+  // ---- 5b. a gated repo with nothing OpenBark can run ------------------------
+  // Search lists only GGUF and MLX repos, so this one is checked through the
+  // API the sheet uses; the sheet's wording for it is covered by vitest.
+  step(`Hub: ${NOTHING_REPO} (gated, safetensors only)`);
+  const nothing = (await api("GET", `/api/hub/repo?id=${encodeURIComponent(NOTHING_REPO)}`)).json;
+  check(nothing.repo?.gated_kind && nothing.files?.length === 0 && !nothing.mlx, `gated repo with nothing to run: ${JSON.stringify(nothing).slice(0, 300)}`);
+  const builds = (await api("GET", `/api/hub/alternatives?base=${encodeURIComponent(NOTHING_REPO)}`)).json;
+  check(Array.isArray(builds) && builds.length > 0, `no GGUF builds of ${NOTHING_REPO}: ${JSON.stringify(builds).slice(0, 200)}`);
+  console.log(`  GGUF builds offered instead: ${(builds ?? []).map((b) => b.id).join(", ")}`);
+
   // ---- 6. add from this computer: copied, and used where it is --------------
   step("Add from this computer: copy a tiny GGUF");
   await addLocal(`${importDir}/Tiny-Q4_K_M.gguf`, false);
   const copied = (await rows()).find((r) => r.origin === "local_copy");
   check(copied?.installed && copied.publisher === "This computer", `copied row: ${JSON.stringify(copied)}`);
+  // On the demo's one drive the copy is a hard link: shared, not extra space.
+  check(copied && copied.disk_bytes + copied.shared_bytes === copied.size_bytes, `copied row's bytes: ${JSON.stringify(copied)}`);
+  const linkedCopy = Boolean(copied && copied.shared_bytes > 0 && copied.disk_bytes === 0);
+  if (linkedCopy) check(await catalogRow("Tiny-Q4_K_M").getByText("Linked to another file, so it takes no extra space").count(), "the linked copy's row doesn't say it takes no extra space");
   if (copied) added.add(copied.id);
   step("Add from this computer: use one where it is");
   await addLocal(`${importDir}/Tiny-InPlace.gguf`, true);
@@ -307,10 +328,15 @@ try {
 
   // ---- 9. remove each kind, with the space freed -----------------------------
   await goModels();
-  step("Remove the copied model");
+  step(`Remove the copied model (${linkedCopy ? "a hard link: frees nothing" : "a real copy"})`);
   await catalogRow("Tiny-Q4_K_M").getByRole("button", { name: "Remove" }).click();
-  await confirmRemove("Remove Tiny-Q4_K_M?", "This deletes OpenBark's copy and frees");
-  check(/^Removed\. .+ freed\.$/.test(await toast("freed.")), "copied model: no freed toast");
+  if (linkedCopy) {
+    await confirmRemove("Remove Tiny-Q4_K_M?", "OpenBark's copy is linked to the original file, so removing it frees no space.");
+    await toast("Removed. It was linked to another file, so no space was freed.");
+  } else {
+    await confirmRemove("Remove Tiny-Q4_K_M?", "This deletes OpenBark's copy and frees");
+    check(/^Removed\. .+ freed\.$/.test(await toast("freed.")), "copied model: no freed toast");
+  }
   check(!(await rows()).some((r) => r.origin === "local_copy"), "the copied model's row is still there");
 
   step("Forget the model used where it is");

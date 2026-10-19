@@ -38,6 +38,7 @@ const row = (over: Partial<engine.ModelRow>): engine.ModelRow => ({
   fit: "fits",
   builtin: true,
   disk_bytes: 0,
+  shared_bytes: 0,
   partial_bytes: 0,
   origin: "builtin",
   engine: "llama",
@@ -272,6 +273,49 @@ describe("Models catalog", () => {
     expect(within(rowOf("llama-3.2-3b")).queryByText("Downloading")).toBeNull();
   });
 
+  it("says when a copy is linked to the original and takes no extra space", async () => {
+    mocked.models.mockResolvedValue([
+      ...ROWS,
+      row({
+        id: "local/linked",
+        name: "linked-copy",
+        origin: "local_copy",
+        remove: "delete_and_forget",
+        installed: true,
+        disk_bytes: 0,
+        shared_bytes: 2_000_000_000,
+        builtin: false,
+      }),
+    ]);
+    show();
+    await screen.findByText("linked-copy", { selector: "td > div" });
+    const linked = rowOf("linked-copy");
+    expect(within(linked).getByText("Linked to another file, so it takes no extra space")).toBeTruthy();
+    expect(within(linked).queryByText(/on disk/)).toBeNull();
+  });
+
+  it("doesn't offer MLX models for notes where the MLX engine can't run", async () => {
+    mocked.mlxStatus.mockResolvedValue({ ...MLX_READY, support: "not_mac", pack_installed: false, check: "not_run" });
+    show(ctx("windows"));
+    await screen.findByText("Gemma 4 12B", { selector: "td > div" });
+    const select = screen.getByRole("combobox", { name: "Model that writes notes" });
+    await waitFor(() => {
+      const mlx = within(select).getByRole("option", { name: "Qwen3 0.6B 4bit (needs the MLX engine)" });
+      expect((mlx as HTMLOptionElement).disabled).toBe(true);
+    });
+    expect((within(select).getByRole("option", { name: "Gemma 4 12B" }) as HTMLOptionElement).disabled).toBe(false);
+  });
+
+  it("offers MLX models for notes once the engine is installed", async () => {
+    show();
+    await screen.findByText("Gemma 4 12B", { selector: "td > div" });
+    const select = screen.getByRole("combobox", { name: "Model that writes notes" });
+    await waitFor(() => {
+      const mlx = within(select).getByRole("option", { name: "Qwen3 0.6B 4bit" });
+      expect((mlx as HTMLOptionElement).disabled).toBe(false);
+    });
+  });
+
   it("has a header button to add a model from this computer", async () => {
     show();
     fireEvent.click(await screen.findByRole("button", { name: "Add from this computer" }));
@@ -450,7 +494,12 @@ describe("Hugging Face sheet", () => {
   it("gated, token without access yet, reviewed by hand", async () => {
     mocked.hfTokenStatus.mockResolvedValue({ saved: true, source: "keychain", user: null });
     await openRepo(
-      repoView({ id: "google/medgemma-1.5-4b-it", access: "no_access_yet", gated_kind: "manual", files: [] }),
+      repoView({
+        id: "google/medgemma-1.5-4b-it-GGUF",
+        access: "no_access_yet",
+        gated_kind: "manual",
+        files: [{ path: "medgemma-1.5-4b-it-Q4_K_M.gguf", size_bytes: 2_500_000_000, fit: "fits", parts: 1 }],
+      }),
     );
     expect(
       screen.getByText(
@@ -461,13 +510,62 @@ describe("Hugging Face sheet", () => {
   });
 
   it("opens the repo again once a token is saved", async () => {
-    const view = repoView({ id: "google/gemma-3-1b-it-qat-q4_0-gguf", access: "needs_token", gated_kind: "auto" });
+    const view = repoView({
+      id: "google/gemma-3-1b-it-qat-q4_0-gguf",
+      access: "needs_token",
+      gated_kind: "auto",
+      files: [{ path: "gemma-3-1b-it-q4_0.gguf", size_bytes: 1_000_000_000, fit: "fits", parts: 1 }],
+    });
     await openRepo(view);
     mocked.setHfToken.mockResolvedValue({ saved: true, source: "keychain", user: "sam" });
     mocked.hubRepo.mockResolvedValue({ ...view, repo: { ...view.repo, access: "open" } });
     fireEvent.change(await screen.findByLabelText("Hugging Face token"), { target: { value: "hf_abcdefghijk" } });
     fireEvent.click(screen.getByRole("button", { name: "Save token" }));
     await waitFor(() => expect(mocked.hubRepo).toHaveBeenCalledTimes(2));
+  });
+
+  // meta-llama/*: gated, and holding only safetensors. Asking for access
+  // and a token would lead nowhere: say there's nothing to run, and offer
+  // GGUF builds of it instead.
+  it("a gated repo with nothing OpenBark can run says so, without asking for a token", async () => {
+    mocked.hubAlternatives.mockResolvedValue([model("bartowski/Llama-3.2-1B-Instruct-GGUF")]);
+    await openRepo(
+      repoView({ id: "meta-llama/Llama-3.2-1B-Instruct", access: "needs_token", gated_kind: "manual", files: [] }),
+    );
+    expect(screen.getByText("No GGUF or MLX files OpenBark can run in this repository.")).toBeTruthy();
+    expect(screen.queryByText("This model is gated. Request access on Hugging Face, then add your token.")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Request access" })).toBeNull();
+    expect(screen.queryByLabelText("Hugging Face token")).toBeNull();
+    expect(mocked.hubAlternatives).toHaveBeenCalledWith("meta-llama/Llama-3.2-1B-Instruct");
+    expect(await screen.findByText("GGUF builds of this model")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /bartowski\/Llama-3\.2-1B-Instruct-GGUF/ })).toBeTruthy();
+  });
+
+  it("drops a slow list of GGUF builds for a repo that's no longer open", async () => {
+    const A = "mlx-community/Llama-3.2-1B-Instruct-4bit";
+    const viewA = repoView({ id: A, mlx: mlxView(), base_model: "meta-llama/Llama-3.2-1B-Instruct" });
+    const viewB = repoView({ id: MLX_REPO, mlx: mlxView(), base_model: "Qwen/Qwen3-0.6B" });
+    let answerA: (m: engine.HubModel[]) => void = () => {};
+    mocked.hubAlternatives.mockImplementation((base: string) =>
+      base === "meta-llama/Llama-3.2-1B-Instruct"
+        ? new Promise<engine.HubModel[]>((resolve) => {
+            answerA = resolve;
+          })
+        : Promise.resolve([]),
+    );
+    mocked.hubSearch.mockResolvedValue([viewA.repo.model, viewB.repo.model]);
+    mocked.hubRepo.mockImplementation(async (id: string) => (id === A ? viewA : viewB));
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: "Browse Hugging Face" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Llama-3\.2-1B-Instruct-4bit/ }));
+    await screen.findByRole("heading", { name: A });
+    fireEvent.click(screen.getByRole("button", { name: "Back to results" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Qwen3-0\.6B-4bit/ }));
+    await screen.findByRole("heading", { name: MLX_REPO });
+    answerA([model("bartowski/Llama-3.2-1B-Instruct-GGUF")]);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByText("GGUF builds of this model")).toBeNull();
+    expect(screen.queryByText("bartowski/Llama-3.2-1B-Instruct-GGUF")).toBeNull();
   });
 
   it("reaches the token from the sheet's footer", async () => {

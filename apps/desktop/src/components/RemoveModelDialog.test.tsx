@@ -24,6 +24,7 @@ const row = (over: Partial<engine.ModelRow>): engine.ModelRow => ({
   fit: "fits",
   builtin: true,
   disk_bytes: 6_980_000_000,
+  shared_bytes: 0,
   partial_bytes: 0,
   origin: "builtin",
   engine: "llama",
@@ -156,6 +157,50 @@ describe("RemoveModelDialog", () => {
     expect(screen.queryByLabelText("Also remove it from the list")).toBeNull();
     confirm("Remove");
     await waitFor(() => expect(toast).toHaveBeenCalledWith("Removed. 2.0 GB freed."));
+  });
+
+  // A copy on the same drive is a hard link to the original: removing it
+  // frees nothing, and the dialog and toast say so instead of its size.
+  it("copied as a link to the original: says it frees no space", async () => {
+    mocked.removeModel.mockResolvedValue(
+      removal({ id: "local/m", freed_bytes: 0, shared_bytes: 2_000_000_000, forgotten: true }),
+    );
+    const { toast } = show({
+      kind: "model",
+      row: row({
+        id: "local/m",
+        name: "m",
+        origin: "local_copy",
+        publisher: "This computer",
+        builtin: false,
+        remove: "delete_and_forget",
+        disk_bytes: 0,
+        shared_bytes: 2_000_000_000,
+      }),
+    });
+    expect(
+      screen.getByText(
+        "OpenBark's copy is linked to the original file, so removing it frees no space. The original file stays where it was.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/frees 2\.0 GB/)).toBeNull();
+    confirm("Remove");
+    await waitFor(() =>
+      expect(toast).toHaveBeenCalledWith("Removed. It was linked to another file, so no space was freed."),
+    );
+  });
+
+  it("a Hugging Face model sharing its file: says it frees no space", async () => {
+    show({
+      kind: "model",
+      row: row({ id: "hf:a/b/c", name: "B", origin: "hub", builtin: false, disk_bytes: 0, shared_bytes: 5_000 }),
+    });
+    expect(
+      screen.getByText(
+        "This model's file is linked to another file on this computer, so removing it frees no space. You can download it again from the catalog.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByLabelText("Also remove it from the list")).toBeTruthy();
   });
 
   it("used where it is: forgets, deletes nothing", async () => {

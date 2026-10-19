@@ -1,6 +1,6 @@
 import { Button, Sheet, StatusDot } from "@openbark/ui";
 import { ArrowLeft, Download, FilePlus, Search, Trash2, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fmtBytes, useApp } from "../context";
 import * as engine from "../engine";
 import { hardwareLine, useT } from "../i18n";
@@ -39,6 +39,14 @@ const hasFiles = (r: engine.ModelRow) =>
   r.installed || (r.disk_bytes ?? 0) > 0 || (r.partial_bytes ?? 0) > 0 || r.origin === "local_in_place";
 
 const runsMlx = (s: engine.MlxSupport | undefined) => s === "yes" || s === "test_mode";
+
+/**
+ * MLX models can write notes on this computer: MLX runs here and its engine
+ * is installed (a check that is out of date after an update runs again by
+ * itself on the first draft; a failed one needs Try again on the card).
+ */
+const mlxUsable = (s: engine.MlxStatus | null) =>
+  s !== null && runsMlx(s.support) && s.pack_installed && s.check !== "failed";
 
 /** DESIGN.md §5 Model manager: catalog rows, fit words, determinate progress. */
 export function Models() {
@@ -116,6 +124,8 @@ export function Models() {
   }
 
   const llms = rows.filter((r) => r.slot === "llm" && r.installed && !r.missing);
+  // An MLX model can't write notes where the engine can't run or isn't installed.
+  const canDraft = (r: engine.ModelRow) => r.engine !== "mlx" || mlxUsable(mlx);
   const current = rows.find((r) => r.id === app.settings.llm);
   const currentProgress = progress[app.settings.llm];
   // The GPU recognisers come with the GPU speech pack, not one by one.
@@ -190,8 +200,8 @@ export function Models() {
                 aria-label={t("Model that writes notes")}
               >
                 {llms.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
+                  <option key={m.id} value={m.id} disabled={!canDraft(m) && m.id !== app.settings.llm}>
+                    {canDraft(m) ? m.name : t("{name} (needs the MLX engine)", { name: m.name })}
                   </option>
                 ))}
                 {!llms.some((m) => m.id === app.settings.llm) && (
@@ -262,7 +272,7 @@ export function Models() {
       )}
       {adding && (
         <AddLocalModelSheet
-          mlx={mac || mlx?.support === "test_mode"}
+          mlx={runsMlx(mlx?.support)}
           onClose={() => setAdding(false)}
           onAdded={(row) => {
             setAdding(false);
@@ -361,6 +371,9 @@ function CatalogRow({
           {!p && r.installed && !inPlace && (r.disk_bytes ?? 0) > 0 && (
             <span className="small faint">{t("{size} on disk", { size: fmtBytes(r.disk_bytes) })}</span>
           )}
+          {!p && r.installed && !inPlace && (r.shared_bytes ?? 0) > 0 && (r.disk_bytes ?? 0) === 0 && (
+            <span className="small faint">{t("Linked to another file, so it takes no extra space")}</span>
+          )}
           {!p && !r.installed && (r.partial_bytes ?? 0) > 0 && (
             <span className="small faint">{t("{size} partly downloaded", { size: fmtBytes(r.partial_bytes) })}</span>
           )}
@@ -443,6 +456,8 @@ function HubBrowser({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [tokenOpen, setTokenOpen] = useState(false);
+  /** The repo now shown (or being opened): answers for any other one are dropped. */
+  const shownRepo = useRef<string | null>(null);
 
   async function search(e?: React.FormEvent) {
     e?.preventDefault();
@@ -466,26 +481,44 @@ function HubBrowser({
   }, []);
 
   async function open(id: string) {
+    shownRepo.current = id;
     setError(null);
     setAccepted(false);
     setAlternatives([]);
     setBusy(true);
     try {
       const view = await engine.hubRepo(id);
+      // Back, or another repo, while this one was loading: drop the answer.
+      if (shownRepo.current !== id) return;
       setRepo(view);
-      const base = view.repo.base_model;
-      // An MLX build: suggest GGUF builds of the same model, which run anywhere.
-      if (view.repo.model.mlx && base) {
+      // An MLX build: suggest GGUF builds of the same model, which run
+      // anywhere. A repo with nothing OpenBark can run (safetensors only, as
+      // many gated originals are): suggest GGUF builds of it.
+      const base = view.repo.model.mlx
+        ? view.repo.base_model
+        : view.files.length === 0 && !view.mlx
+          ? view.repo.model.id
+          : null;
+      if (base) {
         engine.hubAlternatives(base).then(
-          (alts) => setAlternatives(alts.filter((a) => a.id !== id)),
+          (alts) => {
+            if (shownRepo.current === id) setAlternatives(alts.filter((a) => a.id !== id));
+          },
           () => {},
         );
       }
     } catch (err) {
-      setError(engine.modelMessage(t, err));
+      if (shownRepo.current === id) setError(engine.modelMessage(t, err));
     } finally {
-      setBusy(false);
+      if (shownRepo.current === id) setBusy(false);
     }
+  }
+
+  function back() {
+    shownRepo.current = null;
+    setRepo(null);
+    setAlternatives([]);
+    setBusy(false);
   }
 
   async function add(file: string) {
@@ -503,7 +536,9 @@ function HubBrowser({
   const mlxRepo = Boolean(repo?.repo.model.mlx);
   const restricted = repo && repo.repo.model.license_class !== "permissive";
   const access: engine.HubAccess = repo?.repo.access ?? "open";
-  const gated = access !== "open";
+  /** Nothing OpenBark can run here, gated or not: no token would change that. */
+  const nothingToRun = Boolean(repo && repo.files.length === 0 && !repo.mlx);
+  const gated = access !== "open" && !nothingToRun;
   const [acceptBefore, acceptAfter] = t("I've read the {link} and accept its terms.").split("{link}");
 
   return (
@@ -514,7 +549,7 @@ function HubBrowser({
             <h2>{repo ? repo.repo.model.id : t("Browse Hugging Face")}</h2>
             <Button
               variant="ghost"
-              onClick={repo ? () => setRepo(null) : close}
+              onClick={repo ? back : close}
               aria-label={repo ? t("Back to results") : t("Close")}
             >
               {repo ? t("Back") : <X size={20} aria-hidden />}
@@ -648,7 +683,7 @@ function HubBrowser({
                   />
                 )}
                 {repo.files.length === 0 ? (
-                  !repo.mlx && !gated ? (
+                  nothingToRun ? (
                     <p className="small muted">{t("No GGUF or MLX files OpenBark can run in this repository.")}</p>
                   ) : null
                 ) : (
@@ -690,7 +725,7 @@ function HubBrowser({
                     </table>
                   </div>
                 )}
-                {mlxRepo && alternatives.length > 0 && (
+                {(mlxRepo || nothingToRun) && alternatives.length > 0 && (
                   <div className="hub-alternatives">
                     <h3>{t("GGUF builds of this model")}</h3>
                     <p className="small muted">{t("They run with the built-in engine on any computer.")}</p>
