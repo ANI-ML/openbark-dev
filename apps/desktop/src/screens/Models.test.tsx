@@ -316,6 +316,21 @@ describe("Models catalog", () => {
     });
   });
 
+  it("a download's last event, arriving late, doesn't leave the row downloading", async () => {
+    let send: ((d: { model: string; done: number; total: number }) => void) | null = null;
+    mocked.on.mockImplementation((async (_name: string, cb: (d: never) => void) => {
+      send = cb as unknown as typeof send;
+      return () => {};
+    }) as unknown as typeof engine.on);
+    show();
+    await screen.findByText("Gemma 4 E2B", { selector: "td > div" });
+    await waitFor(() => expect(send).not.toBeNull());
+    send!({ model: "gemma-4-e2b", done: 10, total: 100 });
+    await waitFor(() => expect(within(rowOf("Gemma 4 E2B")).getByText("Downloading")).toBeTruthy());
+    send!({ model: "gemma-4-e2b", done: 100, total: 100 });
+    await waitFor(() => expect(within(rowOf("Gemma 4 E2B")).queryByText("Downloading")).toBeNull());
+  });
+
   it("has a header button to add a model from this computer", async () => {
     show();
     fireEvent.click(await screen.findByRole("button", { name: "Add from this computer" }));

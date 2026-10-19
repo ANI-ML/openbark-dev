@@ -69,10 +69,15 @@ export function Models() {
     const off = engine.on("download", (d) => {
       // A copy from this computer shows its progress in the add sheet.
       if (d.model.startsWith("local/")) return;
-      setProgress((p) => ({
-        ...p,
-        [d.model]: { done: d.done, total: d.total },
-      }));
+      // The last event can arrive after the download call has returned:
+      // a finished one clears the row's progress instead of setting it again.
+      setProgress((p) => {
+        if (d.total > 0 && d.done >= d.total) {
+          const { [d.model]: _, ...rest } = p;
+          return rest;
+        }
+        return { ...p, [d.model]: { done: d.done, total: d.total } };
+      });
     });
     return () => void off.then((f) => f());
     // eslint-disable-next-line react-hooks/exhaustive-deps
