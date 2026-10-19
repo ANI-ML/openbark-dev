@@ -71,7 +71,7 @@ function ctx(over: Partial<Ctx> = {}): Ctx {
     setUser: vi.fn(),
     actor: "Dr Rivera",
     actorName: "Dr Rivera",
-    can: { notes: true, sign: true, team: true },
+    can: { notes: true, sign: true, team: true, admin: true },
     ...over,
   };
 }
@@ -138,7 +138,7 @@ describe("Review: deleting", () => {
   });
 
   it("shows no Delete visit or Delete recording to reception", async () => {
-    show(sessionView(), ctx({ can: { notes: false, sign: false, team: false } }));
+    show(sessionView(), ctx({ can: { notes: false, sign: false, team: false, admin: false } }));
     await screen.findByText("Ear check");
     expect(screen.queryByRole("button", { name: "Delete visit" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Delete recording" })).toBeNull();
@@ -154,7 +154,7 @@ describe("Review: deleting", () => {
   });
 
   it("offers Delete recording under the player; a technician can't on a signed visit", async () => {
-    show(sessionView({ any_signed: true }), ctx({ can: { notes: true, sign: false, team: false } }));
+    show(sessionView({ any_signed: true }), ctx({ can: { notes: true, sign: false, team: false, admin: false } }));
     const button = (await screen.findByRole("button", { name: "Delete recording" })) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     expect(button.closest("[title]")?.getAttribute("title")).toBe(

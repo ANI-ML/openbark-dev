@@ -73,11 +73,17 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
         if (["upload", "convert", "read", "transcribe", "check", "save"].includes(p.stage)) setProgress(p);
       }),
     ];
-    engine.listTemplates().then(setTemplates, () => {});
     return () => offs.forEach((p) => void p.then((f) => f()));
   }, []);
 
+  // Each person's own versions and templates (ADR-0024): reload when someone else uses the app.
+  useEffect(() => {
+    engine.listTemplates().then(setTemplates, () => {});
+  }, [app.user?.id]);
+
   const missing = app.status?.models.filter((m) => !m.installed) ?? [];
+  /** The visit type chosen on this device is one this person can draft with. */
+  const templateAvailable = templates.length === 0 || templates.some((x) => x.id === app.settings.template);
 
   async function toggle() {
     setError(null);
@@ -278,10 +284,18 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
           )}
           <VisitTypePicker
             templates={templates}
-            value={app.settings.template}
+            value={templateAvailable ? app.settings.template : "soap"}
             onChange={(id) => app.setSettings({ template: id })}
             disabled={state !== "idle"}
           />
+          {!templateAvailable && (
+            // Another person's own template was chosen on this computer (ADR-0024 D6).
+            <p className="small muted" role="status">
+              {t("The visit type chosen last is someone else's own template. Drafting with {default}.", {
+                default: templateName(t, templates.find((x) => x.id === "soap")?.name ?? "SOAP note"),
+              })}
+            </p>
+          )}
           <div className="recorder-stage">
             <RecordButton
               className="recorder-record"

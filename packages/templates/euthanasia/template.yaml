@@ -1,6 +1,6 @@
 # OpenBark template: euthanasia and quality-of-life record.
 id: euthanasia
-version: 0.1.0
+version: 0.1.1
 name: Euthanasia and quality of life
 description: Quality-of-life discussion, consent, procedure, confirmation of death and aftercare choice.
 icon: flower-lotus
@@ -12,10 +12,11 @@ instructions: |
   The transcript is from a recording; speakers are labelled by number, not role. Infer roles from context,
   but never put words in a speaker's mouth.
 
-rules:
+fixed_rules:
   - "Record consent only as it was stated in the recording; never assume consent was given."
-  - "Sedatives and euthanasia solution are medications: drug, dose or volume, route and time as said."
   - "Record time of death and confirmation of death only as said."
+rules:
+  - "Sedatives and euthanasia solution are medications: drug, dose or volume, route and time as said."
   - "If euthanasia was discussed but not performed, record the decision and plan, and leave the procedure headings empty."
 
 sections:

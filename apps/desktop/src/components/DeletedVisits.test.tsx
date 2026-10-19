@@ -43,7 +43,7 @@ function ctx(): Ctx {
     setUser: vi.fn(),
     actor: "Sam",
     actorName: "Sam",
-    can: { notes: true, sign: false, team: false },
+    can: { notes: true, sign: false, team: false, admin: false },
   };
 }
 

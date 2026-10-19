@@ -7,10 +7,14 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use os_app::{App, AppError, Events, Patient, PdfRequest, RecordingConsent, RecordingSource, RefineRequest};
+use os_app::{
+    App, AppError, Approver, Events, Patient, PdfRequest, ProfileSummary, RecordingConsent, RecordingSource,
+    RefineRequest, ResetView, SaveTemplateRequest, ShareMode, TeamSettingsView, TemplateMode,
+    TemplateSummary, TemplateView,
+};
 use os_engine::Segment;
-use os_engine::template::{Standard, Template};
-use os_engine::template_store::TemplateSummary;
+use os_engine::template::{Scope, Standard, Template};
+use os_engine::template_diff::TemplateDiff;
 use os_engine::users::{Role, User};
 use os_models::ModelStore;
 use serde::Serialize;
@@ -456,19 +460,25 @@ async fn purge_deleted(
     work(move || app.purge_deleted(&tid, by.as_deref(), pin.as_deref())).await
 }
 
+// ---- templates (ADR-0024): an admin's PIN is only ever an argument, never logged ----
+
 #[tauri::command]
-fn list_templates(app: State<'_, AppState>) -> Vec<TemplateSummary> {
-    app.list_templates()
+fn list_templates(app: State<'_, AppState>, by: Option<String>) -> Result<Vec<TemplateSummary>, String> {
+    app.list_templates(by.as_deref()).map_err(|e| e.0)
 }
 
 #[tauri::command]
-fn template(app: State<'_, AppState>, id: String) -> Result<os_app::TemplateView, String> {
-    app.template(&id).map_err(|e| e.0)
+fn template(app: State<'_, AppState>, id: String, by: Option<String>) -> Result<TemplateView, String> {
+    app.template(&id, by.as_deref()).map_err(|e| e.0)
 }
 
 #[tauri::command]
-fn preview_template(app: State<'_, AppState>, template: Template) -> Result<os_app::TemplateView, String> {
-    app.preview_template(template).map_err(|e| e.0)
+fn preview_template(
+    app: State<'_, AppState>,
+    template: Template,
+    by: Option<String>,
+) -> Result<TemplateView, String> {
+    app.preview_template(template, by.as_deref()).map_err(|e| e.0)
 }
 
 /// A template proposed from an example note; not saved (M2 item 5).
@@ -477,39 +487,178 @@ async fn template_from_example(
     app: State<'_, AppState>,
     llm: String,
     text: String,
-) -> Result<os_app::TemplateView, String> {
+) -> Result<TemplateView, String> {
     let app = app.inner().clone();
     work(move || app.template_from_example(&llm, &text)).await
 }
 
 #[tauri::command]
-fn save_template(app: State<'_, AppState>, template: Template) -> Result<os_app::TemplateView, String> {
-    app.save_template(template).map_err(|e| e.0)
+async fn save_template(
+    app: State<'_, AppState>,
+    request: SaveTemplateRequest,
+) -> Result<TemplateView, String> {
+    let app = app.inner().clone();
+    work(move || app.save_template(request)).await
 }
 
 #[tauri::command]
-fn delete_template(app: State<'_, AppState>, id: String) -> Result<(), String> {
-    app.delete_template(&id).map_err(|e| e.0)
+fn compare_template(
+    app: State<'_, AppState>,
+    id: String,
+    by: Option<String>,
+    with: String,
+) -> Result<TemplateDiff, String> {
+    app.compare_template(&id, by.as_deref(), &with).map_err(|e| e.0)
 }
 
 #[tauri::command]
-fn add_standard(
+fn reset_template(app: State<'_, AppState>, id: String, by: Option<String>) -> Result<ResetView, String> {
+    app.reset_template(&id, by.as_deref()).map_err(|e| e.0)
+}
+
+#[tauri::command]
+fn undo_reset_template(
+    app: State<'_, AppState>,
+    id: String,
+    by: Option<String>,
+    undo: String,
+) -> Result<TemplateView, String> {
+    app.undo_reset_template(&id, by.as_deref(), &undo).map_err(|e| e.0)
+}
+
+#[tauri::command]
+async fn keep_template(
+    app: State<'_, AppState>,
+    id: String,
+    by: Option<String>,
+    fingerprint: String,
+    approver: Option<Approver>,
+) -> Result<TemplateView, String> {
+    let app = app.inner().clone();
+    work(move || app.keep_template(&id, by.as_deref(), &fingerprint, approver.as_ref())).await
+}
+
+#[tauri::command]
+async fn share_template(
+    app: State<'_, AppState>,
+    id: String,
+    by: Option<String>,
+    mode: ShareMode,
+    name: Option<String>,
+    approver: Option<Approver>,
+) -> Result<TemplateView, String> {
+    let app = app.inner().clone();
+    work(move || app.share_template(&id, by.as_deref(), mode, name.as_deref(), approver.as_ref())).await
+}
+
+#[tauri::command]
+async fn reset_team_template(
+    app: State<'_, AppState>,
+    id: String,
+    by: Option<String>,
+    approver: Option<Approver>,
+) -> Result<ResetView, String> {
+    let app = app.inner().clone();
+    work(move || app.reset_team_template(&id, by.as_deref(), approver.as_ref())).await
+}
+
+#[tauri::command]
+async fn delete_template(
+    app: State<'_, AppState>,
+    id: String,
+    by: Option<String>,
+    approver: Option<Approver>,
+) -> Result<(), String> {
+    let app = app.inner().clone();
+    work(move || app.delete_template(&id, by.as_deref(), approver.as_ref())).await
+}
+
+#[tauri::command]
+async fn add_standard(
     app: State<'_, AppState>,
     id: String,
     heading: String,
     text: String,
     by: Option<String>,
+    scope: Option<Scope>,
+    approver: Option<Approver>,
 ) -> Result<Standard, String> {
-    app.add_standard(&id, &heading, &text, by.as_deref()).map_err(|e| e.0)
+    let app = app.inner().clone();
+    work(move || app.add_standard(&id, &heading, &text, by.as_deref(), scope, approver.as_ref())).await
 }
 
 #[tauri::command]
-fn remove_standard(
+async fn remove_standard(
     app: State<'_, AppState>,
     id: String,
     sid: String,
-) -> Result<os_app::TemplateView, String> {
-    app.remove_standard(&id, &sid).map_err(|e| e.0)
+    by: Option<String>,
+    approver: Option<Approver>,
+) -> Result<TemplateView, String> {
+    let app = app.inner().clone();
+    work(move || app.remove_standard(&id, &sid, by.as_deref(), approver.as_ref())).await
+}
+
+#[tauri::command]
+fn mute_standard(
+    app: State<'_, AppState>,
+    id: String,
+    sid: String,
+    by: Option<String>,
+    muted: bool,
+) -> Result<TemplateView, String> {
+    app.mute_standard(&id, &sid, by.as_deref(), muted).map_err(|e| e.0)
+}
+
+#[tauri::command]
+fn run_template_view(
+    app: State<'_, AppState>,
+    id: String,
+    pet: Option<String>,
+) -> Result<TemplateView, String> {
+    app.run_template_view(&id, pet.as_deref()).map_err(|e| e.0)
+}
+
+#[tauri::command]
+fn team_settings(app: State<'_, AppState>) -> TeamSettingsView {
+    app.team_settings()
+}
+
+#[tauri::command]
+async fn set_team_settings(
+    app: State<'_, AppState>,
+    templates: TemplateMode,
+    by: Option<String>,
+    approver: Option<Approver>,
+) -> Result<TeamSettingsView, String> {
+    let app = app.inner().clone();
+    work(move || app.set_template_mode(templates, by.as_deref(), approver.as_ref())).await
+}
+
+#[tauri::command]
+fn dismiss_setup_notice(app: State<'_, AppState>, by: Option<String>) -> Result<TeamSettingsView, String> {
+    app.dismiss_setup_notice(by.as_deref()).map_err(|e| e.0)
+}
+
+#[tauri::command]
+async fn set_user_admin(
+    app: State<'_, AppState>,
+    uid: String,
+    admin: bool,
+    by: Option<String>,
+    approver: Option<Approver>,
+) -> Result<User, String> {
+    let app = app.inner().clone();
+    work(move || app.set_user_admin(&uid, admin, by.as_deref(), approver.as_ref())).await
+}
+
+#[tauri::command]
+fn profile_summary(
+    app: State<'_, AppState>,
+    uid: String,
+    by: Option<String>,
+) -> Result<ProfileSummary, String> {
+    app.profile_summary(&uid, by.as_deref()).map_err(|e| e.0)
 }
 
 #[tauri::command]
@@ -600,9 +749,22 @@ pub fn run() {
             preview_template,
             template_from_example,
             save_template,
+            compare_template,
+            reset_template,
+            undo_reset_template,
+            keep_template,
+            share_template,
+            reset_team_template,
             delete_template,
             add_standard,
             remove_standard,
+            mute_standard,
+            run_template_view,
+            team_settings,
+            set_team_settings,
+            dismiss_setup_notice,
+            set_user_admin,
+            profile_summary,
             models,
             download_model,
             hub_search,

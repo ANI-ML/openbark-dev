@@ -1,6 +1,6 @@
 # OpenBark template: phone call (any call with a client, for the medical record).
 id: callback
-version: 0.1.0
+version: 0.1.1
 name: Phone call
 description: "A phone call with a client, either way: why, what was said, advice and changes."
 icon: phone
@@ -12,8 +12,9 @@ instructions: |
   The transcript is from a recording; speakers are labelled by number, not role. Infer roles from context,
   but never put words in a speaker's mouth.
 
-rules:
+fixed_rules:
   - "Record who called whom only if it was said."
+rules:
   - "Changes to medication are medications, with dose, route, frequency and duration as said."
 
 sections:

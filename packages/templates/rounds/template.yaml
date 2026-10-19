@@ -1,6 +1,6 @@
 # OpenBark template: clinician rounds (hospitalised patient handover).
 id: rounds
-version: 0.1.0
+version: 0.1.1
 name: Clinician rounds
 description: "Handover of a hospitalised patient: status since last rounds, treatments, plan and tasks for the day."
 icon: users-three
@@ -15,11 +15,12 @@ instructions: |
   Rounds often cover several patients. When the visit lists more than one animal, write only about the
   animal this note is for.
 
-rules:
+fixed_rules:
   - "Record times of events, treatments and observations only as said."
+  - "Record resuscitation status only as stated."
+rules:
   - "Every drug, fluid rate and infusion is a medication: dose or rate, route and frequency as said."
   - "A task belongs under To do with who will do it and when, only if said."
-  - "Record resuscitation status only as stated."
 
 sections:
   - id: patient

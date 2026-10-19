@@ -64,6 +64,10 @@ struct StoredUser {
     salt: String,
     pin_hash: String,
     created_at: DateTime<Local>,
+    /// Admins change the hospital's templates and the templates setting,
+    /// each time with their PIN (ADR-0024 D2). Separate from the role.
+    #[serde(default)]
+    admin: bool,
 }
 
 /// A team member as the app shows them (no PIN material).
@@ -72,12 +76,38 @@ pub struct User {
     pub id: String,
     pub name: String,
     pub role: Role,
+    /// Can change the hospital's templates (with their PIN) and who is an admin.
+    pub admin: bool,
 }
 
 impl From<&StoredUser> for User {
     fn from(u: &StoredUser) -> Self {
-        Self { id: u.id.clone(), name: u.name.clone(), role: u.role }
+        Self { id: u.id.clone(), name: u.name.clone(), role: u.role, admin: u.admin }
     }
+}
+
+/// Whose templates the team drafts with (ADR-0024 D2), set by an admin.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TemplateMode {
+    /// Each person's own: everyone may keep their own versions, and the
+    /// hospital's templates are the defaults.
+    #[default]
+    Personal,
+    /// Shared by the hospital: everyone drafts with the hospital's templates.
+    /// Personal versions are kept but not used, and come back if this changes.
+    Hospital,
+}
+
+/// Settings for the whole team, beside the team file (encrypted like it).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TeamSettings {
+    #[serde(default)]
+    pub templates: TemplateMode,
+    /// Tell the first admin, once, that templates changed while working
+    /// alone are now the hospital's.
+    #[serde(default)]
+    pub setup_notice: bool,
 }
 
 impl From<&User> for Who {
@@ -92,6 +122,9 @@ pub fn default_path() -> PathBuf {
     }
     dirs::data_local_dir().unwrap_or_else(|| PathBuf::from(".")).join("OpenBark").join("users.json")
 }
+
+/// There must always be at least one admin (ADR-0024 D2).
+pub const LAST_ADMIN: &str = "Keep at least one admin on the team. Make someone else an admin first.";
 
 /// Slow enough to make guessing a PIN from a copied file tedious.
 const ROUNDS: u32 = 100_000;
@@ -131,11 +164,57 @@ impl UserStore {
     }
 
     fn load(&self) -> Result<Vec<StoredUser>, EngineError> {
-        match crate::vault::read_to_string(&self.path) {
-            Ok(text) => serde_json::from_str(&text).map_err(|e| EngineError::Session(format!("users: {e}"))),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
-            Err(e) => Err(EngineError::Session(format!("users: {e}"))),
+        let mut users: Vec<StoredUser> = match crate::vault::read_to_string(&self.path) {
+            Ok(text) => {
+                serde_json::from_str(&text).map_err(|e| EngineError::Session(format!("users: {e}")))?
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(e) => return Err(EngineError::Session(format!("users: {e}"))),
+        };
+        // A team from before admins existed: whoever set it up is the first admin.
+        if !users.is_empty() && !users.iter().any(|u| u.admin) {
+            let first = (0..users.len()).min_by_key(|&i| users[i].created_at).expect("not empty");
+            users[first].admin = true;
         }
+        Ok(users)
+    }
+
+    /// `team-settings.json`, beside the team file.
+    fn settings_path(&self) -> PathBuf {
+        self.path.with_file_name("team-settings.json")
+    }
+
+    /// The team's settings (the defaults when none are saved).
+    pub fn settings(&self) -> TeamSettings {
+        crate::vault::read_to_string(&self.settings_path())
+            .ok()
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn set_settings(&self, settings: &TeamSettings) -> Result<(), EngineError> {
+        let path = self.settings_path();
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| EngineError::Session(e.to_string()))?;
+        }
+        let text = serde_json::to_string_pretty(settings).expect("settings serialise");
+        crate::vault::write(&path, text.as_bytes()).map_err(|e| EngineError::Session(e.to_string()))
+    }
+
+    /// Grant or remove the admin flag. There is always at least one admin.
+    pub fn set_admin(&self, id: &str, admin: bool) -> Result<User, EngineError> {
+        let mut users = self.load()?;
+        let user = users
+            .iter_mut()
+            .find(|u| u.id == id)
+            .ok_or_else(|| EngineError::Session("No such team member.".into()))?;
+        user.admin = admin;
+        let out = User::from(&*user);
+        if !users.iter().any(|u| u.admin) {
+            return Err(EngineError::Session(LAST_ADMIN.into()));
+        }
+        self.save(&users)?;
+        Ok(out)
     }
 
     fn save(&self, users: &[StoredUser]) -> Result<(), EngineError> {
@@ -184,6 +263,8 @@ impl UserStore {
             pin_hash: hash_pin(&salt, pin),
             salt,
             created_at: Local::now(),
+            // The person who sets up the team is its first admin (ADR-0024 D2).
+            admin: users.is_empty(),
         };
         let out = User::from(&user);
         users.push(user);
@@ -202,6 +283,9 @@ impl UserStore {
         }
         if !users.is_empty() && !users.iter().any(|u| u.role == Role::Dvm) {
             return Err(EngineError::Session("Keep at least one veterinarian on the team.".into()));
+        }
+        if !users.is_empty() && !users.iter().any(|u| u.admin) {
+            return Err(EngineError::Session(LAST_ADMIN.into()));
         }
         self.save(&users)
     }
@@ -262,6 +346,23 @@ mod tests {
         store.remove(&rvt.id).unwrap();
         store.remove(&dvm.id).unwrap();
         assert!(!store.is_team(), "back to single-user");
+
+        // The first member is the admin, and there is always at least one.
+        let dvm = store.add("Dr Patel", Role::Dvm, "2468").unwrap();
+        assert!(dvm.admin);
+        let dvm2 = store.add("Dr Okafor", Role::Dvm, "1111").unwrap();
+        assert!(!dvm2.admin);
+        assert!(store.set_admin(&dvm.id, false).is_err(), "the only admin");
+        store.set_admin(&dvm2.id, true).unwrap();
+        store.set_admin(&dvm.id, false).unwrap();
+        assert!(store.remove(&dvm2.id).is_err(), "the last admin stays while others remain");
+        store.set_admin(&dvm.id, true).unwrap();
+        store.remove(&dvm2.id).unwrap();
+        // Team settings default to each person's own templates.
+        assert_eq!(store.settings().templates, TemplateMode::Personal);
+        store.set_settings(&TeamSettings { templates: TemplateMode::Hospital, setup_notice: false }).unwrap();
+        assert_eq!(store.settings().templates, TemplateMode::Hospital);
+        store.remove(&dvm.id).unwrap();
 
         // No PIN or hash material is ever exposed.
         let raw = std::fs::read_to_string(tmp.path().join("users.json")).unwrap();

@@ -1,6 +1,6 @@
 # OpenBark template: oncology consult or treatment visit.
 id: oncology
-version: 0.1.0
+version: 0.1.1
 name: Oncology visit
 description: Diagnosis and staging, treatment options or chemotherapy dose, adverse events, quality of life.
 icon: microscope
@@ -12,10 +12,11 @@ instructions: |
   The transcript is from a recording; speakers are labelled by number, not role. Infer roles from context,
   but never put words in a speaker's mouth.
 
-rules:
+fixed_rules:
   - "Chemotherapy doses must be copied exactly as said, with units (mg/m², mg/kg, mg). Never calculate a dose or body surface area."
   - "Record a stage, grade or adverse-event grade only if it was said."
   - "Record a prognosis or survival time only in the words the veterinarian used."
+rules: []
 
 sections:
   - id: patient

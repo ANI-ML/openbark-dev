@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::note::Refinement;
-use crate::template::{Document, LoadedTemplate};
+use crate::template::{Document, LoadedTemplate, Origin};
 use crate::transcribe::TranscribeStats;
 use crate::transcript::Transcript;
 use crate::users::Who;
@@ -87,6 +87,15 @@ pub struct RunInfo {
     /// Signed additions to a signed note. The note itself never changes.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub addenda: Vec<Addendum>,
+    /// Which version of the template drafted this run: its layer, owner,
+    /// version and fingerprint (ADR-0024 section 10). None for older runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub template_origin: Option<Origin>,
+    /// The template's name and icon as they were, so lists needn't open the snapshot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub template_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub template_icon: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -493,6 +502,9 @@ impl Session {
             }),
             document: template.template.document,
             addenda: Vec::new(),
+            template_origin: template.template.origin.clone(),
+            template_name: Some(template.template.name.clone()),
+            template_icon: Some(template.template.icon.clone()),
         });
         self.save_meta()?;
         Ok(dir)
@@ -824,7 +836,7 @@ mod tests {
         assert!(run2.join("note.md").is_file());
         let last = s.meta.runs.last().unwrap().clone();
         assert_eq!(last.template_id(), "soap");
-        assert_eq!(s.run_template(&last).unwrap().label(), "soap@0.1.0");
+        assert_eq!(s.run_template(&last).unwrap().label(), "soap@0.1.1");
         assert_eq!(s.latest_note().unwrap().1, serde_json::json!({}));
 
         // Addenda only after signing; the signed run itself is untouched.

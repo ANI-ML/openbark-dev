@@ -2,7 +2,7 @@
 # A client document: it follows the veterinarian's note where that differs
 # from the transcript.
 id: euthanasia-aftercare
-version: 0.1.0
+version: 0.1.1
 name: Euthanasia aftercare
 description: "A gentle note for the family: aftercare arrangements, what to expect, and support."
 icon: hand-heart
@@ -14,10 +14,11 @@ instructions: |
   Write in warm, plain, everyday language. Use the pet's name when it was said.
   Include only what was said or arranged in this visit; do not add condolence stories or claims about the pet.
 
-rules:
+fixed_rules:
   - "Aftercare arrangements (burial, cremation type, collection, keepsakes, timing) only as said."
   - "Costs only if they were discussed."
   - "Never invent support services; include only those the clinic mentioned."
+rules:
   - "Spell drug names correctly: where a line has a hint such as [heard \"marapitin\", likely maropitant], use the likely spelling if it fits. Write doses, amounts and durations with digits and units (1 mg/kg, 100 mL, 14 days), so they are easy to read."
 
 sections:

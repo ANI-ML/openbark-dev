@@ -1,6 +1,6 @@
 # OpenBark template: recheck / progress visit.
 id: recheck
-version: 0.1.0
+version: 0.1.1
 name: Recheck
 description: "Follow-up on a known problem: response to treatment, today's findings, plan changes."
 icon: arrows-clockwise
@@ -12,8 +12,9 @@ instructions: |
   The transcript is from a recording; speakers are labelled by number, not role. Infer roles from context,
   but never put words in a speaker's mouth.
 
-rules:
+fixed_rules:
   - "Compare with the previous visit only using what was said in this recording."
+rules:
   - "Medication changes (started, stopped, dose changed) are medications, with dose, route, frequency and duration as said."
 
 sections:

@@ -21,7 +21,7 @@ export type Route =
   | { screen: "patients" }
   | { screen: "patient"; id: string }
   | { screen: "review"; id: string; draft?: boolean; template?: string; pet?: string }
-  | { screen: "templates" }
+  | { screen: "templates"; open?: string; heading?: string }
   | { screen: "help" }
   | { screen: "models" }
   | { screen: "settings" };
@@ -105,12 +105,15 @@ export function App() {
   const actorName = team ? (user?.name ?? "") : settings.signer;
   engine.setActor(actor);
 
-  // A remembered team member who has since been removed must choose again.
+  // A remembered team member who has since been removed must choose again;
+  // one whose admin flag changed gets the change.
   useEffect(() => {
     if (!team || !user) return;
     engine.listUsers().then(
       (list) => {
-        if (!list.some((u) => u.id === user.id)) setUser(null);
+        const now = list.find((u) => u.id === user.id);
+        if (!now) setUser(null);
+        else if (Boolean(now.admin) !== Boolean(user.admin) || now.role !== user.role) setUser(now);
       },
       () => {},
     );
@@ -122,7 +125,7 @@ export function App() {
     setUser,
     actor,
     actorName,
-    can: permissions(team ? (user?.role ?? "reception") : null),
+    can: permissions(team ? (user?.role ?? "reception") : null, Boolean(team && user?.admin)),
     route,
     navigate: setRoute,
     status,
@@ -205,7 +208,9 @@ export function App() {
               initialPet={route.pet}
             />
           )}
-          {route.screen === "templates" && <Templates />}
+          {route.screen === "templates" && (
+            <Templates key={`${route.open ?? ""}:${route.heading ?? ""}`} initialOpen={route.open} initialHeading={route.heading} />
+          )}
           {route.screen === "help" && <Help />}
           {route.screen === "models" && <Models />}
           {route.screen === "settings" && <SettingsScreen />}

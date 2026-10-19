@@ -1,6 +1,6 @@
 # OpenBark template: wellness / preventive care visit (general practice).
 id: wellness
-version: 0.1.0
+version: 0.1.1
 name: Annual exam
 description: Annual or puppy/kitten preventive-care exam, vaccines and parasite control.
 icon: calendar-check
@@ -12,10 +12,11 @@ instructions: |
   The transcript is from a recording; speakers are labelled by number, not role. Infer roles from context,
   but never put words in a speaker's mouth.
 
+fixed_rules:
+  - "Record a body system as normal only if the veterinarian said so."
 rules:
   - "Vaccines and parasite preventives given or prescribed are medications: record product, dose, route and site as said."
   - "Record vaccines or preventives the client declined or deferred, and why if said."
-  - "Record a body system as normal only if the veterinarian said so."
 
 sections:
   - id: patient

@@ -15,6 +15,9 @@ default = []
 cuda = ["os-llm/cuda"]
 vulkan = ["os-llm/vulkan"]
 metal = ["os-llm/metal"]
+# The end-to-end demo only (ADR-0024 plan step 0): OPENBARK_TEST_BUILTINS_DIR
+# replaces built-in templates, to simulate a release. Never in release builds.
+test-builtins = ["os-engine/test-builtins"]
 
 [dependencies]
 os-app.workspace = true

@@ -17,7 +17,9 @@ Review shows the transcript and recording on the left, and the draft note on the
 
 Hover a heading and choose **Ask**. Built-in templates suggest requests made for that heading, such as "Use the Triadan number for every tooth" under a dental note's findings; choose one or write your own. Say what should change, for example "List every fluid with its volume and rate", then choose **Redraft**. Only that heading is redrafted, from the recording; the rest of the note stays as it was. The request guides the model but isn't evidence: anything not said stays out, and the numbers are checked again.
 
-Tick **Save as a standard** to make the request part of the template. Every later draft with that template then follows it under that heading. Standards are listed, and can be removed, in **Templates**.
+Tick **Save as a standard** to make the request part of the template. Later drafts with that template then follow it under that heading. With a team, choose **For me** (only your drafts) or **For the hospital** (everyone's drafts, approved with an admin's PIN). Standards are listed, and can be removed, in **Templates**. **Edit this heading in the template** opens the template at that heading.
+
+Above the note, Review says which version of the template drafted it, such as "Drafted with SOAP note, your version 3" or "SOAP note, the hospital's version 2". **Edit template** opens that template; **Show the template** shows exactly what the model was told for this draft. Changing the template later never changes this note.
 
 ## Edit it yourself
 

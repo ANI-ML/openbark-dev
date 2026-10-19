@@ -14,13 +14,30 @@ To keep track of who did what, add your team in **Settings → Team**:
 
 | Role | Can |
 |---|---|
-| Veterinarian | Everything: record, draft, ask, edit, sign, add addenda, delete and restore visits, delete recordings, manage the team |
-| Technician | Record, draft, ask, edit, enter patient details, delete and restore unsigned visits, delete the recording of an unsigned visit |
-| Reception | Record, import, enter patient details, read and copy notes |
+| Veterinarian | Everything: record, draft, ask, edit, sign, add addenda, delete and restore visits, delete recordings, manage the team, change templates (as their own version) |
+| Technician | Record, draft, ask, edit, enter patient details, delete and restore unsigned visits, delete the recording of an unsigned visit, change templates (as their own version) |
+| Reception | Record, import, enter patient details, read and copy notes, read templates |
+
+### Admins and templates
+
+**Admin** is a flag on a team member, whatever their role. The person who sets up the team is the first admin. An admin can make someone else an admin, or remove the flag, with their PIN; there is always at least one admin.
+
+Only an admin changes what the whole team drafts with, and **each change needs an admin's PIN**:
+
+| Action | Working alone | With a team |
+|---|---|---|
+| Change a template | Yes: it changes your templates | Veterinarians and technicians: saved as their own version |
+| Change the hospital's templates, reset or delete one | Yes | An admin, with their PIN |
+| Share your version with the hospital | Not needed | An admin approves with their PIN |
+| Save a standard for yourself | Not needed | Veterinarians and technicians |
+| Save or remove a standard for the hospital | Yes | An admin's PIN |
+| Templates: each person's own, or shared by the hospital | Not needed | An admin, with their PIN |
+
+**Settings → Team → Templates** chooses whether each person keeps their own versions (the default; the hospital's templates are the defaults) or everyone drafts with the hospital's templates. Switching to the hospital's keeps everyone's versions on disk, and they come back when you switch back. The PIN is sent only inside the request and never written to a log.
 
 Each encounter keeps who recorded it, who drafted, asked for or edited each version, and who signed it and added each addendum, with their role.
 
-To switch person, choose your name at the bottom of the sidebar. Change your own PIN in Settings; a veterinarian can reset anyone's PIN by removing and re-adding them.
+To switch person, choose your name at the bottom of the sidebar. Change your own PIN in Settings; a veterinarian can **Reset PIN** for anyone in **Settings → Team**. Don't remove and re-add someone to reset their PIN: removing a team member also removes their own template versions and standards (the confirmation says how many). Notes keep the version that drafted them.
 
 This keeps an honest record on a shared computer. It isn't a security boundary against someone with access to the computer's account. Clinic-wide accounts and audit come with the Clinic Hub.
 

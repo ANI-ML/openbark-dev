@@ -1053,3 +1053,50 @@ p > .ob-dot { display: inline-block; vertical-align: middle; }
 .deleted-empty { margin: 0; }
 .deleted-line { margin: 12px 0 0; }
 @media (max-width: 640px) { .deleted-row { flex-direction: column; } }
+
+/* Template versions (ADR-0024): badges, notices, the rules that always apply,
+   compare, approvals. Tokens only; hairlines, no shadows; one accent (none here). */
+.tpl-badges { display: flex; flex-wrap: wrap; gap: 6px; }
+.builder-notice, .original-notice, .setup-notice { max-width: 900px; }
+.original-notice, .setup-notice, .ob-notice:has(.notice-actions) { flex-wrap: wrap; align-items: center; }
+.original-notice > span:first-child, .setup-notice > span:first-child { flex: 1 1 260px; }
+.notice-actions { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.lint { display: flex; flex-direction: column; gap: 4px; }
+.tb-hint { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.tb-structure-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.tb-standards li[data-muted] > .small:first-of-type { text-decoration: line-through; color: var(--ink-3); }
+.always-applied { display: flex; flex-direction: column; gap: 8px; padding: 16px; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface-2); }
+.always-applied h3 { display: inline-flex; align-items: center; gap: 8px; }
+.always-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.always-list li { display: flex; align-items: flex-start; gap: 8px; }
+.always-list li svg { flex: none; margin-top: 3px; }
+.always-exact > summary { cursor: pointer; color: var(--ink-2); width: fit-content; }
+.always-exact > .prompt { margin-top: 8px; }
+.prompt-locked { display: block; border-left: 2px solid var(--border-strong); padding-left: 8px; margin-left: -10px; color: var(--ink-2); }
+.compare-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); }
+.compare-list > li { display: flex; flex-direction: column; gap: 6px; padding: 12px 16px; }
+.compare-list > li + li { border-top: 1px solid var(--border); }
+.compare-title { font-weight: 600; }
+.compare-pair { display: flex; flex-direction: column; gap: 4px; }
+.compare-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.compare-sides > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.compare-text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+@media (max-width: 640px) { .compare-sides { grid-template-columns: 1fr; } }
+.approve-form { display: flex; flex-direction: column; gap: 12px; }
+.dialog-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.share-choices { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.ask-scope { border: 0; margin: 0; padding: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.ask-scope legend { float: left; margin-right: 8px; }
+.ask-approve { flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ask-approve .ob-input, .ask-approve .ob-select { flex: 1 1 140px; max-width: 220px; }
+.ask-edit-heading { align-self: flex-start; }
+.draft-origin { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; padding: 12px 24px 0; }
+.draft-origin-actions { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.team-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.team-list li > span:first-child { flex: 1 1 140px; }
+.team-actions { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.team-inline { flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
+.team-inline > p { flex: 1 1 100%; margin: 0; }
+.template-mode { max-width: 620px; display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+.template-mode .ob-segmented { align-self: flex-start; max-width: 100%; }
+@media (max-width: 640px) { .draft-origin { padding: 12px 16px 0; } }

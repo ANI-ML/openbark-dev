@@ -6,6 +6,11 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[features]
+# The end-to-end demo build only: OPENBARK_TEST_BUILTINS_DIR replaces built-in
+# templates at start, to simulate a release (ADR-0024 plan step 0). Never in releases.
+test-builtins = []
+
 [dependencies]
 os-asr.workspace = true
 os-diar.workspace = true

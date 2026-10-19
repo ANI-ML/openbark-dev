@@ -9,7 +9,7 @@ use chrono::TimeDelta;
 use os_engine::audit::ChainReport;
 use os_engine::faithfulness::FaithfulnessReport;
 use os_engine::trash::DELETED_FILE;
-use os_engine::{NoteResult, TemplateStore};
+use os_engine::{LoadedTemplate, NoteResult, TemplateStore};
 
 use super::*;
 
@@ -803,3 +803,6 @@ fn removing_a_signed_visit_for_good_checks_the_folder_itself() {
     app.purge_deleted(&info.trash_id, Some(&dvm.id), Some("2468")).unwrap();
     assert!(trash.list().is_empty());
 }
+
+#[path = "tests/templates.rs"]
+mod templates;

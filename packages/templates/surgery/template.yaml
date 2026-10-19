@@ -1,6 +1,6 @@
 # OpenBark template: surgery and anaesthesia record.
 id: surgery
-version: 0.1.0
+version: 0.1.1
 name: Surgery and anaesthesia
 description: Pre-anaesthetic assessment, protocol, procedure report, recovery and post-op plan.
 icon: scissors
@@ -12,11 +12,12 @@ instructions: |
   The transcript is from a recording; speakers are labelled by number, not role. Infer roles from context,
   but never put words in a speaker's mouth.
 
-rules:
-  - "Every premedication, induction agent, maintenance agent, local block, fluid and analgesic is a medication: drug, dose, route and time as said."
+fixed_rules:
   - "Record an ASA status only if it was said."
   - "Record suture material, size and pattern only as said."
   - "Record complications only if they were said; never write \"no complications\" unless that was said."
+rules:
+  - "Every premedication, induction agent, maintenance agent, local block, fluid and analgesic is a medication: drug, dose, route and time as said."
 
 sections:
   - id: patient

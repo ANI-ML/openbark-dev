@@ -2,7 +2,7 @@
 # A client document: it can be drafted after the note is signed, and it
 # follows the veterinarian's note where that differs from the transcript.
 id: discharge
-version: 0.1.0
+version: 0.1.1
 name: Discharge instructions
 description: Take-home instructions for the pet owner, in plain language.
 icon: house-line
@@ -16,10 +16,11 @@ instructions: |
   Address the owner as "you" and use the pet's name when it was said.
   Include only what the veterinarian said or decided in this visit.
 
-rules:
+fixed_rules:
   - "Every medication to give at home must have the dose, how to give it, how often and for how long exactly as said. If any of these was not said, leave it null rather than guess."
   - "Warning signs must be the ones the veterinarian actually listed."
   - "Don't include prices or costs unless the veterinarian discussed them as part of the plan."
+rules:
   - "Spell drug names correctly: where a line has a hint such as [heard \"marapitin\", likely maropitant], use the likely spelling if it fits. Write doses, amounts and durations with digits and units (1 mg/kg, 100 mL, 14 days), so they are easy to read."
 
 sections:

@@ -1,0 +1,102 @@
+{
+  "callback": {
+    "version": "0.1.1",
+    "fingerprint": "01b7a72c384a98cbf58026444dbb82763f9fa589d532f565cb26c5bf920e999e",
+    "prompt": "7dbdc60f546506c520bcabb1e6275e02e223f458d1e46e3eceb5759978cb71ed"
+  },
+  "client-summary": {
+    "version": "0.1.1",
+    "fingerprint": "d45de34a4555e946ce9d90049f4e23b26fe83493c9ad85fe01d3de2ee31663a5",
+    "prompt": "6b4459575fd0740d448fb7fd5e1d19c188b559a8d3f0109a1f9a83d918ca13cb"
+  },
+  "dental": {
+    "version": "0.1.1",
+    "fingerprint": "5cccdef125ce055629e266e855ab0c67360ec8e42683b89cbbb716cf4f473787",
+    "prompt": "7bb0f5af8b2bf3311d203c44282b60ad321d09676698ebeb851930aa492f1c4d"
+  },
+  "dermatology": {
+    "version": "0.1.1",
+    "fingerprint": "df6144456b8666379d88d438302f72852caeb5be614ebc38eb5b33b291a079d2",
+    "prompt": "073b298bcf6fe11e7f0ca7fad8fdd9a60108c7b0b82ea19190ec791e557c6c72"
+  },
+  "discharge": {
+    "version": "0.1.1",
+    "fingerprint": "0b1f0b60b239480e49f32c5d907f84b474348af3c4eba1d1fd5bbdb2ac060864",
+    "prompt": "47836f38f0323df55a6e87aa176198c36453d6a6d521e726f4a12bea25f27538"
+  },
+  "emergency": {
+    "version": "0.1.1",
+    "fingerprint": "24c04dafe837d7594cc8115a28a76b60ac041aa340e8846e0df7bfda28b8fe84",
+    "prompt": "6c8040a84262ff1d7ec77065c781ad36bb147afd897519a881e40eb28734f4f3"
+  },
+  "equine": {
+    "version": "0.1.1",
+    "fingerprint": "59895ba2c350d778224c8eff3475053c462438d6df594bc9b89844fef09c45e0",
+    "prompt": "0cdbebc3241fc33f959cd8854b984caa8c1cd9083535f1ce1f7da346901a179a"
+  },
+  "estimate-explanation": {
+    "version": "0.1.1",
+    "fingerprint": "2ecbe46f885d6a3cf3987c6dbf06d7aacc5284c9a1aabc5d6cf8c3e86a99a116",
+    "prompt": "bd20374da928692c64a277ae9ce0d1696c7f10c60e7a123026cadad000c44557"
+  },
+  "euthanasia": {
+    "version": "0.1.1",
+    "fingerprint": "dec83bcc17b45288c35c4d670b03cadba2df4683118a02dbec190a7c9ea10b7c",
+    "prompt": "9de27acc7fda1fecc1ae8f5f63475e382bd95028c8d4ee3e21af213326ad8fce"
+  },
+  "euthanasia-aftercare": {
+    "version": "0.1.1",
+    "fingerprint": "c26be92a036ada6d1ac00a44c423e532f1e7105863ce63119eeaa360115060d6",
+    "prompt": "e50887af5e8a5da4c7ee8ebd00d9f06e37cec4c21b313a130fcaaea9f2230236"
+  },
+  "exotics": {
+    "version": "0.1.1",
+    "fingerprint": "1d2a430a4e20bc78aac7e42f9b7a2efed1ae56b2d8e28e6a9cb7e5532037016a",
+    "prompt": "50ae2a91cc2765b50f42422bbdcb3276a95eb78cee945959cd5a44dc3e81e75e"
+  },
+  "oncology": {
+    "version": "0.1.1",
+    "fingerprint": "216e30558a138d786e7a76fa4fa1c0120df71bf7ff8dacae265d00f2fd17b46d",
+    "prompt": "4364e90c0a74610812f4354fd3258b81939ea5b637e549babcfca3bf13a720dc"
+  },
+  "production-animal": {
+    "version": "0.1.1",
+    "fingerprint": "9581b761d22431595dc37cbf08828a5a670116c3ac6c2ea8aa0c2b93db8937c2",
+    "prompt": "60de46d545c0258d34af4e1b6883ae82c84ee134227675fd5ab10ce8ec21bfe3"
+  },
+  "recheck": {
+    "version": "0.1.1",
+    "fingerprint": "2a342d93a1ac18cff186da4b13fa563b16cfa6dc1aa772a08652a4f09b253cd5",
+    "prompt": "90e8c4e8e70bcd46e49d256de7fc56569da5e778a89da5f10b2784c6e00b334d"
+  },
+  "results": {
+    "version": "0.1.1",
+    "fingerprint": "97a70d74f44a3723b2a754777b2e6e99e4202cbb507d6e8516fdb6cbd85024fe",
+    "prompt": "649799c43cb64916f4b432e04748346a0ab771fc0ce9f20347110645e9ee06c1"
+  },
+  "rounds": {
+    "version": "0.1.1",
+    "fingerprint": "369bf6cf1ceb0bad1d82ad608c75762fdce7426dfb77b64c8582d10764e886aa",
+    "prompt": "1a2f89d96bdeba5c9e13d01df526878f3ddc87f4d5f96e1efd4051fc39705338"
+  },
+  "sick-visit": {
+    "version": "0.1.1",
+    "fingerprint": "ad93f6d182d96a40b1e569ff79556cb3c7ef8e8fc3d0180793b991333fbf8b73",
+    "prompt": "db2e0bc558800e453c66f6f3df97b2d32a2a4613375b86d866a4a0aac8cefee1"
+  },
+  "soap": {
+    "version": "0.1.1",
+    "fingerprint": "07692daa2867d5ec0a1ff9e148474f009740601c605e92b8455f9196cf3d9fc6",
+    "prompt": "c46c2c03bf99c739819f9fd4a27dd836c1be8e7324402044049ead55642e8a05"
+  },
+  "surgery": {
+    "version": "0.1.1",
+    "fingerprint": "d00e8b73697831b89b845f987d92a811c5bfee3a6afcc8768edc0cf37571d2ae",
+    "prompt": "3fea7b28fc1c5938e661eb0ad0f689625c2ced0d5b6b541ee5436264cd9bc30b"
+  },
+  "wellness": {
+    "version": "0.1.1",
+    "fingerprint": "93732a43767cc23a2959449582eff425ef47bcc3bca0bc1a927671a951c4de41",
+    "prompt": "0a5bdee651ae2e23bf7bd1d6ffb5281edf0a6bd9b090ed9b8dc3942d5c3e2a12"
+  }
+}

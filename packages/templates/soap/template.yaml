@@ -4,7 +4,7 @@
 # kept in sync by a test (engine/os-engine/src/template.rs).
 # Every template also gets the core rules in template.rs (evidence, no invention).
 id: soap
-version: 0.1.0
+version: 0.1.1
 name: SOAP note
 description: General-practice veterinary SOAP note for any species.
 icon: clipboard-text
@@ -18,8 +18,9 @@ instructions: |
   (the veterinarian examines and recommends; the client describes history), but never put words in a
   speaker's mouth.
 
-rules:
+fixed_rules:
   - Differentials only if the veterinarian voiced them.
+rules:
   - "Everything given or prescribed is a medication, including injections and fluids given in the clinic. Record drug, dose or volume, route, frequency and duration as said."
   - Record diagnostics the client declined or deferred, and what was said about them.
 

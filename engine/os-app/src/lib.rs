@@ -18,11 +18,10 @@ pub use os_engine::live::{Progress, Stage};
 use os_engine::patients::{PatientRecord, PatientStore};
 pub use os_engine::session::AudioDeleted;
 use os_engine::session::{self, Addendum, Consent, PatientInfo, Session};
-use os_engine::template::{Standard, Template};
-use os_engine::template_store::TemplateSummary;
+use os_engine::template::{Scope, Template};
 use os_engine::trash::{self, DeletedInfo, Recovered, Trash};
 use os_engine::users::{Role, User, UserStore, Who};
-use os_engine::{LoadedTemplate, NoteOptions, Segment, TemplateStore, TranscribeStats, Transcript};
+use os_engine::{NoteOptions, Segment, TemplateStore, TranscribeStats, Transcript};
 use os_llm::{LlamaCppBackend, LlamaCppOptions};
 use os_models::hub::{self, Fit, HubModel, HubRepo};
 use os_models::locations::{self, Contents};
@@ -31,6 +30,14 @@ use os_models::{CatalogEntry, ModelStore, Slot, Verify};
 use serde::Serialize;
 
 pub use os_asr::capture::AudioBlock;
+pub use os_engine::template_store::{ProfileSummary, ShareMode, TemplateSummary};
+pub use os_engine::users::TemplateMode;
+pub use templates::{
+    AlwaysApplied, Approver, ResetView, SaveTemplateRequest, TeamSettingsView, TemplateCan, TemplateView,
+    TemplatesMode,
+};
+
+mod templates;
 pub use os_engine::session::PatientInfo as Patient;
 pub use os_engine::session::{Consent as RecordingConsent, ConsentMethod, ConsentRule};
 
@@ -271,6 +278,8 @@ pub struct App {
     gpu_at_start: bool,
     /// The GPU self-test: 0 not run, 1 passed, 2 failed.
     gpu_checked: Arc<std::sync::atomic::AtomicU8>,
+    /// Template resets that can still be undone (ADR-0024).
+    undo: Mutex<templates::UndoMap>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -426,6 +435,8 @@ pub struct Status {
     pub team: bool,
     /// "macos", "windows" or "linux": the Mac shows MLX-optimized models.
     pub platform: String,
+    /// Working alone, each person's own templates, or the hospital's (ADR-0024).
+    pub templates: TemplatesMode,
 }
 
 /// A visit as listed under a patient.
@@ -602,29 +613,13 @@ pub struct DocumentView {
     pub template: Option<Template>,
 }
 
-/// A template for the builder: its headings, and what the model is told.
-#[derive(Serialize)]
-pub struct TemplateView {
-    pub template: Template,
-    pub builtin: bool,
-    /// The system prompt drafts with this template start from.
-    pub prompt: String,
-}
-
-impl TemplateView {
-    fn of(t: LoadedTemplate) -> Self {
-        Self {
-            builtin: LoadedTemplate::is_builtin(&t.template.id),
-            prompt: os_engine::note::system_prompt(&t),
-            template: t.template,
-        }
-    }
-}
-
 #[derive(Serialize)]
 pub struct NoteResponse {
     pub markdown: String,
     pub run: serde_json::Value,
+    /// Said to the person drafting, such as a template that isn't theirs to use.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notice: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -661,6 +656,7 @@ impl App {
             hardware: probe_hardware(),
             gpu_at_start: os_models::gpu_pack::loaded_at_start(),
             gpu_checked: Arc::new(std::sync::atomic::AtomicU8::new(0)),
+            undo: Mutex::new(HashMap::new()),
         };
         app.start_gpu_check();
         app
@@ -699,6 +695,7 @@ impl App {
             plain_encounters: self.plain_encounters(),
             team: self.users.is_team(),
             platform: platform(),
+            templates: self.templates_mode(),
         }
     }
 
@@ -753,15 +750,22 @@ impl App {
 
     /// Add a team member. Once a team exists, only a veterinarian can.
     pub fn add_user(&self, name: &str, role: Role, pin: &str, by: Option<&str>) -> Result<User> {
-        if self.users.is_team() {
+        let was_team = self.users.is_team();
+        if was_team {
             self.who(by, Need::Team)?;
         }
-        Ok(self.users.add(name, role, pin)?)
+        let user = self.users.add(name, role, pin)?;
+        self.note_team_setup(was_team);
+        Ok(user)
     }
 
+    /// Remove a team member, with their profile: their own template versions
+    /// and standards (ADR-0024 D7). Notes keep the version that drafted them.
     pub fn remove_user(&self, id: &str, by: Option<&str>) -> Result<()> {
         self.who(by, Need::Team)?;
-        Ok(self.users.remove(id)?)
+        self.users.remove(id)?;
+        self.templates.remove_profile(&self.profiles_root(), id)?;
+        Ok(())
     }
 
     /// Change a PIN: your own, or anyone's as a veterinarian.
@@ -892,10 +896,12 @@ impl App {
                 template: s
                     .latest_record()
                     .map(|r| {
-                        self.templates
-                            .load(r.template_id())
-                            .map(|t| t.template.name)
-                            .unwrap_or_else(|_| r.template_id().to_string())
+                        r.template_name.clone().unwrap_or_else(|| {
+                            self.templates
+                                .load(r.template_id())
+                                .map(|t| t.template.name)
+                                .unwrap_or_else(|_| r.template_id().to_string())
+                        })
                     })
                     .unwrap_or_default(),
             })
@@ -940,15 +946,25 @@ impl App {
         } else {
             s
         };
-        let template_id = s.latest_record().map(|r| r.template_id().to_string()).unwrap_or_default();
-        let template = s.latest_record().and_then(|r| self.templates.load(r.template_id()).ok());
+        let latest = s.latest_record();
+        let template_id = latest.map(|r| r.template_id().to_string()).unwrap_or_default();
+        // The name and icon saved with the run; today's lookup for older runs.
+        let saved = latest
+            .and_then(|r| Some((r.template_name.clone()?, r.template_icon.clone().unwrap_or_default())));
+        let (template, template_icon) = match saved {
+            Some(pair) => pair,
+            None => latest
+                .and_then(|r| self.templates.load(r.template_id()).ok())
+                .map(|t| (t.template.name, t.template.icon))
+                .unwrap_or_default(),
+        };
         VisitSummary {
             template_id,
             id: id_of(s),
             created_at: s.meta.created_at.format("%Y-%m-%d %H:%M").to_string(),
             reason: s.meta.patient.as_ref().map(|p| p.reason.clone()).unwrap_or_default(),
-            template: template.as_ref().map(|t| t.template.name.clone()).unwrap_or_default(),
-            template_icon: template.as_ref().map(|t| t.template.icon.clone()).unwrap_or_default(),
+            template,
+            template_icon,
             drafted: s.my_runs().next().is_some(),
             signed: s.is_signed(),
             audio_secs: s.meta.audio_secs,
@@ -1299,9 +1315,16 @@ impl App {
         let _lock = self.lock_visit(id, Holder::Drafting)?;
         let _awake = AwakeGuard::acquire(AwakeReason::Processing);
         let mut s = self.open(id, pet)?;
-        let template = self.templates.load(if template.is_empty() { "soap" } else { template })?;
+        // Their own version, then the hospital's, then the built-in (ADR-0024).
+        let wanted = if template.is_empty() { templates::DEFAULT_TEMPLATE } else { template };
+        let (template, notice) = self.drafting_template(wanted, who.as_ref())?;
         // Headings for other species are left out (M2 item 4).
-        let template = template.for_species(Self::species_of(&s).as_deref());
+        let mut template = template.for_species(Self::species_of(&s).as_deref());
+        // The run records exactly what drafted it.
+        let exact = os_engine::template::fingerprint(&template.template);
+        if let Some(origin) = template.template.origin.as_mut() {
+            origin.fingerprint = exact;
+        }
         let record = template.template.document.is_record();
         if record && s.is_signed() {
             return Err(AppError(
@@ -1340,7 +1363,7 @@ impl App {
         result.markdown = with_header(&s, &result.markdown);
         events.progress(&Progress::new(Stage::Save, 0.0, 1.0));
         s.save_run(llm, &result, &template)?;
-        Ok(NoteResponse { markdown: result.markdown.clone(), run: serde_json::to_value(&result)? })
+        Ok(NoteResponse { markdown: result.markdown.clone(), run: serde_json::to_value(&result)?, notice })
     }
 
     /// Re-prompt one heading of the latest draft ("plan/medications", or a
@@ -1371,15 +1394,19 @@ impl App {
         if request.request.trim().is_empty() {
             return Err(AppError(format!("Say what should change under {title}.")));
         }
-        if request.save_as_standard {
-            // Fail before drafting if the standard can't be saved.
-            self.templates.load(&template.template.id).map_err(|_| {
-                AppError(format!(
-                    "{} is no longer in your templates, so the request can't be saved as a standard.",
-                    template.template.name
-                ))
-            })?;
-        }
+        // Fail before drafting if the standard can't be saved: the scope, the
+        // admin's PIN for a standard for everyone, and the heading.
+        let scope = if request.save_as_standard {
+            Some(self.check_standard_request(
+                &template.template.id,
+                &request.heading,
+                request.by.as_deref(),
+                request.standard_scope,
+                request.approver.as_ref(),
+            )?)
+        } else {
+            None
+        };
         let _awake = AwakeGuard::acquire(AwakeReason::Processing);
         let backend = self.load_llm_with_progress(&request.llm, events)?;
         let transcript = s.load_transcript()?;
@@ -1403,12 +1430,13 @@ impl App {
             },
         )?;
         events.progress(&Progress::new(Stage::Verify, 1.0, 1.0));
-        if request.save_as_standard {
-            self.templates.add_standard(
+        if let Some(scope) = scope {
+            self.save_standard_after_refine(
                 &template.template.id,
                 &request.heading,
                 &request.request,
-                who.as_ref().map(|w| w.name.as_str()),
+                request.by.as_deref(),
+                scope,
             )?;
         }
         if let Some(r) = result.refinement.as_mut() {
@@ -1418,7 +1446,11 @@ impl App {
         result.by = who;
         result.markdown = with_header(&s, &result.markdown);
         s.save_run(&request.llm, &result, &template)?;
-        Ok(NoteResponse { markdown: result.markdown.clone(), run: serde_json::to_value(&result)? })
+        Ok(NoteResponse {
+            markdown: result.markdown.clone(),
+            run: serde_json::to_value(&result)?,
+            notice: None,
+        })
     }
 
     /// Save a veterinarian's own version of one heading as a new draft.
@@ -1453,7 +1485,11 @@ impl App {
         }
         result.markdown = with_header(&s, &result.markdown);
         s.save_run("edited", &result, &template)?;
-        Ok(NoteResponse { markdown: result.markdown.clone(), run: serde_json::to_value(&result)? })
+        Ok(NoteResponse {
+            markdown: result.markdown.clone(),
+            run: serde_json::to_value(&result)?,
+            notice: None,
+        })
     }
 
     /// Add a signed addendum to a signed note.
@@ -1874,53 +1910,15 @@ impl App {
 
     // ---- templates -------------------------------------------------------
 
-    pub fn list_templates(&self) -> Vec<TemplateSummary> {
-        self.templates.list()
-    }
-
-    /// A template's headings, standards and the prompt it produces.
-    pub fn template(&self, id: &str) -> Result<TemplateView> {
-        Ok(TemplateView::of(self.templates.load(id)?))
-    }
-
-    /// Check an unsaved template and show what the model would be told.
-    pub fn preview_template(&self, template: Template) -> Result<TemplateView> {
-        let mut t = LoadedTemplate::new(template)?;
-        if let Ok(saved) = self.templates.load(&t.template.id) {
-            t.template.standards = saved.template.standards;
-        }
-        Ok(TemplateView::of(t))
-    }
-
     /// Propose a template from a note the clinic already writes (M2 item 5).
     /// Nothing is saved: the proposal opens in the builder for editing.
     pub fn template_from_example(&self, llm: &str, example: &str) -> Result<TemplateView> {
         let _awake = AwakeGuard::acquire(AwakeReason::Processing);
         let backend = self.load_llm(llm)?;
-        let t = os_engine::from_example::template_from_example(backend.as_ref(), example)?;
-        let prompt = os_engine::note::system_prompt(&t);
-        // A new template: its id comes from the name the team saves it under.
-        let template = Template { id: String::new(), ..t.template };
-        Ok(TemplateView { template, builtin: false, prompt })
-    }
-
-    /// Save a team template (new, or a change that bumps its version).
-    pub fn save_template(&self, template: Template) -> Result<TemplateView> {
-        Ok(TemplateView::of(self.templates.save(template)?))
-    }
-
-    pub fn delete_template(&self, id: &str) -> Result<()> {
-        Ok(self.templates.delete(id)?)
-    }
-
-    /// Save a request as a standard for a heading ("" = the whole note).
-    pub fn add_standard(&self, id: &str, heading: &str, text: &str, by: Option<&str>) -> Result<Standard> {
-        Ok(self.templates.add_standard(id, heading, text, by)?)
-    }
-
-    pub fn remove_standard(&self, id: &str, standard_id: &str) -> Result<TemplateView> {
-        self.templates.remove_standard(id, standard_id)?;
-        self.template(id)
+        let mut t = os_engine::from_example::template_from_example(backend.as_ref(), example)?;
+        // A new template: its id comes from the name it's saved under.
+        t.template.id = String::new();
+        Ok(self.proposal_view(t))
     }
 
     /// [`App::load_llm`], telling the drafting board when the model has to be
@@ -2431,7 +2429,7 @@ pub struct PdfRequest {
 }
 
 /// A re-prompt of one heading of the latest draft.
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 pub struct RefineRequest {
     pub llm: String,
     /// "plan/medications", or a whole section: "plan".
@@ -2448,6 +2446,25 @@ pub struct RefineRequest {
     /// The animal, in a multi-pet visit.
     #[serde(default)]
     pub pet: Option<String>,
+    /// Save the standard for the person asking, or for everyone (ADR-0024 section 8).
+    #[serde(default)]
+    pub standard_scope: Option<Scope>,
+    /// For everyone, in a team: an admin's PIN. Body only, never logged.
+    #[serde(default)]
+    pub approver: Option<Approver>,
+}
+
+/// Written by hand so an approver's PIN never reaches a log.
+impl std::fmt::Debug for RefineRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RefineRequest")
+            .field("heading", &self.heading)
+            .field("save_as_standard", &self.save_as_standard)
+            .field("by", &self.by)
+            .field("standard_scope", &self.standard_scope)
+            .field("approver", &self.approver)
+            .finish()
+    }
 }
 
 pub enum RecordingSource {

@@ -1,6 +1,6 @@
 # OpenBark template: dermatology consult.
 id: dermatology
-version: 0.1.0
+version: 0.1.1
 name: Dermatology consult
 description: "Skin and ear workup: pruritus history, lesion distribution, cytology, plan."
 icon: hand
@@ -12,8 +12,9 @@ instructions: |
   The transcript is from a recording; speakers are labelled by number, not role. Infer roles from context,
   but never put words in a speaker's mouth.
 
-rules:
+fixed_rules:
   - "Record a pruritus score only if one was said, on the scale that was said."
+rules:
   - "Describe lesions with their type and location exactly as the veterinarian described them."
   - "Shampoos, ear cleaners, topicals and diets prescribed are medications or plan items with the frequency and duration as said."
 

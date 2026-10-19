@@ -297,10 +297,19 @@ fn guidance_line(
         _ => format!("- {name}: {label}{}", with_instruction(instruction)),
     };
     for standard in template.standards_for(path) {
-        line.push_str(&format!(" Team standard: {}.", standard.text.trim_end_matches('.')));
+        line.push_str(&format!(" {}: {}.", standard_label(standard), standard.text.trim_end_matches('.')));
     }
     line.push('\n');
     line
+}
+
+/// "Team standard" for the team's standards, "Standard" for the drafting
+/// person's own (ADR-0024 section 8).
+fn standard_label(standard: &crate::template::Standard) -> &'static str {
+    match standard.scope {
+        crate::template::Scope::Team => "Team standard",
+        crate::template::Scope::Personal => "Standard",
+    }
 }
 
 /// "What each part of the JSON should contain", for every heading or for
@@ -329,8 +338,9 @@ fn guidance(template: &LoadedTemplate, only: Option<&str>) -> String {
         }
         for standard in template.standards_for(&section.id) {
             out.push_str(&format!(
-                "- {} (whole section): Team standard: {}.\n",
+                "- {} (whole section): {}: {}.\n",
                 section.id,
+                standard_label(standard),
                 standard.text.trim_end_matches('.')
             ));
         }
@@ -353,23 +363,58 @@ fn guidance(template: &LoadedTemplate, only: Option<&str>) -> String {
     out
 }
 
+/// The sentence that ends every rules block (ADR-0024 section 4.3): the rules
+/// that always apply win over anything a template, a version or a standard says.
+pub const PRECEDENCE: &str = "If a template rule, a standard or a heading instruction conflicts with the rules that always apply, follow the rules that always apply.";
+
+/// The rules block: the rules that always apply (the core rules, then the
+/// template's fixed rules), then the template's own rules, its standards for
+/// the whole note and the level of detail, then [`PRECEDENCE`].
 fn rules(template: &LoadedTemplate) -> String {
-    let mut out = String::from("\nRules:\n");
-    for rule in CORE_RULES.iter().copied().chain(template.template.rules.iter().map(String::as_str)) {
+    rules_with(template, &[])
+}
+
+/// Redrafting one heading: the veterinarian's request steers, never adds facts.
+const REFINE_RULES: &[&str] = &[
+    "The veterinarian's request says what to look for and how to write it. It is not evidence: \
+     if the transcript doesn't contain what is asked, leave it out rather than invent it.",
+    "Keep every fact in the current draft that the transcript supports, unless the veterinarian asked \
+     to remove it. Reword, split, merge or add; don't drop.",
+];
+
+/// [`rules`], with more rules that always apply after the template's fixed rules.
+fn rules_with(template: &LoadedTemplate, also_always: &[&str]) -> String {
+    let mut out = String::from("\nRules that always apply:\n");
+    let always = CORE_RULES
+        .iter()
+        .copied()
+        .chain(template.template.fixed_rules.iter().map(String::as_str))
+        .chain(also_always.iter().copied());
+    for rule in always {
         out.push_str(&format!("- {rule}\n"));
     }
+    let mut own = String::new();
+    for rule in &template.template.rules {
+        own.push_str(&format!("- {rule}\n"));
+    }
     for standard in template.standards_for("") {
-        out.push_str(&format!("- Team standard: {}\n", standard.text));
+        own.push_str(&format!("- {}: {}\n", standard_label(standard), standard.text));
     }
     match template.template.detail {
-        crate::template::Detail::Concise => out.push_str(
+        crate::template::Detail::Concise => own.push_str(
             "- Level of detail: concise. Use the fewest words that keep every clinical fact; short phrases are fine.\n",
         ),
-        crate::template::Detail::Thorough => out.push_str(
+        crate::template::Detail::Thorough => own.push_str(
             "- Level of detail: thorough. Include every relevant detail that was said, with its context; still nothing that wasn't said.\n",
         ),
         crate::template::Detail::Standard => {}
     }
+    if !own.is_empty() {
+        out.push_str("Template rules:\n");
+        out.push_str(&own);
+    }
+    out.push_str(PRECEDENCE);
+    out.push('\n');
     out
 }
 
@@ -434,13 +479,9 @@ pub fn build_refine_messages(
     let system = format!(
         "You are the documentation assistant inside {PRODUCT_NAME}, a veterinary scribe. \
          A veterinarian is reviewing a draft note and asked you to redraft one part of it.\n\n{}\n{}\
-         - The veterinarian's request says what to look for and how to write it. It is not evidence: \
-         if the transcript doesn't contain what is asked, leave it out rather than invent it.\n\
-         - Keep every fact in the current draft that the transcript supports, unless the veterinarian asked \
-         to remove it. Reword, split, merge or add; don't drop.\n\
          \nThe part to redraft is \"{title}\":\n{}\n{JSON_FORMATS}\nRespond with the JSON for this part only.",
         template.template.instructions.trim(),
-        rules(template),
+        rules_with(template, REFINE_RULES),
         guidance(template, Some(heading)),
     );
     let user = format!(
@@ -719,6 +760,7 @@ mod tests {
             text: text.into(),
             added_at: chrono::Local::now(),
             added_by: None,
+            scope: crate::template::Scope::Team,
         };
         template.template.standards = vec![
             standard("plan/medications", "List fluids with volume and rate"),
