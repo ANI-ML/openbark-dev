@@ -1,0 +1,2097 @@
+# Reviewed rules for scripts/public-export.py.
+#
+# The public source repository starts from one fresh commit built by that
+# script. Everything it removes or rewrites is listed here, with the reason,
+# so a reviewer can read one file and know exactly how the public tree differs
+# from this repository. docs/plans/public-repo.md explains the process.
+#
+# Rule kinds:
+#   [[exclude]]  files never published (globs; `**` spans folders).
+#   [[blocker]]  something only the owner can resolve. action = "exclude"
+#                keeps the files out until it is resolved; "keep" just lists
+#                the blocker. While any blocker remains the script exits 3.
+#   [[scrub]]    exact text replacements in the exported copy. `find` is a
+#                literal string unless regex = true. A rule must match at
+#                least once (or exactly `expect` times), otherwise the export
+#                stops: the source changed and the rule needs another review.
+#   [gate]       final check of the exported tree. Any `fail` or `secret`
+#                match fails the export; `warn` matches are listed for review.
+#
+# This file is private tooling and is itself excluded from the export. It is
+# the one place that spells out the forbidden words, because the gate has to
+# search for them.
+
+[export]
+ref = "HEAD"
+required_files = [
+  "LICENSE",
+  "NOTICE",
+  "README.md",
+  "SECURITY.md",
+  "CONTRIBUTING.md",
+  "CODE_OF_CONDUCT.md",
+  "CHANGELOG.md",
+  ".gitignore",
+  ".gitattributes",
+]
+
+# --------------------------------------------------------------- excludes
+
+[[exclude]]
+paths = ["CLAUDE.md"]
+reason = "Working notes for the AI coding assistant used during development. Internal, and it names the tool."
+
+[[exclude]]
+paths = ["OPENSCRIBE_CLAUDE_CODE_PROMPT.md"]
+reason = "The original product brief, written as a prompt for the AI coding assistant. Internal; contains open decisions for the owner and a competitor feature and pricing comparison."
+
+[[exclude]]
+paths = ["**/.claude/**", "**/CLAUDE.md", "**/CLAUDE.local.md", "**/AGENTS.md", "**/.cursor/**", "**/.aider*", "**/.windsurf/**", "**/.continue/**", "**/.github/copilot-instructions.md"]
+reason = "AI assistant settings, skills and instruction files, if any are ever committed."
+
+[[exclude]]
+paths = ["**/*scratch*/**", "**/*scratchpad*", "**/*.bak", "**/*.orig", "**/*.rej", "**/*.log", "**/*.tmp", "**/__pycache__/**", "**/*.pyc", "**/.env", "**/.env.*", "**/*.pem", "**/*.p12", "**/*.pfx", "**/*.p8", "**/*.key"]
+reason = "Scratch files, editor and merge leftovers, logs, Python caches, environment files and key material, if any are ever committed."
+
+[[exclude]]
+paths = ["scripts/public-export.py", "scripts/public-export.toml", "docs/plans/public-repo.md"]
+reason = "This export tooling and its report. Private process documents; the config necessarily spells out the forbidden words the gate searches for."
+
+# --------------------------------------------------------------- blockers
+
+[[blocker]]
+id = "help-videos"
+action = "exclude"
+paths = ["apps/desktop/public/help/*.webm"]
+summary = "The seven in-app Help videos show local folder paths that include a Windows username."
+resolve = "Re-record them with apps/desktop/e2e/help-videos.mjs using neutral data folders (for example OPENBARK_SESSIONS_DIR=C:\\OpenBark-demo\\visits and OPENBARK_MODELS_DIR=C:\\OpenBark-demo\\models), scan every frame, commit them, then delete this blocker so they are exported. Until then the export leaves them out and the Help screen shows empty players."
+
+[[blocker]]
+id = "public-repo-name"
+action = "keep"
+summary = "The public repository's name is not decided: rename the private repo (for example to openbark-dev) so the public one can be ANI-ML/openbark, or give the public repo a new name."
+resolve = "Owner decides. If the public repo is not ANI-ML/openbark, add scrub rules that rewrite github.com/ANI-ML/openbark links (SECURITY.md, .github/ISSUE_TEMPLATE, apps/desktop/src-tauri/tauri.conf.json, docs) to the new name, re-run the export, then delete this blocker."
+
+[[blocker]]
+id = "public-repo-role"
+action = "keep"
+summary = "Whether the public repo is a one-time snapshot, a periodic export from the private repo, or the new home of development (issues, pull requests, CI and releases) is not decided."
+resolve = "Owner decides. Several docs (docs/adr/0020-code-signing.md, docs/runbooks/code-signing.md, website/README.md, .github/workflows/release.yml) describe releases built from the private repo; reword them in the private repo once the answer is known, then delete this blocker."
+
+# ----------------------------------------------------------------- scrubs
+# Global rules first, then one block per file, in path order.
+
+[[scrub]]
+id = "global-master-prompt"
+files = ["docs/**", "engine/**", "apps/**", "packages/**", "website/content/**"]
+find = "master prompt"
+replace = "product brief"
+reason = "The 'master prompt' is the original product brief written for the AI coding assistant (excluded above). Neutral name for the same document."
+
+[[scrub]]
+id = "global-master-prompt-capital"
+files = ["docs/**"]
+find = "Master prompt"
+replace = "Product brief"
+reason = "As global-master-prompt, sentence case."
+
+[[scrub]]
+id = "global-the-prompt-repo"
+files = ["docs/versions.md"]
+find = "- The `Pl4tt/OpenScribe` repo named in the prompt is a fork of `sammargolis/OpenScribe` (MIT, an active human-medicine scribe, openscribe.org).\n"
+replace = ""
+reason = "Names third-party personal GitHub accounts and refers to the AI prompt. Not needed publicly."
+
+# ---- README.md
+
+[[scrub]]
+id = "readme-build-line"
+files = ["README.md"]
+find = "Add `pnpm --filter @openbark/desktop build` before the serve line, with the comment: build the web UI for the browser version.\n"
+replace = "pnpm --filter @openbark/desktop build           # build the web UI for the browser version\ntarget/release/openbark serve                   # the browser version, at http://localhost:4317\n"
+reason = "An editing instruction was left inside the build commands instead of being applied. Replaced with the two commands from CONTRIBUTING.md's Building section. Fix the private README too."
+
+# Scrubs run in file order, so rules below see the text after the global
+# rules above (for example "product brief", not the original wording).
+
+# ---- docs/adr/0006-templates-from-headings.md
+
+[[scrub]]
+id = "adr0006-deciders"
+files = ["docs/adr/0006-templates-from-headings.md"]
+find = "- Deciders: product owner (asked for \"full customization of templates for veterinary teams that the model will fit based on heading\", and \"a layer that allows users to re-prompt the model for certain details and have that as a standard\"), engineering"
+replace = "- Deciders: product owner (requirement: teams fully customise templates by heading, and can save a re-prompt as a standard), engineering"
+reason = "Verbatim quote of the owner's request to the coding assistant; paraphrased."
+
+# ---- docs/adr/0007-phone-calls.md
+
+[[scrub]]
+id = "adr0007-quote"
+files = ["docs/adr/0007-phone-calls.md"]
+find = "The product owner asked for \"a built in call out mode so the phone call feature allows outbound and recorded scripts for calls to scribe\", preferably public and free."
+replace = "The product owner asked for a built-in call mode: outbound calls with call scripts, recorded and scribed, preferably public and free."
+reason = "Verbatim quote of the owner's request to the coding assistant; paraphrased."
+
+[[scrub]]
+id = "adr0007-local-first-ref"
+files = ["docs/adr/0007-phone-calls.md"]
+find = "- **Local-first** (CLAUDE.md, docs/network.md):"
+replace = "- **Local-first** (docs/network.md):"
+reason = "Cites the excluded assistant working-notes file."
+
+[[scrub]]
+id = "adr0007-open-questions"
+files = ["docs/adr/0007-phone-calls.md"]
+find = "## Open questions for the product owner"
+replace = "## Open questions"
+reason = "Owner-addressed heading."
+
+[[scrub]]
+id = "adr0007-i-suggest"
+files = ["docs/adr/0007-phone-calls.md"]
+find = "Which call scripts first? I suggest a results call,"
+replace = "Which call scripts first? The proposal is a results call,"
+reason = "Assistant first-person voice addressed to the owner."
+
+# ---- docs/adr/0008-encryption-at-rest.md
+
+[[scrub]]
+id = "adr0008-owner-asked"
+files = ["docs/adr/0008-encryption-at-rest.md"]
+find = "The product owner asked that recordings stay traceable and re-runnable,"
+replace = "Recordings must stay traceable and re-runnable,"
+reason = "Private-conversation phrasing; the requirement is kept."
+
+# ---- docs/adr/0009-mlx-on-mac.md
+
+[[scrub]]
+id = "adr0009-deciders"
+files = ["docs/adr/0009-mlx-on-mac.md"]
+find = "- Deciders: product owner (asked that the Mac label which Hugging Face models are MLX optimized), engineering"
+replace = "- Deciders: product owner, engineering"
+reason = "Private-conversation phrasing in the deciders line."
+
+# ---- docs/adr/0010-apple-style-refresh.md
+
+[[scrub]]
+id = "adr0010-deciders"
+files = ["docs/adr/0010-apple-style-refresh.md"]
+find = "- Deciders: product owner (asked that Apple's design approach be the primary reference for refreshing the look of the whole app, on all platforms), design, engineering"
+replace = "- Deciders: product owner, design, engineering (Apple's design approach is the primary reference for refreshing the look of the whole app, on all platforms)"
+reason = "Private-conversation phrasing; the requirement is kept."
+
+[[scrub]]
+id = "adr0010-owners-design-system"
+files = ["docs/adr/0010-apple-style-refresh.md"]
+find = "DESIGN.md (the product owner's design system)"
+replace = "DESIGN.md (OpenBark's design system)"
+reason = "Attributes the design system to an individual."
+
+[[scrub]]
+id = "adr0010-owner-asked"
+files = ["docs/adr/0010-apple-style-refresh.md"]
+find = "The product owner asked for a refresh modelled on Apple's interface design."
+replace = "This refresh is modelled on Apple's interface design."
+reason = "Private-conversation phrasing."
+
+[[scrub]]
+id = "adr0010-alt"
+files = ["docs/adr/0010-apple-style-refresh.md"]
+find = "| Keep DESIGN.md as is | The product owner asked for the refresh. |"
+replace = "| Keep DESIGN.md as is | A refresh was requested. |"
+reason = "Private-conversation phrasing."
+
+# ---- docs/adr/0011-patients-and-visits.md
+
+[[scrub]]
+id = "adr0011-deciders"
+files = ["docs/adr/0011-patients-and-visits.md"]
+find = "- Deciders: product owner (asked for \"Patients and visits under each patient\" in place of a flat list of encounters), engineering"
+replace = "- Deciders: product owner, engineering"
+reason = "Verbatim quote of the owner's request to the coding assistant."
+
+[[scrub]]
+id = "adr0011-owner-asked"
+files = ["docs/adr/0011-patients-and-visits.md"]
+find = "The product owner asked for the way a clinic thinks about its work:"
+replace = "The app should follow the way a clinic thinks about its work:"
+reason = "Private-conversation phrasing."
+
+# ---- docs/adr/0012-point-and-click-installers.md
+
+[[scrub]]
+id = "adr0012-deciders"
+files = ["docs/adr/0012-point-and-click-installers.md"]
+find = "- Deciders: product owner (asked for GUI installers and uninstallers that are easy to understand), engineering"
+replace = "- Deciders: product owner, engineering"
+reason = "Private-conversation phrasing in the deciders line."
+
+[[scrub]]
+id = "adr0012-buying"
+files = ["docs/adr/0012-point-and-click-installers.md"]
+find = "Buying them is the product owner's decision."
+replace = "Code signing is proposed in ADR-0020."
+reason = "An internal spending decision; ADR-0020 is where signing is designed."
+
+[[scrub]]
+id = "adr0012-real-data"
+files = ["docs/adr/0012-point-and-click-installers.md"]
+find = "The delete-data path is **not** run on the dev box, which holds real data."
+replace = "The delete-data path is **not** run on the dev box, whose data folder isn't disposable."
+reason = "Says a developer machine holds real clinic data."
+
+# ---- docs/adr/0013-choose-where-data-is-kept.md
+
+[[scrub]]
+id = "adr0013-deciders"
+files = ["docs/adr/0013-choose-where-data-is-kept.md"]
+find = "- Deciders: product owner (asked that users can choose where models are stored versus where notes are stored), engineering"
+replace = "- Deciders: product owner, engineering"
+reason = "Private-conversation phrasing in the deciders line."
+
+# ---- docs/adr/0014-gpu-speech-recognition.md
+
+[[scrub]]
+id = "adr0014-status"
+files = ["docs/adr/0014-gpu-speech-recognition.md"]
+find = "The product owner should confirm the NVIDIA licence wording before release."
+replace = "The NVIDIA licence wording is to be confirmed before release."
+reason = "Owner to-do."
+
+[[scrub]]
+id = "adr0014-deciders"
+files = ["docs/adr/0014-gpu-speech-recognition.md"]
+find = "- Deciders: product owner (asked that transcription use the GPU where possible, and that imports be as fast as possible), engineering"
+replace = "- Deciders: product owner, engineering"
+reason = "Private-conversation phrasing in the deciders line."
+
+# ---- docs/adr/0015-geist-and-animl-orange.md
+
+[[scrub]]
+id = "adr0015-deciders"
+files = ["docs/adr/0015-geist-and-animl-orange.md"]
+find = "- Deciders: product owner (asked that the website be orange like ANI.ML Health, then that the app and website be reviewed with the taste and redesign design skills and changed to match), design, engineering"
+replace = "- Deciders: product owner (asked that the website be orange like ANI.ML Health, then that the app and website be reviewed and changed to match), design, engineering"
+reason = "'Design skills' are AI-assistant skills."
+
+[[scrub]]
+id = "adr0015-skills-review"
+files = ["docs/adr/0015-geist-and-animl-orange.md"]
+find = "A design review of both, using the `design-taste-frontend` and `redesign-existing-projects` skills, found the following:"
+replace = "A design review of both found the following:"
+reason = "Names AI-assistant skills."
+
+[[scrub]]
+id = "adr0015-both-skills"
+files = ["docs/adr/0015-geist-and-animl-orange.md"]
+find = "Both skills name the platform default as a generic look."
+replace = "The review flagged the platform default as a generic look."
+reason = "Refers to AI-assistant skills."
+
+[[scrub]]
+id = "adr0015-skills-layout"
+files = ["docs/adr/0015-geist-and-animl-orange.md"]
+find = "It also applies the skills' layout rules:"
+replace = "It also applies these layout rules:"
+reason = "Refers to AI-assistant skills."
+
+[[scrub]]
+id = "adr0015-skills-suggest"
+files = ["docs/adr/0015-geist-and-animl-orange.md"]
+find = "| Satoshi or Outfit, as the skills suggest |"
+replace = "| Satoshi or Outfit |"
+reason = "Refers to AI-assistant skills."
+
+[[scrub]]
+id = "adr0015-spin-out"
+files = ["docs/adr/0015-geist-and-animl-orange.md"]
+find = "If OpenBark is ever spun out, `--brand` and `--accent` are the only values to change."
+replace = "If the brand colour changes, `--brand` and `--accent` are the only values to change."
+reason = "Internal company matter."
+
+# ---- docs/adr/0016-brand-guide.md
+
+[[scrub]]
+id = "adr0016-deciders"
+files = ["docs/adr/0016-brand-guide.md"]
+find = "(supplied the brand package and said \"Here is all the openbark branding for the website and apps. Please proceed.\"; chose"
+replace = "(supplied the brand package; chose"
+reason = "Verbatim quote of the owner's message to the coding assistant."
+
+[[scrub]]
+id = "adr0016-taste-skill"
+files = ["docs/adr/0016-brand-guide.md"]
+find = "- Taste-skill rules that the guide contradicts no longer apply here: centred heroes, the Lucide ban and the \"no eyebrows\" rule. The brand guide is the owner's own."
+replace = "- Earlier design-review rules that the guide contradicts no longer apply here: centred heroes, the Lucide ban and the \"no eyebrows\" rule."
+reason = "Refers to an AI-assistant skill and to the owner personally."
+
+[[scrub]]
+id = "adr0016-alt-brand"
+files = ["docs/adr/0016-brand-guide.md"]
+find = "| Keep ADR-0015 orange and Geist | The owner supplied a complete brand to replace them. |"
+replace = "| Keep ADR-0015 orange and Geist | A complete brand guide was supplied to replace them. |"
+reason = "Owner-personal phrasing."
+
+[[scrub]]
+id = "adr0016-alt-icons"
+files = ["docs/adr/0016-brand-guide.md"]
+find = "| Keep Phosphor icons | The owner chose Lucide, which is what the guide approves. |"
+replace = "| Keep Phosphor icons | Lucide was chosen, and it is what the guide approves. |"
+reason = "Owner-personal phrasing."
+
+# ---- docs/adr/0017-accounts-and-encrypted-sync.md
+
+[[scrub]]
+id = "adr0017-status"
+files = ["docs/adr/0017-accounts-and-encrypted-sync.md"]
+find = "- Status: accepted (owner decisions 2026-10-18)"
+replace = "- Status: accepted (2026-10-18)"
+reason = "Owner-personal phrasing."
+
+[[scrub]]
+id = "adr0017-deciders"
+files = ["docs/adr/0017-accounts-and-encrypted-sync.md"]
+find = "- Deciders: product owner (asked on 2026-10-18 that clinicians can sign in on several devices, record on the phone and finish the work on any computer; chose Supabase for the website account portal; made the decisions below on 2026-10-18), engineering"
+replace = "- Deciders: product owner (decisions below, 2026-10-18), engineering"
+reason = "Private-conversation phrasing; the requirement is restated in Context."
+
+[[scrub]]
+id = "adr0017-decisions-heading"
+files = ["docs/adr/0017-accounts-and-encrypted-sync.md"]
+find = "## Owner decisions (2026-10-18)\n\nDecided by the owner:\n"
+replace = "## Decisions (2026-10-18)\n"
+reason = "Owner-personal phrasing."
+
+[[scrub]]
+id = "adr0017-decision1"
+files = ["docs/adr/0017-accounts-and-encrypted-sync.md"]
+find = "Billing is fixed and Actions works. No owner Mac is in the loop. The S1 audio check also runs as a CI job plus a TestFlight build the owner installs on their iPhone. The owner has a paid Apple Developer account (christopher.pinard@animl.health); whether it is an individual or organisation membership is still to confirm. The signing secrets (distribution certificate `.p12` and its password, and an App Store Connect API key) go into GitHub secrets, added by the owner."
+replace = "No local Mac is needed. The S1 audio check also runs as a CI job plus a TestFlight build installed on a test iPhone. Signing needs a paid Apple Developer Program membership. The signing secrets (distribution certificate `.p12` and its password, and an App Store Connect API key) are stored as GitHub secrets, never in the repo."
+reason = "Owner's personal email, owner hardware, billing status and owner errands."
+
+[[scrub]]
+id = "adr0017-decision4"
+files = ["docs/adr/0017-accounts-and-encrypted-sync.md"]
+find = "ANI.ML already uses SendGrid for ARC. The owner enters the SMTP credentials in the Supabase dashboard, so the key never enters the repo"
+replace = "The SMTP credentials are entered in the Supabase dashboard, so the key never enters the repo"
+reason = "Another ANI.ML product, and an owner errand."
+
+[[scrub]]
+id = "adr0017-decision5"
+files = ["docs/adr/0017-accounts-and-encrypted-sync.md"]
+find = "| 5 | The Supabase project exists, created by the owner: project ref `nmecovtmijnfnjuadicp`, URL `https://nmecovtmijnfnjuadicp.supabase.co`. Its publishable key is public and was provided. Region: to check. Canada (`ca-central-1`) was recommended. Free plan now, Pro before the pilot |"
+replace = "| 5 | A hosted Supabase project exists for development, on the Free plan. Canada (`ca-central-1`) is the recommended region, and a region can't be changed after a project is created. A project's publishable key is public by design |"
+reason = "Internal project identifier, owner errand and a spending plan."
+
+[[scrub]]
+id = "adr0017-accepted-default"
+files = ["docs/adr/0017-accounts-and-encrypted-sync.md"]
+find = "Accepted by default, unless the owner objects:"
+replace = "Accepted by default:"
+reason = "Owner-personal phrasing."
+
+[[scrub]]
+id = "adr0017-owner-todo"
+files = ["docs/adr/0017-accounts-and-encrypted-sync.md"]
+find = "Still to do by the owner: confirm the membership type, add the signing secrets to GitHub, create the app record for `health.animl.openbark` in App Store Connect, set up SendGrid SMTP in the Supabase dashboard, and check the project's region."
+replace = "Setup still needed: the signing secrets in GitHub, the app record for `health.animl.openbark` in App Store Connect, SendGrid SMTP in the Supabase dashboard, and a check of the project's region."
+reason = "Owner to-do list (the personal membership item is dropped)."
+
+[[scrub]]
+id = "adr0017-quote"
+files = ["docs/adr/0017-accounts-and-encrypted-sync.md"]
+find = "The product owner asked: \"ensure users can login to multiple devices (phone or computer) and it will save their audio records or transcripts (i.e. record on phone but once processed on device, can see it anywhere they are logged in).\""
+replace = "The requirement: users can sign in on several devices (phone or computer), and a visit recorded and processed on the phone can be seen on every device where they are signed in."
+reason = "Verbatim quote of the owner's request to the coding assistant; paraphrased."
+
+[[scrub]]
+id = "adr0017-owner-decided"
+files = ["docs/adr/0017-accounts-and-encrypted-sync.md"]
+find = "but on 2026-10-18 the owner decided that sync carries"
+replace = "but on 2026-10-18 it was decided that sync carries"
+reason = "Owner-personal phrasing."
+
+[[scrub]]
+id = "adr0017-service-ref"
+files = ["docs/adr/0017-accounts-and-encrypted-sync.md"]
+find = "| Service | Supabase Auth, in the same project as the website portal: `nmecovtmijnfnjuadicp`. Region to check; `ca-central-1` was recommended |"
+replace = "| Service | Supabase Auth, in the same project as the website portal. `ca-central-1` is the recommended region |"
+reason = "Internal project identifier."
+
+[[scrub]]
+id = "adr0017-email-row"
+files = ["docs/adr/0017-accounts-and-encrypted-sync.md"]
+find = "| Email | Custom SMTP from day one: SendGrid, which ANI.ML already uses for ARC. The owner enters the credentials in the Supabase dashboard."
+replace = "| Email | Custom SMTP from day one: SendGrid. The credentials are entered in the Supabase dashboard."
+reason = "Another ANI.ML product, and an owner errand."
+
+[[scrub]]
+id = "adr0017-owner-decision-212"
+files = ["docs/adr/0017-accounts-and-encrypted-sync.md"]
+find = "Owner decision, 2026-10-18: sync carries transcripts and notes only."
+replace = "Decision, 2026-10-18: sync carries transcripts and notes only."
+reason = "Owner-personal phrasing."
+
+[[scrub]]
+id = "adr0017-projects"
+files = ["docs/adr/0017-accounts-and-encrypted-sync.md"]
+find = "  - The owner created the project `nmecovtmijnfnjuadicp` on 2026-10-18. It is on the Free plan and is used for development now.\n  - Its region is to check. `ca-central-1` was recommended for clinical data, and a region can't be changed later.\n  - It moves to the Pro plan before the pilot. If its region isn't `ca-central-1`, the pilot uses a new project in `ca-central-1` instead, and this one stays for development.\n"
+replace = "  - A project on the Free plan is used for development now.\n  - `ca-central-1` is recommended for clinical data, and a region can't be changed later.\n  - Before real clinic data syncs, a production project in `ca-central-1` with backups is used: the development project, upgraded, if it is in `ca-central-1`; otherwise a new project, and the development one stays for development.\n"
+reason = "Internal project identifier, owner errand and a spending plan."
+
+[[scrub]]
+id = "adr0017-email-setup"
+files = ["docs/adr/0017-accounts-and-encrypted-sync.md"]
+find = "Custom SMTP through SendGrid, set up by the owner in the Supabase dashboard."
+replace = "Custom SMTP through SendGrid, set up in the Supabase dashboard."
+reason = "Owner errand."
+
+[[scrub]]
+id = "adr0017-cost"
+files = ["docs/adr/0017-accounts-and-encrypted-sync.md"]
+find = "- **Cost.**\n  - The Free plan now. Supabase Pro, about 25 USD a month, before the pilot.\n  - SendGrid is already in use at ANI.ML for ARC.\n  - Without audio, a visit takes roughly 200 KB in the database once padded, so storage grows slowly. Database disk use is checked against the Pro plan's allowance once real usage is known.\n"
+replace = "- **Storage.** Without audio, a visit takes roughly 200 KB in the database once padded, so storage grows slowly. Database disk use is checked against the plan's allowance once real usage is known.\n"
+reason = "Company spending plan and another ANI.ML product."
+
+[[scrub]]
+id = "adr0017-housekeeping"
+files = ["docs/adr/0017-accounts-and-encrypted-sync.md"]
+find = "- **Housekeeping.** CLAUDE.md still describes the encrypted store as \"rusqlite with bundled-sqlcipher\", which has been out of date since ADR-0008. The same change corrects it.\n"
+replace = ""
+reason = "Concerns the excluded assistant working-notes file only."
+
+[[scrub]]
+id = "adr0017-alt-audio"
+files = ["docs/adr/0017-accounts-and-encrypted-sync.md"]
+find = "| The owner decided on 2026-10-18 that sync carries transcripts and notes only."
+replace = "| It was decided on 2026-10-18 that sync carries transcripts and notes only."
+reason = "Owner-personal phrasing."
+
+# ---- docs/adr/0018-iphone-app.md
+
+[[scrub]]
+id = "adr0018-status"
+files = ["docs/adr/0018-iphone-app.md"]
+find = "- Status: accepted (owner decisions 2026-10-18). The iOS half of spike S1, run as a CI job plus a TestFlight build on the owner's iPhone,"
+replace = "- Status: accepted (2026-10-18). The iOS half of spike S1, run as a CI job plus a TestFlight build on a test iPhone,"
+reason = "Owner hardware."
+
+[[scrub]]
+id = "adr0018-deciders"
+files = ["docs/adr/0018-iphone-app.md"]
+find = "- Deciders: product owner (\"Start building the iPhone app\"; decisions of 2026-10-18 listed in ADR-0017), engineering"
+replace = "- Deciders: product owner (decisions of 2026-10-18 listed in ADR-0017), engineering"
+reason = "Verbatim quote of the owner's request to the coding assistant."
+
+[[scrub]]
+id = "adr0018-owner-decisions"
+files = ["docs/adr/0018-iphone-app.md"]
+find = "- Owner decisions that shape this ADR: builds, signing and TestFlight uploads run on GitHub Actions macOS runners, with no owner Mac;"
+replace = "- Decisions that shape this ADR: builds, signing and TestFlight uploads run on GitHub Actions macOS runners, with no local Mac;"
+reason = "Owner hardware."
+
+[[scrub]]
+id = "adr0018-context-facts"
+files = ["docs/adr/0018-iphone-app.md"]
+find = "- GitHub Actions works: the billing problem was fixed on 2026-10-18. The repo is private, so macOS minutes count ten times against the allowance.\n- No owner Mac is in the loop (owner decision, 2026-10-18). The owner has an iPhone and installs builds from TestFlight, following scripted runbooks.\n- The owner has a paid Apple Developer account (christopher.pinard@animl.health). Whether it is an individual or organisation membership is still to confirm.\n"
+replace = "- iOS builds run on GitHub Actions macOS runners.\n- No local Mac is needed (decision, 2026-10-18). Device checks use an iPhone that installs builds from TestFlight, following scripted runbooks.\n- Signing and TestFlight distribution need a paid Apple Developer Program membership.\n"
+reason = "Billing status, private-repo claim, owner hardware and the owner's personal email."
+
+[[scrub]]
+id = "adr0018-s1-gates"
+files = ["docs/adr/0018-iphone-app.md"]
+find = "must pass on the owner's iPhone, in a TestFlight build made by CI,"
+replace = "must pass on a real iPhone, in a TestFlight build made by CI,"
+reason = "Owner hardware."
+
+[[scrub]]
+id = "adr0018-decision-154"
+files = ["docs/adr/0018-iphone-app.md"]
+find = "Owner decision, 2026-10-18: every iOS build, signature and TestFlight upload runs on GitHub Actions macOS runners. Billing is fixed and Actions works. No owner Mac is in the loop."
+replace = "Decision, 2026-10-18: every iOS build, signature and TestFlight upload runs on GitHub Actions macOS runners. No local Mac is needed."
+reason = "Billing status and owner hardware."
+
+[[scrub]]
+id = "adr0018-s1-row"
+files = ["docs/adr/0018-iphone-app.md"]
+find = "signs it and uploads it to TestFlight. The owner installs it and runs the device checks"
+replace = "signs it and uploads it to TestFlight. A tester installs it and runs the device checks"
+reason = "Owner errand."
+
+[[scrub]]
+id = "adr0018-cost"
+files = ["docs/adr/0018-iphone-app.md"]
+find = "**Cost.** macOS minutes cost 0.062 USD each and count ten times against the allowance on a private repo. So the signed jobs run"
+replace = "**Run policy.** macOS runners are slower and scarcer than Linux and Windows ones, so the signed jobs run"
+reason = "Private-repo billing detail."
+
+[[scrub]]
+id = "adr0018-secrets"
+files = ["docs/adr/0018-iphone-app.md"]
+find = "- The owner adds the secrets to GitHub. They are never in the repo:"
+replace = "- The secrets are stored as GitHub secrets. They are never in the repo:"
+reason = "Owner errand."
+
+[[scrub]]
+id = "adr0018-openssl"
+files = ["docs/adr/0018-iphone-app.md"]
+find = "- Without a Mac, the owner makes the certificate request and the `.p12` with OpenSSL on Windows."
+replace = "- Without a Mac, the certificate request and the `.p12` are made with OpenSSL on Windows."
+reason = "Owner errand."
+
+[[scrub]]
+id = "adr0018-seller"
+files = ["docs/adr/0018-iphone-app.md"]
+find = "Which one the owner's account is remains to confirm, before the first public release."
+replace = "The membership type is settled before the first public release."
+reason = "The owner's personal account."
+
+[[scrub]]
+id = "adr0018-bottleneck"
+files = ["docs/adr/0018-iphone-app.md"]
+find = "Each iOS build costs macOS minutes, and each check on a real iPhone waits for the owner to install a TestFlight build. Every owner step has a scripted runbook,"
+replace = "Each iOS build uses macOS runner time, and each check on a real iPhone waits for a tester to install a TestFlight build. Every manual step has a scripted runbook,"
+reason = "Owner errand and billing."
+
+[[scrub]]
+id = "adr0018-alt-record-only"
+files = ["docs/adr/0018-iphone-app.md"]
+find = "| A phone that only records | The owner asked for processing on the device,"
+replace = "| A phone that only records | Processing on the device is a requirement,"
+reason = "Owner-personal phrasing."
+
+[[scrub]]
+id = "adr0018-alt-mac"
+files = ["docs/adr/0018-iphone-app.md"]
+find = "| The owner's Mac, Xcode Cloud or Codemagic as the main build path | The owner decided on 2026-10-18 that builds run"
+replace = "| A local Mac, Xcode Cloud or Codemagic as the main build path | It was decided on 2026-10-18 that builds run"
+reason = "Owner hardware."
+
+[[scrub]]
+id = "adr0018-owner-decision-paren"
+files = ["docs/adr/0018-iphone-app.md"]
+find = "(owner decision, 2026-10-18)"
+replace = "(decision of 2026-10-18)"
+reason = "Owner-personal phrasing (two places)."
+expect = 2
+
+# ---- docs/adr/0019-acceleration-on-every-platform.md
+
+[[scrub]]
+id = "adr0019-deciders"
+files = ["docs/adr/0019-acceleration-on-every-platform.md"]
+find = "- Deciders: product owner (asked that every user get the speed their hardware allows, on Apple, NVIDIA, AMD or other graphics cards and on every operating system), engineering"
+replace = "- Deciders: product owner (requirement: every user gets the speed their hardware allows, on Apple, NVIDIA, AMD or other graphics cards and on every operating system), engineering"
+reason = "Private-conversation phrasing; the requirement is kept."
+
+[[scrub]]
+id = "adr0019-owner-4080"
+files = ["docs/adr/0019-acceleration-on-every-platform.md"]
+find = "On the product owner's RTX 4080,"
+replace = "On a test PC with an RTX 4080,"
+reason = "Owner hardware."
+
+[[scrub]]
+id = "adr0019-owner-case"
+files = ["docs/adr/0019-acceleration-on-every-platform.md"]
+find = "- The product owner's case can't happen silently:"
+replace = "- The case in the context can't happen silently:"
+reason = "Owner-personal phrasing."
+
+[[scrub]]
+id = "adr0019-owner-problem"
+files = ["docs/adr/0019-acceleration-on-every-platform.md"]
+find = "The product owner's problem was exactly a wrong build."
+replace = "The slow case in the context was exactly a wrong build."
+reason = "Owner-personal phrasing."
+
+# ---- docs/adr/0020-code-signing.md
+
+[[scrub]]
+id = "adr0020-deciders"
+files = ["docs/adr/0020-code-signing.md"]
+find = "- Deciders: product owner (asked on 2026-10-18 that engineering work out code signing), engineering"
+replace = "- Deciders: product owner, engineering"
+reason = "Private-conversation phrasing."
+
+[[scrub]]
+id = "adr0020-apple-membership"
+files = ["docs/adr/0020-code-signing.md"]
+find = "- The owner already pays for the Apple Developer Program (US$99 a year, charged in local currency). **Whether the membership is individual or organisation is not confirmed.**"
+replace = "- Signing for Apple platforms needs an Apple Developer Program membership (US$99 a year, charged in local currency). A membership is either individual or organisation:"
+reason = "The owner's personal account and spending."
+
+[[scrub]]
+id = "adr0020-private-repo"
+files = ["docs/adr/0020-code-signing.md"]
+find = "- The main repo (ANI-ML/openbark) is private. On a private repo:\n  - environments, environment secrets and tag rules need GitHub Pro, Team or Enterprise;\n  - required reviewers need Enterprise.\n\n  Which plan the ANI-ML organisation is on is to confirm.\n"
+replace = "- On a private GitHub repository:\n  - environments, environment secrets and tag rules need GitHub Pro, Team or Enterprise;\n  - required reviewers need Enterprise.\n"
+reason = "Private-repo claim and an internal account question; the GitHub facts are kept."
+
+[[scrub]]
+id = "adr0020-individual"
+files = ["docs/adr/0020-code-signing.md"]
+find = "We don't sign with an individual Apple membership. If the Apple membership turns out to be individual, it is converted to an organisation before any Developer ID certificate is made."
+replace = "We don't sign with an individual Apple membership: Developer ID certificates are made only under an organisation membership."
+reason = "The owner's personal account status."
+
+[[scrub]]
+id = "adr0020-account-holder"
+files = ["docs/adr/0020-code-signing.md"]
+find = "Made by the owner as Account Holder"
+replace = "Made by the team's Account Holder"
+reason = "Owner errand."
+
+[[scrub]]
+id = "adr0020-mac-cost"
+files = ["docs/adr/0020-code-signing.md"]
+find = "| Cost | Nothing new. The Apple Developer Program (US$99 a year in local currency) is already paid. Notarization waits add a few macOS runner minutes per release, under US$1 at US$0.062 a minute (ADR-0018) |"
+replace = "| Cost | The Apple Developer Program membership (US$99 a year in local currency). Notarization waits add a few macOS runner minutes per release |"
+reason = "Company spending status."
+
+[[scrub]]
+id = "adr0020-ios-cost"
+files = ["docs/adr/0020-code-signing.md"]
+find = "| Cost | Nothing new |"
+replace = "| Cost | Covered by the same Apple Developer Program membership |"
+reason = "Company spending status."
+
+[[scrub]]
+id = "adr0020-app-record"
+files = ["docs/adr/0020-code-signing.md"]
+find = "Don't register the App ID or create the App Store Connect app record until the membership is an organisation, in case Apple asks for a new enrolment rather than converting the existing one."
+replace = "The App ID and the App Store Connect app record are created only under the organisation membership."
+reason = "The owner's personal account status."
+
+[[scrub]]
+id = "adr0020-env-private"
+files = ["docs/adr/0020-code-signing.md"]
+find = "If the plan has no environments for private repos, they become repository secrets instead (decision 8)."
+replace = "If environments aren't available, they become repository secrets instead (decision 8)."
+reason = "Private-repo plan detail."
+
+[[scrub]]
+id = "adr0020-password-manager"
+files = ["docs/adr/0020-code-signing.md"]
+find = "go into the company password manager (which one is to confirm)."
+replace = "go into the company password manager."
+reason = "Internal open item."
+
+[[scrub]]
+id = "adr0020-who-holds"
+files = ["docs/adr/0020-code-signing.md"]
+find = "- **Who holds what:** the owner holds the Azure Identity Verifier role and the Apple Account Holder role."
+replace = "- **Who holds what:** the Azure Identity Verifier role and the Apple Account Holder role stay with the company's account administrator."
+reason = "Owner-personal role assignment."
+
+[[scrub]]
+id = "adr0020-risk-envs"
+files = ["docs/adr/0020-code-signing.md"]
+find = "| The GitHub plan has no environments for private repos |"
+replace = "| GitHub environments aren't available |"
+reason = "Private-repo plan detail."
+
+[[scrub]]
+id = "adr0020-risk-convert"
+files = ["docs/adr/0020-code-signing.md"]
+find = "| Converting the Apple membership takes weeks | macOS stays ad-hoc signed, as today, until it's done. We don't sign with a personal name in the meantime |"
+replace = "| The organisation Apple membership isn't ready yet | macOS stays ad-hoc signed, as today, until it is. We don't sign with an individual's name in the meantime |"
+reason = "The owner's personal account status."
+
+[[scrub]]
+id = "adr0020-risk-enrol"
+files = ["docs/adr/0020-code-signing.md"]
+find = "| Enrol ANI.ML Health Inc. as a new organisation and let the individual membership lapse | US$99 a year more until the old one lapses |"
+replace = "| Enrol ANI.ML Health Inc. as a new organisation | US$99 a year |"
+reason = "The owner's personal account."
+
+[[scrub]]
+id = "adr0020-cost-summary"
+files = ["docs/adr/0020-code-signing.md"]
+find = "| Item | Cost | New spend? |\n|---|---|---|\n| Microsoft Artifact Signing, Basic | US$9.99 a month (CA$14.15), about US$120 (CA$170) a year before tax | Yes |\n| Apple Developer Program | US$99 a year (CAD price shown at renewal) | No, already paid |\n| D-U-N-S number | Free | No |\n| OpenPGP key | Free | No |\n| Extra macOS runner minutes | Under US$1 per release | Marginal |\n| **Total new spend** | **About US$120 a year** | |\n| Windows fallback (SSL.com OV + eSigner) | About US$309 a year, instead of Artifact Signing | Only if needed |\n"
+replace = "| Item | Cost at list price |\n|---|---|\n| Microsoft Artifact Signing, Basic | US$9.99 a month, about US$120 a year before tax |\n| Apple Developer Program | US$99 a year |\n| D-U-N-S number | Free |\n| OpenPGP key | Free |\n| Extra macOS runner minutes | A few minutes per release |\n| Windows fallback (SSL.com OV + eSigner) | About US$309 a year, instead of Artifact Signing (only if needed) |\n"
+reason = "Company spending status ('new spend', 'already paid'); public list prices are kept."
+
+[[scrub]]
+id = "adr0020-eligibility"
+files = ["docs/adr/0020-code-signing.md"]
+find = "- **Microsoft eligibility.** If ANI.ML Health Inc. is under 3 years old and Microsoft still applies that rule, validation fails and we take the SSL.com fallback."
+replace = "- **Microsoft eligibility.** If Microsoft applies a minimum business age and refuses validation, we take the SSL.com fallback."
+reason = "Internal company detail."
+
+[[scrub]]
+id = "adr0020-alt-signpath"
+files = ["docs/adr/0020-code-signing.md"]
+find = "not ANI.ML Health Inc., and it needs a public repository the team owns. Ours is private |"
+replace = "not ANI.ML Health Inc. |"
+reason = "Private-repo claim."
+
+[[scrub]]
+id = "adr0020-alt-attestations"
+files = ["docs/adr/0020-code-signing.md"]
+find = "| GitHub artifact attestations | Need GitHub Enterprise Cloud for a private repository |"
+replace = "| GitHub artifact attestations | Need GitHub Enterprise Cloud when the building repository is private |"
+reason = "Private-repo claim."
+
+[[scrub]]
+id = "adr0020-alt-cosign"
+files = ["docs/adr/0020-code-signing.md"]
+find = "| Keyless cosign | Works from a private repo, but writes the workflow identity, including the private repo's name, to the public Rekor log."
+replace = "| Keyless cosign | Writes the workflow identity, including the repository name, to the public Rekor log."
+reason = "Private-repo claim."
+
+# ---- docs/adr/0021-dental-chart.md
+
+[[scrub]]
+id = "adr0021-deciders"
+files = ["docs/adr/0021-dental-chart.md"]
+find = "- Deciders: product owner (said \"Implement dental chart.\"; M2 item 7), engineering"
+replace = "- Deciders: product owner (M2 item 7), engineering"
+reason = "Verbatim quote of the owner's instruction to the coding assistant."
+
+[[scrub]]
+id = "adr0021-access-refused"
+files = ["docs/adr/0021-dental-chart.md"]
+find = "could not be read (access refused)."
+replace = "were not available for this review."
+reason = "Reads as an automated fetch-tool error."
+
+# ---- docs/adr/0022-deleting-visits.md
+
+[[scrub]]
+id = "adr0022-status"
+files = ["docs/adr/0022-deleting-visits.md"]
+find = "- Status: accepted (owner asked to implement, 2026-10-18); phase 1 implemented"
+replace = "- Status: accepted (2026-10-18); phase 1 implemented"
+reason = "Owner-personal phrasing."
+
+[[scrub]]
+id = "adr0022-deciders"
+files = ["docs/adr/0022-deleting-visits.md"]
+find = "- Deciders: product owner (asked: \"Implement ... deleting visits.\"), engineering"
+replace = "- Deciders: product owner, engineering"
+reason = "Verbatim quote of the owner's instruction to the coding assistant."
+
+# ---- docs/adr/0023-bring-your-own-telephony.md
+
+[[scrub]]
+id = "adr0023-status"
+files = ["docs/adr/0023-bring-your-own-telephony.md"]
+find = "- Status: accepted (owner decisions 2026-10-18; see section 15)"
+replace = "- Status: accepted (decisions 2026-10-18; see section 15)"
+reason = "Owner-personal phrasing."
+
+[[scrub]]
+id = "adr0023-deciders"
+files = ["docs/adr/0023-bring-your-own-telephony.md"]
+find = "- Deciders: product owner (asked on 2026-10-18: \"Add the ability to add a SendGrid/Twilio integration for phone support (in app with recording) but unique to the user (we don't do anything and we don't pay for it, they do)\"), engineering"
+replace = "- Deciders: product owner, engineering"
+reason = "Verbatim quote of the owner's request to the coding assistant; the requirement is restated in Context."
+
+[[scrub]]
+id = "adr0023-context"
+files = ["docs/adr/0023-bring-your-own-telephony.md"]
+find = "The owner wants clinics to phone clients from inside OpenBark, record the call, and get a transcript and a note."
+replace = "OpenBark should let clinics phone clients from inside the app, record the call, and get a transcript and a note."
+reason = "Owner-personal phrasing."
+
+[[scrub]]
+id = "adr0023-context-sendgrid"
+files = ["docs/adr/0023-bring-your-own-telephony.md"]
+find = "The owner also named SendGrid, which fits a second need:"
+replace = "SendGrid fits a second need:"
+reason = "Owner-personal phrasing."
+
+[[scrub]]
+id = "adr0023-voiceprint"
+files = ["docs/adr/0023-bring-your-own-telephony.md"]
+find = "is a separate question for the owner, outside this ADR."
+replace = "is a separate question, outside this ADR."
+reason = "Owner-addressed phrasing."
+
+[[scrub]]
+id = "adr0023-dev-box"
+files = ["docs/adr/0023-bring-your-own-telephony.md"]
+find = "Tested on the dev box |"
+replace = "Tested on a Windows development machine |"
+reason = "Owner hardware."
+
+[[scrub]]
+id = "adr0023-open-questions"
+files = ["docs/adr/0023-bring-your-own-telephony.md"]
+find = "### 15. Open questions for the owner"
+replace = "### 15. Open questions and decisions"
+reason = "Owner-addressed heading (the section number is cited elsewhere and is kept)."
+
+[[scrub]]
+id = "adr0023-owner-decisions"
+files = ["docs/adr/0023-bring-your-own-telephony.md"]
+find = "**Owner decisions (2026-10-18):**"
+replace = "**Decisions (2026-10-18):**"
+reason = "Owner-personal phrasing."
+
+[[scrub]]
+id = "adr0023-dev-account"
+files = ["docs/adr/0023-bring-your-own-telephony.md"]
+find = "Open. The owner creates a Twilio account when testing starts."
+replace = "Open. A development Twilio account is created when testing starts."
+reason = "Owner errand."
+
+[[scrub]]
+id = "adr0023-own-account"
+files = ["docs/adr/0023-bring-your-own-telephony.md"]
+find = "The owner's own Twilio account must be **upgraded**"
+replace = "The development Twilio account must be **upgraded**"
+reason = "The owner's personal account."
+
+[[scrub]]
+id = "adr0023-alt-relay"
+files = ["docs/adr/0023-bring-your-own-telephony.md"]
+find = "| Against the owner's request: ANI.ML would hold or proxy credentials,"
+replace = "| Against the requirement that ANI.ML runs, holds and pays for nothing: ANI.ML would hold or proxy credentials,"
+reason = "Owner-personal phrasing; the requirement is stated in Context."
+
+[[scrub]]
+id = "adr0023-alt-smtp"
+files = ["docs/adr/0023-bring-your-own-telephony.md"]
+find = "SendGrid was the owner's choice, and its REST API"
+replace = "SendGrid was chosen, and its REST API"
+reason = "Owner-personal phrasing."
+
+# ---- docs/adr/0024-per-user-template-editing.md
+
+[[scrub]]
+id = "adr0024-status"
+files = ["docs/adr/0024-per-user-template-editing.md"]
+find = "- Status: accepted (owner decisions 2026-10-18; see section 17)"
+replace = "- Status: accepted (decisions 2026-10-18; see section 17)"
+reason = "Owner-personal phrasing."
+
+[[scrub]]
+id = "adr0024-deciders"
+files = ["docs/adr/0024-per-user-template-editing.md"]
+find = "- Deciders: product owner (asked on 2026-10-18: \"There are plenty of templates, but as a user, I can't seem to edit them. Please allow me to edit them, the prompt, etc. Per user of course.\"), engineering"
+replace = "- Deciders: product owner, engineering"
+reason = "Verbatim quote of the owner's request to the coding assistant; the requirement is restated in Context."
+
+[[scrub]]
+id = "adr0024-what-was-asked"
+files = ["docs/adr/0024-per-user-template-editing.md"]
+find = "### What was asked"
+replace = "### The need"
+reason = "Private-conversation phrasing."
+
+[[scrub]]
+id = "adr0024-owner-wants"
+files = ["docs/adr/0024-per-user-template-editing.md"]
+find = "The owner wants every person to be able to change any template,"
+replace = "Every person should be able to change any template,"
+reason = "Owner-personal phrasing."
+
+[[scrub]]
+id = "adr0024-standing-rules"
+files = ["docs/adr/0024-per-user-template-editing.md"]
+find = "- **Clinical safety** (the project's standing rules)."
+replace = "- **Clinical safety.**"
+reason = "Refers to the excluded assistant working-notes file."
+
+[[scrub]]
+id = "adr0024-decisions-heading"
+files = ["docs/adr/0024-per-user-template-editing.md"]
+find = "### 17. Decisions for the owner"
+replace = "### 17. Decisions"
+reason = "Owner-addressed heading (section number kept; it is cited)."
+
+[[scrub]]
+id = "adr0024-owner-decisions"
+files = ["docs/adr/0024-per-user-template-editing.md"]
+find = "**Owner decisions (2026-10-18).**"
+replace = "**Decisions (2026-10-18).**"
+reason = "Owner-personal phrasing."
+
+# ---- docs/design/DESIGN.md
+
+[[scrub]]
+id = "design-provided-by"
+files = ["docs/design/DESIGN.md"]
+find = "Provided by the product owner on 2026-10-17 as the design source of truth."
+replace = "Adopted on 2026-10-17 as the design source of truth."
+reason = "Owner-personal phrasing."
+
+[[scrub]]
+id = "design-amended"
+files = ["docs/design/DESIGN.md"]
+find = "Amended on 2026-10-18 by ADR-0010 (the Apple-style refresh the product owner\nasked for): system font, springs, translucent floating chrome, grouped surfaces."
+replace = "Amended on 2026-10-18 by ADR-0010 (an Apple-style refresh): system font,\nsprings, translucent floating chrome, grouped surfaces."
+reason = "Owner-personal phrasing."
+
+[[scrub]]
+id = "design-assistant-instruction"
+files = ["docs/design/DESIGN.md"]
+find = "Claude Code: read this before touching `packages/ui`, and run the pre-flight checklist in §12 before closing any UI task."
+replace = "Read this before changing `packages/ui`, and run the pre-flight checklist in §12 before opening a UI pull request."
+reason = "Instruction addressed to the AI coding assistant by name."
+
+# ---- docs/network.md
+
+[[scrub]]
+id = "network-supabase-ref"
+files = ["docs/network.md"]
+find = "ANI.ML's hosted project is `nmecovtmijnfnjuadicp.supabase.co`; a clinic can point OpenBark at its own Supabase"
+replace = "ANI.ML Health will host one project (its address is added here when sync ships); a clinic can point OpenBark at its own Supabase"
+reason = "Internal project identifier for a feature not built yet. When sync ships, the real host must be listed here."
+
+# ---- docs/perf/M0.md
+
+[[scrub]]
+id = "perf-shared-gpu"
+files = ["docs/perf/M0.md"]
+find = "Final Fantasy XIV (`ffxiv_dx11.exe`) was running, using about 35–40% of the GPU and 4 GB of VRAM, along with Parsec streaming."
+replace = "Other software was using about 35–40% of the GPU and 4 GB of VRAM."
+reason = "Personal software use on the owner's machine."
+
+[[scrub]]
+id = "perf-owner-mac"
+files = ["docs/perf/M0.md"]
+find = "(product owner's Mac; `docs/runbooks/macos.md`)"
+replace = "(`docs/runbooks/macos.md`)"
+reason = "Owner hardware."
+
+# ---- docs/plans/M0.md
+
+[[scrub]]
+id = "m0-status"
+files = ["docs/plans/M0.md"]
+find = "Name: **OpenBark**. Repo: `ANI-ML/openbark` (private until launch)."
+replace = "Name: **OpenBark**."
+reason = "Private-repo claim."
+
+[[scrub]]
+id = "m0-your-ok"
+files = ["docs/plans/M0.md"]
+find = " (each needs your OK)"
+replace = ""
+reason = "Assistant addressing the owner."
+
+[[scrub]]
+id = "m0-notes-file-item"
+files = ["docs/plans/M0.md"]
+find = "   - Root `CLAUDE.md`, pointing at the product brief plus the rules.\n"
+replace = ""
+reason = "Refers to the excluded assistant working-notes file."
+
+[[scrub]]
+id = "m0-day0"
+files = ["docs/plans/M0.md"]
+find = "NOTICE, CLAUDE.md, ADR template."
+replace = "NOTICE, ADR template."
+reason = "Refers to the excluded assistant working-notes file."
+
+[[scrub]]
+id = "m0-this-box-day5"
+files = ["docs/plans/M0.md"]
+find = "S2 step 7: benchmarks on this box and macOS CI."
+replace = "S2 step 7: benchmarks on the Windows reference machine and macOS CI."
+reason = "Owner hardware as 'this box'."
+
+[[scrub]]
+id = "m0-dev-env"
+files = ["docs/plans/M0.md"]
+regex = true
+find = '(?s)## Dev environment setup \(this Windows box\)\n.*?so I\x27ll ask before the first\.\n'
+replace = "## Reference development machine\n\nWindows 11 with VS 2022 Build Tools 17.14 (C++ workload and CMake), CUDA 12.9, an RTX 4080 (16 GB) and 64 GB RAM. Also needed: Rust 1.99.1 via rustup (targets `aarch64-linux-android` and `x86_64-pc-windows-msvc`), LLVM / libclang for bindgen, the Clang component of VS Build Tools, and Node 24.22.0 with pnpm 11.28.6 through corepack. For S1: Android Studio, SDK and NDK.\n"
+reason = "Owner's machine inventory, install to-do list and assistant first-person voice ('I'll install these ... I'll ask'). Facts are kept."
+expect = 1
+
+[[scrub]]
+id = "m0-this-box-m01"
+files = ["docs/plans/M0.md"]
+find = "| CI + a fresh-clone run on this box |"
+replace = "| CI + a fresh-clone run on the Windows reference machine |"
+reason = "Owner hardware as 'this box'."
+
+[[scrub]]
+id = "m0-signed-off"
+files = ["docs/plans/M0.md"]
+find = "| Signed off by you |"
+replace = "| Signed off by the product owner |"
+reason = "Assistant addressing the owner."
+
+[[scrub]]
+id = "m0-this-box-risk"
+files = ["docs/plans/M0.md"]
+find = "(this box is Windows)"
+replace = "(the reference machine is Windows)"
+reason = "Owner hardware as 'this box'."
+
+[[scrub]]
+id = "m0-name-risk"
+files = ["docs/plans/M0.md"]
+find = "| The name is unavailable | **High** | Decide before public repo creation. See decision 1. |"
+replace = "| The name is unavailable | **High** | See decision 1. |"
+reason = "Pre-launch internal to-do."
+
+[[scrub]]
+id = "m0-name-decision"
+files = ["docs/plans/M0.md"]
+find = "**OpenBark**. A quick search found no \"OpenBark\" software project on GitHub or the web. Known neighbours: Suno's open-source \"Bark\" text-to-speech model, and BARK, Inc.'s pet-products marks. **Run a formal trademark search before the public launch.** In code,"
+replace = "**OpenBark**. In code,"
+reason = "Internal trademark research and a legal to-do (listed as an owner item in docs/plans/public-repo.md)."
+
+[[scrub]]
+id = "m0-apple-hardware"
+files = ["docs/plans/M0.md"]
+regex = true
+find = '\| 2 \| Apple hardware \| The product owner has a Mac and an iPhone[^\n]*\|\n'
+replace = "| 2 | Apple hardware | iOS builds, signing and TestFlight uploads run on GitHub Actions macOS runners (ADR-0018 section 8); the app is installed from TestFlight, following `docs/runbooks/ios.md`. |\n"
+reason = "Owner hardware."
+expect = 1
+
+[[scrub]]
+id = "m0-github-private"
+files = ["docs/plans/M0.md"]
+find = "| 3 | GitHub | `ANI-ML/openbark`, **private**. |"
+replace = "| 3 | GitHub | `ANI-ML/openbark`. |"
+reason = "Private-repo claim."
+
+[[scrub]]
+id = "m0-asked"
+files = ["docs/plans/M0.md"]
+find = " (asked 2026-10-17)"
+replace = ""
+reason = "Private-conversation phrasing (three rows)."
+expect = 3
+
+[[scrub]]
+id = "m0-original-notes"
+files = ["docs/plans/M0.md"]
+regex = true
+find = '(?s)\n### Original decision notes \(kept for the record\)\n.*?aren\x27t needed until M1–M2\.\n'
+replace = ""
+reason = "Assistant-to-owner conversation (first-person questions, 'the GitHub connector here isn't authorised'), third-party personal GitHub accounts and trademark research. The resolved table above records every outcome."
+expect = 1
+
+# ---- docs/plans/M1.md
+
+[[scrub]]
+id = "m1-status"
+files = ["docs/plans/M1.md"]
+find = "Status: **in progress**, started 2026-10-17. The product owner said \"keep proceeding with all features\"."
+replace = "Status: **in progress**, started 2026-10-17."
+reason = "Verbatim quote of the owner's instruction to the coding assistant."
+
+[[scrub]]
+id = "m1-consent"
+files = ["docs/plans/M1.md"]
+find = "**Done, then changed at the product owner's request (2026-10-17).**"
+replace = "**Done, then changed (2026-10-17).**"
+reason = "Private-conversation phrasing."
+
+[[scrub]]
+id = "m1-copy"
+files = ["docs/plans/M1.md"]
+find = "Product owner asked for one-click copy."
+replace = "One-click copy was requested."
+reason = "Private-conversation phrasing."
+
+[[scrub]]
+id = "m1-login"
+files = ["docs/plans/M1.md"]
+find = "Product owner asked for login."
+replace = "Login was requested."
+reason = "Private-conversation phrasing."
+
+[[scrub]]
+id = "m1-mac-bench"
+files = ["docs/plans/M1.md"]
+find = "Mac benchmark from the product owner."
+replace = "Mac benchmark on Apple Silicon."
+reason = "Owner hardware."
+
+[[scrub]]
+id = "m1-iphone"
+files = ["docs/plans/M1.md"]
+find = "needs the product owner's iPhone,"
+replace = "needs an iPhone,"
+reason = "Owner hardware."
+
+# ---- docs/plans/M2.md
+
+[[scrub]]
+id = "m2-keep-going"
+files = ["docs/plans/M2.md"]
+find = "started 2026-10-18 (\"keep going\" after M1 closed)."
+replace = "started 2026-10-18, after M1 closed."
+reason = "Verbatim quote of the owner's instruction to the coding assistant."
+
+[[scrub]]
+id = "m2-decisions"
+files = ["docs/plans/M2.md"]
+find = "## Decisions for the product owner"
+replace = "## Open decisions"
+reason = "Owner-addressed heading."
+
+# ---- docs/plans/M3.md
+
+[[scrub]]
+id = "m3-status"
+files = ["docs/plans/M3.md"]
+find = "Status: **accepted (owner decisions 2026-10-18).**"
+replace = "Status: **accepted (2026-10-18).**"
+reason = "Owner-personal phrasing."
+
+[[scrub]]
+id = "m3-decisions-heading"
+files = ["docs/plans/M3.md"]
+find = "## Owner decisions (2026-10-18)\n\nDecided by the owner:\n"
+replace = "## Decisions (2026-10-18)\n"
+reason = "Owner-personal phrasing."
+
+[[scrub]]
+id = "m3-decision1"
+files = ["docs/plans/M3.md"]
+find = "Billing is fixed and Actions works. No owner Mac is in the loop. The owner has a paid Apple Developer account (christopher.pinard@animl.health); individual or organisation membership is still to confirm. The signing secrets (distribution certificate `.p12` and its password, and an App Store Connect API key) go into GitHub secrets, added by the owner | The MAC tag now means GitHub's macOS runners. Phase 1 (S1) runs as a CI job plus a TestFlight build the owner installs on their iPhone |"
+replace = "No local Mac is needed. Signing needs a paid Apple Developer Program membership. The signing secrets (distribution certificate `.p12` and its password, and an App Store Connect API key) are stored as GitHub secrets | The MAC tag now means GitHub's macOS runners. Phase 1 (S1) runs as a CI job plus a TestFlight build installed on a test iPhone |"
+reason = "Owner's personal email, owner hardware, billing status and owner errands."
+
+[[scrub]]
+id = "m3-decision4"
+files = ["docs/plans/M3.md"]
+find = "ANI.ML already uses SendGrid for ARC. The owner enters the SMTP credentials in the Supabase dashboard, so the key never enters the repo"
+replace = "The SMTP credentials are entered in the Supabase dashboard, so the key never enters the repo"
+reason = "Another ANI.ML product, and an owner errand."
+
+[[scrub]]
+id = "m3-decision5"
+files = ["docs/plans/M3.md"]
+find = "| 5 | The Supabase project exists: project ref `nmecovtmijnfnjuadicp`, URL `https://nmecovtmijnfnjuadicp.supabase.co`. Its publishable key is public and was provided. Region: to check. Canada (`ca-central-1`) was recommended. Free plan now, Pro before the pilot |"
+replace = "| 5 | A development Supabase project exists, on the Free plan. Canada (`ca-central-1`) is the recommended region. A project's publishable key is public by design |"
+reason = "Internal project identifier and a spending plan."
+
+[[scrub]]
+id = "m3-accepted-default"
+files = ["docs/plans/M3.md"]
+find = "Accepted by default, unless the owner objects:"
+replace = "Accepted by default:"
+reason = "Owner-personal phrasing."
+
+[[scrub]]
+id = "m3-owner-todo"
+files = ["docs/plans/M3.md"]
+find = "Still to do by the owner:\n- confirm whether the Apple membership is individual or organisation;\n- add the signing secrets to GitHub;\n- create the app record for `health.animl.openbark` in App Store Connect (the runbook gives the steps);\n- set up SendGrid as custom SMTP in the Supabase dashboard;\n- check the Supabase project's region.\n"
+replace = "Setup still needed: the signing secrets in GitHub, the app record for `health.animl.openbark` in App Store Connect (the runbook gives the steps), SendGrid as custom SMTP in the Supabase dashboard, and a check of the Supabase project's region.\n"
+reason = "Owner to-do list (the personal membership item is dropped)."
+
+[[scrub]]
+id = "m3-mac-row"
+files = ["docs/plans/M3.md"]
+find = "| MAC | GitHub Actions macOS runners with full Xcode. No owner Mac | Available through GH. macOS minutes count ten times on the private repo, so signed builds run on tags or by hand |"
+replace = "| MAC | GitHub Actions macOS runners with full Xcode. No local Mac | Available through GH. Signed builds run on tags or by hand |"
+reason = "Owner hardware and private-repo billing."
+
+[[scrub]]
+id = "m3-apple-row"
+files = ["docs/plans/M3.md"]
+find = "| The owner has a paid account (christopher.pinard@animl.health). Individual or organisation: to confirm. Signing secrets: to be added by the owner |"
+replace = "| Membership in place. Signing secrets: to be added |"
+reason = "The owner's personal email and account."
+
+[[scrub]]
+id = "m3-sbdev-row"
+files = ["docs/plans/M3.md"]
+find = "| Created: `nmecovtmijnfnjuadicp`, Free plan. Region: to check |"
+replace = "| Created, Free plan. Region: to check |"
+reason = "Internal project identifier."
+
+[[scrub]]
+id = "m3-sbprod-row"
+files = ["docs/plans/M3.md"]
+find = "| SB-PROD | A Supabase project in `ca-central-1` on Pro, with SendGrid as custom SMTP | Pro before the pilot, which needs budget. If `nmecovtmijnfnjuadicp` is in `ca-central-1`, it is upgraded; if not, a new project is made there, because a region can't be changed. The owner sets up SendGrid in the dashboard |"
+replace = "| SB-PROD | A Supabase project in `ca-central-1` with backups, and SendGrid as custom SMTP | Needed before real clinic data. If the development project is in `ca-central-1`, it is upgraded; if not, a new project is made there, because a region can't be changed. SendGrid is set up in the dashboard |"
+reason = "Budget, internal project identifier and an owner errand."
+
+[[scrub]]
+id = "m3-gh-row"
+files = ["docs/plans/M3.md"]
+find = "| Available. Billing was fixed on 2026-10-18. Windows and Linux CI run on every push as before |"
+replace = "| Available. Windows and Linux CI run on every push as before |"
+reason = "Billing status."
+
+[[scrub]]
+id = "m3-notes-file"
+files = ["docs/plans/M3.md"]
+find = "  - The encrypted-store line in CLAUDE.md corrected.\n"
+replace = ""
+reason = "Refers to the excluded assistant working-notes file."
+
+[[scrub]]
+id = "m3-no-owner-mac"
+files = ["docs/plans/M3.md"]
+find = "by the S1 job on a GitHub macOS runner. No owner Mac."
+replace = "by the S1 job on a GitHub macOS runner. No local Mac."
+reason = "Owner hardware."
+
+[[scrub]]
+id = "m3-installs"
+files = ["docs/plans/M3.md"]
+find = "- The owner installs the TestFlight build on their iPhone and follows a scripted checklist in `docs/runbooks/ios.md`. The app records its own measurements (lost frames, interruptions, real-time factor and memory) and shows a summary the owner can copy back."
+replace = "- A tester installs the TestFlight build on an iPhone and follows a scripted checklist in `docs/runbooks/ios.md`. The app records its own measurements (lost frames, interruptions, real-time factor and memory) and shows a summary the tester can copy back."
+reason = "Owner hardware and errand."
+
+[[scrub]]
+id = "m3-prereq"
+files = ["docs/plans/M3.md"]
+find = "Prerequisite: the owner has added the signing secrets to GitHub and created the app record."
+replace = "Prerequisite: the signing secrets are in GitHub and the app record exists."
+reason = "Owner errand."
+
+[[scrub]]
+id = "m3-real-server"
+files = ["docs/plans/M3.md"]
+find = "against the development project, `nmecovtmijnfnjuadicp`, with fixture data only."
+replace = "against the development project, with fixture data only."
+reason = "Internal project identifier."
+
+[[scrub]]
+id = "m3-service"
+files = ["docs/plans/M3.md"]
+find = "- **Service.** A Supabase project in `ca-central-1` on the Pro plan: `nmecovtmijnfnjuadicp` if its region is `ca-central-1`, otherwise a new project. It has:"
+replace = "- **Service.** A production Supabase project in `ca-central-1`: the development project, upgraded, if its region is `ca-central-1`, otherwise a new project. It has:"
+reason = "Internal project identifier."
+
+[[scrub]]
+id = "m3-smtp"
+files = ["docs/plans/M3.md"]
+find = "  - SendGrid as custom SMTP, set up by the owner in the dashboard;"
+replace = "  - SendGrid as custom SMTP, set up in the dashboard;"
+reason = "Owner errand."
+
+[[scrub]]
+id = "m3-owners-iphone"
+files = ["docs/plans/M3.md"]
+find = "in the real app on the owner's iPhone."
+replace = "in the real app on a real iPhone."
+reason = "Owner hardware."
+
+[[scrub]]
+id = "m3-testflight"
+files = ["docs/plans/M3.md"]
+find = "- **TestFlight.** The owner and one other tester install an internal build."
+replace = "- **TestFlight.** Two testers install an internal build."
+reason = "Owner-personal."
+
+[[scrub]]
+id = "m3-dropped"
+files = ["docs/plans/M3.md"]
+find = "Dropped from this phase by owner decision 2"
+replace = "Dropped from this phase by decision 2"
+reason = "Owner-personal phrasing."
+
+[[scrub]]
+id = "m3-not-in-m3"
+files = ["docs/plans/M3.md"]
+find = "(not in the pilot, accepted by default; the owner may decide later), and drafting on the phone (drafting stays on computers, owner decision 3)."
+replace = "(not in the pilot, accepted by default; may be decided later), and drafting on the phone (drafting stays on computers, decision 3)."
+reason = "Owner-personal phrasing."
+
+[[scrub]]
+id = "m3-phase1"
+files = ["docs/plans/M3.md"]
+find = "- Phase 1, as soon as the owner has added the signing secrets."
+replace = "- Phase 1, as soon as the signing secrets are in GitHub."
+reason = "Owner errand."
+
+[[scrub]]
+id = "m3-bottleneck"
+files = ["docs/plans/M3.md"]
+find = "- **macOS CI minutes and owner device checks are the bottleneck.** Minutes count ten times on the private repo, and every on-device check waits for the owner to install a TestFlight build. Mitigation: Windows-first phasing, `scripts/ios-check.sh` before any macOS run, caching, signed builds only on tags or by hand, and scripted runbooks for the owner."
+replace = "- **macOS CI time and on-device checks are the bottleneck.** Every on-device check waits for a tester to install a TestFlight build. Mitigation: Windows-first phasing, `scripts/ios-check.sh` before any macOS run, caching, signed builds only on tags or by hand, and scripted runbooks for testers."
+reason = "Private-repo billing, owner hardware and errands."
+
+# ---- docs/plans/deleting-visits.md
+
+[[scrub]]
+id = "delete-real-data"
+files = ["docs/plans/deleting-visits.md"]
+find = "The dev box holds real visits, and the product owner's own server runs on port 4317."
+replace = "A development machine can hold real visits, and `openbark serve` uses port 4317 by default."
+reason = "Owner's machine and real data."
+
+# ---- docs/plans/dental-chart.md
+
+[[scrub]]
+id = "dental-demo-row"
+files = ["docs/plans/dental-chart.md"]
+find = "**Never the clinic copy on 4317, never real data**"
+replace = "**Never a real instance on 4317 (the default port), never real data**"
+reason = "Points at the owner's real instance."
+
+[[scrub]]
+id = "dental-never-4317"
+files = ["docs/plans/dental-chart.md"]
+find = "Never touch 4317 or its data."
+replace = "Never touch a real instance on 4317 or its data."
+reason = "Points at the owner's real instance."
+
+[[scrub]]
+id = "dental-approves"
+files = ["docs/plans/dental-chart.md"]
+find = "- ADR-0021 status to accepted when the owner approves."
+replace = "- ADR-0021 status to accepted once approved."
+reason = "Owner-personal phrasing."
+
+# ---- docs/plans/acceleration.md
+
+[[scrub]]
+id = "accel-owner-case"
+files = ["docs/plans/acceleration.md"]
+find = "measured times for the product owner's case (processor-only build, no pack)"
+replace = "measured times for the slow case in ADR-0019's context (processor-only build, no pack)"
+reason = "Owner-personal phrasing."
+
+[[scrub]]
+id = "accel-shown-owner"
+files = ["docs/plans/acceleration.md"]
+find = "Steps 1 to 6 alone would have shown the product owner, on the first visit,"
+replace = "Steps 1 to 6 alone would have shown, on the first visit,"
+reason = "Owner-personal phrasing."
+
+# ---- docs/plans/telephony.md
+
+[[scrub]]
+id = "tel-win"
+files = ["docs/plans/telephony.md"]
+find = "| WIN | The Windows dev box, with no Twilio account |"
+replace = "| WIN | A Windows development machine, with no Twilio account |"
+reason = "Owner hardware."
+
+[[scrub]]
+id = "tel-trial"
+files = ["docs/plans/telephony.md"]
+find = "A Twilio **trial** account, created by the owner."
+replace = "A Twilio **trial** account used for development."
+reason = "Owner errand."
+
+[[scrub]]
+id = "tel-upgraded"
+files = ["docs/plans/telephony.md"]
+find = "| UPGRADED | The owner's own account, upgraded"
+replace = "| UPGRADED | The development account, upgraded"
+reason = "The owner's personal account."
+
+[[scrub]]
+id = "tel-owners-mobile"
+files = ["docs/plans/telephony.md"]
+find = "the owner's mobile"
+replace = "a test mobile"
+reason = "The owner's personal phone (several places)."
+
+[[scrub]]
+id = "tel-owners-mobile-cap"
+files = ["docs/plans/telephony.md"]
+find = "the owner's own mobile"
+replace = "the tester's own phone"
+reason = "The owner's personal phone."
+
+[[scrub]]
+id = "tel-sg"
+files = ["docs/plans/telephony.md"]
+find = "with a verified single sender, created by the owner |"
+replace = "with a verified single sender |"
+reason = "Owner errand."
+
+[[scrub]]
+id = "tel-order"
+files = ["docs/plans/telephony.md"]
+find = "can move first if the owner prefers (ADR-0023 open question 4)."
+replace = "can move first if preferred (ADR-0023 open question 4)."
+reason = "Owner-personal phrasing."
+
+[[scrub]]
+id = "tel-1b"
+files = ["docs/plans/telephony.md"]
+find = "**1b, after the owner upgrades the account and buys one number.**"
+replace = "**1b, after the account is upgraded and has one number.**"
+reason = "Owner errand."
+
+[[scrub]]
+id = "tel-go-back"
+files = ["docs/plans/telephony.md"]
+find = "stop and go back to the owner with the fallbacks:"
+replace = "stop and choose between the fallbacks:"
+reason = "Owner-personal phrasing."
+
+[[scrub]]
+id = "tel-owners-number"
+files = ["docs/plans/telephony.md"]
+find = "point the owner's number at the incoming Bin"
+replace = "point the development number at the incoming Bin"
+reason = "The owner's personal number."
+
+[[scrub]]
+id = "tel-dev-box-mic"
+files = ["docs/plans/telephony.md"]
+find = "the dev box microphone"
+replace = "the development machine's microphone"
+reason = "Owner hardware."
+
+[[scrub]]
+id = "tel-dev-box-second"
+files = ["docs/plans/telephony.md"]
+find = "a call with the dev box and a second computer"
+replace = "a call with the development machine and a second computer"
+reason = "Owner hardware."
+
+[[scrub]]
+id = "tel-owners-address"
+files = ["docs/plans/telephony.md"]
+find = "a real send to the owner's address,"
+replace = "a real send to a test inbox,"
+reason = "The owner's personal email."
+
+[[scrub]]
+id = "tel-incoming"
+files = ["docs/plans/telephony.md"]
+find = "Incoming after two weeks if the owner wants it."
+replace = "Incoming after two weeks, if wanted."
+reason = "Owner-personal phrasing."
+
+[[scrub]]
+id = "tel-owner-checklist"
+files = ["docs/plans/telephony.md"]
+regex = true
+find = '(?s)## What the owner must do\n.*?\| 8 \| Decide the public wording about Twilio carrying the audio, Twilio\x27s US data location, and Twilio\x27s call-quality events, for the website and README \| Before release \|\n'
+replace = "## Before testing and release\n\n| # | Task | Needed by |\n|---|---|---|\n| 1 | Settle ADR-0023's remaining open questions | Before step 7 |\n| 2 | A Twilio trial account with a verified test mobile number, and a Standard API key in US1 named \"OpenBark dev box\". The SID and secret go in `OPENBARK_TWILIO_*` environment variables on the development machine for the spike, never in the repo | Step 1a |\n| 3 | **Upgrade that account** (payment method and a small starting balance) and buy one local number, 1.15 a month. Real calls can't be tested on a trial | Step 1b |\n| 4 | A tester on a mobile phone for the UPGRADED checks (about 45 minutes in total, spread over steps 1, 7, 8 and 9) | Steps 1 to 9 |\n| 5 | A Mac for an hour | Step 2 |\n| 6 | A SendGrid trial account with a verified single sender | Step 11 |\n| 7 | A pilot clinic willing to use its own paid Twilio account, which checks its recording rules with its association or lawyer | Step 14 |\n| 8 | Agree the public wording about Twilio carrying the audio, Twilio's US data location, and Twilio's call-quality events, for the website and README | Before release |\n"
+reason = "The owner's personal to-do list (own mobile, own spending, borrow a Mac). Kept as a neutral checklist with the same items."
+expect = 1
+
+# ---- docs/plans/template-editing.md
+
+[[scrub]]
+id = "tpl-status"
+files = ["docs/plans/template-editing.md"]
+find = "Waits for the owner's decisions D1 to D7 (ADR-0024 section 17); the steps below assume the proposed answers."
+replace = "The steps below assume the proposed answers to decisions D1 to D7 (ADR-0024 section 17); where the recorded decisions differ, ADR-0024 wins."
+reason = "Owner-personal phrasing. The ADR records the decisions; the plan predates them."
+
+[[scrub]]
+id = "tpl-never-4317"
+files = ["docs/plans/template-editing.md"]
+find = "The product owner's own server runs on port 4317 with real data."
+replace = "Port 4317 is the default `openbark serve` port, so on a development machine it may be serving real clinic data."
+reason = "Owner's machine and real data."
+
+[[scrub]]
+id = "tpl-eval-row"
+files = ["docs/plans/template-editing.md"]
+find = "| EVAL | `openbark eval` on the Windows dev box with the CUDA build"
+replace = "| EVAL | `openbark eval` on Windows with the CUDA build"
+reason = "Owner hardware."
+
+[[scrub]]
+id = "tpl-owner-decides"
+files = ["docs/plans/template-editing.md"]
+find = "ADR-0024: status to accepted once the owner decides D1 to D7."
+replace = "ADR-0024: status to accepted once decisions D1 to D7 are made."
+reason = "Owner-personal phrasing."
+
+# ---- docs/runbooks/code-signing.md
+
+[[scrub]]
+id = "sign-audience"
+files = ["docs/runbooks/code-signing.md"]
+find = "This runbook is for the product owner. It sets up signing so that:"
+replace = "This runbook is for whoever administers the company's Apple, Microsoft Azure and GitHub accounts. It sets up signing so that:"
+reason = "Owner-personal audience."
+
+[[scrub]]
+id = "sign-cost-row"
+files = ["docs/runbooks/code-signing.md"]
+find = "| Cost | US$9.99 a month (CA$14.15) | Already paid (US$99 a year) | Free | Already paid |"
+replace = "| Cost | US$9.99 a month | Apple Developer Program, US$99 a year | Free | Same Apple membership |"
+reason = "Company spending status."
+
+[[scrub]]
+id = "sign-new-spending"
+files = ["docs/runbooks/code-signing.md"]
+find = "**New spending: about US$120 a year** (CA$170 before tax)."
+replace = "**Cost at list prices: about US$120 a year** for Windows signing."
+reason = "Company spending."
+
+[[scrub]]
+id = "sign-personal-name"
+files = ["docs/runbooks/code-signing.md"]
+find = "would put your personal name in every Mac signature"
+replace = "would put a person's name in every Mac signature"
+reason = "The owner's personal account."
+
+[[scrub]]
+id = "sign-gh-plan"
+files = ["docs/runbooks/code-signing.md"]
+find = "| 3. GitHub organisation plan (Free, Team or Enterprise) | github.com/organizations/ANI-ML/settings/billing | Team or higher lets us lock the signing secrets to release tags (Part D) |"
+replace = "| 3. Whether the repository can use GitHub environments with secrets | The repository's Settings, then Environments | Environments let us lock the signing secrets to release tags (Part D) |"
+reason = "The organisation's billing page and a private-repo plan question."
+
+[[scrub]]
+id = "sign-lapse"
+files = ["docs/runbooks/code-signing.md"]
+find = "enrol ANI.ML Health Inc. as a new organisation (US$99 a year) and let the individual membership lapse."
+replace = "enrol ANI.ML Health Inc. as a new organisation (US$99 a year)."
+reason = "The owner's personal account."
+
+[[scrub]]
+id = "sign-env-skip"
+files = ["docs/runbooks/code-signing.md"]
+find = "If your GitHub plan has no environments (Part 0, fact 3),"
+replace = "If the repository can't use environments (Part 0, fact 3),"
+reason = "Private-repo plan detail."
+
+[[scrub]]
+id = "sign-reviewers"
+files = ["docs/runbooks/code-signing.md"]
+find = "3. Required reviewers aren't available on private repos below GitHub Enterprise, so the tag rule plus D2 are the protection."
+replace = "3. The tag rule plus D2 are the protection. Add required reviewers on top where the GitHub plan offers them."
+reason = "Private-repo claim."
+
+[[scrub]]
+id = "sign-free-plan"
+files = ["docs/runbooks/code-signing.md"]
+find = "or it can't hold secrets, the plan is Free. Put everything below"
+replace = "or it can't hold secrets, put everything below"
+reason = "Internal plan detail."
+
+[[scrub]]
+id = "sign-note-free"
+files = ["docs/runbooks/code-signing.md"]
+find = "(or \"in repository secrets, Free plan\")"
+replace = "(or \"in repository secrets\")"
+reason = "Internal plan detail."
+
+[[scrub]]
+id = "sign-iphone"
+files = ["docs/runbooks/code-signing.md"]
+find = "installs on your iPhone."
+replace = "installs on an iPhone."
+reason = "Owner hardware."
+
+[[scrub]]
+id = "sign-keep-identity"
+files = ["docs/runbooks/code-signing.md"]
+find = "| Owner (Identity Verifier) |"
+replace = "| Identity Verifier |"
+reason = "Owner-personal role."
+
+[[scrub]]
+id = "sign-keep-invoice"
+files = ["docs/runbooks/code-signing.md"]
+find = "| Azure invoice | Monthly, US$9.99 | Check the card on file | Owner | None |\n"
+replace = ""
+reason = "Company billing errand."
+
+[[scrub]]
+id = "sign-keep-apple"
+files = ["docs/runbooks/code-signing.md"]
+find = "| Apple Developer Program | Yearly | Keep auto-renew on and the card current | Owner | None |"
+replace = "| Apple Developer Program | Yearly | Keep the membership renewed | Account Holder | None |"
+reason = "Company billing errand."
+
+[[scrub]]
+id = "sign-keep-holder"
+files = ["docs/runbooks/code-signing.md"]
+find = "Owner (Account Holder)"
+replace = "Account Holder"
+reason = "Owner-personal role (two rows)."
+expect = 2
+
+[[scrub]]
+id = "sign-keep-admin"
+files = ["docs/runbooks/code-signing.md"]
+find = "| Owner or an Admin |"
+replace = "| Account Holder or an Admin |"
+reason = "Owner-personal role."
+
+[[scrub]]
+id = "sign-keep-gpg"
+files = ["docs/runbooks/code-signing.md"]
+find = "| Owner or engineering |"
+replace = "| Account administrator or engineering |"
+reason = "Owner-personal role."
+
+[[scrub]]
+id = "sign-keep-registry"
+files = ["docs/runbooks/code-signing.md"]
+find = "| When the address or name changes | At once | Owner | Varies |"
+replace = "| When the address or name changes | At once | Account administrator | Varies |"
+reason = "Owner-personal role."
+
+[[scrub]]
+id = "sign-free-fallback"
+files = ["docs/runbooks/code-signing.md"]
+find = "**GitHub on the Free plan.** Skip the federated credential"
+replace = "**GitHub without environments.** Skip the federated credential"
+reason = "Internal plan detail."
+
+[[scrub]]
+id = "sign-personal-meantime"
+files = ["docs/runbooks/code-signing.md"]
+find = "**Apple conversion is slow.** Nothing to do. Mac builds stay as they are today, ad-hoc signed with Open Anyway, until the organisation membership is ready. Don't sign with a personal name in the meantime."
+replace = "**Apple organisation membership not ready yet.** Nothing to do. Mac builds stay as they are today, ad-hoc signed with Open Anyway, until the organisation membership is ready. Don't sign with an individual's name in the meantime."
+reason = "The owner's personal account status."
+
+[[scrub]]
+id = "sign-homepage"
+files = ["docs/runbooks/code-signing.md"]
+find = "It currently points at the private repo, and package managers show it."
+replace = "Package managers show it."
+reason = "Private-repo claim."
+
+# ---- docs/runbooks/macos.md
+
+[[scrub]]
+id = "macos-owner-mac"
+files = ["docs/runbooks/macos.md"]
+find = "For the product owner's Apple Silicon Mac"
+replace = "For an Apple silicon Mac"
+reason = "Owner hardware."
+
+[[scrub]]
+id = "macos-private"
+files = ["docs/runbooks/macos.md"]
+find = "# the repo is private"
+replace = "# a GitHub sign-in for gh"
+reason = "Private-repo claim."
+
+[[scrub]]
+id = "macos-chat"
+files = ["docs/runbooks/macos.md"]
+find = "Or just paste the summary lines into the chat."
+replace = "Or paste the summary lines into a GitHub issue."
+reason = "Refers to a private chat with the coding assistant."
+
+[[scrub]]
+id = "macos-chat2"
+files = ["docs/runbooks/macos.md"]
+find = "(dialog wording, icon positions, a second password prompt) in the chat."
+replace = "(dialog wording, icon positions, a second password prompt) in a GitHub issue."
+reason = "Refers to a private chat with the coding assistant."
+
+# ---- docs/runbooks/windows.md
+
+[[scrub]]
+id = "windows-reference-pc"
+files = ["docs/runbooks/windows.md"]
+find = "These steps are for the reference PC (RTX 4080), run from the person's own Windows login."
+replace = "These steps run from your own Windows login."
+reason = "Owner hardware and remote-session phrasing."
+
+# ---- docs/spikes/S1-mobile-audio-and-inference.md
+
+[[scrub]]
+id = "s1-amended"
+files = ["docs/spikes/S1-mobile-audio-and-inference.md"]
+find = "with no owner Mac, and the owner runs the device checks from a TestFlight build on their iPhone"
+replace = "with no local Mac, and a tester runs the device checks from a TestFlight build on an iPhone"
+reason = "Owner hardware."
+
+[[scrub]]
+id = "s1-ios-row"
+files = ["docs/spikes/S1-mobile-audio-and-inference.md"]
+find = "installed from TestFlight on the owner's iPhone (ADR-0018 section 8). No Mac needed on this Windows box."
+replace = "installed from TestFlight on a test iPhone (ADR-0018 section 8). No Mac needed for development on Windows."
+reason = "Owner hardware."
+
+[[scrub]]
+id = "s1-risk"
+files = ["docs/spikes/S1-mobile-audio-and-inference.md"]
+find = "The remaining risk is macOS CI minutes and waiting for the owner's on-device runs."
+replace = "The remaining risk is macOS CI time and waiting for on-device test runs."
+reason = "Owner errand."
+
+# ---- docs/versions.md
+
+[[scrub]]
+id = "versions-verify-i"
+files = ["docs/versions.md"]
+find = "\"Verify at scaffold\" means that I did not confirm the item live and will check it before it goes into a lockfile."
+replace = "\"Verify at scaffold\" means the item was not confirmed live and is checked before it goes into a lockfile."
+reason = "Assistant first-person voice."
+
+[[scrub]]
+id = "versions-rust"
+files = ["docs/versions.md"]
+find = " **Not installed on the dev box yet.**"
+replace = ""
+reason = "Owner machine state."
+
+[[scrub]]
+id = "versions-node"
+files = ["docs/versions.md"]
+find = "The dev box has 24.14.1. Upgrade it, because pnpm 11+"
+replace = "pnpm 11+"
+reason = "Owner machine state."
+
+[[scrub]]
+id = "versions-pnpm"
+files = ["docs/versions.md"]
+find = "The dev box has 9.15.4. I'm choosing 11 over 12.14.0 because 12's notes mention a Rust CLI that I couldn't confirm and its strictness changes are new."
+replace = "11 is chosen over 12.14.0 because 12's notes mention a Rust CLI that couldn't be confirmed and its strictness changes are new."
+reason = "Owner machine state and assistant first-person voice."
+
+[[scrub]]
+id = "versions-clang"
+files = ["docs/versions.md"]
+find = " Clang is not installed yet."
+replace = ""
+reason = "Owner machine state."
+
+[[scrub]]
+id = "versions-llvm"
+files = ["docs/versions.md"]
+find = "Install it on the dev box and the CI images."
+replace = "Install it on developer machines and the CI images."
+reason = "Owner machine state."
+
+[[scrub]]
+id = "versions-pin-i"
+files = ["docs/versions.md"]
+find = "I'll pin the latest stable versions when the workspace is created."
+replace = "The latest stable versions are pinned when the workspace is created."
+reason = "Assistant first-person voice."
+
+[[scrub]]
+id = "versions-whisper-i"
+files = ["docs/versions.md"]
+find = "I haven't yet confirmed the exact sherpa-onnx export name."
+replace = "The exact sherpa-onnx export name is not yet confirmed."
+reason = "Assistant first-person voice."
+
+# ---- README.md (more)
+
+[[scrub]]
+id = "readme-history-commits"
+files = ["README.md"]
+find = "Every change that matters to a clinic, newest first, with the commit and files behind it: see"
+replace = "Every change that matters to a clinic, newest first: see"
+reason = "CHANGELOG.md lists no commits, and the public repo has fresh history, so private commit hashes mean nothing there."
+
+# ---- .github/workflows/release.yml
+
+[[scrub]]
+id = "release-yml-private"
+files = [".github/workflows/release.yml"]
+find = "  # The public downloads: a draft release in the public releases repo (the\n  # main repo stays private). Publish it on GitHub when ready, then run the\n"
+replace = "  # The public downloads: a draft release in the separate public releases\n  # repo (ANI-ML/openbark-releases). Publish it on GitHub when ready, then run the\n"
+reason = "Private-repo claim in a comment."
+
+# ---- apps/desktop/e2e/brand-images.mjs
+
+[[scrub]]
+id = "brand-images-comment"
+files = ["apps/desktop/e2e/brand-images.mjs"]
+find = "(code not public yet: \"free\")"
+replace = "(the \"free\" wording)"
+reason = "Comment says the code is not public."
+
+# ---- install/README.md
+
+[[scrub]]
+id = "install-readme-signing"
+files = ["install/README.md"]
+find = "Buying a Windows code-signing certificate and an Apple Developer ID is the product owner's decision. The release workflow can sign once they exist."
+replace = "Signed installers are planned (ADR-0020); the release workflow can sign once a Windows code-signing certificate and an Apple Developer ID are in place."
+reason = "Internal spending decision."
+
+# ---- scripts/bench.sh, scripts/macos-dmg.sh
+
+[[scrub]]
+id = "bench-chat"
+files = ["scripts/bench.sh"]
+find = "Commit them on a branch, or paste them into the chat."
+replace = "Commit them on a branch, or attach them to an issue or pull request."
+reason = "Refers to a private chat with the coding assistant."
+
+[[scrub]]
+id = "dmg-owner-mac"
+files = ["scripts/macos-dmg.sh"]
+find = "# Runs on a Mac (the release workflow's macos-15 job, or the product owner's\n# Mac)."
+replace = "# Runs on a Mac (the release workflow's macos-15 job, or a developer's own\n# Mac)."
+reason = "Owner hardware."
+
+[[scrub]]
+id = "dmg-owner-call"
+files = ["scripts/macos-dmg.sh"]
+find = "a Developer ID is the product owner's call."
+replace = "Developer ID signing is proposed in ADR-0020."
+reason = "Internal spending decision."
+
+# ---- scripts/website-build.py and website/src/index.html
+# The site is generated. In the public copy the source link is switched on
+# (tied to the public-repo-name blocker), the template keeps only its
+# "source public" branches, and website/dist plus CHANGELOG.md are rebuilt
+# below. The live site is switched separately in the private repo.
+
+[[scrub]]
+id = "site-source-url"
+files = ["scripts/website-build.py"]
+find = "# The source repository. Until ANI-ML/openbark is public, leave this as None:\n# the site then calls OpenBark free (not open source), says the code isn't\n# public yet, and shows no Source code links. Once the repository is public,\n# set it to \"https://github.com/ANI-ML/openbark\", rebuild, and re-render\n# website/public/og-image.png (SOURCE_PUBLIC=1 node e2e/brand-images.mjs --og).\nSOURCE_URL = None\n"
+replace = "# The source repository, linked from the header, footer and landing page.\n# After changing it, rebuild and re-render website/public/og-image.png\n# (SOURCE_PUBLIC=1 node e2e/brand-images.mjs --og).\nSOURCE_URL = \"https://github.com/ANI-ML/openbark\"\n"
+reason = "The public copy is the public source, so the site it generates links to it instead of saying the code isn't public. Change the URL here if the public repo gets another name."
+
+[[scrub]]
+id = "site-preview-comment"
+files = ["scripts/website-build.py"]
+find = "the Artifact viewer adds the document wrapper."
+replace = "the preview viewer adds the document wrapper."
+reason = "Names an AI-assistant preview feature."
+
+[[scrub]]
+id = "site-template-private-branches"
+files = ["website/src/index.html"]
+regex = true
+find = '(?ms)^[ \t]*<!--if source-private-->.*?<!--end-->\n|<!--if source-private-->.*?<!--end-->'
+replace = ""
+reason = "Drops the 'code isn't public yet' variants from the template; the public variants are what the public source renders."
+expect = 5
+
+[[scrub]]
+id = "site-template-public-branches"
+files = ["website/src/index.html"]
+regex = true
+find = '(?s)<!--if source-public-->(.*?)<!--end-->'
+replace = '\1'
+reason = "Unwraps the 'source public' variants (the generator would do the same with SOURCE_URL set)."
+expect = 5
+
+# ---- website/content/features.json
+
+[[scrub]]
+id = "features-m2-decisions"
+files = ["website/content/features.json"]
+find = "\"docs/plans/M2.md item 8 and 'Decisions for the product owner'\""
+replace = "\"docs/plans/M2.md item 8 and 'Open decisions'\""
+reason = "Follows the m2-decisions heading change."
+
+[[scrub]]
+id = "features-game"
+files = ["website/content/features.json"]
+find = "The graphics card was shared with a game,"
+replace = "The graphics card was shared with another program,"
+reason = "Personal software use on the owner's machine."
+
+[[scrub]]
+id = "features-source-public"
+files = ["website/content/features.json"]
+find = "\"benefit\": \"Anyone will be able to read, check and build the code.\",\n          \"detail\": \"The source will be public on GitHub under the Apache-2.0 licence, so any clinic or developer can inspect it, build it and improve it.\",\n          \"evidence\": \"LICENSE; website/README.md\",\n          \"status\": \"coming\""
+replace = "\"benefit\": \"Anyone can read, check and build the code.\",\n          \"detail\": \"The source is public on GitHub under the Apache-2.0 licence, so any clinic or developer can inspect it, build it and improve it.\",\n          \"evidence\": \"LICENSE; this repository\",\n          \"status\": \"shipped\""
+reason = "In the public copy the source is public."
+
+[[scrub]]
+id = "features-agent-review"
+files = ["website/content/features.json"]
+find = "\"name\": \"Independent multi-agent code review\","
+replace = "\"name\": \"Independent multi-stage code review\","
+reason = "AI-agent working detail."
+
+[[scrub]]
+id = "features-agent-review-detail"
+files = ["website/content/features.json"]
+find = "A review by 107 agents raised findings that were each checked by three sceptical agents, and the 30 confirmed by a majority were fixed and re-verified."
+replace = "A large review raised findings that were each checked in three separate review passes, and the 30 confirmed by a majority were fixed and re-verified."
+reason = "AI-agent working detail."
+
+[[scrub]]
+id = "features-agent-review-evidence"
+files = ["website/content/features.json"]
+find = "\"evidence\": \"commit 3888f20 ('fixes from a 107-agent review'; '30 confirmed by majority of 3 skeptics, all re-verified')\","
+replace = "\"evidence\": \"engine/os-server/src/lib.rs; engine/os-models/src/gpu_pack.rs; engine/os-models/src/locations.rs; engine/os-app/src/lib.rs; apps/desktop/src-tauri/windows/hooks.nsh\","
+reason = "AI-agent working detail and a private commit hash; the files are those the other entries cite for the same fixes."
+
+[[scrub]]
+id = "features-real-data"
+files = ["website/content/features.json"]
+find = "since the development PC holds real data."
+replace = "since the development PC's data folder isn't disposable."
+reason = "Says a developer machine holds real clinic data (same change as adr0012-real-data)."
+
+[[scrub]]
+id = "features-trademark"
+files = ["website/content/features.json"]
+find = " A formal trademark search is planned before public launch."
+replace = ""
+reason = "Internal legal to-do (listed as an owner item in docs/plans/public-repo.md)."
+
+# ---- website/README.md
+
+[[scrub]]
+id = "website-readme-private"
+files = ["website/README.md"]
+find = "Installers are published from the public repo **ANI-ML/openbark-releases**. The main repo stays private. One-time setup:"
+replace = "Installers are published from the separate public repo **ANI-ML/openbark-releases**. One-time setup:"
+reason = "Private-repo claim."
+
+[[scrub]]
+id = "website-readme-domain"
+files = ["website/README.md"]
+find = "4. When the domain is bought:"
+replace = "4. For a custom domain:"
+reason = "Internal purchase step (the domain is live)."
+
+# ---------------------------------------------------------------- rebuild
+# Run inside the export folder after the scrubs. `{python}` is this
+# interpreter, run isolated.
+
+[[rebuild]]
+command = ["{python}", "scripts/website-build.py"]
+reason = "Regenerates website/dist and CHANGELOG.md from the scrubbed website sources and history."
+
+# ------------------------------------------------------------------- gate
+
+[gate]
+# The first path that exists is used, then `gitleaks` on PATH. When none is
+# found the built-in secret regexes below still run.
+gitleaks = [
+  "C:/Users/sshuser/AppData/Local/Temp/claude/c--Users-sshuser-Documents/ef729326-7284-4605-972d-e4bbd2a71a0b/scratchpad/public-audit/gitleaks/gitleaks.exe",
+]
+gitleaks_allow_fingerprints = []
+
+# Forbidden in any file name or content, text or binary.
+[[gate.fail]]
+name = "assistant-vendor"
+regex = '(?i)claude|anthropic'
+reason = "The AI tool and its vendor are never named publicly. No technical context needs either word: the app uses Gemma, Parakeet and Whisper only."
+
+[[gate.fail]]
+name = "owner-surname"
+regex = '(?i)pinard'
+reason = "Individuals are never named; credit is 'the ANI.ML Health team'."
+
+[[gate.fail]]
+name = "owner-first-name"
+regex = '\bChristopher\b'
+reason = "Individuals are never named."
+
+[[gate.fail]]
+name = "owner-email"
+regex = '(?i)christopher\.pinard@animl\.health'
+reason = "The owner's personal email address."
+
+[[gate.fail]]
+name = "windows-username"
+regex = '(?i)sshuser'
+reason = "Local Windows account name from the development machine."
+
+[[gate.fail]]
+name = "co-author-trailer"
+regex = '(?i)co-authored-by'
+reason = "No co-author lines in the public repo."
+
+[[gate.fail]]
+name = "assistant-scratch"
+regex = '(?i)scratchpad'
+reason = "Assistant scratch folders."
+
+[[gate.fail]]
+name = "assistant-brief"
+regex = '(?i)master prompt|openscribe_claude|claude code'
+reason = "References to the AI brief or tool."
+
+[[gate.fail]]
+name = "internal-projects"
+regex = '\bARC\b|(?i:arcvet|animal research companion|lightsail|hachiko|tacc_|bento design)'
+reason = "Other ANI.ML products and internal projects."
+
+[[gate.fail]]
+name = "supabase-project-ref"
+regex = 'nmecovtmijnfnjuadicp'
+reason = "Internal infrastructure identifier."
+
+[[gate.fail]]
+name = "local-user-path"
+regex = '(?i)\b[a-z]:[\\/]+users[\\/]+(?!<)[a-z0-9._ -]+[\\/]|/home/(?!vet/|runner/|<)[a-z][a-z0-9_-]*/'
+reason = "A real local user folder. Placeholders such as <other user> and the invented /home/vet test path are allowed."
+
+[[gate.fail]]
+name = "private-repo-claim"
+regex = '(?i)\b(?:main|source|this|the|our|build) (?:repo|repository)\b[^.\n]{0,40}\b(?:is|stays|remains|kept|still) private\b|\bprivate until launch\b|\bours is private\b|\bon (?:the|a) private repo\b|\bthe repo is private\b|\b(?:isn\x27t|not) public yet\b|\bwill be public on github\b|getting it ready to publish'
+reason = "The public repo must not say it is private."
+
+[[gate.fail]]
+name = "owner-personal"
+regex = '(?i)\bowner(?:\x27s)? (?:own )?(?:mobile|iphone|mac\b|address|machine|hardware)|\bno owner mac\b|still to do by the owner|decided by the owner|what the owner must do|\byour ok\b|unless the owner objects|owner decisions? \(|\(owner decision'
+reason = "The owner's personal devices, to-do lists and private-conversation phrasing."
+
+[[gate.fail]]
+name = "billing"
+regex = '(?i)billing problem|billing (?:is|was) fixed|needs budget|new spend|already paid'
+reason = "Company billing and spending."
+
+# Listed for a human look, but not failing.
+[[gate.warn]]
+name = "first-person-assistant"
+regex = '(?i)\bI propose\b|\bI suggest\b|\bmy recommendation\b|connector here|\bI couldn\x27t confirm\b|\bI\x27ll (?:install|ask|pin|create)\b'
+reason = "Assistant first-person voice addressed to the owner."
+binary = false
+scan_paths = false
+
+[[gate.warn]]
+name = "owner-mention"
+regex = '(?i)\bproduct owner\b'
+reason = "Remaining mentions of the product owner. Fine as a role in an ADR (deciders, approvals); review anything personal. ('owner' alone usually means the animal's owner and is not listed.)"
+binary = false
+scan_paths = false
+
+# Secret patterns, always run (gitleaks also runs when found).
+[[gate.secret]]
+name = "aws-access-key"
+regex = '\b(?:AKIA|ASIA)[0-9A-Z]{16}\b'
+reason = "AWS access key id."
+
+[[gate.secret]]
+name = "github-token"
+regex = '\bgh[pousr]_[A-Za-z0-9]{36,}\b|\bgithub_pat_[A-Za-z0-9_]{60,}\b'
+reason = "GitHub token."
+
+[[gate.secret]]
+name = "private-key-block"
+regex = '-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY(?: BLOCK)?-----'
+reason = "Private key material."
+
+[[gate.secret]]
+name = "slack-token"
+regex = '\bxox[abposr]-[A-Za-z0-9-]{10,}'
+reason = "Slack token."
+
+[[gate.secret]]
+name = "google-api-key"
+regex = '\bAIza[0-9A-Za-z_-]{35}\b'
+reason = "Google API key."
+
+[[gate.secret]]
+name = "stripe-key"
+regex = '\b(?:sk|rk)_live_[0-9A-Za-z]{20,}'
+reason = "Stripe live key."
+
+[[gate.secret]]
+name = "sendgrid-key"
+regex = '\bSG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}\b'
+reason = "SendGrid API key."
+
+[[gate.secret]]
+name = "twilio-key"
+regex = '\bSK[0-9a-f]{32}\b|\bAC[0-9a-f]{32}\b'
+reason = "Twilio API key SID or account SID."
+
+[[gate.secret]]
+name = "jwt"
+regex = '\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}'
+reason = "JSON Web Token (for example a Supabase service key)."
+
+[[gate.secret]]
+name = "openai-hf-keys"
+regex = '\bsk-(?:proj-)?[A-Za-z0-9_-]{32,}|\bhf_[A-Za-z0-9]{30,}\b'
+reason = "OpenAI-style or Hugging Face token."
+
+[[gate.secret]]
+name = "assigned-secret"
+regex = '(?i)\b(?:password|passwd|secret|api[_-]?key|token)\s*[:=]\s*["\x27][^"\x27\s$<{]{12,}["\x27]'
+reason = "A literal credential assigned in code or config."

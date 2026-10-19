@@ -20,6 +20,7 @@
   --primary-hover: #2b3749;
   --success: #1f8a5b;
   --warning: #b7791f;
+  --danger: #c2410c;       /* --ob-danger: destructive actions */
   --mark-capsule: #e27a2b;
   --font: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
@@ -51,6 +52,7 @@
     --primary-hover: #dde2e9;
     --success: #3fae7c;
     --warning: #e0a84a;
+    --danger: #f0855a;     /* lighter warm red: 6.9:1 on the dark surface */
     color-scheme: dark;
   }
 }
@@ -70,11 +72,15 @@
   --primary-hover: #dde2e9;
   --success: #3fae7c;
   --warning: #e0a84a;
+  --danger: #f0855a;
   color-scheme: dark;
 }
 @media (min-width: 1024px) { :root { --gutter: 48px; } }
 
 * { box-sizing: border-box; }
+/* `hidden` always wins over a component's display (the features filter and
+   the portal's views and steps rely on it). */
+[hidden] { display: none !important; }
 html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; scroll-padding-top: 80px; }
 body {
   margin: 0;
@@ -125,7 +131,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .site-nav a { color: var(--ink-2); font-size: 15px; font-weight: 500; text-decoration: none; }
 .site-nav a:hover, .site-nav a[aria-current="page"] { color: var(--ink); }
 .site-nav a[aria-current="page"] { box-shadow: inset 0 -2px 0 var(--ink); padding-block: 4px; }
-@media (max-width: 760px) { .site-nav a:not(.btn) { display: none; } .stage { display: none; } }
+@media (max-width: 760px) { .site-nav a:not(.btn):not(.nav-account) { display: none; } .stage { display: none; } }
 
 /* Buttons (brand guide 7.2): ink primary, bordered secondary. Height 40,
    48 when prominent; radius 10; weight 600. Accent fill is for Record only. */
@@ -426,3 +432,132 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .hero-mark .grille { fill: var(--bg); }
 @media (max-width: 767px) { .hero-mark { width: 72px; height: 72px; margin-bottom: 24px; } }
 .coming-soon { margin-top: 16px; display: flex; align-items: center; gap: 10px; color: var(--ink-2); font-size: 15px; }
+
+/* Account link in the header: text on wide screens, an icon (Lucide
+   circle-user-round) with a hidden label on phones, so it never crowds out
+   the main button. */
+.nav-account { display: inline-flex; align-items: center; gap: 6px; }
+.nav-account svg.lucide { width: 18px; height: 18px; }
+@media (max-width: 760px) {
+  .site-nav { gap: 8px; }
+  .nav-account { width: 40px; height: 40px; justify-content: center; border-radius: var(--r-md); }
+  .site-nav a.nav-account { color: var(--ink); }
+  .nav-account:hover, .site-nav a.nav-account[aria-current="page"] { background: var(--bg-2); box-shadow: none; padding-block: 0; }
+  .nav-account svg.lucide { width: 22px; height: 22px; }
+  .nav-account span { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+}
+@media (max-width: 400px) { .site-head .lockup { height: 26px; } .site-nav .btn { padding-inline: 12px; } }
+@media (max-width: 359px) {
+  .site-head .wrap { gap: 12px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  .site-head .lockup { height: 22px; }
+}
+
+/* Account portal (/portal): sign in with an emailed code, a short profile,
+   downloads, sign out and delete. White cards on the grey surface; inputs
+   per brand guide 7.3, buttons and the destructive variant per 7.2. */
+.portal { background: var(--bg-2); padding-block: 64px 96px; min-height: calc(100dvh - 65px); }
+.pt-loading { font-size: 15px; line-height: 24px; color: var(--ink-2); }
+.portal h1 { font-size: 40px; line-height: 46px; letter-spacing: -0.025em; }
+.portal .pt-card h2 { font-size: 18px; line-height: 24px; font-weight: 600; letter-spacing: -0.01em; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+@media (max-width: 600px) { .portal { padding-block: 40px 64px; } .portal h1 { font-size: 32px; line-height: 38px; } }
+
+/* Signed out: words left, the sign-in card right; on phones the card comes
+   straight after the heading. */
+.pt-out { display: grid; grid-template-columns: minmax(0, 6fr) minmax(0, 5fr); grid-template-areas: "intro card" "more card"; gap: 40px 80px; align-items: start; }
+.pt-intro { grid-area: intro; display: flex; flex-direction: column; gap: 16px; padding-top: 16px; }
+.pt-lede { font-size: 18px; line-height: 28px; color: var(--ink-2); max-width: 30em; }
+.pt-signin { grid-area: card; padding: 32px; }
+.pt-more { grid-area: more; display: flex; flex-direction: column; gap: 16px; }
+.pt-more h2 { font-size: 15px; line-height: 24px; font-weight: 600; color: var(--ink); }
+.pt-more .ticks { margin: 0; }
+.pt-note { display: flex; gap: 12px; align-items: flex-start; margin-top: 8px; padding: 16px 20px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--bg); font-size: 15px; line-height: 24px; color: var(--ink-2); max-width: 34em; }
+.pt-note svg.lucide { margin-top: 2px; color: var(--ink); }
+@media (max-width: 900px) {
+  .pt-out { grid-template-columns: minmax(0, 1fr); grid-template-areas: "intro" "card" "more"; gap: 24px; }
+  .pt-intro { padding-top: 0; }
+  .pt-signin { padding: 24px 20px; }
+}
+
+/* Cards and forms */
+.pt-card { background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 24px; min-width: 0; }
+.pt-card > p, .pt-card-head p, .pt-form-head p { font-size: 15px; line-height: 24px; color: var(--ink-2); }
+.pt-card-head { display: flex; flex-direction: column; gap: 4px; margin-bottom: 20px; }
+.pt-form-head { display: flex; flex-direction: column; gap: 6px; }
+.pt-form-head strong { color: var(--ink); overflow-wrap: anywhere; }
+.pt-form { display: flex; flex-direction: column; gap: 20px; }
+.field { display: flex; flex-direction: column; gap: 6px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.field > label, .field > legend { padding: 0; font-size: 15px; line-height: 24px; font-weight: 600; color: var(--ink); }
+.field > legend { margin-bottom: 6px; }
+.field-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 24px; align-items: start; }
+@media (max-width: 640px) { .field-row { grid-template-columns: minmax(0, 1fr); } }
+.input { width: 100%; min-height: 40px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--bg-2); color: var(--ink); font: 400 15px/22px var(--font); transition: border-color 120ms var(--ease-in); }
+.input::placeholder { color: var(--ink-3); }
+.input:hover { border-color: var(--ink-3); }
+.input:focus-visible, select.input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-color: var(--ink); border-radius: var(--r-md); }
+.input:disabled { opacity: 0.6; cursor: default; }
+@media (pointer: coarse) { .input { min-height: 44px; font-size: 16px; } }
+.code-input { min-height: 56px; padding-left: calc(12px + 0.4em); font: 500 24px/32px var(--font-mono); letter-spacing: 0.4em; text-align: center; font-variant-numeric: tabular-nums; }
+@media (pointer: coarse) { .code-input { min-height: 56px; font-size: 24px; } }
+.select { position: relative; display: block; }
+.select select { appearance: none; -webkit-appearance: none; padding-right: 40px; cursor: pointer; }
+.select svg.lucide { position: absolute; right: 12px; top: 50%; width: 18px; height: 18px; transform: translateY(-50%); pointer-events: none; color: var(--ink-2); }
+.help { display: block; font-size: 13px; line-height: 18px; color: var(--ink-2); }
+.choices { display: flex; flex-wrap: wrap; gap: 8px; }
+.choice { position: relative; display: inline-flex; align-items: center; min-height: 40px; padding: 8px 14px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--bg); font-size: 15px; line-height: 22px; font-weight: 600; color: var(--ink-2); cursor: pointer; transition: background-color 120ms var(--ease-in), border-color 120ms var(--ease-in), color 120ms var(--ease-in); }
+.choice input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
+.choice:hover { background: var(--bg-2); color: var(--ink); }
+.choice:has(input:checked) { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); color: var(--ink); background: var(--bg-2); }
+.choice:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.check { display: flex; gap: 12px; align-items: flex-start; padding: 16px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--bg-2); cursor: pointer; }
+.check input { flex: none; width: 18px; height: 18px; margin: 3px 0 0; accent-color: var(--primary); cursor: pointer; }
+.check input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.check strong { display: block; font-size: 15px; line-height: 24px; font-weight: 600; color: var(--ink); }
+.pt-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; }
+
+/* Messages: plain words; "ok" carries the success dot, errors the danger colour. */
+.pt-msg { font-size: 14px; line-height: 20px; color: var(--ink-2); }
+.pt-msg:empty { display: none; }
+.pt-signin > .pt-msg { margin-top: 16px; }
+.pt-msg[data-tone="error"] { color: var(--danger); font-weight: 500; }
+.pt-msg[data-tone="ok"] { display: flex; align-items: baseline; gap: 8px; color: var(--ink); font-weight: 500; }
+.pt-msg[data-tone="ok"]::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: var(--r-full); background: var(--success); transform: translateY(-1px); }
+
+/* Buttons the portal adds: full width, text, destructive (brand guide 7.2). */
+.btn-block { width: 100%; }
+.btn:disabled { cursor: default; opacity: 0.5; }
+.btn svg.lucide { width: 18px; height: 18px; }
+.btn-danger { background: transparent; color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
+.btn-danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 8%, transparent); border-color: var(--danger); }
+.btn-text { appearance: none; padding: 4px 0; border: 0; background: none; font: 600 14px/20px var(--font); color: var(--ink-2); cursor: pointer; text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
+.btn-text:hover:not(:disabled) { color: var(--ink); text-decoration-color: currentColor; }
+.btn-text:disabled { cursor: default; color: var(--ink-3); text-decoration: none; font-variant-numeric: tabular-nums; }
+.pt-links { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 16px; }
+
+/* Signed in: the account heading, then two columns of cards. */
+.pt-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px 24px; margin-bottom: 32px; }
+.pt-head-copy { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.pt-head h1:focus { outline: none; }
+.pt-who { font-size: 17px; line-height: 26px; color: var(--ink-2); overflow-wrap: anywhere; }
+.pt-who strong { color: var(--ink); }
+.pt-grid { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 4fr); gap: 24px; align-items: start; }
+.pt-col { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
+@media (max-width: 1000px) { .pt-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 600px) { .pt-head { margin-bottom: 24px; } .pt-card { padding: 20px; } }
+.pt-card-foot { margin-top: 20px; }
+.pt-holds { margin: 0 0 12px; padding-left: 1.1em; display: flex; flex-direction: column; gap: 6px; font-size: 15px; line-height: 22px; color: var(--ink-2); }
+.pt-holds li::marker { color: var(--ink-3); }
+.pt-card > .pt-holds-not { color: var(--ink); font-weight: 500; }
+.pt-confirm { margin-top: 4px; padding-top: 20px; border-top: 1px solid var(--line); }
+
+/* Downloads: one row per platform, the visitor's first. */
+.pt-dl-line { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.pt-dl { border: 1px solid var(--line); border-radius: var(--r-md); }
+.pt-dl-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; padding: 16px 20px; }
+.pt-dl-row + .pt-dl-row { border-top: 1px solid var(--line); }
+.pt-dl-what { min-width: 0; flex: 1 1 260px; }
+.pt-dl-what h3 { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 16px; line-height: 24px; font-weight: 600; letter-spacing: -0.01em; }
+.pt-dl-req { margin-top: 2px; font-size: 13px; line-height: 18px; color: var(--ink-2); }
+.pt-dl-files { display: flex; flex-wrap: wrap; gap: 8px; }
+.pt-dl-files .btn { white-space: normal; }
+.status.pt-mine::before { background: var(--ink); }
+.pt-dl-note { padding: 12px 20px; border-top: 1px solid var(--line); font-size: 13px; line-height: 18px; color: var(--ink-2); }

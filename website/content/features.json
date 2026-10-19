@@ -1570,15 +1570,29 @@
         {
           "name": "Recordings are kept",
           "benefit": "Audio stays with the visit after signing, so a note can be checked or redrafted later.",
-          "detail": "The brief's default of deleting audio at signing was changed so recordings are kept with their visit. They are removed only when their folder is deleted by hand or the app is uninstalled with its data.",
-          "evidence": "docs/plans/M0.md decision 8 ('Retention changes from the master prompt'); engine/os-app/src/lib.rs (no delete-visit function)",
+          "detail": "The brief's default of deleting audio at signing was changed so recordings are kept with their visit. They are removed only when someone deletes the recording or the visit, or the app is uninstalled with its data.",
+          "evidence": "docs/plans/M0.md decision 8 ('Retention changes from the master prompt'); docs/adr/0022-deleting-visits.md",
           "status": "shipped"
         },
         {
-          "name": "Delete a visit, and a retention policy",
-          "benefit": "Clinics will be able to delete a visit from the app and set how long recordings are kept.",
-          "detail": "There is no delete button for a visit yet, in the app, the browser version or the command line. An optional auto-delete policy was planned in M0 and hasn't been built.",
-          "evidence": "docs/plans/M0.md decision 8; engine/os-app/src/lib.rs; apps/desktop/src/engine.ts",
+          "name": "Delete a visit",
+          "benefit": "A test recording, a duplicate import or a visit recorded by mistake can be deleted from Review, with Undo.",
+          "detail": "Delete visit asks for a reason and moves the whole visit to Deleted visits in Settings, where it can be restored for 30 days before it is removed for good. Veterinarians and technicians can delete; reception can't. Signed visits can't be deleted yet: correct a signed note with an addendum. Every deletion, restore and removal is recorded.",
+          "evidence": "docs/adr/0022-deleting-visits.md (phase 1); engine/os-app/src/lib.rs delete_visit, restore_visit, purge_deleted; engine/os-engine/src/trash.rs; apps/desktop/src/components/DeleteVisitMenu.tsx, DeletedVisits.tsx; docs/guide/review.md",
+          "status": "shipped"
+        },
+        {
+          "name": "Delete only the recording",
+          "benefit": "Once a note is checked, the audio can go while the note stays.",
+          "detail": "Delete recording, under the player, removes the visit's audio after a confirmation. On a signed visit only a veterinarian can do it, and Review then shows when and by whom.",
+          "evidence": "docs/adr/0022-deleting-visits.md (phase 1); engine/os-app/src/lib.rs delete_recording; apps/desktop/src/components/DeleteRecordingDialog.tsx; docs/guide/review.md",
+          "status": "shipped"
+        },
+        {
+          "name": "Deleting signed visits, and a keep-for rule",
+          "benefit": "A veterinarian will be able to delete a signed visit, and a clinic can choose to keep signed visits for a set number of years.",
+          "detail": "Planned as phase 2 of ADR-0022: deleting a signed visit needs a veterinarian, their PIN and a written reason, and an optional clinic rule keeps signed visits for 3, 5, 7 or 10 years.",
+          "evidence": "docs/adr/0022-deleting-visits.md (phase 2)",
           "status": "coming"
         },
         {

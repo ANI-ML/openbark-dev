@@ -1,11 +1,12 @@
 # The OpenBark website
 
-A static site: a landing page with downloads, and a features page generated from `content/features.json`. It's served by Vercel from `website/dist`, which is committed, so Vercel has nothing to build.
+A static site: a landing page with downloads, a features page generated from `content/features.json`, a version history from `content/history.json`, and an account portal (`/portal`). It's served by Vercel from `website/dist`, which is committed, so Vercel has nothing to build.
 
 ## Edit and rebuild
 
 - Landing page: `src/index.html` (the page body; header and footer come from the build script). Styles: `src/site.css`. Behaviour (the evidence-link demo, platform detection, downloads): `src/site.js`.
 - Features page: `content/features.json`. Each item has a name, benefit, detail, evidence (where it lives in the code or evaluation) and status (`shipped`, `testing` or `coming`).
+- Account portal: `src/portal.html` (the page body) and `src/portal.js` (sign-in, profile, downloads, delete). See "Account portal" below.
 - Product name, tagline and credit: the top of `scripts/website-build.py`. A rename is one line there plus `public/release.json`.
 
 Rebuild after any change, then commit `website/dist` with the source:
@@ -40,6 +41,14 @@ Then, for each version:
 2. Check the draft on GitHub and publish it.
 3. Run the **Website release** workflow (Actions tab) with the tag. It points `release.json` at the published files, with their sizes, rebuilds the site and commits; Vercel redeploys.
 
+## Account portal
+
+`/portal` lets a visitor sign in with a 6-digit code emailed by Supabase Auth (no passwords, no social logins), keep a short profile (name, clinic, role, country, update emails), find the downloads for their computer, sign out and delete the account. It never holds clinical data. The OpenBark app doesn't use it.
+
+- The Supabase project URL and publishable key are in `src/portal.js`. Both are public by design; row level security decides what a signed-in person can read and change.
+- The database table, its security rules and the delete-account function live in `supabase/`. **`supabase/README.md` has the owner's one-time setup**: run the migration, deploy the function, set the Site URL and redirect URLs, put the code in the email templates, and connect SendGrid. Until SendGrid is connected, Supabase's built-in sender only reaches members of the Supabase team.
+- supabase-js is loaded from jsDelivr, pinned to one version with Subresource Integrity (`SUPABASE_JS` and `SUPABASE_JS_SRI` in `scripts/website-build.py`). To upgrade it, change those two lines and the matching `script-src` entry in `vercel.json` and `website/vercel.json`; `apps/desktop/e2e/website.mjs` fails if they disagree.
+
 ## Privacy
 
-The site has no analytics, cookies or third-party scripts. It loads two fonts from Google Fonts. `vercel.json` sets a strict Content-Security-Policy.
+The site has no analytics or cookies. It loads two fonts from Google Fonts. The portal page alone loads one third-party script, supabase-js from jsDelivr, checked by its SRI hash, and talks to Supabase only when the visitor signs in or acts; the session stays in the browser's localStorage. `vercel.json` sets a strict Content-Security-Policy that allows exactly that script and the one Supabase project. Every network call the website makes is listed in `docs/network.md`.

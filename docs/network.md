@@ -2,7 +2,7 @@
 
 OpenBark is local-first (master prompt §3, rule §7.4). This file lists every network connection the software can make. **A host that isn't listed here is a bug.** CI enforces this in two ways:
 - the offline end-to-end test runs the full pipeline with networking disabled;
-- the source check confirms that `os-models` is the only engine crate with an HTTP client.
+- the source check (`scripts/ci/check-network.sh`) confirms that `os-models` and `os-connect` are the only engine crates with an HTTP client. `os-connect` holds the planned Twilio calls (R9 below, ADR-0023); nothing in the app calls it yet.
 
 ## At run time
 
@@ -25,6 +25,20 @@ Nothing else at run time:
 - no fallback to a cloud model.
 
 Transcription, note generation and everything else run with the network unplugged once the models are on disk.
+
+## The website (not the app)
+
+The public website, www.openbark.io, is separate from the software above. It has an account portal (`/portal`, ADR-0017) where a visitor can sign in with an emailed code, keep a short profile (name, clinic, role, country, update emails), find the downloads and delete the account. **The website makes these calls, in the visitor's browser. The OpenBark app makes none of them:** it ships no Supabase SDK and no portal code, and nothing in it talks to Supabase until encrypted sync is built and turned on (the M3 row under Planned).
+
+| # | When | Host(s) | What's sent | Purpose |
+|---|---|---|---|---|
+| W1 | Opening the portal page | `cdn.jsdelivr.net` | An HTTPS GET for one file, `@supabase/supabase-js@2.118.0/dist/umd/supabase.js`, pinned to that version and checked with Subresource Integrity (sha384). No referrer | Load the sign-in library. The site's Content-Security-Policy allows only this exact file from jsDelivr |
+| W2 | Only when the visitor acts: asks for a code, enters it, saves the profile, signs out or deletes the account; and while signed in, loading the profile and refreshing the session | `nmecovtmijnfnjuadicp.supabase.co`: `/auth/v1` (sign-in), `/rest/v1/profiles` (the profile, one row per account, protected by row level security), `/functions/v1/delete-account` | The email address and the code; the profile fields; the account's own access token. **Never clinical data**: no recordings, transcripts, notes or anything about patients | Sign-in, the profile, deleting the account |
+
+- Opening the portal signed out sends nothing to Supabase. The website end-to-end test checks this, and answers every Supabase call in its own mocked sign-in, so tests never reach the live project.
+- The sign-in session is kept in the browser's localStorage (`sb-nmecovtmijnfnjuadicp-auth-token`), as supabase-js does by default. The site sets no cookies.
+- No realtime connection (`wss:`) is opened; the CSP doesn't allow one.
+- Every page also fetches `release.json` from the site itself and the Manrope and JetBrains Mono fonts from Google Fonts.
 
 ## At build time (developers and CI only)
 
@@ -62,4 +76,18 @@ Users' computers: OpenBark itself never calls a signing or certificate service. 
 | M1 | User-configured URL | Optional remote OpenAI-compatible endpoint (a clinic's own model server, or a hosted model with the user's key) | **Off.** Clearly labelled, never used as a silent fallback |
 | M4 | LAN only (mDNS `_openbark._tcp`) | Clinic Hub discovery and mutual-TLS API | Off unless Hub mode is enabled |
 | Proposed (ADR-0007) | The clinic's own phone system (PBX) or a SIP trunk the clinic chooses | Call mode: SIP signalling and RTP media for calls placed from OpenBark, recorded and transcribed on this computer. Nothing goes to a transcription service | **Off.** Only once the clinic configures a phone line |
+| Proposed (ADR-0023) | The clinic's own Twilio account: `api.twilio.com` and the Voice SDK's hosts (R9 and R10 below) | Calls to clients from OpenBark, recorded and transcribed on this computer | **Off.** Only once the clinic connects its own Twilio account |
 | M3 (ADR-0005, ADR-0017) | `<project>.supabase.co`, Supabase Auth (`/auth/v1`) and REST (`/rest/v1`, with `/functions/v1` for removing a device and deleting the account) only. ANI.ML's hosted project is `nmecovtmijnfnjuadicp.supabase.co`; a clinic can point OpenBark at its own Supabase | Sign-in with an emailed code, then per-user sync of transcripts, notes, patient records, templates and a few settings. **End-to-end encrypted**, so the server sees ciphertext only. **No audio:** recordings never leave the device that recorded them. No Storage uploads. Instant updates over Realtime come later and get their own row when built | **Off.** Requires the user to sign in and turn on encrypted sync |
+
+### Planned: calls through the clinic's own Twilio account (ADR-0023)
+
+**Planned, off by default, clinic-owned account.** Nothing below happens until a clinic connects its own Twilio account in Settings. The clinic pays Twilio directly. ANI.ML runs no relay or token server and holds no keys. The engine code for R9 is in `engine/os-connect`, but nothing in the app or the CLI calls it yet. R6 to R8 are reserved by ADR-0017. R11 (SendGrid email) gets its row when email is built, after calls (ADR-0023 section 15, decision 4).
+
+| # | When | Host(s) | What's sent | Purpose | Off switch |
+|---|---|---|---|---|---|
+| R9 | Planned, off by default, clinic-owned account. Only when someone connects or checks Twilio in Settings, and, once incoming calls ship, when OpenBark ends the caller's side of an answered incoming call | `api.twilio.com` (HTTPS) | HTTPS with the clinic's API key SID and secret (basic auth). The secret goes to no other host, and redirects aren't followed. Lists the account's TwiML Apps, numbers and verified caller IDs. Creates or updates the "OpenBark" TwiML App, sets one number's Voice URL after the clinic confirms, ends a call. `User-Agent: OpenBark/<version>`. Nothing about patients | Set up the clinic's own Twilio account, and end calls cleanly | Don't connect Twilio, or **Disconnect** |
+| R10 | Planned, off by default, clinic-owned account. Only while the phone is on, and only from the phone window | `wss://voice-js.roaming.twilio.com` (signalling, TCP 443); `https://eventgw.twilio.com` (call-quality events); media as SRTP over UDP to 168.86.128.0/18, ports 10000 to 60000. Also `sdk.twilio.com` and `media.twiliocdn.com` (ringtones), unless plan step 1 shows the SDK can use local sounds | An access token minted on this computer, valid for one hour. The number dialled. The call's audio, as on any phone call. Call-quality events (call state, round-trip time, jitter, packet loss; no audio), which go to Voice Insights in the clinic's own Twilio account. The SDK's public options can't turn them off | Make calls (and, in a later release, take them) through the clinic's own Twilio account | Turn the phone off. Recording and transcription stay on the computer |
+
+- Nothing listens. Incoming calls, when they ship, arrive over R10's outgoing WebSocket.
+- A clinic firewall must allow UDP from the computer to 168.86.128.0/18 on ports 10000 to 60000. Twilio's relay for networks that block UDP is billed separately and isn't used.
+- Twilio carries the call like any phone company and keeps call logs (numbers, times, durations) in the clinic's account. It records nothing, because OpenBark never asks it to: the recording is made on this computer.

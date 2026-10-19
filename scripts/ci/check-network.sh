@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
-# Local-first guard (docs/network.md): the only engine crate allowed an HTTP
-# client is os-models. Fails if any other workspace crate pulls in reqwest,
-# ureq, hyper-based clients or similar.
+# Local-first guard (docs/network.md): only the engine crates listed in
+# `allowed` may have an HTTP client. Fails if any other workspace crate pulls
+# in reqwest, ureq, hyper-based clients or similar.
+#   os-models:  model downloads (R1, R2, R4, R5)
+#   os-connect: the clinic's own Twilio account, REST to api.twilio.com only
+#               (R9; ADR-0023, docs/adr/0023-bring-your-own-telephony.md)
 set -euo pipefail
 
-allowed="os-models"
+allowed="os-models os-connect"
 violations=0
 for client in reqwest ureq isahc attohttpc surf; do
   # Workspace crates that depend on the client directly (normal deps only).
@@ -18,4 +21,4 @@ for client in reqwest ureq isahc attohttpc surf; do
   done
 done
 if [[ $violations -gt 0 ]]; then exit 1; fi
-echo "network check: only [$allowed] has an HTTP client"
+echo "network check: only [$allowed] have an HTTP client"
