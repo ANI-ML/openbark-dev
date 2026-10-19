@@ -168,7 +168,7 @@ pub fn record(store: &ModelStore, args: RecordArgs) -> Result<()> {
     let mut session = Session::open(&result.session_dir)?;
     let template = LoadedTemplate::resolve(&args.llm.template)?;
     let llm = load_llm(store, &args.llm)?;
-    let note = generate_note(&llm, &template, &result.transcript, &note_options(&args.llm), &mut |_| true)?;
+    let note = generate_note(&*llm, &template, &result.transcript, &note_options(&args.llm), &mut |_| true)?;
     let run = session.save_run(&args.llm.llm, &note, &template)?;
     if !args.jsonl {
         print!("\n{}", note.markdown);

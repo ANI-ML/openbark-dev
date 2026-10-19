@@ -6,6 +6,13 @@ All notable changes to OpenBark, newest first. Generated from `website/content/h
 
 ### Beta: Ready for clinics to try
 
+#### 2026-10-19: Models of your choice
+
+Bring the model you want, and remove the ones you don't need.
+
+- MLX models from Hugging Face on Macs with Apple silicon and macOS 14 or later, with an optional MLX engine download. Split and gated GGUF models download too, and you can add a model file from this computer. (being tested)
+- Remove downloaded models, the MLX engine or the GPU speech pack to free space. The Models screen shows how much each one frees, and the model writing your notes is protected.
+
 #### 2026-10-18: Installers, patients and a new look
 
 Everything a clinic needs to install OpenBark and use it day to day.

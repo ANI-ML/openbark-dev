@@ -1,0 +1,3 @@
+# Saved live Hugging Face responses: keep their bytes exactly as fetched
+# (tests hash some of them, e.g. the git blob SHA-1 of config.json).
+* -text

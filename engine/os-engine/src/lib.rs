@@ -20,6 +20,7 @@ pub mod numbers;
 pub mod patients;
 pub mod pdf;
 pub mod render;
+pub mod secrets;
 pub mod session;
 pub mod template;
 pub mod template_store;

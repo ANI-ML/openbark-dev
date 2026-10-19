@@ -383,7 +383,7 @@ dependencies = [
  "serde_json",
  "serde_path_to_error",
  "serde_urlencoded",
- "sha1",
+ "sha1 0.10.7",
  "sync_wrapper",
  "tokio",
  "tokio-tungstenite",
@@ -3910,6 +3910,7 @@ dependencies = [
 name = "os-llm"
 version = "0.1.0"
 dependencies = [
+ "jsonschema",
  "llama-cpp-2",
  "minijinja",
  "minijinja-contrib",
@@ -3925,10 +3926,12 @@ version = "0.1.0"
 dependencies = [
  "bzip2 0.5.2",
  "dirs",
+ "flate2",
  "hex",
  "reqwest",
  "serde",
  "serde_json",
+ "sha1 0.11.0",
  "sha2 0.11.1",
  "sysinfo",
  "tar",
@@ -4958,6 +4961,17 @@ dependencies = [
  "cfg-if",
  "cpufeatures 0.2.17",
  "digest 0.10.7",
+]
+
+[[package]]
+name = "sha1"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aacc4cc499359472b4abe1bf11d0b12e688af9a805fa5e3016f9a386dc2d0214"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.3.1",
+ "digest 0.11.3",
 ]
 
 [[package]]
@@ -6325,7 +6339,7 @@ dependencies = [
  "httparse",
  "log",
  "rand",
- "sha1",
+ "sha1 0.10.7",
  "thiserror 2.0.21",
 ]
 
@@ -7509,7 +7523,7 @@ dependencies = [
  "lzma-rs",
  "memchr",
  "pbkdf2",
- "sha1",
+ "sha1 0.10.7",
  "time",
  "xz2",
  "zeroize",

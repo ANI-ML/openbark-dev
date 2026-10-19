@@ -18,4 +18,9 @@
 | "The clipboard isn't available here" | The browser didn't allow copying | Select the text and copy it with the keyboard, or use the desktop app. |
 | Settings, Encryption: "The key is kept in a file …" | This computer's keychain isn't available (often over a remote connection) | It still works. Keep the recovery key somewhere safe. |
 | "… can't be decrypted with this computer's key" | The encounter was encrypted with a different key | Import the recovery key that was used before (see [Team and security](team-and-security.md)). |
+| "This model writes your notes. Choose another one under In use first." | You tried to remove the model this device uses for notes | Choose another note model under **In use** on the Models screen, then remove it. See [Models](models.md). |
+| "A note is being written with this model" | A draft, an Ask or a template from an example is using the model | Wait for it to finish, then remove the model. The draft isn't interrupted. |
+| "This model is gated" or "Hugging Face hasn't given your token access yet" | The publisher asks you to request access first | Choose **Request access**, then save a Hugging Face token. See [Models](models.md#gated-models-and-your-hugging-face-token). |
+| A model shows **Missing** | It was added from this computer to be used where it is, and the file or folder has moved or its drive is unplugged | Plug the drive back in, or choose **Forget** and add it again from its new place. |
+| The MLX engine card says it "didn't pass its check" | The MLX engine can't run on this Mac as it is | Choose **Try again**. GGUF models keep working; choose one under **In use**. |
 | Drafting is slow | The note model is sharing the graphics card, or the computer has no supported graphics card | Close games and video tools, or choose a smaller note model in **Models**. |

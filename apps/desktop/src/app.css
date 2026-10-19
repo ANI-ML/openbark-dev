@@ -594,6 +594,8 @@ button.turn-text:hover { color: var(--ink); }
 .sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 20px 24px 16px; border-bottom: 1px solid var(--border); }
 .sheet-head h2 { overflow-wrap: anywhere; }
 .sheet-body { flex: 1 1 auto; min-height: 0; padding: 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
+/* The body scrolls as a whole: its tables and lists keep their height (a Hub repo with an MLX row and GGUF alternatives squashed the table). */
+.sheet-body > * { flex-shrink: 0; }
 @media (max-width: 640px) { .sheet-head { padding: 12px 20px; } .sheet-body { padding: 20px; } }
 .search { display: flex; align-items: flex-end; gap: 8px; }
 .search .ob-field { flex: 1; }
@@ -1053,3 +1055,27 @@ p > .ob-dot { display: inline-block; vertical-align: middle; }
 .deleted-empty { margin: 0; }
 .deleted-line { margin: 12px 0 0; }
 @media (max-width: 640px) { .deleted-row { flex-direction: column; } }
+
+/* Models: removing, the MLX engine, gated repos, adding from this computer (ADR-0025) */
+.row-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.row-state { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.row-path { max-width: 260px; overflow-wrap: anywhere; white-space: normal; }
+.row-actions { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.row-help { max-width: 220px; white-space: normal; text-align: right; }
+.mlx-card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mlx-ready { display: inline-flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.notice-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.notice-body p { margin: 0; }
+.notice-body .ob-field { font-size: 15px; line-height: 24px; }
+.hf-token { display: flex; flex-direction: column; gap: 8px; }
+.hf-token p { margin: 0; }
+.hf-token-form { display: flex; flex-direction: column; gap: 8px; max-width: 420px; }
+.hub-parts { margin-left: 8px; }
+.gated-links { gap: 16px; }
+.hub-alternatives { display: flex; flex-direction: column; gap: 8px; }
+.sheet-foot { flex: none; padding: 12px 24px 16px; border-top: 1px solid var(--border); }
+@media (max-width: 640px) { .sheet-foot { padding: 12px 20px; } }
+.import-preview { display: flex; flex-direction: column; gap: 4px; padding: 12px; border: 1px solid var(--border); border-radius: var(--r-md); }
+.import-name { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-weight: 600; overflow-wrap: anywhere; }
+.import-path { overflow-wrap: anywhere; }
+.import-files { list-style: none; margin: 4px 0 0; padding: 0; overflow-wrap: anywhere; }

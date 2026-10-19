@@ -262,7 +262,7 @@ fn score(id: &str, expected: &Expected, note: &Value, faith: &os_engine::Faithfu
 /// Multi-pet visit: one note per animal, each scored against its own vitals;
 /// another animal's values in a note count as contamination.
 fn score_pets(
-    llm: &os_llm::LlamaCppBackend,
+    llm: &dyn os_llm::LlmBackend,
     template: &LoadedTemplate,
     transcript: &Transcript,
     script: &Script,
@@ -368,7 +368,7 @@ pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
         .for_species(script.species.as_deref());
         let s = if script.expected.vitals_by_patient.is_empty() {
             let result =
-                generate_note(&llm, &template, &transcript, &note_options(&args.llm), &mut |_| true)?;
+                generate_note(&*llm, &template, &transcript, &note_options(&args.llm), &mut |_| true)?;
             std::fs::write(
                 format!("target/eval/{}.note.json", script.id),
                 serde_json::to_string_pretty(&result.note)?,
@@ -377,7 +377,7 @@ pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
             s.note_secs = result.stats.total_ms as f64 / 1000.0;
             s
         } else {
-            score_pets(&llm, &template, &transcript, &script, &args.llm)?
+            score_pets(&*llm, &template, &transcript, &script, &args.llm)?
         };
         println!(
             "{:<18} {:>4}/{:<4} {:>9} {:>10} {:>8.1}  {}",

@@ -33,8 +33,14 @@
 //! - `GET  /api/live` (WebSocket)           browser microphone: binary f32 PCM frames
 //!   (16 kHz mono); text "stop" ends it; the reply is the saved encounter
 //! - `POST /api/record/start|stop`          record from this machine's microphone
-//! - `GET  /api/models`, `POST /api/models/{id}/download`
-//! - `GET  /api/hub/search?q=`, `GET /api/hub/repo?id=`, `POST /api/hub/add`
+//! - `GET  /api/models`, `POST /api/models/{id}/download`, `POST /api/models/remove`
+//!   `{id, note_model, forget, by}`, `POST /api/models/import/inspect` `{path}`,
+//!   `POST /api/models/import` `{path, mode, by}` (ADR-0025)
+//! - `GET  /api/mlx`, `POST /api/mlx/install`, `POST /api/mlx/check`, `POST /api/mlx/remove`
+//!   `{note_model, by}` (the MLX engine pack); `GET /api/gpu`, `POST /api/gpu/install`,
+//!   `POST /api/gpu/remove` `{by}` (body optional)
+//! - `GET|POST /api/hf-token` (`{token, by}`; the token is never sent back), `POST /api/hf-token/clear` `{by}`
+//! - `GET  /api/hub/search?q=`, `GET /api/hub/repo?id=`, `POST /api/hub/add`, `GET /api/hub/alternatives?base=`
 //! - `GET|POST /api/users`, `DELETE /api/users/{uid}?by=`, `POST /api/users/{uid}/pin`, `POST /api/users/{uid}/verify`
 //! - Deleting (ADR-0022): `POST /api/sessions/{id}/delete` `{by, reason: {kind, note}, pin?, confirm_signed?}`
 //!   → the visit moves to Deleted visits; `POST /api/sessions/{id}/recording/delete` `{by}` → the
@@ -211,13 +217,23 @@ fn router(state: St, ui_dir: &std::path::Path, port: u16) -> Router {
         .route("/api/record/stop", post(record_stop))
         .route("/api/models", get(|State(s): State<St>| async move { Json(s.app().models()) }))
         .route("/api/models/{id}/download", post(download_model))
+        .route("/api/models/remove", post(remove_model))
+        .route("/api/models/import/inspect", post(inspect_import))
+        .route("/api/models/import", post(import_model))
+        .route("/api/mlx", get(|State(s): State<St>| async move { Json(s.app().mlx_status()) }))
+        .route("/api/mlx/install", post(install_mlx))
+        .route("/api/mlx/check", post(check_mlx))
+        .route("/api/mlx/remove", post(remove_mlx))
         .route("/api/gpu", get(|State(s): State<St>| async move { Json(s.app().gpu_status()) }))
         .route("/api/gpu/install", post(install_gpu))
         .route("/api/gpu/remove", post(remove_gpu))
+        .route("/api/hf-token", get(hf_token_status).post(set_hf_token))
+        .route("/api/hf-token/clear", post(clear_hf_token))
         .route("/api/restart", post(restart))
         .route("/api/hub/search", get(hub_search))
         .route("/api/hub/repo", get(hub_repo))
         .route("/api/hub/add", post(hub_add))
+        .route("/api/hub/alternatives", get(hub_alternatives))
         .route("/api/encryption/encrypt-existing", post(encrypt_existing))
         .route("/api/encryption/recovery-key", get(recovery_key))
         .route("/api/users", get(list_users).post(add_user))
@@ -494,8 +510,124 @@ async fn install_gpu(State(s): State<St>, Json(r): Json<InstallGpu>) -> Result<i
     blocking(move || s.app().install_gpu(r.accept_license, s.events.as_ref())).await
 }
 
-async fn remove_gpu(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app().remove_gpu()).await
+/// The body (`{by}`) is optional: older screens sent none.
+async fn remove_gpu(State(s): State<St>, body: Bytes) -> Result<impl IntoResponse, ApiError> {
+    let by = if body.iter().all(u8::is_ascii_whitespace) {
+        None
+    } else {
+        serde_json::from_slice::<ByBody>(&body)
+            .map_err(|e| ApiError(StatusCode::BAD_REQUEST, e.to_string()))?
+            .by
+    };
+    blocking(move || s.app().remove_gpu(by.as_deref())).await
+}
+
+// ---- models of your choice and the MLX engine (ADR-0025) -------------------
+
+#[derive(Deserialize)]
+struct RemoveModel {
+    id: String,
+    /// The note model chosen on the requesting device.
+    #[serde(default)]
+    note_model: Option<String>,
+    #[serde(default)]
+    forget: bool,
+    #[serde(default)]
+    by: Option<String>,
+}
+
+async fn remove_model(
+    State(s): State<St>,
+    Json(r): Json<RemoveModel>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().remove_model(&r.id, r.note_model.as_deref(), r.forget, r.by.as_deref())).await
+}
+
+#[derive(Deserialize)]
+struct InspectImport {
+    path: String,
+}
+
+async fn inspect_import(
+    State(s): State<St>,
+    Json(r): Json<InspectImport>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().inspect_import(&r.path)).await
+}
+
+#[derive(Deserialize)]
+struct ImportModel {
+    path: String,
+    mode: os_app::ImportMode,
+    #[serde(default)]
+    by: Option<String>,
+}
+
+async fn import_model(
+    State(s): State<St>,
+    Json(r): Json<ImportModel>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || {
+        let events = s.events.clone();
+        s.app().import_model(&r.path, r.mode, r.by.as_deref(), events.as_ref())
+    })
+    .await
+}
+
+async fn install_mlx(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || {
+        let events = s.events.clone();
+        s.app().install_mlx(events.as_ref())
+    })
+    .await
+}
+
+async fn check_mlx(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().check_mlx()).await
+}
+
+#[derive(Deserialize)]
+struct RemoveMlx {
+    #[serde(default)]
+    note_model: Option<String>,
+    #[serde(default)]
+    by: Option<String>,
+}
+
+async fn remove_mlx(State(s): State<St>, Json(r): Json<RemoveMlx>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().remove_mlx(r.note_model.as_deref(), r.by.as_deref())).await
+}
+
+async fn hf_token_status(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || Ok(s.app().hf_token_status())).await
+}
+
+/// No `Debug`: it carries the token, which is never logged or sent back.
+#[derive(Deserialize)]
+struct SetToken {
+    token: String,
+    #[serde(default)]
+    by: Option<String>,
+}
+
+async fn set_hf_token(State(s): State<St>, Json(r): Json<SetToken>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().set_hf_token(&r.token, r.by.as_deref())).await
+}
+
+async fn clear_hf_token(State(s): State<St>, Json(r): Json<ByBody>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().clear_hf_token(r.by.as_deref())).await
+}
+
+#[derive(Deserialize)]
+struct Alternatives {
+    base: String,
+}
+
+async fn hub_alternatives(
+    State(s): State<St>,
+    Query(q): Query<Alternatives>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().hub_alternatives(&q.base)).await
 }
 
 async fn list_patients(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
@@ -1176,6 +1308,7 @@ mod tests {
                 std::env::set_var("OPENBARK_USERS_FILE", dir.join("users.json"));
                 std::env::set_var("OPENBARK_TEMPLATES_DIR", dir.join("templates"));
                 std::env::set_var("OPENBARK_KEY_FILE", dir.join("data.key"));
+                std::env::set_var("OPENBARK_ENGINES_DIR", dir.join("engines"));
             }
             dir
         })
@@ -1411,5 +1544,79 @@ mod tests {
             assert_eq!(status, StatusCode::BAD_REQUEST, "{by} saw Deleted visits");
         }
         still_there();
+    }
+
+    // ---- models of your choice (ADR-0025), in a temporary models folder ------
+
+    /// A Hub model in the temporary store's user catalog, with its file written.
+    fn hub_model(app: &App) -> (String, std::path::PathBuf) {
+        let entry: os_models::CatalogEntry = serde_json::from_value(serde_json::json!({
+            "id": "hf:someone/tiny-GGUF/tiny-Q4_K_M",
+            "display_name": "someone/tiny-GGUF (tiny-Q4_K_M)",
+            "slot": "llm",
+            "license": "apache-2.0",
+            "source": { "kind": "huggingface", "repo": "someone/tiny-GGUF", "revision": "0123456789abcdef0123456789abcdef01234567" },
+            "files": [{ "path": "tiny-Q4_K_M.gguf", "size": 12, "sha256": "0".repeat(64) }],
+            "layout": { "type": "llm_gguf", "model": "tiny-Q4_K_M.gguf" },
+        }))
+        .unwrap();
+        os_models::hub::save_user_entry(&app.store, entry.clone()).unwrap();
+        let file = app.store.file_path(&entry, "tiny-Q4_K_M.gguf");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, b"GGUF\x03\0\0\0abcd").unwrap();
+        (entry.id, file)
+    }
+
+    #[tokio::test]
+    async fn model_routes_follow_the_contract_and_its_guards() {
+        let srv = server();
+        let (id, file) = hub_model(&srv.app);
+        let body = serde_json::json!({ "id": id, "note_model": null, "forget": false, "by": null });
+        // Other pages can't remove anything.
+        let (status, _) = call(&srv.router, "POST", "/api/models/remove", Some(body.clone()), false).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert!(file.is_file());
+        // The note model, and a speech model OpenBark needs, are refused.
+        let refused = serde_json::json!({ "id": id, "note_model": id, "forget": false, "by": null });
+        let (status, err) = call(&srv.router, "POST", "/api/models/remove", Some(refused), true).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(err["error"], "This model writes your notes. Choose another one under In use first.");
+        let needed = serde_json::json!({ "id": os_engine::models::VAD, "note_model": null, "forget": false, "by": null });
+        let (status, err) = call(&srv.router, "POST", "/api/models/remove", Some(needed), true).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(err["error"], "OpenBark needs this to transcribe visits.");
+        assert!(file.is_file());
+        // Removed: the file goes, the row stays with Download.
+        let (status, removal) = call(&srv.router, "POST", "/api/models/remove", Some(body), true).await;
+        assert_eq!(status, StatusCode::OK, "{removal}");
+        assert_eq!(removal["freed_bytes"], 12);
+        assert_eq!(removal["forgotten"], false);
+        assert!(!file.exists());
+        let (_, rows) = call(&srv.router, "GET", "/api/models", None, false).await;
+        let row = rows.as_array().unwrap().iter().find(|r| r["id"] == serde_json::json!(id)).unwrap().clone();
+        assert_eq!(row["installed"], false);
+        assert_eq!(row["origin"], "hub");
+        assert_eq!(row["remove"], "delete");
+        // The GPU pack's remove takes no body, or `{by}`.
+        let (status, gpu) = call(&srv.router, "POST", "/api/gpu/remove", None, true).await;
+        assert_eq!(status, StatusCode::OK, "{gpu}");
+        assert!(gpu.get("installed_bytes").is_some());
+        let (status, _) =
+            call(&srv.router, "POST", "/api/gpu/remove", Some(serde_json::json!({ "by": null })), true).await;
+        assert_eq!(status, StatusCode::OK);
+        // The MLX card's status, and its removal refusal for an MLX note model.
+        let (status, mlx) = call(&srv.router, "GET", "/api/mlx", None, false).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(mlx.get("support").is_some() && mlx.get("in_use") == Some(&serde_json::json!(false)));
+        // An import path that isn't absolute is refused before anything happens.
+        let (status, err) = call(
+            &srv.router,
+            "POST",
+            "/api/models/import/inspect",
+            Some(serde_json::json!({ "path": "models/tiny.gguf" })),
+            true,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{err}");
     }
 }
