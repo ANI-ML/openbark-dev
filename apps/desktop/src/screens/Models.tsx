@@ -1,4 +1,4 @@
-import { Button, Sheet, StatusDot } from "@openbark/ui";
+import { Button, Sheet, Skeleton, StatusDot } from "@openbark/ui";
 import { ArrowLeft, Download, FilePlus, Search, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { fmtBytes, useApp } from "../context";
@@ -618,7 +618,7 @@ function HubBrowser({
                   </div>
                 </div>
                 {results === null ? (
-                  <div className="ob-skeleton" style={{ height: 120 }} />
+                  <Skeleton rows={3} label={t("Loading")} />
                 ) : visible.length === 0 ? (
                   <p className="small muted">
                     {t("No permissively licensed GGUF models match. Try another search, or show all licences.")}

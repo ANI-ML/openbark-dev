@@ -11,7 +11,7 @@ The owner asked for a design pass on the website and the app, taking ideas from 
 2. **Springs for physical motion, curves for everything else.** Moving surfaces (a pressed button springing back, the nav marker, list rows) use a spring with **no bounce**. Motion's own advice is that a serious interface shouldn't overshoot, and a clinical tool is one. Fades and colour keep the brand curves.
 3. **Things leave the way they came, and leave faster than they arrive.** Exits use the exit curve at about two thirds of the enter time.
 4. **Interruptible.** Hover, press and the nav marker re-target mid-flight; nothing waits for an earlier animation to finish.
-5. **Reduced motion everywhere.** `prefers-reduced-motion: reduce` sets every motion token to zero (brand guide §5.4). The app also wraps itself in Motion's `MotionConfig reducedMotion="user"`. Information never depends on motion: the toast's time-left bar is hidden then, and the toast still closes on its timer.
+5. **Reduced motion everywhere.** `prefers-reduced-motion: reduce` sets every motion token to zero (brand guide §5.4). The app also wraps itself in Motion's `MotionConfig reducedMotion="user"`, which turns off every transform and layout animation; Motion still lets list rows and the toast cross-fade, with no movement, which is Motion's own reduced-motion behaviour. Information never depends on motion: the toast's time-left bar is hidden then, and the toast still closes on its timer.
 
 ## Motion tokens
 
@@ -81,7 +81,7 @@ Reduced motion: every `--dur-*` token becomes `0ms`, `--press-scale` becomes 1 a
 
 ## Dependency
 
-`motion` 14.1.0 (MIT) is added to `apps/desktop` only, for `AnimatePresence`, layout animations and `layoutId`. CSS can't animate an element that is leaving the page or a list reflowing. The app loads `domMax` through `LazyMotion` and uses the light `m` components. Versions, licence and size are recorded in `docs/versions.md`. The website uses no JS animation library: its motion is CSS (transitions, keyframes, `linear()` springs) plus a few lines in the site's own `site.js` (an IntersectionObserver for the reveals, the demo's marker and timer), all within its `script-src 'self'` policy.
+`motion` 14.1.0 (MIT) is added to `apps/desktop` only, for `AnimatePresence`, layout animations and `layoutId`. CSS can't animate an element that is leaving the page or a list reflowing. The app uses the light `m` components and loads `domMax` through `LazyMotion` in a chunk of its own after first render. Measured with `vite build`: the main chunk grew from 1,094 kB (339 kB gzipped) to 1,143 kB (356 kB gzipped), and the features chunk is 86 kB (28 kB gzipped). Versions, licence and size are recorded in `docs/versions.md`. The website uses no JS animation library: its motion is CSS (transitions, keyframes, `linear()` springs) plus a few lines in the site's own `site.js` (an IntersectionObserver for the reveals, the demo's marker and timer), all within its `script-src 'self'` policy.
 
 ## Accessibility checklist
 
@@ -92,3 +92,13 @@ Reduced motion: every `--dur-*` token becomes `0ms`, `--press-scale` becomes 1 a
 - Keyboard: the reordered download cards are moved in the DOM, so tab order follows what you see.
 
 Credit: interaction ideas from Kokonut UI (MIT, kokonutui.com) and from Motion's animation guidance (motion.dev). No code from either is copied into OpenBark.
+
+## Performance self-review
+
+Following the Motion skill's performance guidance. Its MotionScore audit needs the Motion+ server, which isn't connected here, so this is a code review against the same rules, not a MotionScore grade.
+
+- Every new animation moves `transform` or `opacity`: press scales, the nav marker (Motion layout animation uses transforms), list rows, the toast and its `scaleX` bar, the skeleton breathe, the record glyph, the website's marker, hero and reveals.
+- No layout thrash: the website reads positions once per event (a hover, the first scroll), all reads before writes, and never inside an animation frame. Reveals use an IntersectionObserver, not a scroll handler.
+- Layout animation is limited to lists of 80 rows or fewer, so filtering a large patient list never measures hundreds of rows per keystroke.
+- Colour changes (hover tints, the lit transcript line) stay short paint-only transitions, as before; nothing animates colour on a loop.
+- The recording pulse is unchanged and still the only animation that loops, apart from the skeleton breathe while something loads.

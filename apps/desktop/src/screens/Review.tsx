@@ -1,4 +1,4 @@
-import { Button, MarkMono, Sheet, StatusDot } from "@openbark/ui";
+import { Button, MarkMono, Sheet, Skeleton, StatusDot } from "@openbark/ui";
 import { Copy, FileDown, FolderOpen, RotateCw, Signature, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DeleteRecordingDialog } from "../components/DeleteRecordingDialog";
@@ -748,8 +748,7 @@ export function Review({
             <TranscriptList segments={segments} highlighted={lit} playingId={playingId} onSeek={seek} />
           ) : (
             <div className="pane-pad">
-              <div className="ob-skeleton" style={{ height: 16, width: "70%" }} />
-              <div className="ob-skeleton" style={{ height: 16, width: "55%", marginTop: 12 }} />
+              <Skeleton lines={4} label={t("Loading")} />
             </div>
           )}
         </section>

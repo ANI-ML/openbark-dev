@@ -26,6 +26,10 @@ catalog:
   # Manrope and JetBrains Mono (OFL-1.1, fontsource 5.3.0) are vendored in
   # packages/ui/src/fonts, never loaded from a CDN.
   "lucide-react": 1.59.0
+  # Motion for React (MIT): exit and layout animations in the app only
+  # (docs/plans/design-motion.md). 14.1.0 is the newest release at least
+  # 7 days old on 2026-10-19; the website ships no JS animation library.
+  motion: 14.1.0
 
 # pnpm 11: dependency build scripts are denied unless allowed here.
 allowBuilds:

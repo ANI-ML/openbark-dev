@@ -15,6 +15,7 @@
   "dependencies": {
     "@openbark/ui": "workspace:*",
     "lucide-react": "catalog:",
+    "motion": "catalog:",
     "@tauri-apps/api": "catalog:",
     "@tauri-apps/plugin-dialog": "catalog:",
     "@tauri-apps/plugin-opener": "catalog:",

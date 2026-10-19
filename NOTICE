@@ -52,6 +52,8 @@ each under its own license (full license texts are in the respective projects):
 - ONNX Runtime (MIT), by Microsoft Corporation. https://github.com/microsoft/onnxruntime
 - Tauri (Apache-2.0 or MIT), by the Tauri Programme within The Commons Conservancy.
 - React (MIT), by Meta Platforms, Inc. and affiliates.
+- Motion for React (MIT; the motion, framer-motion, motion-dom and motion-utils
+  packages), Copyright (c) 2024 Motion B.V. and (c) 2018 Framer B.V. https://motion.dev
 - Other Rust crates and npm packages, under MIT, Apache-2.0, BSD or similar
   permissive licenses, as listed in Cargo.lock and pnpm-lock.yaml.
 
