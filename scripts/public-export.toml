@@ -2113,18 +2113,14 @@ gitleaks = [
 ]
 # `<path in the export>:<gitleaks rule>:<line>`. Each one was checked by hand.
 gitleaks_allow_fingerprints = [
-  # Twilio test values: sequential-hex SIDs (AC0123..., SK0123...) and tokens that
-  # twilio-node made from them with the secret "fixture-secret-not-a-real-key-000"
-  # (signatures re-checked with that secret).
-  "engine/os-connect/src/settings.rs:twilio-api-key:200",
-  "engine/os-connect/fixtures/twilio-node-access-tokens.json:twilio-api-key:5",
-  "engine/os-connect/fixtures/twilio-node-access-tokens.json:twilio-api-key:12",
-  "engine/os-connect/fixtures/twilio-node-access-tokens.json:twilio-api-key:13",
-  "engine/os-connect/fixtures/twilio-node-access-tokens.json:jwt:12",
-  "engine/os-connect/fixtures/twilio-node-access-tokens.json:jwt:13",
-  "engine/os-connect/src/token.rs:twilio-api-key:267",
-  "engine/os-connect/src/token.rs:twilio-api-key:274",
-  "engine/os-connect/src/token.rs:twilio-api-key:306",
+  # The twilio-node test fixture. Its SIDs and tokens are stored split, so no
+  # line holds a credential-shaped string, but gitleaks still decodes the base64
+  # token payloads (17, 21) and finds the made-up SK0123... SID inside, and it
+  # scores the prefix-less made-up key SID (5) as a generic key. The tokens were
+  # signed with the made-up secret "fixture-secret-not-a-real-key-000".
+  "engine/os-connect/fixtures/twilio-node-access-tokens.json:generic-api-key:5",
+  "engine/os-connect/fixtures/twilio-node-access-tokens.json:twilio-api-key:17",
+  "engine/os-connect/fixtures/twilio-node-access-tokens.json:twilio-api-key:21",
   # A git blob SHA-1 in the pinned test-model file list.
   "scripts/mlx-test-env.sh:generic-api-key:53",
   # The portal's Supabase publishable key (sb_publishable_...), public by design:
@@ -2140,18 +2136,6 @@ pattern = "supabase-project-ref"
 files = ["website/src/portal.js", "website/dist/**", "scripts/website-build.py", "vercel.json", "website/vercel.json", "apps/desktop/e2e/website.mjs", "docs/network.md", "supabase/README.md", "supabase/functions/delete-account/index.ts"]
 context = 'https://nmecovtmijnfnjuadicp\.supabase\.co|sb-nmecovtmijnfnjuadicp-auth-token|`nmecovtmijnfnjuadicp\.supabase\.co`|--project-ref nmecovtmijnfnjuadicp|^Project: `nmecovtmijnfnjuadicp`'
 reason = "The account portal's Supabase project. Its URL and session key are in the live website's code that every visitor downloads, the CSP must name it, and docs/network.md must list every host. Decided fine to publish; the scrubs that hide it in ADR-0017, M3 and the sync line of docs/network.md remain, because those passages are about plans."
-
-[[gate.allow]]
-pattern = "twilio-key"
-files = ["engine/os-connect/**"]
-context = '\b(?:AC|SK)(?:0123456789abcdef){2}\b|\b(?:AC|SK)f{32}\b'
-reason = "Test placeholders: sequential-hex or all-f SIDs, never real ones."
-
-[[gate.allow]]
-pattern = "jwt"
-files = ["engine/os-connect/fixtures/twilio-node-access-tokens.json"]
-context = '^  "(?:outgoing_only|with_incoming)": "eyJ'
-reason = "Test vectors made by twilio-node from the placeholder SIDs and the secret fixture-secret-not-a-real-key-000; their signatures were re-checked with that secret."
 
 [[gate.allow]]
 pattern = "openai-hf-keys"

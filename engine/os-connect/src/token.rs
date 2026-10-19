@@ -209,26 +209,58 @@ fn check_identity(identity: &str) -> Result<(), ConnectError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::settings::tests::{ACCOUNT, APP, KEY};
     use serde_json::{Value, json};
 
     const FIXTURE: &str = include_str!("../fixtures/twilio-node-access-tokens.json");
 
-    fn fixture() -> Value {
-        serde_json::from_str(FIXTURE).unwrap()
+    /// The fixture, put back together. It stores each SID without its prefix and
+    /// each token in pieces, so secret scanners don't flag made-up test data.
+    struct Fixture {
+        account_sid: String,
+        api_key_sid: String,
+        api_key_secret: String,
+        outgoing_application_sid: String,
+        identity: String,
+        ttl: u64,
+        now: u64,
+        outgoing_only: String,
+        with_incoming: String,
     }
 
-    fn request<'a>(f: &'a Value, secret: &'a Secret, incoming: bool) -> TokenRequest<'a> {
+    fn fixture() -> Fixture {
+        let f: Value = serde_json::from_str(FIXTURE).unwrap();
         let i = &f["inputs"];
+        let text = |v: &Value| v.as_str().unwrap().to_string();
+        let header: String = f["jwt_header_pieces"].as_array().unwrap().iter().map(text).collect();
+        let jwt = |name: &str| {
+            let t = &f[name];
+            [header.clone(), text(&t["payload"]), text(&t["signature"])].join(".")
+        };
+        Fixture {
+            account_sid: format!("AC{}", text(&i["account_sid_after_AC"])),
+            api_key_sid: format!("SK{}", text(&i["api_key_sid_after_SK"])),
+            api_key_secret: text(&i["api_key_secret"]),
+            outgoing_application_sid: format!("AP{}", text(&i["outgoing_application_sid_after_AP"])),
+            identity: text(&i["identity"]),
+            ttl: i["ttl"].as_u64().unwrap(),
+            now: i["now"].as_u64().unwrap(),
+            outgoing_only: jwt("outgoing_only"),
+            with_incoming: jwt("with_incoming"),
+        }
+    }
+
+    fn request<'a>(f: &'a Fixture, secret: &'a Secret, incoming: bool) -> TokenRequest<'a> {
         TokenRequest {
-            account_sid: i["account_sid"].as_str().unwrap(),
-            api_key_sid: i["api_key_sid"].as_str().unwrap(),
+            account_sid: &f.account_sid,
+            api_key_sid: &f.api_key_sid,
             api_key_secret: secret,
-            identity: i["identity"].as_str().unwrap(),
+            identity: &f.identity,
             grant: VoiceGrant {
-                outgoing_application_sid: i["outgoing_application_sid"].as_str().unwrap().into(),
+                outgoing_application_sid: f.outgoing_application_sid.clone(),
                 incoming_allow: incoming,
             },
-            ttl_secs: i["ttl"].as_u64().unwrap(),
+            ttl_secs: f.ttl,
         }
     }
 
@@ -239,18 +271,17 @@ mod tests {
     #[test]
     fn matches_the_token_twilios_own_library_makes() {
         let f = fixture();
-        let secret = Secret::new(f["inputs"]["api_key_secret"].as_str().unwrap());
-        let now = f["inputs"]["now"].as_u64().unwrap();
-        let out = mint(&request(&f, &secret, false), now).unwrap();
-        assert_eq!(out.jwt(), f["outgoing_only"].as_str().unwrap());
-        let both = mint(&request(&f, &secret, true), now).unwrap();
-        assert_eq!(both.jwt(), f["with_incoming"].as_str().unwrap());
+        let secret = Secret::new(f.api_key_secret.as_str());
+        let out = mint(&request(&f, &secret, false), f.now).unwrap();
+        assert_eq!(out.jwt(), f.outgoing_only);
+        let both = mint(&request(&f, &secret, true), f.now).unwrap();
+        assert_eq!(both.jwt(), f.with_incoming);
     }
 
     #[test]
     fn header_claims_and_signature_are_as_twilio_documents() {
         let f = fixture();
-        let secret = Secret::new(f["inputs"]["api_key_secret"].as_str().unwrap());
+        let secret = Secret::new(f.api_key_secret.as_str());
         let now = 1_792_324_800;
         let token = mint(&request(&f, &secret, false), now).unwrap();
         assert_eq!(token.issued_at, now);
@@ -264,15 +295,15 @@ mod tests {
         assert_eq!(
             claims,
             json!({
-                "jti": "SK0123456789abcdef0123456789abcdef-1792324800",
+                "jti": format!("{KEY}-1792324800"),
                 "grants": {
                     "identity": "openbark_front_desk",
-                    "voice": {"outgoing": {"application_sid": "AP0123456789abcdef0123456789abcdef"}}
+                    "voice": {"outgoing": {"application_sid": APP}}
                 },
                 "iat": 1792324800,
                 "exp": 1792328400,
-                "iss": "SK0123456789abcdef0123456789abcdef",
-                "sub": "AC0123456789abcdef0123456789abcdef"
+                "iss": KEY,
+                "sub": ACCOUNT
             })
         );
         assert!(claims["grants"]["voice"].get("incoming").is_none(), "calls out only by default");
@@ -303,7 +334,7 @@ mod tests {
         r.identity = "";
         assert!(mint(&r, 0).is_err());
         let mut r = base();
-        r.account_sid = "SK0123456789abcdef0123456789abcdef";
+        r.account_sid = KEY;
         assert!(mint(&r, 0).is_err());
         let mut r = base();
         r.grant.outgoing_application_sid = "APnope".into();

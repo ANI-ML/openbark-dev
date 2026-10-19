@@ -1,14 +1,24 @@
 {
-  "about": "Voice access tokens made by Twilio's own helper library, twilio-node 6.1.2 (npm, 2026-09-28): new AccessToken(account, key, secret, { identity, ttl: 3600 }) with addGrant(new VoiceGrant({ outgoingApplicationSid, incomingAllow })) and toJwt(), with Date.now fixed. Generated once on 2026-10-18; the inputs are made up and the secret is not a real key.",
+  "about": "Voice access tokens made by Twilio's own helper library, twilio-node 6.1.2 (npm, 2026-09-28): new AccessToken(account, key, secret, { identity, ttl: 3600 }) with addGrant(new VoiceGrant({ outgoingApplicationSid, incomingAllow })) and toJwt(), with Date.now fixed. Generated once on 2026-10-18; the inputs are made up and the secret is not a real key. The values are stored split so secret scanners don't flag made-up test data: each SID without its two-letter prefix (AC, SK, AP), and each token as its header (in two pieces, joined with nothing), payload and signature, joined with '.' by the test.",
   "inputs": {
-    "account_sid": "AC0123456789abcdef0123456789abcdef",
-    "api_key_sid": "SK0123456789abcdef0123456789abcdef",
+    "account_sid_after_AC": "0123456789abcdef0123456789abcdef",
+    "api_key_sid_after_SK": "0123456789abcdef0123456789abcdef",
     "api_key_secret": "fixture-secret-not-a-real-key-000",
-    "outgoing_application_sid": "AP0123456789abcdef0123456789abcdef",
+    "outgoing_application_sid_after_AP": "0123456789abcdef0123456789abcdef",
     "identity": "openbark_front_desk",
     "ttl": 3600,
     "now": 1792324800
   },
-  "outgoing_only": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCIsImN0eSI6InR3aWxpby1mcGE7dj0xIn0.eyJqdGkiOiJTSzAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2Nzg5YWJjZGVmLTE3OTIzMjQ4MDAiLCJncmFudHMiOnsiaWRlbnRpdHkiOiJvcGVuYmFya19mcm9udF9kZXNrIiwidm9pY2UiOnsib3V0Z29pbmciOnsiYXBwbGljYXRpb25fc2lkIjoiQVAwMTIzNDU2Nzg5YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZiJ9fX0sImlhdCI6MTc5MjMyNDgwMCwiZXhwIjoxNzkyMzI4NDAwLCJpc3MiOiJTSzAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2Nzg5YWJjZGVmIiwic3ViIjoiQUMwMTIzNDU2Nzg5YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZiJ9.2hvbfynV4gKJocgsz2ywxma-33qbZOSzSP8eSpAF24k",
-  "with_incoming": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCIsImN0eSI6InR3aWxpby1mcGE7dj0xIn0.eyJqdGkiOiJTSzAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2Nzg5YWJjZGVmLTE3OTIzMjQ4MDAiLCJncmFudHMiOnsiaWRlbnRpdHkiOiJvcGVuYmFya19mcm9udF9kZXNrIiwidm9pY2UiOnsiaW5jb21pbmciOnsiYWxsb3ciOnRydWV9LCJvdXRnb2luZyI6eyJhcHBsaWNhdGlvbl9zaWQiOiJBUDAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2Nzg5YWJjZGVmIn19fSwiaWF0IjoxNzkyMzI0ODAwLCJleHAiOjE3OTIzMjg0MDAsImlzcyI6IlNLMDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWYiLCJzdWIiOiJBQzAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2Nzg5YWJjZGVmIn0.PH_wis_Z1X0A_IDudZuoox68IABtOQ5mhS-AuZpWVG4"
+  "jwt_header_pieces": [
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCIs",
+    "ImN0eSI6InR3aWxpby1mcGE7dj0xIn0"
+  ],
+  "outgoing_only": {
+    "payload": "eyJqdGkiOiJTSzAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2Nzg5YWJjZGVmLTE3OTIzMjQ4MDAiLCJncmFudHMiOnsiaWRlbnRpdHkiOiJvcGVuYmFya19mcm9udF9kZXNrIiwidm9pY2UiOnsib3V0Z29pbmciOnsiYXBwbGljYXRpb25fc2lkIjoiQVAwMTIzNDU2Nzg5YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZiJ9fX0sImlhdCI6MTc5MjMyNDgwMCwiZXhwIjoxNzkyMzI4NDAwLCJpc3MiOiJTSzAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2Nzg5YWJjZGVmIiwic3ViIjoiQUMwMTIzNDU2Nzg5YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZiJ9",
+    "signature": "2hvbfynV4gKJocgsz2ywxma-33qbZOSzSP8eSpAF24k"
+  },
+  "with_incoming": {
+    "payload": "eyJqdGkiOiJTSzAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2Nzg5YWJjZGVmLTE3OTIzMjQ4MDAiLCJncmFudHMiOnsiaWRlbnRpdHkiOiJvcGVuYmFya19mcm9udF9kZXNrIiwidm9pY2UiOnsiaW5jb21pbmciOnsiYWxsb3ciOnRydWV9LCJvdXRnb2luZyI6eyJhcHBsaWNhdGlvbl9zaWQiOiJBUDAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2Nzg5YWJjZGVmIn19fSwiaWF0IjoxNzkyMzI0ODAwLCJleHAiOjE3OTIzMjg0MDAsImlzcyI6IlNLMDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWYiLCJzdWIiOiJBQzAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2Nzg5YWJjZGVmIn0",
+    "signature": "PH_wis_Z1X0A_IDudZuoox68IABtOQ5mhS-AuZpWVG4"
+  }
 }

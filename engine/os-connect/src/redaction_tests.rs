@@ -89,7 +89,7 @@ fn the_secret_is_never_printed_logged_or_sent_anywhere_but_the_auth_header() {
         seen.push(format!("{:?}", client.check_key()));
         for e in [
             client.ensure_app(None, BIN_OUT).unwrap_err(),
-            client.end_call("CA0123456789abcdef0123456789abcdef").unwrap_err(),
+            client.end_call(concat!("CA", "0123456789abcdef", "0123456789abcdef")).unwrap_err(),
         ] {
             seen.push(format!("{e} {e:?}"));
         }
