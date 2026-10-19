@@ -2,9 +2,19 @@
 
 All notable changes to OpenBark, newest first. Generated from `website/content/history.json` by `scripts/website-build.py`; edit that file, not this one. The same history is on the website's Version history page.
 
-## 0.1.0 (beta)
+## 0.1.1 (beta)
 
 ### Beta: Ready for clinics to try
+
+#### 2026-10-19: Your own templates, MLX on Mac, a dental chart
+
+Make templates your own, choose the model that writes your notes, and chart teeth during a dental.
+
+- Change any template, built-ins included, as your own version; a hospital-wide templates setting; admins approve hospital changes with their PIN.
+- MLX models on Macs with Apple silicon, models of your choice, and removing models you no longer need. (being tested)
+- A dental chart with canine and feline tooth numbering, linked to the transcript and included in the note and PDF. (being tested)
+- Help videos re-recorded, in light and dark.
+- Installers now name ANI.ML Health Inc. as the publisher.
 
 #### 2026-10-18: Installers, patients and a new look
 
@@ -14,7 +24,6 @@ Everything a clinic needs to install OpenBark and use it day to day.
 - Patients, with each animal's visits in one place.
 - Much faster on NVIDIA graphics cards: transcription and drafting both run on the card, with an optional speed pack for transcription.
 - Clear progress for transcription and drafting, and Reprocess to redraft a visit with a different template.
-- Change any template, built-ins included, as your own version; a hospital-wide templates setting; admins approve hospital changes with their PIN.
 - The new OpenBark brand across the app and the website, with downloads, this version history and a way to contact the team.
 
 ### Milestone 2: Specialties and help
@@ -60,5 +69,5 @@ Planned or being tested, not finished. No dates are promised.
 - An iPhone app that records and transcribes in the exam room, with encrypted sync of transcripts and notes to your computers.
 - PIMS integration.
 - Signed installers, so Windows and macOS don't warn on first install.
-- A dental chart, and summaries of a patient's past records.
+- Summaries of a patient's past records.
 - Testing on more Macs, Linux computers and graphics cards.

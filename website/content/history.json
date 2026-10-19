@@ -1,12 +1,12 @@
 {
   "_about": "Version history shown on history.html and written to CHANGELOG.md by scripts/website-build.py. Major changes only, newest first: a handful of items per milestone, each one a change a clinic would notice. Items marked 'testing' are built but not yet proven on real devices.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "stage": "Beta",
   "next": [
     {"text": "An iPhone app that records and transcribes in the exam room, with encrypted sync of transcripts and notes to your computers."},
     {"text": "PIMS integration."},
     {"text": "Signed installers, so Windows and macOS don't warn on first install."},
-    {"text": "A dental chart, and summaries of a patient's past records."},
+    {"text": "Summaries of a patient's past records."},
     {"text": "Testing on more Macs, Linux computers and graphics cards."}
   ],
   "milestones": [
@@ -16,6 +16,18 @@
       "tagline": "Ready for clinics to try",
       "entries": [
         {
+          "date": "2026-10-19",
+          "title": "Your own templates, MLX on Mac, a dental chart",
+          "summary": "Make templates your own, choose the model that writes your notes, and chart teeth during a dental.",
+          "items": [
+            {"text": "Change any template, built-ins included, as your own version; a hospital-wide templates setting; admins approve hospital changes with their PIN.", "status": "shipped"},
+            {"text": "MLX models on Macs with Apple silicon, models of your choice, and removing models you no longer need.", "status": "testing"},
+            {"text": "A dental chart with canine and feline tooth numbering, linked to the transcript and included in the note and PDF.", "status": "testing"},
+            {"text": "Help videos re-recorded, in light and dark.", "status": "shipped"},
+            {"text": "Installers now name ANI.ML Health Inc. as the publisher.", "status": "shipped"}
+          ]
+        },
+        {
           "date": "2026-10-18",
           "title": "Installers, patients and a new look",
           "summary": "Everything a clinic needs to install OpenBark and use it day to day.",
@@ -24,7 +36,6 @@
             {"text": "Patients, with each animal's visits in one place.", "status": "shipped"},
             {"text": "Much faster on NVIDIA graphics cards: transcription and drafting both run on the card, with an optional speed pack for transcription.", "status": "shipped"},
             {"text": "Clear progress for transcription and drafting, and Reprocess to redraft a visit with a different template.", "status": "shipped"},
-            {"text": "Change any template, built-ins included, as your own version; a hospital-wide templates setting; admins approve hospital changes with their PIN.", "status": "shipped"},
             {"text": "The new OpenBark brand across the app and the website, with downloads, this version history and a way to contact the team.", "status": "shipped"}
           ]
         }
