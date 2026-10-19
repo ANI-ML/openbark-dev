@@ -1671,7 +1671,7 @@ dependencies = [
 
 [[package]]
 name = "fixture-tts"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -3733,7 +3733,7 @@ dependencies = [
 
 [[package]]
 name = "openbark-desktop"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "os-app",
  "os-engine",
@@ -3818,7 +3818,7 @@ dependencies = [
 
 [[package]]
 name = "os-app"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "chrono",
  "os-asr",
@@ -3834,7 +3834,7 @@ dependencies = [
 
 [[package]]
 name = "os-asr"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "cpal",
  "opus-decoder",
@@ -3848,7 +3848,7 @@ dependencies = [
 
 [[package]]
 name = "os-cli"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -3872,7 +3872,7 @@ dependencies = [
 
 [[package]]
 name = "os-diar"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "os-asr",
  "serde",
@@ -3881,7 +3881,7 @@ dependencies = [
 
 [[package]]
 name = "os-engine"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
  "chacha20poly1305",
@@ -3908,7 +3908,7 @@ dependencies = [
 
 [[package]]
 name = "os-llm"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "llama-cpp-2",
  "minijinja",
@@ -3921,7 +3921,7 @@ dependencies = [
 
 [[package]]
 name = "os-models"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "bzip2 0.5.2",
  "dirs",
@@ -3940,7 +3940,7 @@ dependencies = [
 
 [[package]]
 name = "os-server"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "axum",
  "chrono",
