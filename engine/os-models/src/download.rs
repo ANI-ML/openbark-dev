@@ -133,6 +133,8 @@ pub fn download(
 
         let actual = fs::metadata(&part)?.len();
         if actual != file.size {
+            // Never resumed again: the next try starts this file afresh.
+            fs::remove_file(&part)?;
             return Err(DownloadError::Size { file: file.path.clone(), expected: file.size, actual });
         }
         let hashes = hash_file(&part)?;
@@ -178,7 +180,12 @@ fn fetch_resumable(
     progress: &mut dyn Progress,
 ) -> Result<(), DownloadError> {
     let mut have = fs::metadata(part_path).map(|m| m.len()).unwrap_or(0);
-    if have >= total {
+    if have > total {
+        // Longer than the file: left from another revision. Start again.
+        fs::remove_file(part_path)?;
+        have = 0;
+    }
+    if have == total {
         return Ok(());
     }
     let mut request = client.get(url).header(USER_AGENT, concat!("OpenBark/", env!("CARGO_PKG_VERSION")));
@@ -385,6 +392,26 @@ mod tests {
         assert!(
             s.requests.lock().unwrap().iter().any(|r| r.to_ascii_lowercase().contains("range: bytes=1234-"))
         );
+    }
+
+    /// A `.part` longer than the file (left by another revision) used to fail
+    /// every retry with a size error. It is thrown away and fetched afresh.
+    #[test]
+    fn a_partial_download_longer_than_the_file_starts_again() {
+        let body = b"GGUF the current revision".to_vec();
+        let s = stub(vec![("m", body.clone())]);
+        let tmp = tempfile::tempdir().unwrap();
+        let store = ModelStore::new(tmp.path());
+        let entry = url_entry(&s.base, &[("m.gguf", "/files/m", &body)]);
+        let part = part_path(&store.file_path(&entry, "m.gguf"));
+        fs::create_dir_all(part.parent().unwrap()).unwrap();
+        fs::write(&part, vec![9u8; body.len() + 100]).unwrap();
+        download(&store, &entry, None, &mut no_progress()).unwrap();
+        assert_eq!(fs::read(store.file_path(&entry, "m.gguf")).unwrap(), body);
+        assert!(!part.exists());
+        let requests = s.requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(!requests[0].to_ascii_lowercase().contains("range:"), "fetched from the start");
     }
 
     #[test]

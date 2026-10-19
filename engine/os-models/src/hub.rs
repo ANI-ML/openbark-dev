@@ -537,15 +537,24 @@ fn parse_shard_ext(file_name: &str, ext: &str) -> Option<Shard> {
 /// GGUF files that aren't a model on their own: vision projectors (mmproj),
 /// multi-token-prediction drafts (`mtp-`, anything under `MTP/`), importance
 /// matrices, vocab-only files, draft models, LoRA adapters. Case-insensitive.
+///
+/// Draft, LoRA and adapter files are recognised by whole words of the file
+/// name (split on `-`, `_`, `.` and spaces), and folders only by their exact
+/// name, so full models such as `...-lorablated-Q4_K_M.gguf`, `Explora-7B` or
+/// a `Floral-v1` folder aren't mistaken for helpers.
 pub fn is_helper_gguf(path: &str) -> bool {
+    const HELPER_FOLDERS: [&str; 6] = ["mtp", "mmproj", "lora", "loras", "adapter", "adapters"];
+    const HELPER_WORDS: [&str; 4] = ["draft", "lora", "adapter", "mmproj"];
     let lower = path.to_ascii_lowercase();
     let mut parts: Vec<&str> = lower.split('/').collect();
     let name = parts.pop().unwrap_or_default();
-    parts.contains(&"mtp")
+    let stem = name.strip_suffix(".gguf").unwrap_or(name);
+    parts.iter().any(|p| HELPER_FOLDERS.contains(p))
         || name.starts_with("mtp-")
         || name.starts_with("imatrix")
         || name.starts_with("ggml-vocab")
-        || ["mmproj", "-draft", "lora", "adapter"].iter().any(|w| lower.contains(w))
+        || name.contains("mmproj")
+        || stem.split(['-', '_', '.', ' ']).any(|w| HELPER_WORDS.contains(&w))
 }
 
 /// The ADR-0025 §5 allow-list for an MLX model folder: root files only, never
@@ -972,8 +981,40 @@ pub fn add_to_catalog(
         layout,
         gated: repo.gated_kind.is_some(),
     };
+    // The same model at another revision: its folder is the same, so files
+    // (or stopped downloads) the new listing doesn't keep would be left
+    // behind, uncounted, or resumed with the new revision's bytes.
+    if let Some(old) = load_user_catalog(store).into_iter().find(|m| m.id == entry.id)
+        && !stale_files(store, &old, &entry).is_empty()
+    {
+        return Err(HubError::Invalid(OLDER_ON_DISK.into()));
+    }
     save_user_entry(store, entry.clone())?;
     Ok(entry)
+}
+
+const OLDER_ON_DISK: &str =
+    "An older version of this model is on this computer. Remove it on the Models screen, then add it again.";
+
+/// Files of `old` on disk (whole or as a stopped `.part` download) that
+/// `new` doesn't list with the same size and hash: they'd be orphaned, or a
+/// stopped download would resume with another revision's bytes.
+fn stale_files(store: &ModelStore, old: &CatalogEntry, new: &CatalogEntry) -> Vec<String> {
+    if old.in_place().is_some() {
+        return Vec::new();
+    }
+    let same = |a: &FileSpec, b: &FileSpec| {
+        a.path == b.path && a.size == b.size && a.sha256 == b.sha256 && a.git_sha1 == b.git_sha1
+    };
+    old.files
+        .iter()
+        .filter(|f| !new.files.iter().any(|n| same(f, n)))
+        .filter(|f| {
+            let path = store.file_path(old, &f.path);
+            path.exists() || crate::store::part_path(&path).exists()
+        })
+        .map(|f| f.path.clone())
+        .collect()
 }
 
 fn mlx_problem_text(p: &MlxProblem) -> String {
@@ -1210,6 +1251,29 @@ mod tests {
             ["gemma-4-E4B-it-Q4_K_M.gguf", "Q4_K_M/Qwen3-235B-Q4_K_M-00001-of-00003.gguf", "smtp-model.gguf"]
         {
             assert!(!is_helper_gguf(model), "{model}");
+        }
+        // Whole words only: full models whose names merely contain the letters.
+        for model in [
+            "Llama-3.1-70B-Instruct-lorablated.Q4_K_M.gguf",
+            "Hermes-3-Llama-3.1-8B-lorablated-Q4_K_M.gguf",
+            "Explora-7B-Q4_K_M.gguf",
+            "Q4_K_M/Floral-v1-Q4_K_M-00001-of-00002.gguf",
+            "Draftsman-12B-Q4_K_M.gguf",
+            "Adaptera-3B.Q8_0.gguf",
+            "loras-not-a-folder-7B-Q4_0.gguf",
+        ] {
+            assert!(!is_helper_gguf(model), "{model}");
+        }
+        // Words and folders that do mean a helper.
+        for helper in [
+            "Qwen3-0.6B_draft.Q8_0.gguf",
+            "Mistral-7B-lora-Q8_0.gguf",
+            "LoRA/Mistral-7B-Q8_0.gguf",
+            "adapters/style.gguf",
+            "Qwen2.5-Omni-7B-mmproj-Q8_0.gguf",
+            "mmproj/model-f16.gguf",
+        ] {
+            assert!(is_helper_gguf(helper), "{helper}");
         }
     }
 
@@ -1671,6 +1735,47 @@ mod tests {
         assert_eq!(entry.id, "hf:someone/model-GGUF/m.Q4_K_M");
         assert!(full_catalog(&store).get(&entry.id).is_some());
         assert!(add_to_catalog(&store, &repo, MLX_CHOICE, true).is_err(), "not an MLX repo");
+    }
+
+    /// Adding a model again at a newer revision while the old one's files (or
+    /// a stopped download of them) are on disk would orphan them or resume a
+    /// download with another revision's bytes: refused, with what to do.
+    #[test]
+    fn a_newer_revision_waits_until_the_old_files_are_removed() {
+        let (_tmp, store) = tmp_store();
+        let old_repo = sample_repo("mit", LicenseClass::Permissive);
+        let old = add_to_catalog(&store, &old_repo, "m.Q4_K_M.gguf", false).unwrap();
+        // The same revision again is fine, files or not.
+        let file = store.file_path(&old, "m.Q4_K_M.gguf");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, [0u8; 10]).unwrap();
+        add_to_catalog(&store, &old_repo, "m.Q4_K_M.gguf", false).unwrap();
+
+        let mut new_repo = old_repo.clone();
+        new_repo.revision = "c".repeat(40);
+        new_repo.files[0].parts[0].sha256 = Some("d".repeat(64));
+        new_repo.files[0].parts[0].size = 12;
+        new_repo.files[0].size = 12;
+        let err = add_to_catalog(&store, &new_repo, "m.Q4_K_M.gguf", false).unwrap_err();
+        assert_eq!(err.to_string(), OLDER_ON_DISK);
+        let kept = load_user_catalog(&store);
+        assert_eq!(kept.len(), 1);
+        assert!(
+            matches!(&kept[0].source, Source::Huggingface { revision, .. } if *revision == "a".repeat(40))
+        );
+        // A stopped download of the old revision counts too.
+        std::fs::remove_file(&file).unwrap();
+        std::fs::write(crate::store::part_path(&file), [0u8; 4]).unwrap();
+        assert!(add_to_catalog(&store, &new_repo, "m.Q4_K_M.gguf", false).is_err());
+        // Once removed, the newer revision replaces it.
+        std::fs::remove_file(crate::store::part_path(&file)).unwrap();
+        let new = add_to_catalog(&store, &new_repo, "m.Q4_K_M.gguf", false).unwrap();
+        assert_eq!(new.files[0].size, 12);
+        // A new revision that lists the same file unchanged keeps it.
+        std::fs::write(&file, [0u8; 12]).unwrap();
+        let mut same_files = new_repo.clone();
+        same_files.revision = "e".repeat(40);
+        add_to_catalog(&store, &same_files, "m.Q4_K_M.gguf", false).unwrap();
     }
 
     #[test]

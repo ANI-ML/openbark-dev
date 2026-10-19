@@ -2,13 +2,20 @@
 //! for gated repos.
 //!
 //! Where it comes from, in order:
-//! 1. `OPENBARK_HF_TOKEN`, then `HF_TOKEN`, set by whoever runs the server
-//!    (shown as "Set by the server"; saving and removing don't touch it);
+//! 1. `OPENBARK_HF_TOKEN`, set by whoever runs the server (shown as "Set by
+//!    the server"; saving and removing don't touch it). The generic
+//!    `HF_TOKEN` many Hugging Face users set for their own tools is never
+//!    read: OpenBark uses only a token it was given for itself;
 //! 2. the operating system's keychain (service `OpenBark`, account
 //!    `huggingface-token`, the ADR-0008 pattern);
 //! 3. without a keychain, `<local data>/OpenBark/hf-token.obk`, encrypted
 //!    with the vault, only when encryption at rest is on;
 //! 4. otherwise memory, until OpenBark closes.
+//!
+//! `OPENBARK_HF_TOKEN_FILE=<path>` (demo, test and scratch runs) keeps the
+//! token in that file instead (vault-encrypted, else memory) and never reads,
+//! writes or deletes the keychain entry or the data folder's file, so a
+//! scratch server can't use or change this computer's own token.
 //!
 //! Never in plain text, never returned to the interface, never logged: no
 //! type here that holds a token derives `Debug`.
@@ -26,13 +33,16 @@ use crate::vault;
 pub const HF_TOKEN_ACCOUNT: &str = "huggingface-token";
 const SERVICE: &str = "OpenBark";
 const FILE_NAME: &str = "hf-token.obk";
-const ENV_VARS: [&str; 2] = ["OPENBARK_HF_TOKEN", "HF_TOKEN"];
+/// The only environment variable a token is taken from (never `HF_TOKEN`).
+const ENV_VAR: &str = "OPENBARK_HF_TOKEN";
+/// A scratch file for the token: the keychain is left alone entirely.
+const FILE_ENV_VAR: &str = "OPENBARK_HF_TOKEN_FILE";
 
 /// Where the token in use came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TokenSource {
-    /// `OPENBARK_HF_TOKEN` or `HF_TOKEN`.
+    /// `OPENBARK_HF_TOKEN`.
     Server,
     Keychain,
     /// The vault-encrypted file in the data folder.
@@ -79,6 +89,22 @@ impl SecretBackend for MemoryBackend {
 
 /// The operating system's keychain (Credential Manager, Keychain, Secret Service).
 struct Keychain;
+
+/// No keychain at all: used when `OPENBARK_HF_TOKEN_FILE` points elsewhere,
+/// so nothing is read from, written to or deleted from the real one.
+struct NoKeychain;
+
+impl SecretBackend for NoKeychain {
+    fn get(&self, _: &str) -> Result<Option<String>, String> {
+        Err("the keychain isn't used with OPENBARK_HF_TOKEN_FILE".into())
+    }
+    fn set(&self, _: &str, _: &str) -> Result<(), String> {
+        Err("the keychain isn't used with OPENBARK_HF_TOKEN_FILE".into())
+    }
+    fn delete(&self, _: &str) -> Result<(), String> {
+        Ok(())
+    }
+}
 
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 impl SecretBackend for Keychain {
@@ -129,20 +155,30 @@ struct Stores<'a> {
     session: &'a Mutex<Option<String>>,
 }
 
-fn token_file() -> PathBuf {
-    os_models::locations::app_data_dir().join(FILE_NAME)
-}
-
 fn real_env(name: &str) -> Option<String> {
     std::env::var(name).ok()
 }
 
-fn real_stores() -> Stores<'static> {
-    Stores { env: &real_env, backend: &Keychain, file: token_file(), session: &SESSION }
+/// Where the token is kept: the keychain and `<local data>/OpenBark`, or,
+/// with `OPENBARK_HF_TOKEN_FILE`, only that file (no keychain at all).
+fn stores_for(env: &'static dyn Fn(&str) -> Option<String>) -> Stores<'static> {
+    match env(FILE_ENV_VAR).map(|p| p.trim().to_string()).filter(|p| !p.is_empty()) {
+        Some(file) => Stores { env, backend: &NoKeychain, file: PathBuf::from(file), session: &SESSION },
+        None => Stores {
+            env,
+            backend: &Keychain,
+            file: os_models::locations::app_data_dir().join(FILE_NAME),
+            session: &SESSION,
+        },
+    }
 }
 
-/// The token in use and where it came from: env `OPENBARK_HF_TOKEN`, then
-/// `HF_TOKEN` (Server); keychain; vault file; session.
+fn real_stores() -> Stores<'static> {
+    stores_for(&real_env)
+}
+
+/// The token in use and where it came from: env `OPENBARK_HF_TOKEN`
+/// (Server); keychain; vault file; session.
 pub fn hf_token() -> Option<(String, TokenSource)> {
     get(&real_stores())
 }
@@ -165,10 +201,8 @@ pub fn plausible_token(token: &str) -> bool {
 }
 
 fn get(s: &Stores) -> Option<(String, TokenSource)> {
-    for var in ENV_VARS {
-        if let Some(t) = (s.env)(var).map(|t| t.trim().to_string()).filter(|t| !t.is_empty()) {
-            return Some((t, TokenSource::Server));
-        }
+    if let Some(t) = (s.env)(ENV_VAR).map(|t| t.trim().to_string()).filter(|t| !t.is_empty()) {
+        return Some((t, TokenSource::Server));
     }
     match s.backend.get(HF_TOKEN_ACCOUNT) {
         Ok(Some(t)) if !t.is_empty() => return Some((t, TokenSource::Keychain)),
@@ -344,22 +378,59 @@ mod tests {
         let backend = MemoryBackend::new();
         backend.set(HF_TOKEN_ACCOUNT, TOKEN).unwrap();
         let session = Mutex::new(None);
-        let env = |name: &str| match name {
-            "HF_TOKEN" => Some("hf_from_hf_token_var".to_string()),
-            _ => None,
-        };
-        let s = Stores { env: &env, backend: &backend, file: PathBuf::from("unused"), session: &session };
-        assert_eq!(get(&s), Some(("hf_from_hf_token_var".to_string(), TokenSource::Server)));
         let both = |name: &str| match name {
             "OPENBARK_HF_TOKEN" => Some("hf_openbark_var_wins".to_string()),
             "HF_TOKEN" => Some("hf_from_hf_token_var".to_string()),
             _ => None,
         };
-        let s = Stores { env: &both, ..s };
+        let s = Stores { env: &both, backend: &backend, file: PathBuf::from("unused"), session: &session };
         assert_eq!(get(&s).unwrap(), ("hf_openbark_var_wins".to_string(), TokenSource::Server));
         let blank = |name: &str| (name == "OPENBARK_HF_TOKEN").then(|| "  ".to_string());
         let s = Stores { env: &blank, ..s };
         assert_eq!(get(&s).unwrap().1, TokenSource::Keychain, "a blank variable doesn't count");
+    }
+
+    /// The generic `HF_TOKEN` (set globally by many Hugging Face users for
+    /// their own tools) is a credential the clinic never gave OpenBark.
+    #[test]
+    fn the_generic_hf_token_variable_is_never_used() {
+        let backend = MemoryBackend::new();
+        let session = Mutex::new(None);
+        let env = |name: &str| (name == "HF_TOKEN").then(|| "hf_from_someone_elses_tool".to_string());
+        let s = Stores { env: &env, backend: &backend, file: PathBuf::from("unused"), session: &session };
+        assert!(get(&s).is_none());
+        backend.set(HF_TOKEN_ACCOUNT, TOKEN).unwrap();
+        assert_eq!(get(&s), Some((TOKEN.to_string(), TokenSource::Keychain)));
+    }
+
+    /// `OPENBARK_HF_TOKEN_FILE`: the token lives only in that file (or the
+    /// session); the keychain backend is never the real one, so a demo or
+    /// test run can't read, overwrite or delete this computer's own token.
+    #[test]
+    fn a_scratch_token_file_keeps_away_from_the_keychain() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("scratch").join("hf-token.obk");
+        let path = file.to_string_lossy().into_owned();
+        let env: &'static dyn Fn(&str) -> Option<String> =
+            Box::leak(Box::new(move |name: &str| (name == "OPENBARK_HF_TOKEN_FILE").then(|| path.clone())));
+        let s = stores_for(env);
+        assert_eq!(s.file, file);
+        assert!(s.backend.get(HF_TOKEN_ACCOUNT).is_err(), "no keychain behind it");
+        assert!(s.backend.set(HF_TOKEN_ACCOUNT, TOKEN).is_err());
+        vault::tests::with_key(|| {
+            let session = Mutex::new(None);
+            let s = Stores { session: &session, ..stores_for(env) };
+            assert!(get(&s).is_none(), "a fresh scratch run sees no token");
+            assert_eq!(set(&s, TOKEN).unwrap(), TokenSource::VaultFile);
+            assert!(vault::is_encrypted(&file), "in the scratch file, encrypted");
+            assert_eq!(get(&s), Some((TOKEN.to_string(), TokenSource::VaultFile)));
+            clear(&s).unwrap();
+            assert!(!file.exists());
+        });
+        // Without the variable, the real places are used.
+        let none: &'static dyn Fn(&str) -> Option<String> = &|_| None;
+        assert!(stores_for(none).file.ends_with(FILE_NAME));
+        assert_ne!(stores_for(none).file, file);
     }
 
     #[test]

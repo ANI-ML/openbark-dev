@@ -15,6 +15,9 @@ default = []
 cuda = ["os-llm/cuda"]
 vulkan = ["os-llm/vulkan"]
 metal = ["os-llm/metal"]
+# Honour OPENBARK_MLX_DEV=1 (MLX on Linux's CPU, for CI and developers) in a
+# release build (ADR-0025 §1). Never enabled for the builds clinics get.
+mlx-test-mode = ["os-models/mlx-test-mode"]
 
 [dependencies]
 os-app.workspace = true

@@ -37,7 +37,7 @@ sys.stdout = sys.stderr
 
 LOCK = threading.Lock()
 CANCEL = threading.Event()
-STATE = {"model": None, "name": "", "running": None}
+STATE = {"model": None, "name": "", "running": None, "ctx": 40960}
 REQUESTS = []
 COND = threading.Condition()
 
@@ -131,6 +131,11 @@ def generate(req):
     bump("generates")
     schema = req.get("json_schema")
     prompt_tokens = sum(len(m["content"]) for m in req["messages"])
+    # Like the real worker: the prompt (here, its characters) plus the new
+    # tokens must fit min(the model's context, max_context).
+    if prompt_tokens + req["max_tokens"] > STATE["ctx"]:
+        return error(req_id, "context_overflow", "the prompt doesn't fit the model's context",
+                     prompt_tokens=prompt_tokens, max_new=req["max_tokens"], context=STATE["ctx"])
     if name.startswith("fail-"):
         kind = name[len("fail-"):]
         if kind == "context_overflow":
@@ -220,6 +225,8 @@ def main():
                 continue
             STATE["model"] = path
             STATE["name"] = os.path.basename(os.path.normpath(path))
+            cap = req.get("max_context") or 0
+            STATE["ctx"] = min(40960, cap) if cap > 0 else 40960
             bump("loads")
             if STATE["name"] == "fail-load":
                 error(req["id"], "load", "the model couldn't be loaded")
@@ -227,7 +234,7 @@ def main():
             if STATE["name"] == "fail-arch":
                 error(req["id"], "unsupported_architecture", "the MLX engine can't run this kind of model yet (fake)")
                 continue
-            send({"id": req["id"], "event": "loaded", "model_type": "qwen3", "context_length": 40960,
+            send({"id": req["id"], "event": "loaded", "model_type": "qwen3", "context_length": STATE["ctx"],
                   "eos_token_ids": [151645, 151643], "vocab_size": 151936,
                   "constrained_ready": STATE["name"] != "unconstrained", "load_ms": 3})
         elif op == "generate":

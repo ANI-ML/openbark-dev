@@ -272,6 +272,9 @@ pub struct App {
     loaned: Mutex<Vec<Loaned>>,
     /// Model ids with a download or an import running (ADR-0025 §10).
     downloading: Mutex<HashSet<String>>,
+    /// The slot holds, or is loading, an MLX model: for status calls that
+    /// mustn't wait while a model loads (the slot's lock is held for that).
+    mlx_in_slot: std::sync::atomic::AtomicBool,
     /// Whose Hugging Face token was saved in this run (from `whoami`), kept
     /// in memory only.
     hf_user: Mutex<Option<String>>,
@@ -685,8 +688,12 @@ pub struct ModelRow {
     pub installed: bool,
     pub fit: Fit,
     pub builtin: bool,
-    /// Bytes on disk (0 when used in place).
+    /// Bytes on disk that are OpenBark's alone, so removing them frees that
+    /// much (0 when used in place).
     pub disk_bytes: u64,
+    /// Bytes on disk whose data another name also holds (a hard link: a copy
+    /// from this computer on the same drive). Removing them frees nothing.
+    pub shared_bytes: u64,
     /// A download that stopped part-way.
     pub partial_bytes: u64,
     pub origin: Origin,
@@ -759,6 +766,7 @@ const MODEL_BUSY: &str = "A note is being written with this model. Remove it whe
 const MLX_FIRST: &str = "Download the MLX engine on the Models screen first.";
 const MLX_NEEDS: &str = "MLX models run on a Mac with Apple silicon and macOS 14 or later.";
 const MLX_DOWNLOADING: &str = "The MLX engine is already downloading.";
+const MLX_CHECK_FAILED: &str = "The MLX engine didn't pass its check on this computer. Choose Try again on the MLX engine card in Models.";
 
 /// Why a model can't be removed on its own, if it can't: the speech models
 /// OpenBark needs to transcribe visits, and the GPU speech pack's own
@@ -826,6 +834,58 @@ fn pack_key() -> Option<mlx_pack::CheckKey> {
 /// Whether Metal was usable at the last pack check, kept beside it.
 fn metal_key() -> Option<mlx_pack::CheckKey> {
     mlx_pack::check_key(env!("CARGO_PKG_VERSION"), "pack:metal")
+}
+
+/// Where MLX stands before a model loads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MlxGate {
+    /// Not a Mac that runs MLX (and not test mode).
+    NotHere,
+    /// The engine pack isn't installed.
+    NotInstalled,
+    /// Installed, with no check result for this app version, lock, macOS
+    /// version and chip: after an OpenBark or macOS update, or never run.
+    NeedsCheck,
+    /// Its check failed on this computer.
+    Failed,
+    Ready,
+}
+
+fn mlx_gate(runs: bool, installed: bool, check: Option<&mlx_pack::CheckRecord>) -> MlxGate {
+    match (runs, installed, check) {
+        (false, _, _) => MlxGate::NotHere,
+        (true, false, _) => MlxGate::NotInstalled,
+        (true, true, None) => MlxGate::NeedsCheck,
+        (true, true, Some(r)) if r.ok => MlxGate::Ready,
+        (true, true, Some(_)) => MlxGate::Failed,
+    }
+}
+
+/// Make sure the engine can write notes, running its check first when the
+/// last result no longer applies (a few seconds, local): an update must
+/// never send someone to download an engine they already have. `check` is
+/// [`run_mlx_pack_check`] (a stand-in in tests).
+fn ensure_mlx(gate: MlxGate, check: impl FnOnce() -> Result<PackCheck>) -> Result<()> {
+    match gate {
+        MlxGate::Ready => Ok(()),
+        MlxGate::NotHere => Err(AppError(MLX_NEEDS.into())),
+        MlxGate::NotInstalled => Err(AppError(MLX_FIRST.into())),
+        MlxGate::Failed => Err(AppError(MLX_CHECK_FAILED.into())),
+        MlxGate::NeedsCheck => {
+            tracing::info!("the MLX engine's last check doesn't apply any more; checking it again");
+            match check() {
+                Ok(c) if c.ok => Ok(()),
+                Ok(c) => {
+                    tracing::warn!(message = ?c.message, "the MLX engine didn't pass its check");
+                    Err(AppError(MLX_CHECK_FAILED.into()))
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e.0, "the MLX engine couldn't check itself");
+                    Err(AppError(MLX_CHECK_FAILED.into()))
+                }
+            }
+        }
+    }
 }
 
 /// The MLX engine pack is installed here and passed its check.
@@ -946,9 +1006,9 @@ pub fn open_llm(store: &ModelStore, spec: &str, gpu_layers: Option<u32>) -> Resu
 /// An MLX model, on the pack's worker. The model check runs on its first
 /// load on this computer and is remembered in `checks.json`.
 fn open_mlx(store: &ModelStore, m: &CatalogEntry, config: &str) -> Result<Arc<dyn LlmBackend>> {
-    if !mlx_ready() {
-        return Err(AppError(MLX_FIRST.into()));
-    }
+    let installed = mlx_pack::installed();
+    let record = pack_key().and_then(|k| mlx_pack::check_result(&k));
+    ensure_mlx(mlx_gate(mlx_runs_here(), installed, record.as_ref()), run_mlx_pack_check)?;
     let (Some(python), Some(work_dir)) = (mlx_pack::python(), mlx_pack::pack_dir()) else {
         return Err(AppError(MLX_FIRST.into()));
     };
@@ -1017,6 +1077,7 @@ impl App {
             llm: Mutex::new(None),
             loaned: Mutex::new(Vec::new()),
             downloading: Mutex::new(HashSet::new()),
+            mlx_in_slot: std::sync::atomic::AtomicBool::new(false),
             hf_user: Mutex::new(None),
             recorder: Mutex::new(None),
             recording_work: Mutex::new(None),
@@ -2312,13 +2373,25 @@ impl App {
             return Ok(backend.clone());
         }
         *slot = None; // one model per process: free before loading
-        let backend = open_llm(&self.store, id, None)?;
+        // While it loads (minutes, for MLX), status calls read this instead
+        // of waiting for the slot.
+        let loading_mlx =
+            hub::full_catalog(&self.store).get(id).is_some_and(|m| m.llm_engine() == Some(LlmEngine::Mlx));
+        self.mlx_in_slot.store(loading_mlx, std::sync::atomic::Ordering::SeqCst);
+        let backend = match open_llm(&self.store, id, None) {
+            Ok(b) => b,
+            Err(e) => {
+                self.mlx_in_slot.store(false, std::sync::atomic::Ordering::SeqCst);
+                return Err(e);
+            }
+        };
+        let mlx = backend.capabilities().backend == "mlx";
         if let Ok(mut loaned) = self.loaned.lock() {
             loaned.retain(|(_, _, w)| w.strong_count() > 0);
-            let mlx = backend.capabilities().backend == "mlx";
             loaned.push((id.to_string(), mlx, Arc::downgrade(&backend)));
         }
         *slot = Some((id.to_string(), backend.clone()));
+        self.mlx_in_slot.store(mlx, std::sync::atomic::Ordering::SeqCst);
         Ok(backend)
     }
 
@@ -2504,6 +2577,7 @@ impl App {
                 // The note model is memory-mapped while loaded; free it so its file can move.
                 if kind == FolderKind::Models {
                     *self.llm.lock().map_err(|_| AppError("model lock poisoned".into()))? = None;
+                    self.mlx_in_slot.store(false, SeqCst);
                 }
                 let from = self.folder(kind);
                 let moved =
@@ -2576,6 +2650,7 @@ impl App {
             },
             builtin,
             disk_bytes: self.store.disk_usage(m),
+            shared_bytes: self.store.shared_bytes(m),
             partial_bytes: self.store.partial_bytes(m),
             origin: origin_of(m, builtin),
             engine: m.llm_engine(),
@@ -2605,6 +2680,10 @@ impl App {
         let catalog = hub::full_catalog(&self.store);
         let entry =
             catalog.get(id).ok_or_else(|| AppError(format!("No model called {id} in the catalog.")))?;
+        // Gigabytes that could never write a note here.
+        if entry.llm_engine() == Some(LlmEngine::Mlx) && !mlx_runs_here() {
+            return Err(AppError(MLX_NEEDS.into()));
+        }
         let _downloading = self.start_download(id)?;
         let saved = match token {
             Some(_) => None,
@@ -2645,7 +2724,11 @@ impl App {
         if let Some(why) = protected_model(id) {
             return Err(AppError(why.into()));
         }
-        // Held to the end, so no download of this model can start meanwhile.
+        // Both held to the end: nothing loads this model, and no download of
+        // it starts, mid-removal. The slot first (a model load holds it for
+        // minutes), then the download list, which is never held while waiting
+        // for the slot, so downloads can start and finish during a load.
+        let mut slot = self.llm.lock().map_err(|_| AppError("model lock poisoned".into()))?;
         let downloading = self.downloading.lock().map_err(|_| AppError("download list poisoned".into()))?;
         if downloading.contains(id) {
             return Err(AppError("This model is still downloading.".into()));
@@ -2655,8 +2738,6 @@ impl App {
                 "This model writes your notes. Choose another one under In use first.".into(),
             ));
         }
-        // Held to the end, so nothing loads this model mid-removal.
-        let mut slot = self.llm.lock().map_err(|_| AppError("model lock poisoned".into()))?;
         if let Some((loaded, backend)) = slot.as_ref()
             && loaded == id
         {
@@ -2664,20 +2745,30 @@ impl App {
                 return Err(AppError(MODEL_BUSY.into()));
             }
             *slot = None;
+            self.mlx_in_slot.store(false, std::sync::atomic::Ordering::SeqCst);
         }
         if self.loaned_out(|loaned, _| loaned == id) {
             return Err(AppError(MODEL_BUSY.into()));
         }
         let builtin = os_models::Catalog::builtin().get(id).is_some();
         let removed = removal::remove(&self.store, entry, builtin, forget)?;
-        drop(slot);
         drop(downloading);
-        tracing::info!(id, freed = removed.freed_bytes, forgotten = removed.forgotten, "model removed");
+        drop(slot);
+        tracing::info!(
+            id,
+            freed = removed.freed_bytes,
+            shared = removed.shared_bytes,
+            forgotten = removed.forgotten,
+            "model removed"
+        );
         Ok(removed)
     }
 
     /// Look at a model file or MLX folder on this computer, changing nothing.
-    pub fn inspect_import(&self, path: &str) -> Result<ImportPreview> {
+    /// It reveals what is at a path on the computer running OpenBark (files,
+    /// sizes, free space), so with a team it needs a veterinarian, as adding does.
+    pub fn inspect_import(&self, path: &str, by: Option<&str>) -> Result<ImportPreview> {
+        self.who(by, Need::Models)?;
         let preview = os_models::local::inspect(&self.store, Path::new(path.trim()))?;
         if preview.kind == ImportKind::Mlx && !mlx_runs_here() {
             return Err(AppError(MLX_NEEDS.into()));
@@ -2697,7 +2788,7 @@ impl App {
         self.who(by, Need::Models)?;
         let _work = self.begin_work()?;
         let _awake = AwakeGuard::acquire(AwakeReason::Processing);
-        let preview = self.inspect_import(path)?;
+        let preview = self.inspect_import(path, by)?;
         let _downloading = self.start_download(&preview.id)?;
         let id = preview.id.clone();
         let total = preview.total_bytes;
@@ -2749,11 +2840,11 @@ impl App {
                 }
             }
         }
-        let in_use = self
-            .llm
-            .lock()
-            .map(|slot| slot.as_ref().is_some_and(|(_, b)| b.capabilities().backend == "mlx"))
-            .unwrap_or(false);
+        // Never wait for the slot: a model load holds its lock for minutes.
+        let in_use = match self.llm.try_lock() {
+            Ok(slot) => slot.as_ref().is_some_and(|(_, b)| b.capabilities().backend == "mlx"),
+            Err(_) => self.mlx_in_slot.load(std::sync::atomic::Ordering::SeqCst),
+        };
         MlxStatus {
             support,
             macos_version: mlx_pack::macos_version(),
@@ -2842,6 +2933,7 @@ impl App {
                 return Err(AppError(MLX_BUSY.into()));
             }
             *slot = None;
+            self.mlx_in_slot.store(false, std::sync::atomic::Ordering::SeqCst);
         }
         if self.loaned_out(|_, mlx| mlx) {
             return Err(AppError(MLX_BUSY.into()));
@@ -3096,6 +3188,10 @@ impl App {
     /// Add a Hub file (or `@mlx`, the whole MLX folder) to the catalog;
     /// download it with [`App::download_model`].
     pub fn hub_add(&self, repo: &str, file: &str, accept_license: bool) -> Result<ModelRow> {
+        // An MLX folder can't write a note here: don't offer gigabytes of it.
+        if file == hub::MLX_CHOICE && !mlx_runs_here() {
+            return Err(AppError(MLX_NEEDS.into()));
+        }
         let _work = self.begin_work()?;
         let r = self.fetch_repo(repo)?;
         let entry = hub::add_to_catalog(&self.store, &r, file, accept_license)?;

@@ -34,7 +34,7 @@
 //!   (16 kHz mono); text "stop" ends it; the reply is the saved encounter
 //! - `POST /api/record/start|stop`          record from this machine's microphone
 //! - `GET  /api/models`, `POST /api/models/{id}/download`, `POST /api/models/remove`
-//!   `{id, note_model, forget, by}`, `POST /api/models/import/inspect` `{path}`,
+//!   `{id, note_model, forget, by}`, `POST /api/models/import/inspect` `{path, by}`,
 //!   `POST /api/models/import` `{path, mode, by}` (ADR-0025)
 //! - `GET  /api/mlx`, `POST /api/mlx/install`, `POST /api/mlx/check`, `POST /api/mlx/remove`
 //!   `{note_model, by}` (the MLX engine pack); `GET /api/gpu`, `POST /api/gpu/install`,
@@ -220,7 +220,12 @@ fn router(state: St, ui_dir: &std::path::Path, port: u16) -> Router {
         .route("/api/models/remove", post(remove_model))
         .route("/api/models/import/inspect", post(inspect_import))
         .route("/api/models/import", post(import_model))
-        .route("/api/mlx", get(|State(s): State<St>| async move { Json(s.app().mlx_status()) }))
+        // Off the async runtime: it walks the pack's folder and reads the
+        // note-model slot (never waiting on a model load).
+        .route(
+            "/api/mlx",
+            get(|State(s): State<St>| async move { blocking(move || Ok(s.app().mlx_status())).await }),
+        )
         .route("/api/mlx/install", post(install_mlx))
         .route("/api/mlx/check", post(check_mlx))
         .route("/api/mlx/remove", post(remove_mlx))
@@ -546,13 +551,15 @@ async fn remove_model(
 #[derive(Deserialize)]
 struct InspectImport {
     path: String,
+    #[serde(default)]
+    by: Option<String>,
 }
 
 async fn inspect_import(
     State(s): State<St>,
     Json(r): Json<InspectImport>,
 ) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app().inspect_import(&r.path)).await
+    blocking(move || s.app().inspect_import(&r.path, r.by.as_deref())).await
 }
 
 #[derive(Deserialize)]
@@ -1618,5 +1625,39 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "{err}");
+    }
+
+    /// Looking at a path on the computer running OpenBark (inspect) reveals
+    /// files and sizes there, so with a team only a veterinarian may, as for
+    /// adding the model.
+    #[tokio::test]
+    async fn inspecting_an_import_needs_a_veterinarian_with_a_team() {
+        let srv = server();
+        let file = srv._tmp.path().join("Downloads").join("Tiny-Q4_K_M.gguf");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        let mut bytes = b"GGUF".to_vec();
+        bytes.extend_from_slice(&3u32.to_le_bytes());
+        bytes.extend_from_slice(&[1u8; 32]);
+        std::fs::write(&file, &bytes).unwrap();
+        let path = file.to_string_lossy().into_owned();
+        let dvm = srv.app.users.add("Dr Rivera", os_engine::users::Role::Dvm, "2468").unwrap();
+        let desk = srv.app.users.add("Lee", os_engine::users::Role::Reception, "1111").unwrap();
+        for (by, why) in [
+            (serde_json::Value::Null, "Choose who you are first."),
+            (serde_json::json!(desk.id), "Only a veterinarian can change the models."),
+        ] {
+            let body = serde_json::json!({ "path": path, "by": by });
+            let (status, err) =
+                call(&srv.router, "POST", "/api/models/import/inspect", Some(body), true).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{err}");
+            assert_eq!(err["error"], why);
+            assert!(err.get("files").is_none(), "nothing about the path is told");
+        }
+        let body = serde_json::json!({ "path": path, "by": dvm.id });
+        let (status, preview) =
+            call(&srv.router, "POST", "/api/models/import/inspect", Some(body), true).await;
+        assert_eq!(status, StatusCode::OK, "{preview}");
+        assert_eq!(preview["kind"], "gguf");
+        assert_eq!(preview["total_bytes"], bytes.len());
     }
 }

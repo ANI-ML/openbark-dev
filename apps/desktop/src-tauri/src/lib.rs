@@ -194,9 +194,13 @@ async fn remove_model(
 }
 
 #[tauri::command]
-async fn inspect_import(app: State<'_, AppState>, path: String) -> Result<os_app::ImportPreview, String> {
+async fn inspect_import(
+    app: State<'_, AppState>,
+    path: String,
+    by: Option<String>,
+) -> Result<os_app::ImportPreview, String> {
     let app = app.inner().clone();
-    work(move || app.inspect_import(&path)).await
+    work(move || app.inspect_import(&path, by.as_deref())).await
 }
 
 #[tauri::command]

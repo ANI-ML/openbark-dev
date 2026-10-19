@@ -15,6 +15,8 @@
 //!
 //! A second lock, for Linux x86_64 on the CPU, exists only for tests
 //! (`OPENBARK_MLX_DEV=1`, "test mode"), so the whole path runs in WSL and CI.
+//! The switch is honoured only by debug builds and builds made with the
+//! `mlx-test-mode` feature: a release built for clinics ignores it.
 
 use std::fs;
 use std::io::{self, BufReader};
@@ -140,8 +142,17 @@ pub fn support_for(os: &str, arch: &str, macos_version: Option<&str>, dev: bool)
     }
 }
 
+/// `OPENBARK_MLX_DEV=1`, in a build that honours it (debug, or the
+/// `mlx-test-mode` feature). Test mode downloads the Linux lock's pack and
+/// runs the worker without an OS sandbox, so release builds made for clinics
+/// never offer it, whatever the environment says.
 fn dev_switch() -> bool {
-    std::env::var("OPENBARK_MLX_DEV").is_ok_and(|v| v.trim() == "1")
+    test_mode_built() && std::env::var("OPENBARK_MLX_DEV").is_ok_and(|v| v.trim() == "1")
+}
+
+/// Whether this build honours `OPENBARK_MLX_DEV` at all.
+pub const fn test_mode_built() -> bool {
+    cfg!(any(debug_assertions, feature = "mlx-test-mode"))
 }
 
 /// Whether this computer can run MLX models (see [`Support`]).
@@ -305,6 +316,50 @@ fn safe_rel(name: &str) -> Option<PathBuf> {
     Some(out)
 }
 
+/// Links found in an archive: each one's path (components) and target text.
+type Links = std::collections::HashMap<Vec<String>, String>;
+
+/// Every symlink in the archive, followed through the other symlinks in it
+/// (as the OS follows them once unpacked), must stay strictly inside the
+/// unpack folder at every step. [`link_stays_inside`] checks one link's own
+/// text, so a chain such as `x/l1 -> ..` plus `a -> x/l1/../..` could still
+/// lead out. Returns the first link (sorted) that escapes, or loops.
+fn link_chain_escapes(links: &Links) -> Option<String> {
+    fn resolve(start: &[String], target: &str, links: &Links, hops: &mut u32) -> Option<Vec<String>> {
+        let mut cur = start.to_vec();
+        for part in target.split('/') {
+            match part {
+                "" | "." => {}
+                ".." => {
+                    cur.pop()?;
+                    if cur.is_empty() {
+                        return None;
+                    }
+                }
+                name => {
+                    cur.push(name.to_string());
+                    if let Some(next) = links.get(&cur) {
+                        *hops += 1;
+                        if *hops > 40 {
+                            return None; // a loop, or absurdly deep
+                        }
+                        let parent = cur[..cur.len() - 1].to_vec();
+                        cur = resolve(&parent, next, links, hops)?;
+                    }
+                }
+            }
+        }
+        (!cur.is_empty()).then_some(cur)
+    }
+    let mut names: Vec<&Vec<String>> = links.keys().collect();
+    names.sort();
+    names.into_iter().find_map(|link| {
+        let target = &links[link];
+        let parent = &link[..link.len().saturating_sub(1)];
+        (target.starts_with('/') || resolve(parent, target, links, &mut 0).is_none()).then(|| link.join("/"))
+    })
+}
+
 /// A symlink at `entry` (relative to the unpack folder) pointing at `link`
 /// must stay strictly inside the folder, at every step.
 fn link_stays_inside(entry: &Path, link: &str) -> bool {
@@ -399,6 +454,7 @@ fn unpack_python(archive: &Path, dest: &Path, root: &str) -> io::Result<()> {
     use tar::EntryType;
     let file = fs::File::open(archive)?;
     let mut tar = tar::Archive::new(flate2::read::GzDecoder::new(BufReader::new(file)));
+    let mut links = Links::new();
     for item in tar.entries()? {
         let mut item = item?;
         let kind = item.header().entry_type();
@@ -441,6 +497,8 @@ fn unpack_python(archive: &Path, dest: &Path, root: &str) -> io::Result<()> {
                 if !link_stays_inside(&rel, &link) {
                     return Err(bad(format!("{name} links outside the folder ({link})")));
                 }
+                let key = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
+                links.insert(key, link.clone());
                 if let Some(parent) = out.parent() {
                     fs::create_dir_all(parent)?;
                 }
@@ -450,6 +508,11 @@ fn unpack_python(archive: &Path, dest: &Path, root: &str) -> io::Result<()> {
             EntryType::Link => return Err(bad(format!("{name} is a hard link; the pack refuses them"))),
             other => return Err(bad(format!("{name} has an unsupported type ({other:?})"))),
         }
+    }
+    // Each link was checked on its own as it came; now as chains, before
+    // anything can follow one.
+    if let Some(name) = link_chain_escapes(&links) {
+        return Err(bad(format!("{name} links outside the folder through other links")));
     }
     Ok(())
 }
@@ -566,31 +629,11 @@ fn unpack_with(
     remove_inside(engines, &tmp)?;
     fs::create_dir(&tmp)?;
 
-    let total = names.len() as u64 + 1;
-    let mut done = 0;
-    let root = lock.python.root.as_str();
-    unpack_python(&downloads.join(&lock.python.file), &tmp, root)?;
-    done += 1;
-    progress(done, total);
-
-    let site = tmp
-        .join(root)
-        .join("lib")
-        .join(format!("python{}", python_minor(&lock.python.version)))
-        .join("site-packages");
-    no_links_between(&tmp, site.parent().unwrap_or(&tmp))?;
-    fs::create_dir_all(&site)?;
-    no_links_between(&tmp, &site)?;
-    for w in &lock.wheels {
-        unpack_wheel(&downloads.join(&w.file), &tmp, &site)?;
-        done += 1;
-        progress(done, total);
+    if let Err(e) = lay_out(downloads, lock, &tmp, compile, &mut progress, names.len() as u64 + 1) {
+        // Nothing half-unpacked stays behind, links included.
+        let _ = remove_inside(engines, &tmp);
+        return Err(e);
     }
-    if compile {
-        compile_all(&python_in(&tmp, root), &site)?;
-    }
-    done += 1;
-    progress(done, total);
 
     let manifest = Manifest {
         lock_id: id.to_string(),
@@ -607,6 +650,42 @@ fn unpack_with(
     if let Some(models) = downloads.parent() {
         let _ = remove_inside(models, downloads);
     }
+    Ok(())
+}
+
+/// Python, then the wheels, then precompiling, into `tmp`.
+fn lay_out(
+    downloads: &Path,
+    lock: &Lock,
+    tmp: &Path,
+    compile: bool,
+    progress: &mut impl FnMut(u64, u64),
+    total: u64,
+) -> io::Result<()> {
+    let mut done = 0;
+    let root = lock.python.root.as_str();
+    unpack_python(&downloads.join(&lock.python.file), tmp, root)?;
+    done += 1;
+    progress(done, total);
+
+    let site = tmp
+        .join(root)
+        .join("lib")
+        .join(format!("python{}", python_minor(&lock.python.version)))
+        .join("site-packages");
+    no_links_between(tmp, site.parent().unwrap_or(tmp))?;
+    fs::create_dir_all(&site)?;
+    no_links_between(tmp, &site)?;
+    for w in &lock.wheels {
+        unpack_wheel(&downloads.join(&w.file), tmp, &site)?;
+        done += 1;
+        progress(done, total);
+    }
+    if compile {
+        compile_all(&python_in(tmp, root), &site)?;
+    }
+    done += 1;
+    progress(done, total);
     Ok(())
 }
 
@@ -977,6 +1056,41 @@ mod tests {
         assert!(!link_stays_inside(at, "a/../../../python/bin"));
     }
 
+    fn links(pairs: &[(&str, &str)]) -> Links {
+        pairs.iter().map(|(at, to)| (at.split('/').map(String::from).collect(), to.to_string())).collect()
+    }
+
+    /// Each link alone stays inside, but followed through each other they
+    /// leave the folder: the review's probe (`python/a` resolved to `/tmp`).
+    #[test]
+    fn link_chains_that_lead_out_are_caught() {
+        let chain = links(&[("python/x/l1", ".."), ("python/a", "x/l1/../..")]);
+        assert!(link_stays_inside(Path::new("python/x/l1"), ".."));
+        assert!(link_stays_inside(Path::new("python/a"), "x/l1/../.."));
+        assert_eq!(link_chain_escapes(&chain).as_deref(), Some("python/a"));
+        // Through a link to a sibling folder, then up twice.
+        let up = links(&[("python/lib/up", "../bin"), ("python/b", "lib/up/../..")]);
+        assert_eq!(link_chain_escapes(&up).as_deref(), Some("python/b"));
+        // Loops are refused rather than followed for ever.
+        let lp = links(&[("python/p", "q"), ("python/q", "p")]);
+        assert!(link_chain_escapes(&lp).is_some());
+        // Ordinary layouts pass, including links through links that stay in.
+        let fine = links(&[
+            ("python/bin/python3", "python3.12"),
+            ("python/bin/python", "python3"),
+            ("python/lib/libpython.so", "../lib/libpython3.12.so"),
+            ("python/share/up", ".."),
+            ("python/share/x", "up/bin/python"),
+        ]);
+        assert_eq!(link_chain_escapes(&fine), None);
+    }
+
+    #[test]
+    fn test_mode_is_honoured_only_where_it_is_built_in() {
+        // Debug test builds honour it; a release without the feature never does.
+        assert_eq!(test_mode_built(), cfg!(any(debug_assertions, feature = "mlx-test-mode")));
+    }
+
     #[test]
     fn rfc3339_dates() {
         assert_eq!(rfc3339(UNIX_EPOCH), "1970-01-01T00:00:00Z");
@@ -1181,10 +1295,12 @@ mod tests {
         let lock = test_lock(&fx.downloads, "py.tar.gz", &[]);
         let err =
             unpack_with(&fx.downloads, &lock, "0123456789ab", &fx.engines, false, |_, _| {}).unwrap_err();
-        // Nothing landed beside the engines folder or in place.
+        // Nothing landed beside the engines folder or in place, and the
+        // half-unpacked folder is gone.
         let parent = fx.engines.parent().unwrap();
         assert!(!parent.join("evil").exists() && !fx.engines.join("evil").exists());
         assert!(!fx.engines.join("mlx").join("0123456789ab").exists());
+        assert!(!fx.engines.join("mlx").join("0123456789ab.tmp").exists());
         err.to_string()
     }
 
@@ -1206,6 +1322,12 @@ mod tests {
         assert!(e.contains("links outside"), "{e}");
         let e = python_refused(&[T::Sym("python/up", "..")]);
         assert!(e.contains("links outside"), "{e}");
+        let e = python_refused(&[
+            T::Dir("python/x/"),
+            T::Sym("python/x/l1", ".."),
+            T::Sym("python/a", "x/l1/../.."),
+        ]);
+        assert!(e.contains("python/a links outside the folder through other links"), "{e}");
     }
 
     #[cfg(unix)]

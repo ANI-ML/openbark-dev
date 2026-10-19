@@ -2,7 +2,8 @@
 //! worker on a plain Python (protocol and network guard, without MLX), and,
 //! when `OPENBARK_MLX_TEST_PYTHON` and `OPENBARK_MLX_TEST_MODEL` are set (see
 //! `scripts/mlx-test-env.sh`), the real worker on the MLX engine pack with a
-//! small model.
+//! small model. Without them those tests print "skipped" and pass, unless
+//! `OPENBARK_MLX_TEST_REQUIRED=1` (CI's MLX job), which makes them fail.
 //!
 //! Nothing here touches the real data folders: every folder is a fresh
 //! scratch folder under the system temp folder, removed afterwards.
@@ -149,6 +150,31 @@ fn loads_and_reports_capabilities() {
     assert_eq!(b.capabilities().context_length, 40960);
     assert!(b.capabilities().json_schema_constrained);
     assert_eq!(counter(&o, "generates"), 1, "no model check when it already passed");
+}
+
+/// `max_context` is enforced by the worker, not only reported: a prompt
+/// that llama.cpp would refuse is refused on MLX too, with the same error.
+#[test]
+fn max_context_is_enforced_by_the_worker() {
+    let py = need_python!();
+    let s = Scratch::new("maxctx");
+    let mut o = fake(&py, &s, "ok");
+    o.max_context = 4096;
+    o.model_check = ModelCheck::AlreadyPassed;
+    let b = MlxBackend::load(o.clone()).unwrap();
+    assert_eq!(b.capabilities().context_length, 4096);
+    let mut r = req(&"x".repeat(3000));
+    r.max_tokens = 2048;
+    match b.generate(&r, &mut |_| panic!("nothing is generated")) {
+        Err(LlmError::ContextOverflow { prompt, max_new: 2048, ctx: 4096 }) => {
+            assert_eq!(prompt, 3000 + "You write notes.".len() as u32)
+        }
+        other => panic!("{other:?}"),
+    }
+    // Within the cap it writes, and the worker is the same one.
+    r.max_tokens = 512;
+    assert!(b.generate(&r, &mut |_| true).is_ok());
+    assert_eq!(counter(&o, "loads"), 1);
 }
 
 #[test]
@@ -553,11 +579,20 @@ fn real_env() -> Option<(PathBuf, PathBuf)> {
     Some((py, model))
 }
 
+/// `OPENBARK_MLX_TEST_REQUIRED=1`: a real-worker test may not skip.
+fn real_required() -> bool {
+    std::env::var("OPENBARK_MLX_TEST_REQUIRED").is_ok_and(|v| v.trim() == "1")
+}
+
 macro_rules! need_real {
     () => {
         match real_env() {
             Some(v) => v,
             None => {
+                assert!(
+                    !real_required(),
+                    "OPENBARK_MLX_TEST_REQUIRED=1, but OPENBARK_MLX_TEST_PYTHON and OPENBARK_MLX_TEST_MODEL aren't set"
+                );
                 println!("skipped: set OPENBARK_MLX_TEST_PYTHON and OPENBARK_MLX_TEST_MODEL (scripts/mlx-test-env.sh)");
                 return;
             }
@@ -761,6 +796,27 @@ print(json.dumps(bad))
     let last = stdout.lines().last().unwrap();
     assert_eq!(last, "[]", "schemas llguidance can't compile: {last}");
     assert_eq!(stdout.lines().filter(|l| l.starts_with("ok ")).count(), schemas.len());
+}
+
+/// The real worker caps the context at `max_context`, below the model's own.
+#[test]
+fn real_worker_enforces_max_context() {
+    let (py, model) = need_real!();
+    let s = Scratch::new("real-maxctx");
+    let mut o = MlxOptions::new(py, s.path().to_path_buf(), model, "mlx-community/Qwen3-0.6B-4bit");
+    o.device = MlxDevice::Cpu;
+    o.max_context = 64;
+    o.model_check = ModelCheck::AlreadyPassed;
+    let b = MlxBackend::load(o).unwrap();
+    assert_eq!(b.capabilities().context_length, 64);
+    let mut r = GenerateRequest::new(vec![ChatMessage::user("Say hello.")]);
+    r.max_tokens = 100;
+    match b.generate(&r, &mut |_| true) {
+        Err(LlmError::ContextOverflow { max_new: 100, ctx: 64, .. }) => {}
+        other => panic!("{other:?}"),
+    }
+    r.max_tokens = 4;
+    assert!(b.generate(&r, &mut |_| true).is_ok());
 }
 
 /// The socket guard holds inside the real pack even with a network available.

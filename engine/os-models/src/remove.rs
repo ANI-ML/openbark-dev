@@ -15,13 +15,18 @@ use serde::Serialize;
 use crate::catalog::{CatalogEntry, Source};
 use crate::hub;
 use crate::locations;
-use crate::store::{ModelStore, part_path, safe_rel_path};
+use crate::store::{ModelStore, link_count, part_path, safe_rel_path};
 
 /// What a removal did.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct Removal {
     pub id: String,
+    /// Space really freed: files whose data had no other name.
     pub freed_bytes: u64,
+    /// Bytes in removed files whose data another name still holds (a hard
+    /// link, as a copy from this computer on the same drive is): deleting
+    /// them freed nothing, because the original keeps that space.
+    pub shared_bytes: u64,
     pub files_removed: usize,
     /// Dropped from user-catalog.json.
     pub forgotten: bool,
@@ -61,7 +66,7 @@ pub fn rule(entry: &CatalogEntry) -> RemoveRule {
 }
 
 /// A symbolic link, or (Windows) any reparse point such as a junction.
-fn is_link(meta: &fs::Metadata) -> bool {
+pub(crate) fn is_link(meta: &fs::Metadata) -> bool {
     if meta.file_type().is_symlink() {
         return true;
     }
@@ -109,7 +114,7 @@ pub fn remove_files(store: &ModelStore, entry: &CatalogEntry) -> Result<Removal,
     }
 
     // Look first.
-    let mut doomed: Vec<(PathBuf, u64)> = Vec::new();
+    let mut doomed: Vec<(PathBuf, u64, bool)> = Vec::new();
     for rel in &rels {
         let file = below.join(rel);
         for rel_path in [part_path(&file), file] {
@@ -122,27 +127,42 @@ pub fn remove_files(store: &ModelStore, entry: &CatalogEntry) -> Result<Removal,
     doomed.dedup();
 
     // Then delete.
-    for (path, size) in &doomed {
+    for (path, size, shared) in &doomed {
         match fs::remove_file(path) {
             Ok(()) => {
-                removal.freed_bytes += size;
+                if *shared {
+                    removal.shared_bytes += size;
+                } else {
+                    removal.freed_bytes += size;
+                }
                 removal.files_removed += 1;
             }
             Err(e) if e.kind() == io::ErrorKind::NotFound => {}
             Err(e) => return Err(e.into()),
         }
     }
-    for (path, _) in &doomed {
+    for (path, _, _) in &doomed {
         prune(&root, path);
     }
-    tracing::info!(id = %entry.id, files = removal.files_removed, bytes = removal.freed_bytes, "model files removed");
+    tracing::info!(
+        id = %entry.id,
+        files = removal.files_removed,
+        bytes = removal.freed_bytes,
+        shared = removal.shared_bytes,
+        "model files removed"
+    );
     Ok(removal)
 }
 
 /// One path to delete, checked: no link anywhere between the root and it, a
 /// plain file, strictly inside the canonical root. `Ok(None)` when it isn't
-/// there. Returns the canonical path and its size.
-fn check(root: &Path, canonical_root: &Path, rel: &Path) -> Result<Option<(PathBuf, u64)>, RemoveError> {
+/// there. Returns the canonical path, its size, and whether its data has
+/// another name (a hard link), so deleting it frees nothing.
+fn check(
+    root: &Path,
+    canonical_root: &Path,
+    rel: &Path,
+) -> Result<Option<(PathBuf, u64, bool)>, RemoveError> {
     // Every component below the root, the file itself included.
     let path = root.join(rel);
     let mut cur = root.to_path_buf();
@@ -166,7 +186,8 @@ fn check(root: &Path, canonical_root: &Path, rel: &Path) -> Result<Option<(PathB
     if !canonical.starts_with(canonical_root) || canonical == canonical_root {
         return Err(RemoveError::OutsideStore(shown(&path)));
     }
-    Ok(Some((canonical, meta.len())))
+    let shared = link_count(&canonical) > 1;
+    Ok(Some((canonical, meta.len(), shared)))
 }
 
 /// Remove empty folders above `file`, up to but never including `root`.
@@ -439,11 +460,36 @@ mod tests {
         let file = tmp.path().join("Downloads").join("m.gguf");
         write(&file, b"GGUF\x03\0\0\0weights");
         let entry = import(&store, &file, ImportMode::Copy, &mut |_: &str, _: u64, _: u64| {}).unwrap();
+        // On one drive the copy is a hard link: removing it frees nothing,
+        // because the original keeps the bytes, and it says so.
+        let linked = link_count(&file) == 2;
         let r = remove(&store, &entry, false, false).unwrap();
-        assert_eq!((r.files_removed, r.freed_bytes, r.forgotten), (1, 15, true));
+        assert_eq!((r.files_removed, r.forgotten), (1, true));
+        if linked {
+            assert_eq!((r.freed_bytes, r.shared_bytes), (0, 15));
+        } else {
+            assert_eq!((r.freed_bytes, r.shared_bytes), (15, 0));
+        }
         assert!(!store.root().join("local").join("m").exists());
         assert!(hub::full_catalog(&store).get(&entry.id).is_none());
         assert!(file.is_file(), "the original stays");
+        assert_eq!(link_count(&file), 1);
+    }
+
+    /// The finding behind `shared_bytes`: a hard-linked copy used to report
+    /// its full size as freed. A real copy frees its size; a linked one frees 0.
+    #[test]
+    fn freed_space_counts_only_data_with_no_other_name() {
+        let (tmp, store) = store();
+        let e = hub_entry("hf:a/b/m", &[("m.gguf", 8), ("n.gguf", 5)]);
+        let dir = store.model_dir(&e);
+        write(&dir.join("n.gguf"), b"12345");
+        let original = tmp.path().join("original.gguf");
+        write(&original, b"precious");
+        fs::hard_link(&original, dir.join("m.gguf")).unwrap();
+        let r = remove_files(&store, &e).unwrap();
+        assert_eq!((r.files_removed, r.freed_bytes, r.shared_bytes), (2, 5, 8));
+        assert_eq!(fs::read(&original).unwrap(), b"precious", "the other name keeps the data");
     }
 
     #[test]

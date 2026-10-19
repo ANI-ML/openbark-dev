@@ -12,7 +12,8 @@ use crate::models::{bar, human_size};
 #[derive(Subcommand)]
 pub enum MlxCommand {
     /// Download and set up the MLX engine pack, then run its check. Only on
-    /// a Mac with Apple silicon and macOS 14, or with OPENBARK_MLX_DEV=1 on
+    /// a Mac with Apple silicon and macOS 14, or with OPENBARK_MLX_DEV=1 (in a
+    /// debug build or one with the `mlx-test-mode` feature) on
     /// Linux x86_64 (test mode, on the CPU).
     Install,
     /// Run the pack's check again: imports, the socket guard, Metal (or the
@@ -58,6 +59,7 @@ pub fn run(cmd: MlxCommand, store: &ModelStore) -> Result<()> {
                 .and_then(|k| mlx_pack::check_result(&k));
             let status = json!({
                 "support": mlx_pack::support(),
+                "test_mode_built": mlx_pack::test_mode_built(),
                 "macos_version": mlx_pack::macos_version(),
                 "chip": mlx_pack::chip(),
                 "lock_id": mlx_pack::lock_id(),

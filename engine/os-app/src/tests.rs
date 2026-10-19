@@ -1093,7 +1093,7 @@ fn a_copied_model_is_deleted_and_dropped_and_the_original_stays() {
     let app = app_in(tmp.path());
     let file = tmp.path().join("Downloads").join("Small-Q4_K_M.gguf");
     let bytes = tiny_gguf(&file);
-    let preview = app.inspect_import(file.to_str().unwrap()).unwrap();
+    let preview = app.inspect_import(file.to_str().unwrap(), None).unwrap();
     struct Seen(Mutex<Vec<String>>);
     impl Events for Seen {
         fn segment(&self, _: &Segment) {}
@@ -1108,10 +1108,16 @@ fn a_copied_model_is_deleted_and_dropped_and_the_original_stays() {
     assert_eq!(added.id, preview.id);
     assert!(seen.0.lock().unwrap().iter().all(|m| *m == preview.id), "copy progress uses the new id");
     assert_eq!((added.origin, added.remove), (Origin::LocalCopy, RowRemove::DeleteAndForget));
-    assert_eq!(added.disk_bytes, bytes.len() as u64);
+    // On one drive the copy is a hard link: on disk, but its bytes are the
+    // original's, so they show as shared and removing them frees nothing.
+    assert_eq!(added.disk_bytes + added.shared_bytes, bytes.len() as u64);
     assert!(app.downloading.lock().unwrap().is_empty());
     let removed = app.remove_model(&added.id, None, false, None).unwrap();
-    assert_eq!(removed.freed_bytes, bytes.len() as u64);
+    assert_eq!(
+        (removed.freed_bytes, removed.shared_bytes),
+        (added.disk_bytes, added.shared_bytes),
+        "what the row promised is what was freed"
+    );
     assert!(removed.forgotten);
     assert!(row(&app, &added.id).is_none());
     assert_eq!(std::fs::read(&file).unwrap(), bytes, "the original is untouched");
@@ -1122,8 +1128,10 @@ fn mlx_models_need_the_engine_and_the_engine_has_its_guards() {
     let tmp = tempfile::tempdir().unwrap();
     let app = app_in(tmp.path());
     let m = hub_model(&app, "Tiny-4bit", true);
-    // Without the engine pack (never installed in tests), loading says what to do.
-    assert_eq!(err(app.load_llm(&m.id)), "Download the MLX engine on the Models screen first.");
+    // Without the engine pack (never installed in tests), loading says what
+    // to do: download it on a Mac that runs MLX, else that MLX needs one.
+    let expected = if mlx_runs_here() { MLX_FIRST } else { MLX_NEEDS };
+    assert_eq!(err(app.load_llm(&m.id)), expected);
     let status = app.mlx_status();
     assert!(!status.pack_installed && status.check == CheckState::NotRun && !status.in_use);
 
@@ -1182,4 +1190,119 @@ fn a_draft_still_running_after_the_slot_changed_keeps_its_model_busy() {
     app.remove_model(&m.id, None, false, None).unwrap();
     app.remove_mlx(None, None).unwrap();
     assert_eq!(loaded_id(&app).as_deref(), Some("another"), "an unrelated model stays loaded");
+}
+
+/// The major finding: after an OpenBark or macOS update, the pack check's
+/// key no longer matches, and drafting said "Download the MLX engine" until
+/// someone opened the Models screen. Now the check runs again by itself, and
+/// a failed check has its own message, pointing to Try again.
+#[test]
+fn a_stale_mlx_check_runs_again_by_itself_instead_of_asking_for_a_download() {
+    let rec = |ok| os_models::mlx_pack::CheckRecord { ok, at: "2026-10-19T00:00:00Z".into(), message: None };
+    assert_eq!(mlx_gate(false, true, Some(&rec(true))), MlxGate::NotHere);
+    assert_eq!(mlx_gate(true, false, None), MlxGate::NotInstalled);
+    assert_eq!(mlx_gate(true, true, None), MlxGate::NeedsCheck, "installed, no result for this version");
+    assert_eq!(mlx_gate(true, true, Some(&rec(true))), MlxGate::Ready);
+    assert_eq!(mlx_gate(true, true, Some(&rec(false))), MlxGate::Failed);
+
+    let passed = || PackCheck {
+        ok: true,
+        device: "gpu".into(),
+        metal: true,
+        versions: BTreeMap::new(),
+        checks: vec![("imports".into(), true)],
+        message: None,
+    };
+    let runs = std::cell::Cell::new(0);
+    ensure_mlx(MlxGate::NeedsCheck, || {
+        runs.set(runs.get() + 1);
+        Ok(passed())
+    })
+    .unwrap();
+    assert_eq!(runs.get(), 1, "checked once, then drafting goes on");
+    let failed =
+        PackCheck { ok: false, message: Some("Metal isn't available on this Mac".into()), ..passed() };
+    assert_eq!(err(ensure_mlx(MlxGate::NeedsCheck, || Ok(failed))), MLX_CHECK_FAILED);
+    assert_eq!(err(ensure_mlx(MlxGate::NeedsCheck, || Err(AppError("no python".into())))), MLX_CHECK_FAILED);
+    assert_eq!(
+        err(ensure_mlx(MlxGate::Failed, || panic!("a failed check isn't re-run here"))),
+        MLX_CHECK_FAILED
+    );
+    ensure_mlx(MlxGate::Ready, || panic!("a passed check isn't re-run")).unwrap();
+    assert_eq!(err(ensure_mlx(MlxGate::NotInstalled, || panic!("nothing to check"))), MLX_FIRST);
+    assert_eq!(err(ensure_mlx(MlxGate::NotHere, || panic!("nothing to check"))), MLX_NEEDS);
+    assert!(!MLX_CHECK_FAILED.contains("Download"), "never sends anyone to download what they have");
+}
+
+/// MLX-only downloads where MLX can't run (Windows, Linux outside test mode,
+/// Intel Macs, macOS 13) would fetch gigabytes that never write a note.
+#[test]
+fn mlx_downloads_are_refused_where_mlx_cant_run() {
+    if mlx_runs_here() {
+        println!("skipped: MLX runs here");
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let app = app_in(tmp.path());
+    let m = hub_model(&app, "Tiny-4bit", true);
+    assert_eq!(err(app.download_model(&m.id, None, &Quiet)), MLX_NEEDS);
+    // Refused before any Hub call is made.
+    assert_eq!(err(app.hub_add("mlx-community/Qwen3-0.6B-4bit", "@mlx", false)), MLX_NEEDS);
+    assert!(app.downloading.lock().unwrap().is_empty());
+}
+
+/// Inspecting a path reveals what is on the computer running OpenBark, so
+/// with a team it needs a veterinarian, like adding the model.
+#[test]
+fn inspecting_an_import_needs_a_veterinarian_with_a_team() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app = app_in(tmp.path());
+    let file = tmp.path().join("Downloads").join("Small-Q4_K_M.gguf");
+    tiny_gguf(&file);
+    let path = file.to_str().unwrap();
+    assert!(app.inspect_import(path, None).is_ok(), "single-user: anyone at the computer");
+    let (dvm, rvt, desk) = team(&app);
+    assert_eq!(err(app.inspect_import(path, None)), "Choose who you are first.");
+    for by in [&rvt.id, &desk.id] {
+        assert_eq!(err(app.inspect_import(path, Some(by))), "Only a veterinarian can change the models.");
+    }
+    assert_eq!(app.inspect_import(path, Some(&dvm.id)).unwrap().total_bytes, 128);
+}
+
+/// GET /api/mlx used to wait on the note-model slot, which a model load
+/// holds for minutes: the MLX card stayed blank. It reads a hint instead.
+#[test]
+fn the_mlx_status_never_waits_for_a_model_to_load() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app = app_in(tmp.path());
+    let loading = app.llm.lock().unwrap(); // as load_llm holds it while loading
+    app.mlx_in_slot.store(true, std::sync::atomic::Ordering::SeqCst);
+    let started = std::time::Instant::now();
+    assert!(app.mlx_status().in_use, "an MLX model is loading");
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    drop(loading);
+    load_fake(&app, "gguf", FakeLlm::loaded("llama.cpp").0);
+    assert!(!app.mlx_status().in_use, "read from the slot when it's free");
+}
+
+/// A removal waiting for a model load used to hold the download list, so no
+/// download could start or finish until the load ended (and a download
+/// starting on the loading thread would have deadlocked).
+#[test]
+fn a_removal_waiting_for_a_model_load_doesnt_hold_up_downloads() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app = app_in(tmp.path());
+    let m = hub_model(&app, "Tiny", false);
+    std::thread::scope(|scope| {
+        let loading = app.llm.lock().unwrap();
+        let remover = scope.spawn(|| app.remove_model(&m.id, None, false, None));
+        std::thread::sleep(std::time::Duration::from_millis(300)); // it now waits for the slot
+        let started = std::time::Instant::now();
+        let other = app.start_download("hf:someone/other-GGUF/other").unwrap();
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
+        drop(other);
+        drop(loading);
+        let removed = remover.join().unwrap().unwrap();
+        assert_eq!(removed.files_removed, 1);
+    });
 }

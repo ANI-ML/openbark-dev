@@ -22,5 +22,17 @@ thiserror.workspace = true
 tracing.workspace = true
 zip.workspace = true
 
+[features]
+# MLX "test mode" (ADR-0025 §1): OPENBARK_MLX_DEV=1 runs MLX on Linux's CPU.
+# Honoured only in debug builds and builds with this feature (CI and
+# developers' end-to-end runs), never in a release built without it.
+mlx-test-mode = []
+
+# Hard-link counts on Windows (GetFileInformationByHandle), so the space a
+# model frees is honest when its copy is a hard link (ADR-0025 §9, §10).
+# The version already in Cargo.lock.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.61.2", features = ["Win32_Storage_FileSystem"] }
+
 [dev-dependencies]
 tempfile.workspace = true

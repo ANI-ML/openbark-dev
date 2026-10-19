@@ -4,11 +4,20 @@
 //! pack's own Python, running the single-file worker compiled in here
 //! ([`WORKER_SOURCE`]). The worker talks only over its standard input and
 //! output, one JSON object per line (contract 9 in
-//! `docs/plans/mlx-models.md`). It binds no port, opens no socket and never
-//! uses the network: it is started from an empty environment with the
-//! Hugging Face libraries set offline, its first lines block every socket
-//! connection, it is only ever given a local folder, and on macOS it runs
-//! under `sandbox-exec` with network access denied.
+//! `docs/plans/mlx-models.md`). Its own code opens no socket and binds no
+//! port, and it is kept off the network by:
+//!
+//! - an empty environment with the Hugging Face libraries set offline
+//!   (`HF_HUB_OFFLINE=1` and friends, no proxy variables, no token), and
+//!   only ever a local folder to load, never a repo id;
+//! - on macOS, `sandbox-exec` with a profile that denies all network access
+//!   at the OS level (`OPENBARK_MLX_SANDBOX=0` turns it off, for support);
+//! - a best-effort guard in its first lines: Python's `socket.socket`
+//!   methods `connect`, `connect_ex`, `sendto`, `sendmsg`, `bind` and
+//!   `listen`, and `socket.create_connection` and `socket.getaddrinfo`,
+//!   raise. It doesn't cover the low-level `_socket` module or native code
+//!   in the pack's libraries; on macOS the sandbox does. Linux test mode
+//!   (developers and CI only) has no OS sandbox.
 //!
 //! Patient text reaches the worker only through its stdin, and nothing here
 //! logs prompts or generated text: the worker's stderr carries metadata only
@@ -172,6 +181,9 @@ enum Request<'a> {
     Load {
         id: u64,
         path: &'a str,
+        /// The cap on the prompt plus new tokens (`MlxOptions::max_context`);
+        /// the worker refuses past `min(model's own context, this)`.
+        max_context: u32,
     },
     Generate {
         id: u64,
@@ -399,7 +411,8 @@ impl Worker {
         } else {
             if wants_sandbox {
                 tracing::warn!(
-                    "sandbox-exec is missing: the MLX worker runs without it (its other network guards stay)"
+                    "sandbox-exec is missing: the MLX worker runs without the OS network sandbox (the offline \
+                     environment and the worker's Python socket guard stay)"
                 );
             }
             let mut c = Command::new(&s.python);
@@ -636,10 +649,10 @@ struct ModelInfo {
     constrained_ready: bool,
 }
 
-fn load_model(w: &mut Worker, model_dir: &Path) -> Result<ModelInfo, LlmError> {
+fn load_model(w: &mut Worker, model_dir: &Path, max_context: u32) -> Result<ModelInfo, LlmError> {
     let path = model_dir.to_string_lossy().into_owned();
     let id = w.next_id();
-    if w.send(&Request::Load { id, path: &path }).is_err() {
+    if w.send(&Request::Load { id, path: &path, max_context }).is_err() {
         return Err(LlmError::Load(STOPPED.into()));
     }
     match w.wait(id, LOAD_TIMEOUT) {
@@ -756,6 +769,7 @@ struct State {
 pub struct MlxBackend {
     spawn: Spawn,
     model_dir: PathBuf,
+    max_context: u32,
     caps: LlmCapabilities,
     model_check_ran: Option<bool>,
     silence_ms: AtomicU64,
@@ -782,7 +796,7 @@ impl MlxBackend {
         };
         let mut worker = Worker::spawn(&spawn)?;
         hello(&mut worker)?;
-        let info = load_model(&mut worker, &opts.model_dir)?;
+        let info = load_model(&mut worker, &opts.model_dir, opts.max_context)?;
 
         let model_check_ran = match opts.model_check {
             ModelCheck::AlreadyPassed => None,
@@ -812,6 +826,7 @@ impl MlxBackend {
         Ok(Self {
             spawn,
             model_dir: opts.model_dir,
+            max_context: opts.max_context,
             caps,
             model_check_ran,
             silence_ms: AtomicU64::new(SILENCE.as_millis() as u64),
@@ -878,7 +893,7 @@ impl MlxBackend {
         tracing::warn!("restarting the MLX engine");
         let mut w = Worker::spawn(&self.spawn)?;
         hello(&mut w)?;
-        load_model(&mut w, &self.model_dir)?;
+        load_model(&mut w, &self.model_dir, self.max_context)?;
         Ok(w)
     }
 }
@@ -986,8 +1001,8 @@ mod tests {
         assert_eq!(to_json(&Request::Hello { protocol: 1 }), json!({"op":"hello","protocol":1}));
         assert_eq!(to_json(&Request::Selftest { id: 1 }), json!({"id":1,"op":"selftest"}));
         assert_eq!(
-            to_json(&Request::Load { id: 2, path: "/abs/model/dir" }),
-            json!({"id":2,"op":"load","path":"/abs/model/dir"})
+            to_json(&Request::Load { id: 2, path: "/abs/model/dir", max_context: 32768 }),
+            json!({"id":2,"op":"load","path":"/abs/model/dir","max_context":32768})
         );
         let generate = Request::Generate {
             id: 3,
@@ -1148,9 +1163,20 @@ mod tests {
         let guard = WORKER_SOURCE.find("_socket.getaddrinfo = _blocked").unwrap();
         let first_other = WORKER_SOURCE.find("import os").unwrap();
         assert!(guard < first_other);
-        for name in ["socket.connect =", "socket.connect_ex =", "create_connection =", "getaddrinfo ="] {
+        for name in [
+            "socket.connect =",
+            "socket.connect_ex =",
+            "socket.sendto =",
+            "socket.sendmsg =",
+            "socket.bind =",
+            "socket.listen =",
+            "create_connection =",
+            "getaddrinfo =",
+        ] {
             assert!(WORKER_SOURCE.contains(name), "{name}");
         }
+        // The worker caps the context as llama.cpp does (max_context).
+        assert!(WORKER_SOURCE.contains("max_context"));
         assert!(WORKER_SOURCE.contains(r#"os.environ.get("HF_HUB_OFFLINE") != "1""#));
         assert!(WORKER_SOURCE.contains("trust_remote_code=False"));
         assert!(!WORKER_SOURCE.contains("trust_remote_code=True"));

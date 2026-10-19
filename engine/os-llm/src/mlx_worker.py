@@ -3,15 +3,22 @@
 Runs inside the MLX engine pack's own Python, started by OpenBark as
 `python3 -I -B -X utf8 -u openbark_mlx_worker.py`. It talks only over its
 standard input and output, one JSON object per line (the protocol is in
-docs/plans/mlx-models.md, contract 9). It opens no socket, binds no port and
-never uses the network. Prompts and generated text go only to the protocol
-stream: never to stderr, a file or a log.
+docs/plans/mlx-models.md, contract 9). Its own code opens no socket, binds no
+port and never uses the network. Prompts and generated text go only to the
+protocol stream: never to stderr, a file or a log.
+
+Network protection, in layers (mlx.rs starts it): an empty environment with
+the Hugging Face libraries offline, a local folder only, and on macOS an OS
+sandbox denying all network access. The guard below is a best-effort extra
+for Python code: it doesn't reach the low-level _socket module or native
+code in the pack's libraries.
 
 Written into the pack folder by OpenBark (`mlx.rs`); don't edit the copy there.
 """
 
-# The socket guard comes first, before any other import, so nothing imported
-# later (transformers, huggingface_hub, mlx-lm) can open a connection.
+# The socket guard comes first, before any other import, so Python code
+# imported later (transformers, huggingface_hub, mlx-lm) can't connect, send
+# to an address, bind or listen through the socket module.
 import socket as _socket
 
 
@@ -25,6 +32,10 @@ def _blocked(*_args, **_kwargs):
 
 _socket.socket.connect = _blocked
 _socket.socket.connect_ex = _blocked
+_socket.socket.sendto = _blocked
+_socket.socket.sendmsg = _blocked
+_socket.socket.bind = _blocked
+_socket.socket.listen = _blocked
 _socket.create_connection = _blocked
 _socket.getaddrinfo = _blocked
 
@@ -237,6 +248,8 @@ class Loaded:
         self.tokenizer = None
         self.ll_tokenizer = None
         self.config = {}
+        # min(the model's own context, OpenBark's max_context): prompt plus
+        # new tokens past this are refused, as llama.cpp refuses them.
         self.context_length = 0
         self.vocab_size = 0
         self.eos = []
@@ -316,6 +329,11 @@ def op_load(req):
     path = req.get("path")
     if not isinstance(path, str) or not path or not os.path.isabs(path):
         raise WorkerError("bad_request", "load needs the full path of a model folder")
+    max_context = req.get("max_context", 0)
+    if max_context is None:
+        max_context = 0
+    if isinstance(max_context, bool) or not isinstance(max_context, int) or max_context < 0:
+        raise WorkerError("bad_request", "max_context must be a whole number")
     if not os.path.isdir(path):
         raise WorkerError("load", "the model folder isn't there")
     if not os.path.isfile(os.path.join(path, "config.json")):
@@ -353,8 +371,11 @@ def op_load(req):
     loaded.model = model
     loaded.tokenizer = tw
     loaded.config = config if isinstance(config, dict) else cfg
-    loaded.context_length = _config_int(
+    model_context = _config_int(
         loaded.config, ("max_position_embeddings", "max_seq_len", "seq_length", "n_positions")) or 8192
+    # The cap keeps the KV cache (and the Mac's memory) bounded, like the
+    # built-in engine's max_context: many models claim 128k or more.
+    loaded.context_length = min(model_context, max_context) if max_context > 0 else model_context
     loaded.vocab_size = _config_int(loaded.config, ("vocab_size",)) or len(tw._tokenizer)
     loaded.eos = _eos_ids(tw, loaded.config)
     if loaded.eos:
@@ -380,8 +401,8 @@ def op_load(req):
         log("llguidance unavailable for this model (%s)" % type(e).__name__)
     _MODEL["loaded"] = loaded
     load_ms = int((time.time() - started) * 1000)
-    log("loaded model_type=%s ctx=%d vocab=%d eos=%d constrained=%s device=%s in %d ms" % (
-        cfg["model_type"][:60], loaded.context_length, loaded.vocab_size, len(loaded.eos),
+    log("loaded model_type=%s ctx=%d (model %d) vocab=%d eos=%d constrained=%s device=%s in %d ms" % (
+        cfg["model_type"][:60], loaded.context_length, model_context, loaded.vocab_size, len(loaded.eos),
         constrained_ready, _DEVICE["name"], load_ms))
     send({
         "id": req.get("id"),
@@ -547,6 +568,39 @@ def op_generate(req):
 
 # --------------------------------------------------------------- self-test
 
+def _guard_holds():
+    """Every path the guard covers raises NetworkBlocked (and nothing else)."""
+    stream, dgram = _socket.SOCK_STREAM, _socket.SOCK_DGRAM
+    probes = (
+        (None, lambda s: _socket.create_connection(("127.0.0.1", 9), timeout=1)),
+        (None, lambda s: _socket.getaddrinfo("huggingface.co", 443)),
+        (stream, lambda s: s.connect(("127.0.0.1", 9))),
+        (stream, lambda s: s.connect_ex(("127.0.0.1", 9))),
+        (dgram, lambda s: s.sendto(b"x", ("127.0.0.1", 9))),
+        (dgram, lambda s: s.sendmsg([b"x"], [], 0, ("127.0.0.1", 9))),
+        (stream, lambda s: s.bind(("127.0.0.1", 0))),
+        (stream, lambda s: s.listen(1)),
+    )
+    for kind, attempt in probes:
+        sock = None
+        if kind is not None:
+            try:
+                sock = _socket.socket(_socket.AF_INET, kind)
+            except OSError:
+                continue  # the OS itself refuses the socket (a sandbox): blocked anyway
+        try:
+            attempt(sock)
+            return False
+        except NetworkBlocked:
+            pass
+        except Exception:
+            return False
+        finally:
+            if sock is not None:
+                sock.close()
+    return True
+
+
 def op_selftest(req):
     checks = []
     message = None
@@ -571,21 +625,7 @@ def op_selftest(req):
     except Exception as e:
         check("imports", False, "the MLX engine's packages didn't load (%s)" % type(e).__name__)
 
-    guarded = True
-    for attempt in (
-        lambda: _socket.create_connection(("127.0.0.1", 9), timeout=1),
-        lambda: _socket.getaddrinfo("huggingface.co", 443),
-        lambda: _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM).connect(("127.0.0.1", 9)),
-        lambda: _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM).connect_ex(("127.0.0.1", 9)),
-    ):
-        try:
-            attempt()
-            guarded = False
-        except NetworkBlocked:
-            pass
-        except Exception:
-            guarded = False
-    check("socket_guard", guarded, "the worker's network guard isn't working")
+    check("socket_guard", _guard_holds(), "the worker's network guard isn't working")
 
     metal_needed = sys.platform == "darwin" and os.environ.get("OPENBARK_MLX_DEVICE", "").strip().lower() != "cpu"
     check("metal", (not metal_needed) or _DEVICE["metal"], "Metal isn't available on this Mac")

@@ -5,7 +5,9 @@ use clap::Subcommand;
 use indicatif::{ProgressBar, ProgressStyle};
 use os_models::hub::{self, Access};
 use os_models::local::{self, ImportKind, ImportMode};
-use os_models::{Catalog, CatalogEntry, ModelStore, Verify};
+use os_models::{Catalog, CatalogEntry, LlmEngine, ModelStore, Verify};
+
+const MLX_NEEDS: &str = "MLX models run on a Mac with Apple silicon and macOS 14 or later.";
 
 #[derive(Subcommand)]
 pub enum ModelsCommand {
@@ -15,15 +17,16 @@ pub enum ModelsCommand {
     /// Download a model (resumable; verified by SHA-256 or git SHA-1).
     Pull {
         id: String,
-        /// Hugging Face token for gated repos (or set HF_TOKEN). Without
-        /// it, a gated model uses the saved token.
-        #[arg(long, env = "HF_TOKEN", hide_env_values = true)]
+        /// Hugging Face token for gated repos (or set OPENBARK_HF_TOKEN).
+        /// Without it, a gated model uses the saved token. The generic
+        /// HF_TOKEN is never read.
+        #[arg(long, env = "OPENBARK_HF_TOKEN", hide_env_values = true)]
         hf_token: Option<String>,
     },
     /// Download every model OpenBark needs that isn't installed yet (used by
     /// the installer).
     Setup {
-        #[arg(long, env = "HF_TOKEN", hide_env_values = true)]
+        #[arg(long, env = "OPENBARK_HF_TOKEN", hide_env_values = true)]
         hf_token: Option<String>,
     },
     /// Re-check installed files against their SHA-256 (or git SHA-1).
@@ -56,8 +59,8 @@ pub enum ModelsCommand {
         /// Accept a restricted licence (read it on Hugging Face first).
         #[arg(long)]
         accept_license: bool,
-        /// Token for a gated repo (or set HF_TOKEN); otherwise the saved one.
-        #[arg(long, env = "HF_TOKEN", hide_env_values = true)]
+        /// Token for a gated repo (or set OPENBARK_HF_TOKEN); otherwise the saved one.
+        #[arg(long, env = "OPENBARK_HF_TOKEN", hide_env_values = true)]
         hf_token: Option<String>,
     },
 }
@@ -84,7 +87,11 @@ pub fn run(cmd: ModelsCommand, store: &ModelStore) -> Result<()> {
         }
         ModelsCommand::Pull { id, hf_token } => {
             let catalog = hub::full_catalog(store);
-            pull(store, entry(&catalog, &id)?, hf_token.as_deref())
+            let m = entry(&catalog, &id)?;
+            if m.llm_engine() == Some(LlmEngine::Mlx) && !os_app::mlx_runs_here() {
+                bail!("{MLX_NEEDS}");
+            }
+            pull(store, m, hf_token.as_deref())
         }
         ModelsCommand::Setup { hf_token } => {
             let catalog = Catalog::builtin();
@@ -143,6 +150,10 @@ pub fn run(cmd: ModelsCommand, store: &ModelStore) -> Result<()> {
         }
         ModelsCommand::Import { path, in_place } => import(store, &path, in_place),
         ModelsCommand::AddHf { repo, file, accept_license, hf_token } => {
+            // An MLX folder can't write a note here: don't download gigabytes of it.
+            if file == hub::MLX_CHOICE && !os_app::mlx_runs_here() {
+                bail!("{MLX_NEEDS}");
+            }
             let mut details = hub::repo(&repo, None)?;
             if details.gated_kind.is_some() && details.access == Access::NeedsToken {
                 let token = hf_token.or_else(|| os_engine::secrets::hf_token().map(|(t, _)| t));
@@ -168,7 +179,7 @@ fn import(store: &ModelStore, path: &Path, in_place: bool) -> Result<()> {
     let path = std::path::absolute(path)?;
     let preview = local::inspect(store, &path)?;
     if preview.kind == ImportKind::Mlx && !os_app::mlx_runs_here() {
-        bail!("MLX models run on a Mac with Apple silicon and macOS 14 or later.");
+        bail!("{MLX_NEEDS}");
     }
     let mode = if in_place { ImportMode::InPlace } else { ImportMode::Copy };
     eprintln!(

@@ -351,8 +351,47 @@ def inspect_wheel(path: Path) -> int:
         return total
 
 
+def link_chain_escapes(links: dict) -> str | None:
+    """The first link (sorted) that, followed through the archive's other
+    links as the OS would once unpacked, leaves the folder or loops. Each
+    link's own text is checked as it comes; this catches chains such as
+    `x/l1 -> ..` plus `a -> x/l1/../..` (the same check as the unpacker's
+    `link_chain_escapes` in engine/os-models/src/mlx_pack.rs)."""
+
+    def resolve(start: tuple, target: str, hops: list) -> tuple | None:
+        cur = list(start)
+        for part in target.split("/"):
+            if part in ("", "."):
+                continue
+            if part == "..":
+                if not cur:
+                    return None
+                cur.pop()
+                if not cur:
+                    return None
+                continue
+            cur.append(part)
+            nxt = links.get(tuple(cur))
+            if nxt is not None:
+                hops[0] += 1
+                if hops[0] > 40:
+                    return None
+                got = resolve(tuple(cur[:-1]), nxt, hops)
+                if got is None:
+                    return None
+                cur = list(got)
+        return tuple(cur) if cur else None
+
+    for link in sorted(links):
+        target = links[link]
+        if target.startswith("/") or resolve(link[:-1], target, [0]) is None:
+            return "/".join(link)
+    return None
+
+
 def inspect_python(path: Path, root: str) -> int:
     total = 0
+    links = {}
     with tarfile.open(path, "r:gz") as t:
         for m in t.getmembers():
             n = m.name
@@ -371,10 +410,14 @@ def inspect_python(path: Path, root: str) -> int:
                     depth += -1 if part == ".." else (0 if part == "." else 1)
                     if depth < 1:
                         fail(f"{path.name}: symlink {n!r} leaves {root}/")
+                links[PurePosixPath(n).parts] = m.linkname
             elif m.isfile():
                 total += m.size
             elif not m.isdir():
                 fail(f"{path.name}: unexpected entry type for {n!r}")
+    escaped = link_chain_escapes(links)
+    if escaped:
+        fail(f"{path.name}: symlink {escaped!r} leaves {root}/ through other links")
     return total
 
 

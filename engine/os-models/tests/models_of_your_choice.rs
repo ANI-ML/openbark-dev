@@ -39,17 +39,21 @@ fn add_from_this_computer_then_remove() {
     assert_eq!(entry.llm_engine(), Some(LlmEngine::Llama));
     assert!(entry.is_local() && entry.in_place().is_none());
     assert!(store.is_installed(&entry, Verify::Full));
-    assert_eq!(store.disk_usage(&entry), bytes.len() as u64);
+    // On one drive the copy is a hard link: on disk, but shared with the
+    // original, so removing it frees nothing. Either way the bytes add up.
+    let (own, shared) = (store.disk_usage(&entry), store.shared_bytes(&entry));
+    assert_eq!(own + shared, bytes.len() as u64);
     assert_eq!(remove::rule(&entry), RemoveRule::DeleteAndForget);
     assert!(hub::full_catalog(&store).get(&entry.id).is_some());
 
     let removal = remove::remove(&store, &entry, false, false).unwrap();
-    assert_eq!(removal.freed_bytes, bytes.len() as u64);
+    assert_eq!((removal.freed_bytes, removal.shared_bytes), (own, shared));
     assert!(removal.forgotten);
     assert!(hub::full_catalog(&store).get(&entry.id).is_none());
     assert_eq!(fs::read(&file).unwrap(), bytes, "the original file is untouched");
     let json = serde_json::to_value(&removal).unwrap();
     assert_eq!(json["kept_in_place"], false);
+    assert_eq!(json["shared_bytes"], shared);
 }
 
 #[test]

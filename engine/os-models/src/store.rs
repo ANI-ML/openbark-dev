@@ -186,13 +186,27 @@ impl ModelStore {
         entry.files.iter().all(|f| self.file_ok(entry, f, verify))
     }
 
-    /// Bytes on disk for this model's listed files plus their `.part` files.
-    /// 0 when used in place (those bytes aren't OpenBark's).
+    /// Bytes on disk for this model's listed files plus their `.part` files,
+    /// counting only data that is OpenBark's alone: a file that is also
+    /// reachable under another name (a hard link, as a copy from this computer
+    /// on the same drive is) frees nothing when removed, so it isn't counted
+    /// here but in [`ModelStore::shared_bytes`]. 0 when used in place (those
+    /// bytes aren't OpenBark's).
     pub fn disk_usage(&self, entry: &CatalogEntry) -> u64 {
         if entry.in_place().is_some() {
             return 0;
         }
-        self.listed_paths(entry).map(|p| file_len(&p) + file_len(&part_path(&p))).sum()
+        self.listed_paths(entry).map(|p| own_len(&p) + own_len(&part_path(&p))).sum()
+    }
+
+    /// Bytes in this model's listed files whose data another name also holds
+    /// (hard links): on disk, but removing them frees no space. 0 when used
+    /// in place.
+    pub fn shared_bytes(&self, entry: &CatalogEntry) -> u64 {
+        if entry.in_place().is_some() {
+            return 0;
+        }
+        self.listed_paths(entry).map(|p| shared_len(&p)).sum()
     }
 
     /// Bytes in `.part` files only (a download that stopped part-way).
@@ -221,6 +235,58 @@ fn legacy_id_ok(id: &str) -> bool {
 
 fn file_len(path: &Path) -> u64 {
     std::fs::metadata(path).ok().filter(|m| m.is_file()).map(|m| m.len()).unwrap_or(0)
+}
+
+/// The file's size when its data has no other name, else 0.
+fn own_len(path: &Path) -> u64 {
+    match file_len(path) {
+        0 => 0,
+        len if link_count(path) <= 1 => len,
+        _ => 0,
+    }
+}
+
+/// The file's size when its data also has another name (a hard link), else 0.
+fn shared_len(path: &Path) -> u64 {
+    match file_len(path) {
+        0 => 0,
+        len if link_count(path) > 1 => len,
+        _ => 0,
+    }
+}
+
+/// How many names a file's data has: 1 for an ordinary file, more for a
+/// hard link (a copy from this computer on the same drive, ADR-0025 §9, or a
+/// file two catalog entries share). Links are followed; 1 when unknown.
+pub(crate) fn link_count(path: &Path) -> u64 {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        std::fs::metadata(path).map(|m| m.nlink()).unwrap_or(1)
+    }
+    #[cfg(windows)]
+    {
+        windows_link_count(path).unwrap_or(1)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = path;
+        1
+    }
+}
+
+/// `nNumberOfLinks` from GetFileInformationByHandle (std's own accessor for
+/// it is still unstable).
+#[cfg(windows)]
+fn windows_link_count(path: &Path) -> Option<u64> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle};
+    let file = File::open(path).ok()?;
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    // SAFETY: `file` is an open handle for the whole call, and `info` is a
+    // properly sized, writable BY_HANDLE_FILE_INFORMATION.
+    let ok = unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) };
+    (ok != 0).then_some(u64::from(info.nNumberOfLinks))
 }
 
 #[cfg(test)]
@@ -379,6 +445,30 @@ mod tests {
             Source::Local { path: Some(dir.join("Q4/m-00001-of-00002.gguf").to_string_lossy().into_owned()) };
         assert_eq!(store.disk_usage(&in_place), 0);
         assert_eq!(store.partial_bytes(&in_place), 0);
+    }
+
+    /// A hard link (a copy from this computer on the same drive) frees
+    /// nothing when removed: it counts as shared, not as OpenBark's own.
+    #[test]
+    fn hard_linked_files_count_as_shared_not_as_their_own() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = ModelStore::new(tmp.path().join("store"));
+        let e = entry("local/m", &[("m.gguf", 10), ("n.gguf", 7)]);
+        let dir = store.model_dir(&e);
+        std::fs::create_dir_all(&dir).unwrap();
+        let original = tmp.path().join("m.gguf");
+        std::fs::write(&original, [1u8; 10]).unwrap();
+        std::fs::hard_link(&original, dir.join("m.gguf")).unwrap();
+        std::fs::write(dir.join("n.gguf"), [2u8; 7]).unwrap();
+        assert_eq!(link_count(&dir.join("m.gguf")), 2);
+        assert_eq!(link_count(&dir.join("n.gguf")), 1);
+        assert_eq!(link_count(&dir.join("absent.gguf")), 1, "unknown counts as one name");
+        assert_eq!(store.disk_usage(&e), 7);
+        assert_eq!(store.shared_bytes(&e), 10);
+        // Once the original is gone, the copy is OpenBark's alone.
+        std::fs::remove_file(&original).unwrap();
+        assert_eq!(store.disk_usage(&e), 17);
+        assert_eq!(store.shared_bytes(&e), 0);
     }
 
     #[test]
