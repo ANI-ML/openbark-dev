@@ -60,6 +60,8 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
   /** What the consent step is for, while it's open. */
   const [consentFor, setConsentFor] = useState<"record" | "import">("record");
   const recording = useRef<engine.Recording | null>(null);
+  /** Stop was pressed while the recording was still being handed back: stop as soon as it is. */
+  const stopWhenReady = useRef(false);
   const live = state === "recording" || state === "stopping" || state === "importing";
   /** Stopped or imported: the recording is being turned into a transcript and note. */
   const processing = state === "stopping" || state === "importing";
@@ -84,15 +86,13 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
     if (state === "recording") {
       setProgress(null);
       setState("stopping");
-      try {
-        const view = await recording.current!.stop();
-        recording.current = null;
-        app.announce(t("Recording stopped. Drafting the note."));
-        app.navigate({ screen: "review", id: view.id, draft: app.settings.draftOnStop });
-      } catch (e) {
-        setError(String(e instanceof Error ? e.message : e));
-        setState("idle");
+      // Audio can start flowing a moment before the recording is handed back;
+      // begin() stops it as soon as it arrives.
+      if (!recording.current) {
+        stopWhenReady.current = true;
+        return;
       }
+      await finish();
       return;
     }
     // Consent is the clinic's responsibility (accepted once); the
@@ -105,7 +105,20 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
     }
   }
 
+  async function finish() {
+    try {
+      const view = await recording.current!.stop();
+      recording.current = null;
+      app.announce(t("Recording stopped. Drafting the note."));
+      app.navigate({ screen: "review", id: view.id, draft: app.settings.draftOnStop });
+    } catch (e) {
+      setError(String(e instanceof Error ? e.message : e));
+      setState("idle");
+    }
+  }
+
   async function begin(consent: engine.RecordingConsent | null) {
+    stopWhenReady.current = false;
     setState("starting");
     setSegments([]);
     setElapsed(0);
@@ -118,8 +131,15 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
         (level, seconds) => {
           app.levels.push(level);
           setElapsed(seconds);
+          // Audio is flowing: say so now, not when the start call returns.
+          setState((s) => (s === "starting" ? "recording" : s));
         },
       );
+      if (stopWhenReady.current) {
+        stopWhenReady.current = false;
+        await finish();
+        return;
+      }
       setState("recording");
       app.announce(t("Recording started"));
     } catch (e) {

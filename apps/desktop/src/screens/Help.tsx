@@ -4,6 +4,32 @@ import { useEffect, useRef, useState } from "react";
 import { useApp } from "../context";
 import { useT } from "../i18n";
 
+/**
+ * Whether the app is showing its dark theme: the explicit choice on <html>
+ * (data-theme), else the system's prefers-color-scheme. Follows changes to either.
+ */
+function useDarkTheme(): boolean {
+  const read = () => {
+    const chosen = document.documentElement.getAttribute("data-theme");
+    if (chosen === "dark") return true;
+    if (chosen === "light") return false;
+    return typeof window.matchMedia === "function" && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  };
+  const [dark, setDark] = useState(read);
+  useEffect(() => {
+    const update = () => setDark(read());
+    const attrs = new MutationObserver(update);
+    attrs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    const media = typeof window.matchMedia === "function" ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+    media?.addEventListener?.("change", update);
+    return () => {
+      attrs.disconnect();
+      media?.removeEventListener?.("change", update);
+    };
+  }, []);
+  return dark;
+}
+
 /** 1:24 */
 function clock(seconds: number): string {
   const s = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
@@ -12,14 +38,18 @@ function clock(seconds: number): string {
 
 /**
  * A walkthrough video with a flat play and scrub bar. Chromium's built-in
- * controls draw a gradient over the frame (§3.5), so they're not used. Until
- * it's first played, a solid surface covers the frame: the recordings are of
- * the light theme, and a white first frame would be the brightest thing on a
- * dark screen (§3.4).
+ * controls draw a gradient over the frame (§3.5), so they're not used. Each
+ * walkthrough is recorded in both themes (<id>.webm and <id>-dark.webm) and
+ * plays in the one the app is showing (§3.4); if the dark recording is
+ * missing, the light one plays. Until it's first played, a solid surface
+ * covers the frame.
  */
-function HelpVideo({ src, title }: { src: string; title: string }) {
+function HelpVideo({ id, title }: { id: string; title: string }) {
   const t = useT();
   const video = useRef<HTMLVideoElement>(null);
+  const dark = useDarkTheme();
+  const [darkMissing, setDarkMissing] = useState(false);
+  const src = dark && !darkMissing ? `help/${id}-dark.webm` : `help/${id}.webm`;
   const [started, setStarted] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(0);
@@ -49,6 +79,9 @@ function HelpVideo({ src, title }: { src: string; title: string }) {
           }}
           onPause={() => setPlaying(false)}
           onEnded={() => setPlaying(false)}
+          onError={() => {
+            if (dark && !darkMissing) setDarkMissing(true);
+          }}
           onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
           onDurationChange={(e) => setDuration(e.currentTarget.duration)}
           onTimeUpdate={(e) => setTime(e.currentTarget.currentTime)}
@@ -239,7 +272,7 @@ export function Help() {
         <article className="help-body">
           <h2>{t(topic.title)}</h2>
           <p className="muted">{t(topic.summary)}</p>
-          <HelpVideo key={topic.id} src={`help/${topic.id}.webm`} title={t(topic.title)} />
+          <HelpVideo key={topic.id} id={topic.id} title={t(topic.title)} />
           {app.settings.uiLanguage !== "en" && (
             <p className="small faint">{t("The videos are in English; the steps below are in your language.")}</p>
           )}
