@@ -19,7 +19,7 @@ function ctx(): Ctx {
     setUser: vi.fn(),
     actor: "Dr Rivera",
     actorName: "Dr Rivera",
-    can: { notes: true, sign: true, team: true },
+    can: { notes: true, sign: true, team: true, admin: true },
   } as Ctx;
 }
 
