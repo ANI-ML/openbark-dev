@@ -193,8 +193,31 @@ def dental_chart() -> set[str]:
     return out
 
 
+ENGINE = os.path.join(os.path.dirname(__file__), "..", "engine")
+RUST_ERROR = re.compile(r'#\[error\(\s*"((?:[^"\\]|\\.)*)"\s*\)\]')
+APP_ERROR = re.compile(r'AppError\(\s*"((?:[^"\\]|\\.)*)"\.into\(\)\s*\)')
+
+
+def microphone() -> set[str]:
+    """Microphone errors shown through t(error) on the Record screen: the
+    browser's (MIC_ERRORS in src/mic/errors.ts), the desktop capture's
+    (os-asr capture.rs) and the microphone test's (os-app mic.rs)."""
+    out = set()
+    with io.open(os.path.join(ROOT, "mic", "errors.ts"), encoding="utf-8") as f:
+        src = f.read()
+    block = src[src.index("export const MIC_ERRORS"):src.index("} as const;")]
+    for m in STRING.finditer(block):
+        out.add(json.loads(f'"{m.group(1)}"'))
+    with io.open(os.path.join(ENGINE, "os-asr", "src", "capture.rs"), encoding="utf-8") as f:
+        out |= {json.loads(f'"{m.group(1)}"') for m in RUST_ERROR.finditer(f.read())}
+    with io.open(os.path.join(ENGINE, "os-app", "src", "mic.rs"), encoding="utf-8") as f:
+        out |= {json.loads(f'"{m.group(1)}"') for m in APP_ERROR.finditer(f.read()) if "poisoned" not in m.group(1)}
+    out.add("This browser reported a microphone rate OpenBark can't use. Reload the page and try again, or use another browser.")
+    return out
+
+
 def main() -> None:
-    keys = set(INDIRECT) | help_topics() | model_guide() | dental_chart()
+    keys = set(INDIRECT) | help_topics() | model_guide() | dental_chart() | microphone()
     for folder, _, files in os.walk(ROOT):
         for name in files:
             if not name.endswith((".ts", ".tsx")) or ".test." in name:
