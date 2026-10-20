@@ -18,7 +18,7 @@
 // signs from the Sign button.
 //
 // Before doing anything the script refuses unless:
-//   1. the URL is this computer, on port 4321 or 4329, and never 4317 (the clinic's own server);
+//   1. the URL is this computer, on port 4321, 4329 or 4331, and never 4317 (the clinic's own server);
 //   2. <demo folder> holds an OPENBARK-DEMO marker and isn't inside OpenBark's own data folder;
 //   3. GET /api/storage reports a visits folder inside <demo folder>;
 //   4. the demo has no team (the fixtures are imported working alone).
@@ -44,7 +44,8 @@ function refuse(why) {
 }
 const url = new URL(base);
 if (url.port === "4317") refuse("port 4317 is the clinic's own OpenBark server");
-if (!["4321", "4329"].includes(url.port)) refuse(`dental demos run on port 4321 or 4329, not ${url.port || "the default port"}`);
+if (!["4321", "4329", "4331"].includes(url.port))
+  refuse(`dental demos run on port 4321, 4329 or 4331, not ${url.port || "the default port"}`);
 if (!["localhost", "127.0.0.1"].includes(url.hostname)) refuse("only this computer's demo can be used");
 if (!demo) refuse("usage: node e2e/dental-chart.mjs <demo folder>");
 if (OWN_DATA.test(demo)) refuse(`${demo} is inside OpenBark's own data folder`);

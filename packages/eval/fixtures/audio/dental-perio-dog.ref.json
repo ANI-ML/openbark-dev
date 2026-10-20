@@ -1,0 +1,86 @@
+[
+  {
+    "speaker": "dvm",
+    "start": 0.0,
+    "end": 6.1465,
+    "text": "This is Rufus, an eleven year old neutered male Border Collie, in for his dental under anaesthesia."
+  },
+  {
+    "speaker": "tech",
+    "start": 6.7465,
+    "end": 15.46975,
+    "text": "He weighs twenty-two kilos. Premed was methadone and medetomidine, propofol to induce, and he's on isoflurane."
+  },
+  {
+    "speaker": "dvm",
+    "start": 16.06975,
+    "end": 20.58175,
+    "text": "One oh six through one oh eight have stage two periodontal disease."
+  },
+  {
+    "speaker": "dvm",
+    "start": 21.18175,
+    "end": 27.615812,
+    "text": "Two oh eight has stage four periodontal disease, a nine millimetre pocket and grade three mobility."
+  },
+  {
+    "speaker": "dvm",
+    "start": 28.215813,
+    "end": 31.641563,
+    "text": "Two oh nine is stage three, with a class two furcation."
+  },
+  {
+    "speaker": "dvm",
+    "start": 32.24156,
+    "end": 35.627937,
+    "text": "Four oh nine has a five millimetre pocket, stage two."
+  },
+  {
+    "speaker": "dvm",
+    "start": 36.227936,
+    "end": 40.385063,
+    "text": "The upper right canine has two millimetres of gingival recession."
+  },
+  {
+    "speaker": "dvm",
+    "start": 40.98506,
+    "end": 42.432312,
+    "text": "Three oh one is missing."
+  },
+  {
+    "speaker": "dvm",
+    "start": 43.032314,
+    "end": 46.712563,
+    "text": "The rest of the mouth is stage one, with moderate calculus."
+  },
+  {
+    "speaker": "dvm",
+    "start": 47.31256,
+    "end": 50.297127,
+    "text": "Two oh eight is sectioned and extracted, closed."
+  },
+  {
+    "speaker": "dvm",
+    "start": 50.897125,
+    "end": 53.687626,
+    "text": "Two oh nine comes out surgically, with a flap."
+  },
+  {
+    "speaker": "dvm",
+    "start": 54.287624,
+    "end": 57.641125,
+    "text": "Four oh nine stays for now. We'll keep an eye on it at home."
+  },
+  {
+    "speaker": "tech",
+    "start": 58.241123,
+    "end": 60.224937,
+    "text": "Scaling and polishing done."
+  },
+  {
+    "speaker": "dvm",
+    "start": 60.824936,
+    "end": 62.321064,
+    "text": "Recheck in two weeks."
+  }
+]

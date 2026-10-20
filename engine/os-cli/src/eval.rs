@@ -79,6 +79,11 @@ struct Expected {
     /// Findings that must not be charted, except on the teeth listed.
     #[serde(default)]
     chart_not_allowed: Vec<NotAllowed>,
+    /// The species the note's Patient section must give ("dog" or "cat"),
+    /// for consults that say only a breed ("a Yorkshire terrier"). Scored on
+    /// its own, outside the facts: right word, and not flagged.
+    #[serde(default)]
+    patient_species: Option<String>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -335,6 +340,10 @@ struct Score {
     word_flags: Vec<String>,
     /// Multi-pet visits: another animal's value found in this animal's note.
     contaminated: Vec<String>,
+    /// `patient_species`: what the note says, and whether it is the expected
+    /// species and unflagged.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    species: Option<SpeciesScore>,
     /// The tooth chart, when the template has one.
     #[serde(skip_serializing_if = "Option::is_none")]
     chart: Option<ChartScore>,
@@ -462,8 +471,30 @@ fn medications(v: &Value) -> Vec<Value> {
     }
 }
 
+/// The Patient section's species against a script's `patient_species`.
+#[derive(Serialize, Default, Clone)]
+struct SpeciesScore {
+    expected: String,
+    got: Option<String>,
+    flagged: bool,
+    ok: bool,
+}
+
+fn score_species(want: &str, note: &Value, faith: &os_engine::FaithfulnessReport) -> SpeciesScore {
+    let got = note.pointer("/patient/species/value").and_then(Value::as_str).map(str::to_string);
+    let flagged = faith.unverified_values.iter().any(|p| p == "/patient/species");
+    let words: &[&str] = match want {
+        "dog" => &["dog", "canine"],
+        "cat" => &["cat", "feline"],
+        _ => &[],
+    };
+    let right = got.as_deref().is_some_and(|g| words.contains(&g.trim().to_lowercase().as_str()));
+    SpeciesScore { expected: want.to_string(), got, flagged, ok: right && !flagged }
+}
+
 fn score(id: &str, expected: &Expected, note: &Value, faith: &os_engine::FaithfulnessReport) -> Score {
     let mut s = Score { fixture: id.into(), ..Default::default() };
+    s.species = expected.patient_species.as_deref().map(|want| score_species(want, note, faith));
     let text = note_text(note);
     let check = |ok: bool, what: String, s: &mut Score| {
         s.checks += 1;
@@ -676,6 +707,15 @@ pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
         for flag in &s.word_flags {
             println!("    check: {flag}");
         }
+        if let Some(sp) = &s.species {
+            println!(
+                "    species: {:?}, expected {}{}{}",
+                sp.got,
+                sp.expected,
+                if sp.flagged { ", flagged" } else { "" },
+                if sp.ok { " (ok)" } else { " (miss)" }
+            );
+        }
         if let Some(c) = &s.chart {
             println!(
                 "    chart: findings {}/{} (recall {}, precision {}), teeth recall {} precision {}, invented teeth {:?}, invented normals {:?}, wrong values {:?}, not allowed {:?}, without evidence {}, flags {}/{}, {} completion tokens",
@@ -700,6 +740,14 @@ pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
     let (p, c): (u32, u32) = report.iter().fold((0, 0), |a, s| (a.0 + s.passed, a.1 + s.checks));
     let invented: usize = report.iter().map(|s| s.invented_numbers).sum();
     println!("TOTAL facts {p}/{c} ({:.0}%), invented numbers {invented}", 100.0 * p as f64 / c.max(1) as f64);
+    let species: Vec<&SpeciesScore> = report.iter().filter_map(|s| s.species.as_ref()).collect();
+    if !species.is_empty() {
+        println!(
+            "TOTAL species from the breed: {}/{} right and unflagged",
+            species.iter().filter(|s| s.ok).count(),
+            species.len()
+        );
+    }
     let mut chart = ChartScore::default();
     let mut charts = 0;
     for c in report.iter().filter_map(|s| s.chart.as_ref()).filter(|c| c.expected > 0) {

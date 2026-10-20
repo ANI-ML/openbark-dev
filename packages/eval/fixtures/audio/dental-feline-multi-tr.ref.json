@@ -1,0 +1,68 @@
+[
+  {
+    "speaker": "dvm",
+    "start": 0.0,
+    "end": 5.43025,
+    "text": "This is Mochi, a nine year old spayed female Siamese, in for her dental under anaesthesia."
+  },
+  {
+    "speaker": "tech",
+    "start": 6.03025,
+    "end": 13.715875,
+    "text": "She's three point nine kilos. Premed was butorphanol and dexmedetomidine, induced with alfaxalone, and she's on isoflurane."
+  },
+  {
+    "speaker": "dvm",
+    "start": 14.315875,
+    "end": 17.568062,
+    "text": "Three oh nine has a stage three resorptive lesion."
+  },
+  {
+    "speaker": "dvm",
+    "start": 18.168062,
+    "end": 23.339813,
+    "text": "Four oh nine has tooth resorption, stage four a, the crown and root about equally affected."
+  },
+  {
+    "speaker": "dvm",
+    "start": 23.939812,
+    "end": 27.926937,
+    "text": "Two oh seven has a small stage one resorptive lesion, type one."
+  },
+  {
+    "speaker": "dvm",
+    "start": 28.526937,
+    "end": 32.8535,
+    "text": "On the radiographs, three oh nine is type one and four oh nine is type two."
+  },
+  {
+    "speaker": "dvm",
+    "start": 33.4535,
+    "end": 35.732376,
+    "text": "The lower left canine looks healthy."
+  },
+  {
+    "speaker": "dvm",
+    "start": 36.332375,
+    "end": 38.844936,
+    "text": "Two oh eight has a four millimetre pocket."
+  },
+  {
+    "speaker": "dvm",
+    "start": 39.44494,
+    "end": 43.50056,
+    "text": "Overall stage one periodontal disease, with mild calculus."
+  },
+  {
+    "speaker": "dvm",
+    "start": 44.100563,
+    "end": 49.190563,
+    "text": "Three oh nine is extracted surgically with a flap, and four oh nine gets a crown amputation."
+  },
+  {
+    "speaker": "dvm",
+    "start": 49.79056,
+    "end": 51.358124,
+    "text": "Recheck in ten days."
+  }
+]

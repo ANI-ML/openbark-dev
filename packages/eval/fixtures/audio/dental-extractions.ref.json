@@ -1,0 +1,74 @@
+[
+  {
+    "speaker": "dvm",
+    "start": 0.0,
+    "end": 4.7745624,
+    "text": "This is Bella, a fourteen year old spayed Dachshund, in for her dental and extractions."
+  },
+  {
+    "speaker": "tech",
+    "start": 5.3745623,
+    "end": 12.09425,
+    "text": "She's eight point five kilos. Premed was methadone and acepromazine, alfaxalone to induce, on isoflurane."
+  },
+  {
+    "speaker": "dvm",
+    "start": 12.69425,
+    "end": 15.92775,
+    "text": "The upper left canine is fractured, with the pulp exposed."
+  },
+  {
+    "speaker": "dvm",
+    "start": 16.52775,
+    "end": 19.7015,
+    "text": "Three oh seven and three oh eight are both mobile, grade two."
+  },
+  {
+    "speaker": "dvm",
+    "start": 20.3015,
+    "end": 22.400126,
+    "text": "Four oh seven has a retained root."
+  },
+  {
+    "speaker": "dvm",
+    "start": 23.000126,
+    "end": 25.163813,
+    "text": "One oh one and one oh two are missing."
+  },
+  {
+    "speaker": "dvm",
+    "start": 25.763813,
+    "end": 27.506437,
+    "text": "Four oh four looks normal."
+  },
+  {
+    "speaker": "dvm",
+    "start": 28.106438,
+    "end": 31.6975,
+    "text": "Two oh four comes out surgically, with a flap and alveoloplasty."
+  },
+  {
+    "speaker": "dvm",
+    "start": 32.2975,
+    "end": 36.36481,
+    "text": "Three oh seven and three oh eight are extracted closed, no sectioning needed."
+  },
+  {
+    "speaker": "dvm",
+    "start": 36.964813,
+    "end": 40.188126,
+    "text": "The root tip at four oh seven is extracted surgically."
+  },
+  {
+    "speaker": "dvm",
+    "start": 40.788124,
+    "end": 43.081375,
+    "text": "Four oh eight might need to come out next time."
+  },
+  {
+    "speaker": "dvm",
+    "start": 43.681374,
+    "end": 46.55131,
+    "text": "Recheck in ten days, soft food until then."
+  }
+]
