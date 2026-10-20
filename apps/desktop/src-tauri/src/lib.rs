@@ -26,6 +26,9 @@ use os_models::ModelStore;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
+#[cfg(feature = "selftest")]
+mod selftest;
+
 struct TauriEvents(AppHandle);
 
 #[derive(Clone, Serialize)]
@@ -678,8 +681,72 @@ async fn add_addendum(
     work(move || app.add_addendum(&id, &text, &by, pet.as_deref())).await
 }
 
+/// The scheme the player loads recordings from: `obaudio://localhost/<visit
+/// id>`, or `http://obaudio.localhost/<visit id>` on Windows (engine.ts
+/// builds it with `convertFileSrc`). It answers byte ranges, decrypting only
+/// what is asked. WebKit's player (macOS, Linux) needs ranges over a custom
+/// scheme, and a long recording never has to sit whole in memory.
+const AUDIO_SCHEME: &str = "obaudio";
+
+fn audio_protocol(
+    ctx: tauri::UriSchemeContext<'_, tauri::Wry>,
+    request: tauri::http::Request<Vec<u8>>,
+    responder: tauri::UriSchemeResponder,
+) {
+    if !audio_allowed(ctx.webview_label()) {
+        let refused = tauri::http::Response::builder()
+            .status(403)
+            .header("Cache-Control", "no-store")
+            .body(Vec::new())
+            .unwrap_or_else(|_| tauri::http::Response::new(Vec::new()));
+        responder.respond(refused);
+        return;
+    }
+    let app = ctx.app_handle().state::<AppState>().inner().clone();
+    tauri::async_runtime::spawn_blocking(move || responder.respond(audio_response(&app, &request)));
+}
+
+/// Whether a window may load recordings through [`AUDIO_SCHEME`]: every window
+/// but the phone window, which reaches only the phone commands (ADR-0023
+/// section 4) and so never a visit's recording.
+fn audio_allowed(window_label: &str) -> bool {
+    window_label != PHONE_WINDOW
+}
+
+fn audio_response(app: &App, request: &tauri::http::Request<Vec<u8>>) -> tauri::http::Response<Vec<u8>> {
+    // Visit ids are letters, digits, '-', '_' and '.', so nothing is encoded;
+    // session_dir refuses anything else.
+    let id = request.uri().path().trim_start_matches('/');
+    let range = request.headers().get("range").and_then(|v| v.to_str().ok());
+    let head = request.method() == tauri::http::Method::HEAD;
+    let mut response = tauri::http::Response::builder();
+    // The page's origin (tauri://localhost, http://tauri.localhost) differs
+    // from the scheme's.
+    if let Some(origin) = request.headers().get("origin") {
+        response = response
+            .header("Access-Control-Allow-Origin", origin.clone())
+            .header("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges");
+    }
+    let built = match app.session_audio_part(id, range, head) {
+        Ok(part) => {
+            response = response.status(part.status);
+            for (name, value) in part.headers() {
+                response = response.header(name, value);
+            }
+            response.body(part.body)
+        }
+        Err(e) => response
+            .status(404)
+            .header("Content-Type", "text/plain; charset=utf-8")
+            .header("Cache-Control", "no-store")
+            .body(e.0.into_bytes()),
+    };
+    built.unwrap_or_else(|_| tauri::http::Response::new(Vec::new()))
+}
+
 /// An encounter's recording, decrypted, for the player (ADR-0008: audio is
 /// encrypted on disk, so the file can't be handed to the webview directly).
+/// The player uses [`AUDIO_SCHEME`]; this whole-file copy is its fallback.
 #[tauri::command]
 async fn session_audio(app: State<'_, AppState>, id: String) -> Result<tauri::ipc::Response, String> {
     let app = app.inner().clone();
@@ -1148,11 +1215,12 @@ pub fn run() {
         phone_call_consent,
         phone_call_end
     ]);
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(app)
         .manage(CallAudio::default())
+        .register_asynchronous_uri_scheme_protocol(AUDIO_SCHEME, audio_protocol)
         // The microphone goes to the phone window only (ADR-0023 section 4);
         // the main window records through the engine, never the WebView.
         .on_permission_request(|webview, kind| {
@@ -1186,9 +1254,39 @@ pub fn run() {
                     }
                 });
             }
-        })
-        .run(tauri::generate_context!())
-        .expect("error while running OpenBark");
+        });
+    #[cfg(feature = "selftest")]
+    let builder = builder.on_page_load(|webview, payload| {
+        if payload.event() == tauri::webview::PageLoadEvent::Finished {
+            selftest::page_loaded(webview);
+        }
+    });
+    builder.build(tauri::generate_context!()).expect("error while running OpenBark").run(|handle, event| {
+        if let tauri::RunEvent::Exit = event {
+            quitting(handle);
+        }
+    });
+}
+
+/// The app is about to exit: Cmd-Q or the Quit menu item on macOS (AppKit
+/// calls `exit()` right after this returns), the last window closing, or a
+/// restart. Free the note model first: with a model still on the GPU when
+/// the C++ static destructors run, ggml's Metal teardown aborts and macOS
+/// reports a crash (os_llm::shutdown). If it can't be freed in time (a model
+/// load is still running), end the process without that teardown.
+fn quitting(handle: &AppHandle) {
+    #[cfg(feature = "selftest")]
+    if selftest::skip_shutdown() {
+        eprintln!("selftest: quitting without freeing the note model");
+        return;
+    }
+    let app = handle.state::<AppState>().inner().clone();
+    let freed = app.shutdown(os_app::SHUTDOWN_WAIT);
+    #[cfg(feature = "selftest")]
+    eprintln!("selftest: note models freed before exit: {freed}");
+    if !freed {
+        os_app::exit_process(0);
+    }
 }
 
 #[cfg(test)]
@@ -1207,6 +1305,13 @@ mod tests {
             assert!(!command_allowed("phone", c), "{c} from the phone window");
             assert!(command_allowed("main", c), "{c}");
         }
+    }
+
+    /// The phone window can't load recordings through the audio scheme either.
+    #[test]
+    fn the_phone_window_cant_play_recordings() {
+        assert!(audio_allowed("main"));
+        assert!(!audio_allowed(PHONE_WINDOW));
     }
 
     /// Finding 4 of the 2026-10-19 review: the phone window must hear

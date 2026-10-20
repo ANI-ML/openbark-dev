@@ -10,10 +10,11 @@ All notable changes to OpenBark, newest first. Generated from `website/content/h
 
 Call clients from OpenBark and get the call drafted as a visit, chart more of each dental, and a smoother app and website.
 
-- Phone calls through your clinic's own Twilio account: call out from OpenBark, record after an announcement the client can decline, and get the call drafted as a visit.
+- Phone calls through your clinic's own Twilio account: call out from OpenBark, record after an announcement the client can decline, and get the call drafted as a visit. (being tested)
 - The dental chart captures more of what's said (about 92% of findings in our testing), and Species is filled in from the breed.
 - A calmer, more responsive design across the app and the website.
-- On Mac, quitting no longer crashes, and recordings play back.
+- OpenBark no longer reports a crash when you quit it on a Mac after drafting a note.
+- Recordings play again in the desktop app, and long ones start and seek without loading the whole file.
 
 #### 2026-10-19: Your own templates, MLX on Mac, a dental chart
 

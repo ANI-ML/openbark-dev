@@ -45,6 +45,8 @@ pub use templates::{
     TemplatesMode,
 };
 
+#[doc(hidden)]
+pub mod demo;
 mod phone;
 mod templates;
 pub use os_connect::{ConnectStore, PhonePrefs};
@@ -353,6 +355,98 @@ static MLX_INSTALLING: std::sync::atomic::AtomicBool = std::sync::atomic::Atomic
 
 /// Passed to the program itself to run the GPU self-test in a child process.
 pub const GPU_CHECK_ARG: &str = "--openbark-gpu-check";
+
+/// The most one ranged answer for a recording carries
+/// ([`App::session_audio_part`]); players ask again for the rest.
+pub const AUDIO_PART_MAX: u64 = 1024 * 1024;
+
+/// Part of a recording, as an HTTP answer: 200 with the whole recording,
+/// 206 with bytes `start..=end` of `total`, or 416 when the range asked for
+/// lies outside it. Recordings are served as `audio/wav`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AudioPart {
+    pub status: u16,
+    pub total: u64,
+    pub start: u64,
+    pub end: u64,
+    pub body: Vec<u8>,
+}
+
+impl AudioPart {
+    /// The response headers, other than the status: type, length, ranges,
+    /// and no caching (decrypted audio must never land in a cache on disk).
+    pub fn headers(&self) -> Vec<(&'static str, String)> {
+        let mut h = vec![
+            ("Content-Type", "audio/wav".to_string()),
+            ("Accept-Ranges", "bytes".to_string()),
+            ("Cache-Control", "no-store".to_string()),
+        ];
+        match self.status {
+            206 => {
+                h.push(("Content-Range", format!("bytes {}-{}/{}", self.start, self.end, self.total)));
+                h.push(("Content-Length", (self.end - self.start + 1).to_string()));
+            }
+            416 => {
+                h.push(("Content-Range", format!("bytes */{}", self.total)));
+                h.push(("Content-Length", "0".to_string()));
+            }
+            _ => h.push(("Content-Length", self.total.to_string())),
+        }
+        h
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum RangePlan {
+    Whole,
+    /// Inclusive, within the recording.
+    Part(u64, u64),
+    Unsatisfiable,
+}
+
+/// What a `Range` header asks of a recording `total` bytes long. Only the
+/// first of several ranges is answered (players ask for one); a header that
+/// doesn't parse is ignored, as HTTP says.
+fn plan_range(header: Option<&str>, total: u64) -> RangePlan {
+    let Some(spec) = header.map(str::trim).and_then(|h| h.strip_prefix("bytes=")) else {
+        return RangePlan::Whole;
+    };
+    let first = spec.split(',').next().unwrap_or("").trim();
+    let Some((a, b)) = first.split_once('-') else { return RangePlan::Whole };
+    let (a, b) = (a.trim(), b.trim());
+    let parsed = match (a.is_empty(), b.is_empty()) {
+        // bytes=-n: the last n bytes.
+        (true, false) => match b.parse::<u64>() {
+            Ok(0) => return RangePlan::Unsatisfiable,
+            Ok(n) if total > 0 => Some((total.saturating_sub(n), total - 1)),
+            Ok(_) => return RangePlan::Unsatisfiable,
+            Err(_) => None,
+        },
+        (false, true) => a.parse::<u64>().ok().map(|s| (s, u64::MAX)),
+        (false, false) => match (a.parse::<u64>(), b.parse::<u64>()) {
+            (Ok(s), Ok(e)) if s <= e => Some((s, e)),
+            _ => None,
+        },
+        (true, true) => None,
+    };
+    match parsed {
+        None => RangePlan::Whole,
+        Some((start, _)) if start >= total => RangePlan::Unsatisfiable,
+        Some((start, end)) => RangePlan::Part(start, end.min(total - 1)),
+    }
+}
+
+/// How long quitting waits for a running draft to stop and the note model
+/// to be freed ([`App::shutdown`]). A draft stops at its next token, so this
+/// only runs out when a model load is in progress.
+pub const SHUTDOWN_WAIT: std::time::Duration = std::time::Duration::from_secs(8);
+
+/// End the process, after [`App::shutdown`]: the normal exit when every note
+/// model was freed, else one that skips the C++ static destructors so ggml's
+/// Metal teardown can't abort (`os_llm::shutdown::exit`).
+pub fn exit_process(code: i32) -> ! {
+    os_llm::shutdown::exit(code)
+}
 
 /// The GPU self-test, run in a child process (`<program> --openbark-gpu-check`,
 /// with `OPENBARK_MODELS_DIR` set): load both full-precision recognisers on
@@ -1286,6 +1380,31 @@ impl App {
 
     /// An encounter's recording as WAV bytes (decrypted for playback).
     pub fn session_audio(&self, id: &str) -> Result<Vec<u8>> {
+        Ok(os_engine::vault::read(&self.audio_file(id)?)?)
+    }
+
+    /// Part of a visit's recording for a media player, by an HTTP `Range`
+    /// header (`bytes=a-b`, `bytes=a-`, `bytes=-n`). Only the chunks asked
+    /// for are decrypted, and an open-ended range is answered with at most
+    /// [`AUDIO_PART_MAX`] bytes, so a long recording never sits whole in
+    /// memory. WebKit's player (macOS, Linux) won't play over a custom
+    /// scheme without ranges. With `head`, the body is left empty.
+    pub fn session_audio_part(&self, id: &str, range: Option<&str>, head: bool) -> Result<AudioPart> {
+        let mut reader = os_engine::vault::AudioReader::open(&self.audio_file(id)?)?;
+        let total = reader.len();
+        let (status, start, end) = match plan_range(range, total) {
+            RangePlan::Whole => (200, 0, total.saturating_sub(1)),
+            RangePlan::Part(start, end) => (206, start, end.min(start + AUDIO_PART_MAX - 1)),
+            RangePlan::Unsatisfiable => {
+                return Ok(AudioPart { status: 416, total, start: 0, end: 0, body: Vec::new() });
+            }
+        };
+        let body = if head || total == 0 { Vec::new() } else { reader.read_range(start, end)? };
+        Ok(AudioPart { status, total, start, end, body })
+    }
+
+    /// The recording's file, or why there's none.
+    fn audio_file(&self, id: &str) -> Result<PathBuf> {
         let dir = self.session_dir(id)?;
         let audio = dir.join(session::AUDIO_FILE);
         if !audio.is_file()
@@ -1296,7 +1415,7 @@ impl App {
                 gone.at.format("%Y-%m-%d")
             )));
         }
-        Ok(os_engine::vault::read(&audio)?)
+        Ok(audio)
     }
 
     // ---- sessions --------------------------------------------------------
@@ -2494,6 +2613,15 @@ impl App {
 
     // ---- templates -------------------------------------------------------
 
+    /// Load a note model into the slot, as a draft would, without drafting:
+    /// the quit checks (the desktop self-test, os-cli's exit_order example)
+    /// need a model on the GPU at exit, and GitHub's Mac runners draft on
+    /// their paravirtual GPU too slowly to wait for.
+    #[doc(hidden)]
+    pub fn preload_llm(&self, llm: &str) -> Result<()> {
+        self.load_llm(llm).map(drop)
+    }
+
     /// Propose a template from a note the clinic already writes (M2 item 5).
     /// Nothing is saved: the proposal opens in the builder for editing.
     pub fn template_from_example(&self, llm: &str, example: &str) -> Result<TemplateView> {
@@ -2519,6 +2647,9 @@ impl App {
     /// worker for MLX folders. It stays loaded for the next draft.
     fn load_llm(&self, id: &str) -> Result<Arc<dyn LlmBackend>> {
         let mut slot = self.llm.lock().map_err(|_| AppError("model lock poisoned".into()))?;
+        if os_llm::shutdown::stopping() {
+            return Err(AppError("OpenBark is closing.".into()));
+        }
         if let Some((loaded, backend)) = slot.as_ref()
             && loaded == id
         {
@@ -2545,6 +2676,60 @@ impl App {
         *slot = Some((id.to_string(), backend.clone()));
         self.mlx_in_slot.store(mlx, std::sync::atomic::Ordering::SeqCst);
         Ok(backend)
+    }
+
+    /// Before the process exits: stop running drafts and free every note
+    /// model, so nothing of llama.cpp is alive when the C++ static
+    /// destructors run (ggml's Metal teardown aborts otherwise; see
+    /// `os_llm::shutdown`). Waits up to `timeout`; true when every model was
+    /// freed. Call [`os_llm::shutdown::exit`] afterwards (or return from
+    /// `main`). The app refuses to load models from here on.
+    pub fn shutdown(&self, timeout: std::time::Duration) -> bool {
+        os_llm::shutdown::begin();
+        let deadline = std::time::Instant::now() + timeout;
+        let released = self.release_llms(deadline);
+        // A handle's count reaches zero just before the model behind it is
+        // freed (Arc drops the value after the count), so wait for that too.
+        let freed = released
+            && os_llm::shutdown::wait_released(deadline.saturating_duration_since(std::time::Instant::now()));
+        if !freed {
+            tracing::warn!(
+                live = os_llm::shutdown::live_models(),
+                "a note model was still in use when OpenBark closed"
+            );
+        }
+        freed
+    }
+
+    /// Empty the note-model slot and wait for drafts still holding a model
+    /// to let go, until `deadline`. True when no handed-out model is alive.
+    /// The slot's lock is tried rather than waited on: a model load holds it.
+    fn release_llms(&self, deadline: std::time::Instant) -> bool {
+        let pause = std::time::Duration::from_millis(10);
+        loop {
+            match self.llm.try_lock() {
+                Ok(mut slot) => {
+                    *slot = None;
+                    break;
+                }
+                Err(std::sync::TryLockError::Poisoned(p)) => {
+                    *p.into_inner() = None;
+                    break;
+                }
+                Err(std::sync::TryLockError::WouldBlock) if std::time::Instant::now() < deadline => {
+                    std::thread::sleep(pause)
+                }
+                Err(std::sync::TryLockError::WouldBlock) => return false,
+            }
+        }
+        self.mlx_in_slot.store(false, std::sync::atomic::Ordering::SeqCst);
+        while self.loaned_out(|_, _| true) {
+            if std::time::Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(pause);
+        }
+        true
     }
 
     /// Something outside the slot still holds a matching model: a draft that

@@ -108,6 +108,10 @@ export function Review({
 
   // The recording is decrypted for playback (ADR-0008).
   const viewId = view?.id;
+  /** The desktop fallback's blob: URL ("" while it loads), for this visit. */
+  const fallback = useRef<string | null>(null);
+  const shownId = useRef<string | undefined>(undefined);
+  shownId.current = viewId;
   useEffect(() => {
     // A visit whose recording was deleted has nothing to play.
     if (!view || !viewId || view.has_audio === false) return;
@@ -124,10 +128,31 @@ export function Review({
     return () => {
       live = false;
       if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
+      if (fallback.current) URL.revokeObjectURL(fallback.current);
+      fallback.current = null;
     };
     // Only refetch when the encounter changes, not on every view refresh.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewId]);
+
+  /** The desktop player couldn't play its URL: try the recording from memory, once. */
+  function onAudioError() {
+    if (!view || fallback.current !== null || !audioSrc || audioSrc.startsWith("blob:")) return;
+    const forId = view.id;
+    fallback.current = "";
+    engine.audioFallbackUrl(view).then(
+      (u) => {
+        if (!u) return;
+        if (shownId.current !== forId || fallback.current !== "") {
+          URL.revokeObjectURL(u);
+          return;
+        }
+        fallback.current = u;
+        setAudioSrc(u);
+      },
+      () => undefined,
+    );
+  }
 
   const segments = view?.transcript?.segments ?? [];
   const run = view?.latest_run ?? null;
@@ -467,6 +492,7 @@ export function Review({
       throw new Error(errorText(e));
     }
     if (audioSrc?.startsWith("blob:")) URL.revokeObjectURL(audioSrc);
+    fallback.current = null;
     setAudioSrc(null);
     await load();
     app.toast(t("Recording deleted"));
@@ -725,6 +751,7 @@ export function Review({
                 controls
                 preload="metadata"
                 src={audioSrc}
+                onError={onAudioError}
                 onTimeUpdate={onTime}
                 onPause={() => setPlayingId(null)}
               />

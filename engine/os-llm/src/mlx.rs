@@ -725,6 +725,11 @@ fn run_generate(
                 if cancelled {
                     continue;
                 }
+                // The app is quitting (crate::shutdown): don't hold it up.
+                if crate::shutdown::stopping() {
+                    let _ = w.send(&Request::Cancel { id });
+                    return Err(Ok(LlmError::Stopped));
+                }
                 streamed.push_str(&text);
                 if !on_token(&text) {
                     cancelled = true;

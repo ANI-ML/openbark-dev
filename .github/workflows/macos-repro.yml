@@ -1,0 +1,180 @@
+name: Quit and replay checks
+
+# Two bugs from 0.1.1 on the Mac, checked on real runners:
+#   Quit:   SIGABRT on Cmd-Q, in ggml_metal_rsets_free, when a note model was
+#           still on the GPU at exit (os_llm::shutdown has the details).
+#   Replay: recordings wouldn't play in the desktop app (WKWebView).
+#
+# Manual, because macOS runners are costly: run it from the Actions tab, or
+# push a commit whose message contains [macos-repro] to a fix/, feat/,
+# release/ or chore/ branch.
+# It never runs in the public copy of the source.
+#
+# engine-macos: a tiny model (scripts/ci/fetch-test-gguf.sh, size- and
+#   SHA-256-checked) on Metal; the old behaviour aborts (proving the runner
+#   reproduces the crash), and every fixed way out exits 0 (the app layer
+#   idle and mid-draft, the CLI, Ctrl+C, web mode on Ctrl+C and SIGTERM).
+#   Then web mode's recordings play to the end in Playwright's WebKit.
+# desktop: the app with the `selftest` feature (never in installers) loads
+#   the model, plays two tone visits in its own webview from its own audio
+#   URL, and quits as a person does (-[NSApplication terminate:] on macOS).
+#   Also on Windows (WebView2) and Linux (WebKitGTK).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["fix/**", "feat/**", "release/**", "chore/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quit-replay-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  NODE_VERSION: "24.22.0"
+
+jobs:
+  engine-macos:
+    name: Quit with a model on Metal, and web playback in WebKit (macOS arm64)
+    if: github.repository == 'ANI-ML/openbark-dev' && (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[macos-repro]'))
+    runs-on: macos-15
+    timeout-minutes: 120
+    # No MACOSX_DEPLOYMENT_TARGET here, as in ci.yml: with 13.0, ggml's
+    # @available checks need clang's runtime, which only the desktop app's
+    # build.rs links.
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-macos-repro/${{ github.repository }}/${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-macos-repro/${{ github.repository }}/
+            cargo-macos/${{ github.repository }}/
+      - name: Test model
+        run: scripts/ci/fetch-test-gguf.sh target/test-models/smollm2-135m-q4km.gguf
+      - name: Build (Metal)
+        run: cargo build --release -p os-cli --features metal --bin openbark --example exit_order --example audio_visits
+      - name: Shutdown order with a real model (os-llm)
+        env:
+          OPENBARK_TEST_GGUF: ${{ github.workspace }}/target/test-models/smollm2-135m-q4km.gguf
+        run: cargo test --release -p os-llm --features metal --test shutdown
+      - name: Quit with a model loaded (engine, CLI, web mode)
+        shell: bash
+        run: |
+          bash scripts/ci/metal-exit.sh target/release/openbark target/release/examples/exit_order \
+            target/test-models/smollm2-135m-q4km.gguf target/metal-exit
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        if: always()
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Web playback in WebKit, Chromium and Firefox
+        if: always()
+        shell: bash
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm --filter @openbark/desktop build
+          (cd apps/desktop && npx playwright install webkit chromium firefox)
+          demo="$PWD/target/playback-demo"
+          rm -rf "$demo" && mkdir -p "$demo" && touch "$demo/OPENBARK-DEMO"
+          export OPENBARK_SESSIONS_DIR="$demo/visits" OPENBARK_TEMPLATES_DIR="$demo/templates" \
+            OPENBARK_USERS_FILE="$demo/users.json" OPENBARK_LOCATIONS_FILE="$demo/locations.json" \
+            OPENBARK_ENGINES_DIR="$demo/engines" OPENBARK_MODELS_DIR="$demo/models" \
+            OPENBARK_DATA_KEY="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+          target/release/examples/audio_visits "$demo/visits" > "$demo/visits.json"
+          target/release/openbark serve --port 4338 --ui-dir apps/desktop/dist > "$demo/serve.log" 2>&1 &
+          for _ in $(seq 1 100); do curl -fs http://127.0.0.1:4338/api/status > /dev/null && break; sleep 0.2; done
+          cd apps/desktop
+          OPENBARK_URL=http://localhost:4338 OUT_DIR="$demo/out" REQUIRE_ALL=1 \
+            node e2e/audio-playback.mjs "$demo" "$demo/visits.json" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          # Tone visits and logs only: no patient data exists on CI.
+          name: quit-replay-engine-macos
+          path: |
+            target/metal-exit/*.log
+            target/metal-exit/*.result
+            target/metal-exit/crash-reports
+            target/playback-demo/out
+            target/playback-demo/serve.log
+
+  desktop:
+    name: Desktop self-test (${{ matrix.name }})
+    if: github.repository == 'ANI-ML/openbark-dev' && (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[macos-repro]'))
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos
+            os: macos-15
+            features: metal selftest
+          - name: windows
+            os: windows-latest
+            features: selftest
+          - name: linux
+            os: ubuntu-24.04
+            features: selftest
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "13.0"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-selftest-${{ matrix.name }}/${{ github.repository }}/${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-selftest-${{ matrix.name }}/${{ github.repository }}/
+            cargo-release-${{ matrix.name }}/${{ github.repository }}/
+      - name: Build tools (Windows)
+        if: matrix.name == 'windows'
+        shell: bash
+        run: |
+          choco install llvm -y --no-progress
+          printf '%s\n' 'LIBCLANG_PATH=C:\Program Files\LLVM\bin' >> "$GITHUB_ENV"
+      - name: Build tools (Linux)
+        if: matrix.name == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libclang-dev cmake libasound2-dev \
+            xvfb gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-libav
+      - name: Test model
+        shell: bash
+        run: scripts/ci/fetch-test-gguf.sh target/test-models/smollm2-135m-q4km.gguf
+      - name: Build the app with the self-test
+        shell: bash
+        run: cd apps/desktop && pnpm tauri build --no-bundle --features "${{ matrix.features }}"
+      - name: Self-test
+        shell: bash
+        run: |
+          bin=target/release/openbark-desktop
+          [ "${{ matrix.name }}" = windows ] && bin=target/release/openbark-desktop.exe
+          if [ "${{ matrix.name }}" = linux ]; then
+            xvfb-run -a bash scripts/ci/desktop-selftest.sh "$bin" target/test-models/smollm2-135m-q4km.gguf target/selftest
+          else
+            bash scripts/ci/desktop-selftest.sh "$bin" target/test-models/smollm2-135m-q4km.gguf target/selftest
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: quit-replay-desktop-${{ matrix.name }}
+          path: |
+            target/selftest/*.log
+            target/selftest/*/results.json

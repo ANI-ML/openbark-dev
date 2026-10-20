@@ -428,7 +428,7 @@ try {
   const csp = (await fetch(`${base}/phone.html`)).headers.get("content-security-policy");
   check(Boolean(csp?.includes("wss://voice-js.roaming.twilio.com")) && !csp.includes("sdk.twilio.com"), "the phone page's CSP allows Twilio's calling service, not its sound host");
   const mainCsp = await main.evaluate(() => document.querySelector('meta[http-equiv="Content-Security-Policy"]')?.getAttribute("content"));
-  check(Boolean(mainCsp) && !/https?:\/\/(?!ipc\.localhost|asset\.localhost)|wss:/.test(mainCsp), "the main window's CSP allows no remote host");
+  check(Boolean(mainCsp) && !/https?:\/\/(?!ipc\.localhost|asset\.localhost|obaudio\.localhost)|wss:/.test(mainCsp), "the main window's CSP allows no remote host");
   check(twilioTried.length === 0, `nothing tried to reach Twilio${twilioTried.length ? `: ${twilioTried.join(", ")}` : ""}`);
   const remote = [...hosts].filter((h) => !/^(localhost|127\.0\.0\.1)(:\d+)?$/.test(h));
   check(remote.length === 0, `no request left this computer${remote.length ? `: ${remote.join(", ")}` : ""}`);

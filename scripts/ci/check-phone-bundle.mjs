@@ -7,8 +7,10 @@
 //    preloads, and everything they import, statically or lazily) has no code
 //    from Twilio's Voice SDK. Only the phone page (phone.html) may.
 // 2. The main window's <meta> Content-Security-Policy allows no remote host:
-//    only this computer ('self', Tauri's ipc and asset schemes, loopback
-//    WebSockets for web mode, data: and blob:).
+//    only this computer ('self', Tauri's ipc and asset schemes, the app's
+//    obaudio scheme for recordings, loopback WebSockets for web mode, data:
+//    and blob:). blob: is allowed for media only (a recording's fallback
+//    copy), never for scripts, workers, frames or connections.
 // 3. The phone page does load the SDK, and the SDK's sounds come from local
 //    files, never sdk.twilio.com.
 // 4. The end-to-end test's stand-in for the SDK isn't in the build (it is
@@ -25,7 +27,10 @@ const SDK_MARKERS = ["voice-js.", "eventgw.", "chunderw"];
 const LOCAL_SOURCES = new Set([
   "'self'", "'none'", "'unsafe-inline'", "data:", "blob:", "ipc:", "asset:",
   "http://ipc.localhost", "http://asset.localhost", "ws://127.0.0.1:*", "ws://localhost:*",
+  "obaudio:", "http://obaudio.localhost",
 ]);
+// Sources allowed in one directive only.
+const ONLY_IN = { "blob:": "media-src", "obaudio:": "media-src", "http://obaudio.localhost": "media-src" };
 
 function read(rel) {
   const path = join(dist, rel);
@@ -67,6 +72,8 @@ if (!meta) {
     const [name, ...sources] = directive.split(/\s+/);
     for (const source of sources) {
       if (!LOCAL_SOURCES.has(source)) problems.push(`index.html CSP ${name} allows a remote source: ${source}`);
+      else if (ONLY_IN[source] && ONLY_IN[source] !== name)
+        problems.push(`index.html CSP ${name} allows ${source}, which only ${ONLY_IN[source]} may`);
     }
   }
 }

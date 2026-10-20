@@ -618,6 +618,142 @@ impl os_asr::AudioSink for AudioWriter {
     }
 }
 
+/// Reads byte ranges of a recording without decrypting all of it, for the
+/// player (which asks for ranges as it seeks). Gives the same bytes as
+/// [`read`]: a torn last chunk is left out, and an unpatched WAV header gets
+/// sizes that match the data. Plain files (from before encryption) are read
+/// as they are.
+pub struct AudioReader {
+    file: fs::File,
+    path: PathBuf,
+    len: u64,
+    /// Set for an encrypted (`OBA1`) recording.
+    sealed: Option<Sealed>,
+}
+
+struct Sealed {
+    chunk: u64,
+    /// Chunk 0, decrypted, with the WAV sizes fixed: read on first use.
+    first: Option<Vec<u8>>,
+}
+
+impl AudioReader {
+    pub fn open(path: &Path) -> io::Result<Self> {
+        let mut file = fs::File::open(path)?;
+        let file_len = file.metadata()?.len();
+        let mut magic = [0u8; 8];
+        let sealed = file_len >= 8 && {
+            file.read_exact(&mut magic)?;
+            &magic[..4] == AUDIO_MAGIC
+        };
+        let mut reader = Self { file, path: path.to_path_buf(), len: file_len, sealed: None };
+        if !sealed {
+            return Ok(reader);
+        }
+        if STATE.read().expect("vault lock").is_none() {
+            return Err(locked(path));
+        }
+        let chunk = u32::from_le_bytes(magic[4..8].try_into().expect("4 bytes")) as u64;
+        if chunk == 0 {
+            return Err(err(format!("{} is damaged.", path.display())));
+        }
+        reader.sealed = Some(Sealed { chunk, first: None });
+        let slot = NONCE as u64 + chunk + TAG as u64;
+        let body = file_len - 8;
+        let (full, rest) = (body / slot, body % slot);
+        // The last chunk, as `decrypt_audio` would take it.
+        let (last, last_slot) = match rest {
+            0 if full == 0 => (None, 0),
+            0 => (Some(full - 1), slot),
+            r => (Some(full), r),
+        };
+        reader.len = match last {
+            None => 0,
+            Some(i) if last_slot < (NONCE + TAG) as u64 => i * chunk, // a torn final write
+            Some(i) => match reader.decrypt_chunk(i) {
+                Ok(plain) => i * chunk + plain.len() as u64,
+                // A recording cut off mid-chunk (power loss): keep what came before.
+                Err(_) if i > 0 => i * chunk,
+                Err(e) => return Err(e),
+            },
+        };
+        Ok(reader)
+    }
+
+    /// The recording's length in bytes, as [`read`] would return it.
+    pub fn len(&self) -> u64 {
+        self.len
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// Bytes `start..=end` (clamped to the length).
+    pub fn read_range(&mut self, start: u64, end: u64) -> io::Result<Vec<u8>> {
+        if self.len == 0 || start >= self.len || end < start {
+            return Ok(Vec::new());
+        }
+        let end = end.min(self.len - 1);
+        let Some(chunk) = self.sealed.as_ref().map(|s| s.chunk) else {
+            let mut out = vec![0u8; (end - start + 1) as usize];
+            self.file.seek(SeekFrom::Start(start))?;
+            self.file.read_exact(&mut out)?;
+            return Ok(out);
+        };
+        let mut out = Vec::with_capacity((end - start + 1) as usize);
+        for index in start / chunk..=end / chunk {
+            let plain = if index == 0 { self.first()?.clone() } else { self.decrypt_chunk(index)? };
+            let base = index * chunk;
+            let from = start.saturating_sub(base) as usize;
+            let to = ((end - base + 1) as usize).min(plain.len());
+            if from >= to {
+                return Err(err(format!("{} is damaged.", self.path.display())));
+            }
+            out.extend_from_slice(&plain[from..to]);
+        }
+        Ok(out)
+    }
+
+    fn first(&mut self) -> io::Result<&Vec<u8>> {
+        if self.sealed.as_ref().is_some_and(|s| s.first.is_none()) {
+            let mut plain = self.decrypt_chunk(0)?;
+            // Sizes from the whole recording's length, as fix_wav_sizes does.
+            if plain.len() >= 44 && &plain[0..4] == b"RIFF" && &plain[36..40] == b"data" {
+                let data = (self.len.saturating_sub(44)).min(u32::MAX as u64 - 36) as u32;
+                if u32::from_le_bytes(plain[40..44].try_into().expect("4 bytes")) != data {
+                    plain[4..8].copy_from_slice(&(36 + data).to_le_bytes());
+                    plain[40..44].copy_from_slice(&data.to_le_bytes());
+                }
+            }
+            if let Some(s) = self.sealed.as_mut() {
+                s.first = Some(plain);
+            }
+        }
+        Ok(self.sealed.as_ref().and_then(|s| s.first.as_ref()).expect("chunk 0 decrypted"))
+    }
+
+    fn decrypt_chunk(&mut self, index: u64) -> io::Result<Vec<u8>> {
+        let chunk = self.sealed.as_ref().map(|s| s.chunk).ok_or_else(|| err("not encrypted"))?;
+        let slot = NONCE as u64 + chunk + TAG as u64;
+        let at = 8 + index * slot;
+        let file_len = self.file.metadata()?.len();
+        let size = slot.min(file_len.saturating_sub(at));
+        if size < (NONCE + TAG) as u64 {
+            return Err(err(format!("{} is damaged.", self.path.display())));
+        }
+        let mut sealed = vec![0u8; size as usize];
+        self.file.seek(SeekFrom::Start(at))?;
+        self.file.read_exact(&mut sealed)?;
+        let state = STATE.read().expect("vault lock");
+        let s = state.as_ref().ok_or_else(|| locked(&self.path))?;
+        let nonce = XNonce::try_from(&sealed[..NONCE]).expect("24-byte nonce");
+        s.cipher
+            .decrypt(&nonce, Payload { msg: &sealed[NONCE..], aad: &audio_aad(index) })
+            .map_err(|_| err(format!("{} can't be decrypted with this computer's key.", self.path.display())))
+    }
+}
+
 /// Encrypt whole audio bytes into a file (migrating an old plain WAV).
 pub fn write_audio(path: &Path, plain: &[u8]) -> io::Result<()> {
     let tmp = path.with_extension("wav.tmp");
@@ -746,6 +882,96 @@ pub(crate) mod tests {
             let data = u32::from_le_bytes(plain[40..44].try_into().unwrap()) as usize;
             assert_eq!(data, plain.len() - 44, "header sizes fixed on read");
         });
+    }
+
+    /// Every range the reader returns matches the whole decrypted file.
+    fn assert_ranges_match(path: &Path) {
+        let whole = read(path).unwrap();
+        let mut r = AudioReader::open(path).unwrap();
+        assert_eq!(r.len(), whole.len() as u64);
+        let n = whole.len() as u64;
+        let c = CHUNK as u64;
+        let mut ranges = vec![(0, 0), (0, 1), (0, 43), (0, n - 1), (n - 1, n - 1), (40, 47), (n / 2, n - 1)];
+        for k in 1..=(n / c) {
+            ranges.extend([(k * c - 1, k * c), (k * c - 3, k * c + 5), (k * c, (k * c + c - 1).min(n - 1))]);
+        }
+        ranges.push((c - 10, 2 * c + 10));
+        for (a, b) in ranges {
+            if a > b || b >= n {
+                continue;
+            }
+            assert_eq!(r.read_range(a, b).unwrap(), &whole[a as usize..=b as usize], "range {a}-{b}");
+        }
+        // Past the end: clamped, or empty.
+        assert_eq!(r.read_range(n - 2, n + 100).unwrap(), &whole[n as usize - 2..]);
+        assert!(r.read_range(n, n + 5).unwrap().is_empty());
+    }
+
+    #[test]
+    fn audio_ranges_decrypt_only_what_is_asked_and_match_the_whole_file() {
+        with_key(|| {
+            let dir = tempfile::tempdir().unwrap();
+            for len in [100usize, CHUNK - 44, CHUNK, CHUNK * 3 + 1234, CHUNK * 2] {
+                let path = dir.path().join(format!("audio-{len}.wav"));
+                let mut w = AudioWriter::create(&path).unwrap();
+                let mut header = vec![0u8; 44];
+                header[0..4].copy_from_slice(b"RIFF");
+                header[36..40].copy_from_slice(b"data");
+                header[40..44].copy_from_slice(&(len as u32).to_le_bytes());
+                w.write_all(&header).unwrap();
+                w.write_all(&(0..len as u32).map(|i| (i % 253) as u8).collect::<Vec<_>>()).unwrap();
+                w.finish().unwrap();
+                assert_ranges_match(&path);
+            }
+        });
+    }
+
+    #[test]
+    fn audio_ranges_of_a_recording_cut_off_mid_way() {
+        with_key(|| {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("audio.wav");
+            let mut w = AudioWriter::create(&path).unwrap();
+            let mut header = vec![0u8; 44];
+            header[0..4].copy_from_slice(b"RIFF");
+            header[36..40].copy_from_slice(b"data"); // sizes still 0
+            w.write_all(&header).unwrap();
+            w.write_all(&vec![3u8; CHUNK * 3 + 500]).unwrap();
+            drop(w); // power loss: the last part never reached the disk
+            assert_ranges_match(&path);
+            let mut r = AudioReader::open(&path).unwrap();
+            let head = r.read_range(0, 43).unwrap();
+            assert_eq!(u32::from_le_bytes(head[40..44].try_into().unwrap()) as u64, r.len() - 44);
+            // A write torn inside the last chunk.
+            let raw = fs::read(&path).unwrap();
+            fs::write(&path, &raw[..raw.len() - 1000]).unwrap();
+            assert_ranges_match(&path);
+            // ... and inside the last chunk's nonce.
+            let slot = NONCE + CHUNK + TAG;
+            fs::write(&path, &raw[..8 + 2 * slot + 10]).unwrap();
+            assert_ranges_match(&path);
+        });
+    }
+
+    #[test]
+    fn audio_ranges_of_plain_and_locked_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let plain = dir.path().join("old.wav");
+        fs::write(&plain, b"RIFF0000WAVEdata-plain-bytes").unwrap();
+        let sealed = dir.path().join("audio.wav");
+        with_key(|| {
+            let mut r = AudioReader::open(&plain).unwrap();
+            assert_eq!(r.len(), 28);
+            assert_eq!(r.read_range(4, 7).unwrap(), b"0000");
+            write_audio(&sealed, &[9u8; 5000]).unwrap();
+        });
+        let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        disable();
+        assert!(AudioReader::open(&sealed).err().unwrap().to_string().contains("isn't set up"));
+        assert_eq!(AudioReader::open(&plain).unwrap().read_range(0, 3).unwrap(), b"RIFF");
+        let tiny = dir.path().join("tiny.wav");
+        fs::write(&tiny, b"RIF").unwrap();
+        assert_eq!(AudioReader::open(&tiny).unwrap().len(), 3);
     }
 
     #[test]
