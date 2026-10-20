@@ -133,7 +133,7 @@ export interface Patient {
 export type ConsentRule = "all_parties" | "one_party";
 export type ConsentMethod = "verbal" | "written" | "on_file" | "clinician_only" | "announced";
 /** A phone call: what the client said after the announcement (ADR-0023 section 7). */
-export type ConsentOutcome = "agreed" | "declined" | "stayed_on_line";
+export type ConsentOutcome = "agreed" | "declined" | "stayed_on_line" | "not_announced";
 
 /** Consent to record one encounter (M1 item 7); the engine stamps the time. */
 export interface RecordingConsent {
@@ -1918,8 +1918,12 @@ export async function openPhone(call: { patient_id?: string | null; number?: str
     // Old browsers: the phone page reads the call when it opens.
   }
   const w = window.open("/phone.html", "openbark-phone", "popup,width=420,height=760");
-  w?.focus();
-  return w !== null;
+  if (!w) return false;
+  // The phone page can't reach back into this window: no opener, as with
+  // noopener (which would hide whether the pop-up was blocked).
+  w.opener = null;
+  w.focus();
+  return true;
 }
 
 /** Called with a visit's id when a recorded call is saved (from the phone window). */

@@ -10,8 +10,9 @@
 // - the two AudioProcessors that tap both sides for the local recording.
 //
 // The end-to-end test swaps the SDK for a fake that plays fixture audio
-// (window.__openbarkFakeVoice, set by Playwright before the page loads; the
-// page's CSP lets no other script run). It never touches Twilio.
+// (window.__openbarkFakeVoice, set by Playwright before the page loads). That
+// hook exists only in builds made with `vite build --mode e2e`; production
+// builds don't contain it (scripts/ci/check-phone-bundle.mjs checks).
 import type { AudioProcessor } from "./callAudio";
 
 /** The parts of a Twilio `Call` the phone window uses. */
@@ -61,15 +62,23 @@ export const DEVICE_OPTIONS = {
   logLevel: "warn",
 };
 
+/**
+ * The end-to-end test's stand-in for the SDK. Only in builds made with
+ * `--mode e2e`: in a production build `import.meta.env.MODE` is
+ * "production", so this is always undefined and the bundler drops it.
+ */
+function fakeVoice(): VoiceModule | undefined {
+  if (import.meta.env.MODE !== "e2e") return undefined;
+  return (window as unknown as { __openbarkFakeVoice?: VoiceModule }).__openbarkFakeVoice;
+}
+
 async function voiceModule(): Promise<VoiceModule> {
-  const fake = (window as unknown as { __openbarkFakeVoice?: VoiceModule }).__openbarkFakeVoice;
-  if (fake) return fake;
-  return (await import("@twilio/voice-sdk")) as unknown as VoiceModule;
+  return fakeVoice() ?? ((await import("@twilio/voice-sdk")) as unknown as VoiceModule);
 }
 
 /** Whether this browser or WebView can make calls at all (Linux WebKitGTK can't). */
 export function canCall(): boolean {
-  return typeof RTCPeerConnection !== "undefined" || Boolean((window as { __openbarkFakeVoice?: unknown }).__openbarkFakeVoice);
+  return typeof RTCPeerConnection !== "undefined" || Boolean(fakeVoice());
 }
 
 /**

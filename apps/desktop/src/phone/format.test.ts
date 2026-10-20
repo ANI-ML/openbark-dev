@@ -27,14 +27,24 @@ describe("phone numbers", () => {
 });
 
 describe("call errors", () => {
-  it("names the cause and where to fix it", () => {
+  it("names the cause and where to fix it, for the codes the SDK raises", () => {
     expect(callErrorMessage({ code: 20101, message: "AccessTokenInvalid" })).toBe(CALL_ERRORS.wrongKey);
-    expect(callErrorMessage({ code: 21219 })).toBe(CALL_ERRORS.trial);
-    expect(callErrorMessage({ code: 13227 })).toBe(CALL_ERRORS.geo);
-    expect(callErrorMessage({ code: 31402 })).toBe(CALL_ERRORS.account);
+    expect(callErrorMessage({ code: 31204 })).toBe(CALL_ERRORS.wrongKey);
+    expect(callErrorMessage({ code: 20104 })).toBe(CALL_ERRORS.expired);
+    expect(callErrorMessage({ code: 31205 })).toBe(CALL_ERRORS.expired);
+    expect(callErrorMessage({ code: 31201 })).toBe(CALL_ERRORS.authorization);
+    expect(callErrorMessage({ code: 31001 })).toBe(CALL_ERRORS.appNotFound);
+    expect(callErrorMessage({ code: 31401 })).toBe(CALL_ERRORS.microphone);
+    expect(callErrorMessage({ code: 31402 })).toBe(CALL_ERRORS.microphone);
     expect(callErrorMessage({ code: 53405 })).toBe(CALL_ERRORS.noAudio);
     expect(callErrorMessage({ code: 31005 })).toBe(CALL_ERRORS.offline);
+    expect(callErrorMessage({ code: 31486 })).toBe(CALL_ERRORS.busy);
+    expect(callErrorMessage({ code: 31480 })).toBe(CALL_ERRORS.noAnswer);
+    expect(callErrorMessage({ code: 31603 })).toBe(CALL_ERRORS.declined);
+    expect(callErrorMessage({ code: 31404 })).toBe(CALL_ERRORS.notFound);
     expect(callErrorMessage({ name: "NotAllowedError", message: "Permission denied" })).toBe(CALL_ERRORS.microphone);
+    // REST error codes the SDK never raises fall through to its own message.
+    expect(callErrorMessage({ code: 21219, message: "something else" })).toBe("something else");
   });
 
   it("passes the engine's own messages through", () => {

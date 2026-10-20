@@ -63,6 +63,7 @@ function fakeCall() {
 function recorder() {
   return {
     push: vi.fn(),
+    announced: vi.fn(async (_at: number) => {}),
     consent: vi.fn(async (_outcome: string, _at: number | null) => null),
     end: vi.fn(async (_secs: number, _sid: string | null) => ({ id: "2026-10-19_101500_call" }) as never),
   };
@@ -103,16 +104,16 @@ async function answered() {
 describe("the phone window", () => {
   it("records only after the client answers, shows the announcement, then asks", async () => {
     await answered();
-    expect(mApi.startRecording).toHaveBeenCalledWith({
-      number: "+15555550142",
-      patient_id: "p-bella",
-      call_sid: "CA-made-up",
-      sample_rate: 48000,
-    });
+    expect(mApi.startRecording).toHaveBeenCalledWith(
+      expect.objectContaining({ number: "+15555550142", patient_id: "p-bella", call_sid: "CA-made-up", sample_rate: 48000 }),
+    );
+    expect(typeof mApi.startRecording.mock.calls[0]?.[0].since_answer).toBe("number");
     expect(screen.getByText("Read this to the client now:")).toBeTruthy();
     expect(screen.getByText(BELLA.announcement)).toBeTruthy();
     expect(await screen.findByText(/^Recording · /)).toBeTruthy();
+    expect(rec.announced).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "I've read it" }));
+    await waitFor(() => expect(rec.announced).toHaveBeenCalledWith(0));
     expect(screen.getByText("Did the client agree?")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Yes, keep recording" }));
     await waitFor(() => expect(rec.consent).toHaveBeenCalledWith("agreed", 0));
@@ -204,6 +205,46 @@ describe("the phone window", () => {
     const later = new Float32Array([0.2, 0.1]);
     feedFrames(later);
     expect(rec.push).toHaveBeenLastCalledWith(later);
+  });
+
+  it("never confirms an announcement that wasn't read: hanging up first leaves the engine to delete it", async () => {
+    await answered();
+    fireEvent.click(screen.getByRole("button", { name: "Hang up" }));
+    await waitFor(() => expect(rec.end).toHaveBeenCalled());
+    expect(rec.announced).not.toHaveBeenCalled();
+    expect(rec.consent).not.toHaveBeenCalled();
+  });
+
+  it("sends the announcement once the engine is ready, if it was read before", async () => {
+    let ready: (r: typeof rec) => void = () => {};
+    mApi.startRecording.mockReturnValue(new Promise((r) => (ready = r)) as never);
+    render(<PhoneApp />);
+    fireEvent.click(await screen.findByRole("button", { name: "Call" }));
+    await waitFor(() => expect(mVoice.createDevice).toHaveBeenCalled());
+    call.emit("accept");
+    fireEvent.click(await screen.findByRole("button", { name: "I've read it" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes, keep recording" }));
+    ready(rec);
+    await waitFor(() => expect(rec.consent).toHaveBeenCalledWith("agreed", 0));
+    expect(rec.announced.mock.invocationCallOrder[0]).toBeLessThan(rec.consent.mock.invocationCallOrder[0]!);
+  });
+
+  it("says when a decline couldn't delete the recording, never 'Not recorded'", async () => {
+    rec.consent.mockRejectedValue(new Error("Couldn't reach the OpenBark engine."));
+    await answered();
+    fireEvent.click(await screen.findByRole("button", { name: "Stop and delete the recording" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete the recording" }));
+    expect(await screen.findByText(/^Couldn't delete the recording\./)).toBeTruthy();
+    expect(screen.queryByText("Not recorded. The client declined.")).toBeNull();
+  });
+
+  it("shows a new call chosen in the main window when the phone window gets focus", async () => {
+    render(<PhoneApp />);
+    expect(await screen.findByText("Patel · Bella")).toBeTruthy();
+    mApi.pending.mockResolvedValue({ ...BELLA, patient_id: "p-max", patient_name: "Max", last_name: "Okafor", number: "+15555550177" });
+    window.dispatchEvent(new Event("focus"));
+    expect(await screen.findByText("Okafor · Max")).toBeTruthy();
+    expect((screen.getByLabelText("Number") as HTMLInputElement).value).toBe("+15555550177");
   });
 
   it("says no answer when the call ends before the client answers", async () => {

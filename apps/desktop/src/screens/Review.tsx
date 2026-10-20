@@ -770,6 +770,8 @@ export function Review({
             />
           ) : view?.call && view.consent?.outcome === "declined" ? (
             <p className="pane-pad muted">{t("Not recorded. The client declined.")}</p>
+          ) : view?.call && view.consent?.outcome === "not_announced" ? (
+            <p className="pane-pad muted">{t("Not recorded. The announcement wasn't confirmed as read.")}</p>
           ) : (
             <div className="pane-pad">
               <div className="ob-skeleton" style={{ height: 16, width: "70%" }} />
@@ -1153,6 +1155,11 @@ function callLine(t: Translate, call: engine.CallInfo): string {
 
 /** The announcement and the client's answer, as Review shows them. */
 function callConsentLine(t: Translate, call: engine.CallInfo, c: engine.RecordingConsent): string {
+  if (c.outcome === "not_announced") {
+    return t("The announcement wasn't confirmed as read, so the recording was deleted at {time}.", {
+      time: callLength(call.declined_at_secs ?? 0),
+    });
+  }
   if (c.outcome === "declined") {
     return t("Client declined recording at {time}. The recording was deleted.", { time: callLength(call.declined_at_secs ?? 0) });
   }

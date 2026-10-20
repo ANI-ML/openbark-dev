@@ -46,6 +46,7 @@ export type CallEvent =
   | { type: "agreed" }
   | { type: "declined" }
   | { type: "unrecorded" }
+  | { type: "deleteFailed"; message: string }
   | { type: "mute"; on: boolean }
   | { type: "hold"; on: boolean }
   | { type: "reconnecting"; on: boolean }
@@ -101,6 +102,9 @@ export function callReducer(s: CallState, e: CallEvent): CallState {
     case "unrecorded":
       // The recording couldn't start: the call goes on, unrecorded, with no consent step.
       return { ...s, record: false, recording: false, consent: "none" };
+    case "deleteFailed":
+      // The engine couldn't delete what was recorded: say so, never "Not recorded".
+      return { ...s, message: e.message };
     case "mute":
       return { ...s, muted: e.on };
     case "hold":

@@ -118,6 +118,12 @@ INDIRECT = [
     "Write the announcement. Recorded calls always start with it.", "Paste the API key secret.",
     "The OpenBark TwiML App was deleted in your Twilio console. Choose Connect again to make it.",
     "The OpenBark TwiML App no longer uses your outgoing Bin. Choose Connect again to fix it.",
+    "The phone's sign-in with Twilio ran out. Close this window and call again.",
+    "Twilio didn't allow this call. In Settings > Phone calls, choose Check setup to see why.",
+    "Twilio couldn't find OpenBark's TwiML App. In Settings > Phone calls, choose Change, then Connect.",
+    "Twilio is getting too many requests from this account. Wait a minute and try again.",
+    "The line is busy.", "The call was declined.", "That number couldn't be reached. Check it and try again.",
+    "Read the announcement to the client first.", "The recording of this call was already deleted.",
 ]
 
 

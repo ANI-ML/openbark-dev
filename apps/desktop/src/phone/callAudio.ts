@@ -6,8 +6,8 @@
 // the right. A worklet (public/phone-tap.js) interleaves them and posts about
 // every 100 ms. Nothing here records in Twilio: the audio is only read here.
 //
-// Hold silences what plays here (a gain of 0 on the client's side) and the
-// call is muted, so neither side hears the other.
+// Hold silences what plays here (a gain of 0 on the client's side), mutes
+// the call, and records silence on both channels until it's taken off hold.
 
 /** What Twilio's `device.audio.addProcessor` takes. */
 export interface AudioProcessor {
@@ -39,8 +39,11 @@ export async function createTaps(onFrames: (frames: Float32Array) => void): Prom
   });
   merger.connect(tap);
   let recording = false;
+  let held = false;
   tap.port.onmessage = (e: MessageEvent<Float32Array>) => {
-    if (recording) onFrames(e.data);
+    if (!recording) return;
+    // On hold, neither side is recorded: the recording keeps its timing with silence.
+    onFrames(held ? new Float32Array(e.data.length) : e.data);
   };
   const sources = new Map<MediaStream, MediaStreamAudioSourceNode>();
   const playback = ctx.createGain();
@@ -82,6 +85,7 @@ export async function createTaps(onFrames: (frames: Float32Array) => void): Prom
       if (on) void ctx.resume();
     },
     setHeld(on) {
+      held = on;
       playback.gain.value = on ? 0 : 1;
     },
     async close() {

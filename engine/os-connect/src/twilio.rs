@@ -444,7 +444,13 @@ impl TwilioClient {
 /// loopback address is then accepted, by [`TwilioClient::with_base_url`]),
 /// otherwise [`API_BASE`].
 pub fn api_base() -> String {
-    std::env::var(API_BASE_ENV).ok().filter(|v| !v.trim().is_empty()).unwrap_or_else(|| API_BASE.to_string())
+    // Only debug builds and the `mock` feature (tests and the demo) read it:
+    // the builds clinics get always talk to api.twilio.com.
+    #[cfg(any(debug_assertions, feature = "mock"))]
+    if let Some(base) = std::env::var(API_BASE_ENV).ok().filter(|v| !v.trim().is_empty()) {
+        return base;
+    }
+    API_BASE.to_string()
 }
 
 /// Points the REST calls at a local mock (loopback only).

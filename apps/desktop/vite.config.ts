@@ -13,7 +13,8 @@ import { defineConfig, type Plugin } from "vite";
 export const MAIN_CSP =
   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; " +
   "font-src 'self'; media-src 'self' asset: http://asset.localhost blob:; " +
-  "connect-src 'self' ipc: http://ipc.localhost ws://127.0.0.1:* ws://localhost:*; object-src 'none'; base-uri 'none'";
+  // 'self' also covers this server's own WebSockets in web mode (CSP Level 3).
+  "connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'";
 
 function mainWindowPolicy(): Plugin {
   return {

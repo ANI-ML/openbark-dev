@@ -12,6 +12,9 @@ import { callLength, callTimer, formatPhone, toE164 } from "./format";
 import { canCall, createDevice, type VoiceCall, type VoiceDevice } from "./voice";
 
 const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
+/** Blocks of about 100 ms kept before the engine is ready: three minutes. */
+const MAX_BUFFERED = 1800;
+type Decision = "announced" | "agreed" | "declined";
 /** SDK warnings that mean the call connected but no audio gets through. */
 const NO_AUDIO_WARNINGS = new Set(["constant-audio-output-level", "ice-connectivity-lost"]);
 
@@ -49,19 +52,29 @@ export function PhoneApp() {
   const starting = useRef<Promise<api.CallRecording | null> | null>(null);
   /** Audio from the answer until the recording is ready, so the announcement is in it. */
   const buffered = useRef<Float32Array[]>([]);
-  /** Decisions made before the recording was ready, applied once it is. */
-  const decision = useRef<"agreed" | "declined" | null>(null);
+  /** Steps taken before the recording was ready, sent in order once it is. */
+  const decisions = useRef<Decision[]>([]);
+  /** The buffer filled up before the engine was ready: the start wasn't all kept. */
+  const overflowed = useRef(false);
+  /** The call on screen, to tell whether a reload brought a different one. */
+  const shown = useRef<CallTarget | null | undefined>(undefined);
   const connectedAt = useRef<number | null>(null);
   const finished = useRef(false);
   const phase = useRef(call.phase);
   phase.current = call.phase;
 
-  /** Reads the call the main window chose. `replace` puts its number on the dial pad even over what was typed. */
-  const loadTarget = useCallback((replace = true) => {
+  /**
+   * Reads the call the main window chose. A different call (another patient
+   * or number) replaces what's on the dial pad; the same one keeps what was typed.
+   */
+  const loadTarget = useCallback(() => {
     api.pending().then(
       (p) => {
+        const before = shown.current;
+        const changed = before === undefined || before?.patient_id !== p?.patient_id || before?.number !== p?.number;
+        shown.current = p;
         setTarget(p);
-        setTyped((typed) => (replace || !typed.trim() ? (p?.number ?? "") : typed));
+        setTyped((typed) => (changed || !typed.trim() ? (p?.number ?? "") : typed));
       },
       (e) => {
         setTarget(null);
@@ -79,10 +92,16 @@ export function PhoneApp() {
     loadTarget();
     // The main window chose someone else to call: show them, unless a call is on.
     let off: (() => void) | undefined;
+    // Coming back to this window also re-reads the call, in case a message was missed.
+    const onFocus = () => phase.current === "idle" && loadTarget();
+    window.addEventListener("focus", onFocus);
     if (api.isDesktop) {
-      void import("@tauri-apps/api/event").then(({ listen }) =>
-        listen("phone-target", () => phase.current === "idle" && loadTarget()).then((f) => (off = f)),
-      );
+      void import("@tauri-apps/api/event")
+        .then(({ listen }) => listen("phone-target", () => phase.current === "idle" && loadTarget()))
+        .then((f) => (off = f))
+        .catch(() => {
+          // Without events, focus still brings the new call.
+        });
     } else {
       try {
         const channel = new BroadcastChannel("openbark-phone");
@@ -94,7 +113,10 @@ export function PhoneApp() {
         // Old browsers: the call is read when the page opens.
       }
     }
-    return () => off?.();
+    return () => {
+      off?.();
+      window.removeEventListener("focus", onFocus);
+    };
   }, [loadTarget]);
 
   useEffect(() => {
@@ -152,12 +174,14 @@ export function PhoneApp() {
     try {
       const token = await api.token();
       buffered.current = [];
-      decision.current = null;
+      decisions.current = [];
+      overflowed.current = false;
       starting.current = null;
       taps.current = await createTaps((frames) => {
         if (recording.current) recording.current.push(frames);
-        // About a minute at most, while the engine gets ready.
-        else if (buffered.current.length < 600) buffered.current.push(frames);
+        // Up to three minutes while the engine gets ready (about 115 MB at 48 kHz).
+        else if (buffered.current.length < MAX_BUFFERED) buffered.current.push(frames);
+        else overflowed.current = true;
       });
       device.current = await createDevice(token.token, taps.current, async () => (await api.token()).token);
       device.current.on("error", (e) => setNotice(callErrorMessage(e)));
@@ -205,11 +229,13 @@ export function PhoneApp() {
           patient_id: target?.patient_id ?? null,
           call_sid: c.parameters?.CallSid ?? null,
           sample_rate: t0.sampleRate,
+          since_answer: connectedAt.current === null ? 0 : (Date.now() - connectedAt.current) / 1000,
         });
         for (const frames of buffered.current) rec.push(frames);
         buffered.current = [];
+        if (overflowed.current) setNotice(t("OpenBark took a long time to get ready, so the start of this recording wasn't all kept."));
         recording.current = rec;
-        if (decision.current) await sendDecision(rec, decision.current);
+        for (const d of decisions.current.splice(0)) await sendDecision(rec, d);
         return rec;
       } catch (e) {
         // The call goes on; it just isn't recorded.
@@ -222,15 +248,33 @@ export function PhoneApp() {
     })();
   }
 
-  async function sendDecision(rec: api.CallRecording, outcome: "agreed" | "declined") {
-    await rec.consent(outcome, outcome === "agreed" ? 0 : null).catch((e: unknown) => setNotice(callErrorMessage(e)));
+  /** Sends one step to the engine, saying plainly if a decline couldn't delete. */
+  async function sendDecision(rec: api.CallRecording, d: Decision) {
+    try {
+      if (d === "announced") await rec.announced(0);
+      else await rec.consent(d, d === "agreed" ? 0 : null);
+    } catch (e) {
+      if (d === "declined") dispatch({ type: "deleteFailed", message: `${t("Couldn't delete the recording.")} ${callErrorMessage(e)}` });
+      else setNotice(callErrorMessage(e));
+    }
   }
 
-  async function answer(agreed: boolean) {
+  /** A step now if the recording is ready, or once it is. */
+  function decide(d: Decision) {
+    if (recording.current) void sendDecision(recording.current, d);
+    else decisions.current.push(d);
+  }
+
+  /** "I've read it": only now does the engine keep the recording. */
+  function announced() {
+    dispatch({ type: "read" });
+    decide("announced");
+  }
+
+  function answer(agreed: boolean) {
     if (!agreed) return stopRecording();
     dispatch({ type: "agreed" });
-    if (recording.current) await sendDecision(recording.current, "agreed");
-    else decision.current = "agreed";
+    decide("agreed");
   }
 
   /** "No, stop recording" or "Stop and delete the recording": the call goes on. */
@@ -239,8 +283,9 @@ export function PhoneApp() {
     taps.current?.setRecording(false);
     buffered.current = [];
     dispatch({ type: "declined" });
-    if (recording.current) void sendDecision(recording.current, "declined");
-    else decision.current = "declined";
+    // Earlier steps don't matter now: the recording is deleted.
+    decisions.current = [];
+    decide("declined");
   }
 
   function hangUp() {
@@ -344,7 +389,7 @@ export function PhoneApp() {
         <section className="phone-script" aria-label={t("Announcement")}>
           <p className="label">{t("Read this to the client now:")}</p>
           <blockquote className="phone-script-text">{target.announcement}</blockquote>
-          <Button variant="primary" onClick={() => dispatch({ type: "read" })}>
+          <Button variant="primary" onClick={announced}>
             {t("I've read it")}
           </Button>
         </section>
@@ -421,8 +466,8 @@ export function PhoneApp() {
               onClick={() => {
                 dispatch({ type: "reset" });
                 setNotice(null);
-                setTyped("");
-                loadTarget(false);
+                setTyped(target?.number ?? "");
+                loadTarget();
               }}
             >
               <Phone size={18} aria-hidden />

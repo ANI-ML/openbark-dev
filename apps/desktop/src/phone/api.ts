@@ -33,6 +33,8 @@ export const token = () =>
 export interface CallRecording {
   /** Interleaved frames: clinic, client, clinic, client... */
   push(frames: Float32Array): void;
+  /** "I've read it": the announcement was read. Until then the engine keeps nothing. */
+  announced(at: number): Promise<void>;
   /** The client's answer. "declined" deletes what was recorded and returns the visit. */
   consent(outcome: ConsentOutcome, announcedAt: number | null): Promise<SessionView | null>;
   /** Hang up: saves the visit (or, after a decline, its final length). */
@@ -44,6 +46,8 @@ export interface StartCall {
   patient_id: string | null;
   call_sid: string | null;
   sample_rate: number;
+  /** Seconds since the client answered: the window kept the audio meanwhile. */
+  since_answer: number;
 }
 
 export function startRecording(start: StartCall): Promise<CallRecording> {
@@ -51,14 +55,17 @@ export function startRecording(start: StartCall): Promise<CallRecording> {
 }
 
 async function startDesktop(start: StartCall): Promise<CallRecording> {
-  const { sample_rate, ...rest } = start;
-  await invoke<string>("phone_call_start", { start: rest, sampleRate: sample_rate });
+  const { sample_rate, since_answer, ...rest } = start;
+  await invoke<string>("phone_call_start", { start: { ...rest, since_answer_secs: since_answer }, sampleRate: sample_rate });
   let open = true;
   return {
     push(frames) {
       if (!open) return;
       // Raw bytes, not JSON: about 384 KB a second at 48 kHz.
       void invoke("phone_audio", new Uint8Array(frames.buffer, frames.byteOffset, frames.byteLength)).catch(() => {});
+    },
+    async announced(at) {
+      await invoke("phone_call_announced", { at });
     },
     async consent(outcome, announcedAt) {
       const view = await invoke<SessionView | null>("phone_call_consent", { outcome, announcedAt });
@@ -76,6 +83,7 @@ async function startWeb(start: StartCall): Promise<CallRecording> {
   const q = new URLSearchParams({
     number: start.number,
     sample_rate: String(start.sample_rate),
+    since_answer: String(Math.max(0, start.since_answer)),
     ...(start.patient_id ? { patient_id: start.patient_id } : {}),
     ...(start.call_sid ? { call_sid: start.call_sid } : {}),
   });
@@ -108,6 +116,10 @@ async function startWeb(start: StartCall): Promise<CallRecording> {
   return {
     push(frames) {
       if (open && ws.readyState === WebSocket.OPEN) ws.send(frames as Float32Array<ArrayBuffer>);
+    },
+    async announced(at) {
+      const reply = await ask({ announced: { at } });
+      if (reply.error) throw new Error(String(reply.error));
     },
     async consent(outcome, announcedAt) {
       const reply = await ask({ consent: { outcome, announced_at: announcedAt } });

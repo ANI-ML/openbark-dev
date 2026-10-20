@@ -11,7 +11,11 @@
 //   demo server must run with OPENBARK_TWILIO_API_BASE=http://127.0.0.1:4339.
 // - Twilio's Voice SDK is replaced in the phone page by a fake (below) that
 //   "answers" and plays two fixture recordings: the clinic's side and the
-//   client's side. CALL_WAVS="clinic.wav;client.wav" names them.
+//   client's side. CALL_WAVS="clinic.wav;client.wav" names them. The UI must
+//   be built with `pnpm build:e2e` (production builds don't have the hook).
+// - The demo binary is built with `--features mock-twilio` and runs with
+//   OPENBARK_TEST_FAIL_CALLS_TO=+15555550199: calls to that number get a
+//   recorder fault two seconds in (a decline must still delete the audio).
 //
 // The demo is `openbark serve --port 4330` with every folder in scratch
 // (OPENBARK_SESSIONS_DIR, OPENBARK_TEMPLATES_DIR, OPENBARK_USERS_FILE,
@@ -91,6 +95,9 @@ async function api(method, path, body) {
   return { status: res.status, body: await res.json().catch(() => null) };
 }
 const visits = () => readdirSync(visitsDir).filter((d) => existsSync(join(visitsDir, d, "session.json")));
+const FAULT_NUMBER = "+15555550199";
+/** The newest visit, once the main window has opened it. */
+const newest = () => visits().sort().at(-1);
 
 // ---- the fake Voice SDK, injected into the phone page only ---------------------
 
@@ -312,6 +319,38 @@ try {
   const declinedMeta = (await api("GET", `/api/sessions/${declined}`)).body;
   check(declinedMeta.consent?.outcome === "declined" && declinedMeta.call?.declined_at_secs != null, "the visit records that the client declined, and when");
 
+
+  // ---- 4b. Hung up before "I've read it": nothing is kept --------------------
+  step("Call: hung up before the announcement was confirmed");
+  await phone.getByRole("button", { name: "New call" }).click();
+  await phone.getByRole("button", { name: "Call", exact: true }).click();
+  await phone.getByText("Read this to the client now:").waitFor({ timeout: 15000 });
+  await phone.waitForTimeout(4000); // the engine is recording by now
+  await phone.getByRole("button", { name: "Hang up" }).click();
+  await main.getByText("The announcement wasn't confirmed as read", { exact: false }).waitFor({ timeout: 30000 });
+  const unannounced = newest();
+  check(!existsSync(join(visitsDir, unannounced, "audio.wav")) && !existsSync(join(visitsDir, unannounced, "transcript.jsonl")), "no audio or transcript kept when the announcement wasn't confirmed");
+  const unannouncedMeta = (await api("GET", `/api/sessions/${unannounced}`)).body;
+  check(unannouncedMeta.consent?.outcome === "not_announced" && unannouncedMeta.consent?.announced_at_secs == null, "the visit claims no announcement");
+
+  // ---- 4c. The recorder fails, then the client declines -----------------------
+  step("Call: the recorder fails, then the client declines");
+  await phone.getByRole("button", { name: "New call" }).click();
+  await phone.waitForFunction(() => document.querySelector(".phone-dial input")?.value);
+  await phone.getByLabel("Number").fill("+1 555 555 0199");
+  await phone.getByRole("button", { name: "Call", exact: true }).click();
+  await phone.getByRole("button", { name: "I've read it" }).click({ timeout: 15000 });
+  await phone.waitForTimeout(6000); // the fault arrives two seconds after the engine starts
+  await phone.getByRole("button", { name: "Stop and delete the recording" }).click();
+  await phone.getByRole("button", { name: "Delete the recording" }).click();
+  await phone.getByText("Not recorded. The client declined.").waitFor();
+  await phone.getByRole("button", { name: "Hang up" }).click();
+  await main.getByText("Client declined recording at", { exact: false }).waitFor({ timeout: 30000 });
+  const faulted = newest();
+  check(faulted !== unannounced, "the faulted call is its own visit");
+  check(!existsSync(join(visitsDir, faulted, "audio.wav")), "a failed recorder's audio is deleted when the client declines");
+  check((await api("GET", `/api/sessions/${faulted}`)).body.consent?.outcome === "declined", "and the visit says the client declined");
+
   // ---- 5. Don't record this call ----------------------------------------------
   step("Call: not recorded");
   const count = visits().length;
@@ -323,6 +362,41 @@ try {
   await phone.getByRole("button", { name: "Hang up" }).click();
   await phone.getByText(/^Call ended · .*Not recorded\.$/).waitFor();
   check(visits().length === count, "nothing saved for an unrecorded call");
+
+
+  // ---- 5b. A call with no patient: the folder is "call", never the number --------
+  step("Call a number, with no patient");
+  await phone.getByRole("button", { name: "New call" }).click();
+  await main.goto(`${base}/`);
+  await main.getByRole("button", { name: "Patients" }).first().click();
+  await main.getByRole("button", { name: "Call a number" }).click();
+  await phone.waitForLoadState();
+  await phone.getByText("New call").first().waitFor({ timeout: 15000 });
+  await phone.getByLabel("Number").fill("+1 555 555 0188");
+  await phone.getByRole("button", { name: "Call", exact: true }).click();
+  await phone.getByRole("button", { name: "I've read it" }).click({ timeout: 15000 });
+  await phone.getByRole("button", { name: "Yes, keep recording" }).click();
+  await phone.waitForTimeout(4000);
+  await phone.getByRole("button", { name: "Hang up" }).click();
+  await phone.getByText(/^Call ended · /).waitFor({ timeout: 60000 });
+  await main.locator(".visit-facts").getByText("Phone call", { exact: true }).waitFor({ timeout: 30000 });
+  const noPatient = newest();
+  check(noPatient.endsWith("_call"), `the visit folder is named "call": ${noPatient}`);
+  for (const v of visits()) {
+    check(!/555\d{7}|5550\d{3}/.test(v), `no phone number in the folder name ${v}`);
+  }
+  // The reviewer's probe: a sample rate the recorder can't use is refused before anything starts.
+  const before0 = visits().length;
+  const probe = await new Promise((resolve) => {
+    const ws = new WebSocket(`ws://localhost:4330/api/phone/live?number=%2B15555550142&sample_rate=0`);
+    ws.onmessage = (e) => {
+      resolve(String(e.data));
+      ws.close();
+    };
+    ws.onerror = () => resolve("socket error");
+    setTimeout(() => resolve("timeout"), 10000);
+  });
+  check(probe.includes("0 Hz") && visits().length === before0, `sample_rate=0 is refused: ${probe}`);
 
   // ---- 6. Errors in plain words -------------------------------------------------
   step("errors");

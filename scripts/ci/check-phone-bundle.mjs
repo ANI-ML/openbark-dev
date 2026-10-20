@@ -11,10 +11,14 @@
 //    WebSockets for web mode, data: and blob:).
 // 3. The phone page does load the SDK, and the SDK's sounds come from local
 //    files, never sdk.twilio.com.
+// 4. The end-to-end test's stand-in for the SDK isn't in the build (it is
+//    only in builds made with `vite build --mode e2e`). Skip with --e2e.
 import { readFileSync, existsSync } from "node:fs";
 import { join, dirname, posix } from "node:path";
+import { readdirSync } from "node:fs";
 
-const dist = process.argv[2] ?? "apps/desktop/dist";
+const dist = process.argv.slice(2).find((a) => !a.startsWith("--")) ?? "apps/desktop/dist";
+const e2eBuild = process.argv.includes("--e2e");
 const problems = [];
 // Markers that only Twilio's Voice SDK contains (its signalling and insights hosts).
 const SDK_MARKERS = ["voice-js.", "eventgw.", "chunderw"];
@@ -73,6 +77,14 @@ if (!SDK_MARKERS.some((m) => phoneCode.includes(m))) problems.push("phone.html d
 if (!phoneCode.includes("/phone-sounds/outgoing.wav")) problems.push("the phone page doesn't give the SDK its local sounds");
 for (const sound of ["outgoing", "disconnect", "incoming", "dtmf-0", "dtmf-star", "dtmf-hash"]) {
   if (!existsSync(join(dist, "phone-sounds", `${sound}.wav`))) problems.push(`missing phone-sounds/${sound}.wav`);
+}
+
+if (!e2eBuild) {
+  for (const file of readdirSync(join(dist, "assets")).filter((f) => f.endsWith(".js"))) {
+    if (read(join("assets", file)).includes("__openbarkFakeVoice")) {
+      problems.push(`assets/${file} contains the end-to-end test's stand-in for the SDK; build without --mode e2e`);
+    }
+  }
 }
 
 if (problems.length) {

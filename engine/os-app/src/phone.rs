@@ -191,6 +191,42 @@ pub fn check_call_sample_rate(rate: u32) -> Result<()> {
     }
 }
 
+/// The end-to-end demo only (the `mock-twilio` feature, never in builds
+/// clinics get): calls to the number in `OPENBARK_TEST_FAIL_CALLS_TO` get a
+/// block the recorder can't use two seconds in, so its worker fails as it
+/// would on a real fault, to test that a decline still deletes what it wrote.
+#[cfg(feature = "mock-twilio")]
+mod fault {
+    use std::sync::mpsc::Receiver;
+    use std::time::{Duration, Instant};
+
+    use os_engine::live::CallBlock;
+
+    pub fn maybe_fail(number: &str, blocks: Receiver<CallBlock>) -> Receiver<CallBlock> {
+        if std::env::var("OPENBARK_TEST_FAIL_CALLS_TO").ok().as_deref() != Some(number) {
+            return blocks;
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let start = Instant::now();
+            let mut failed = false;
+            for block in blocks {
+                if !failed && start.elapsed() > Duration::from_secs(2) {
+                    failed = true;
+                    let bad = CallBlock { clinic: vec![0.0; 160], client: vec![0.0; 160], sample_rate: 0 };
+                    if tx.send(bad).is_err() {
+                        break;
+                    }
+                }
+                if tx.send(block).is_err() {
+                    break;
+                }
+            }
+        });
+        rx
+    }
+}
+
 /// The longest gap accepted between the answer and the engine starting.
 const MAX_SINCE_ANSWER: f32 = 600.0;
 
@@ -583,6 +619,8 @@ impl App {
         options.recorded_by = who.clone();
         options.call = Some(call);
         let label = CALL_LABEL.to_string();
+        #[cfg(feature = "mock-twilio")]
+        let blocks = fault::maybe_fail(&number, blocks);
         let recorder = LiveRecorder::start(
             &self.store,
             &self.sessions_root,
