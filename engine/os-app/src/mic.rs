@@ -345,7 +345,6 @@ mod tests {
 
     use os_asr::capture::{CaptureError, Fault};
     use os_asr::mic::MicStream;
-    use os_models::ModelStore;
 
     use super::super::{Events, Progress, Segment};
 
@@ -412,8 +411,10 @@ mod tests {
         }
     }
 
+    /// The crate's test app: its environment (a fixed data key, scratch
+    /// folders) is set before any App exists, which other tests rely on.
     fn app(tmp: &std::path::Path) -> App {
-        App::new(ModelStore::new(tmp.join("models")), tmp.join("sessions"))
+        crate::tests::app_in(tmp)
     }
 
     #[test]
