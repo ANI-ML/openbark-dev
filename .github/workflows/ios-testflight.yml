@@ -18,6 +18,10 @@ name: iOS TestFlight
 on:
   push:
     tags: ["v*"]
+    # Development branches: only a commit whose message contains
+    # [ios-testflight] (the job's condition below). The `testflight`
+    # environment's rules keep the secrets to main and v* tags.
+    branches-ignore: [main]
   workflow_dispatch:
     inputs:
       features:
@@ -35,7 +39,11 @@ env:
 jobs:
   testflight:
     name: Build, sign and upload to TestFlight
-    if: github.repository == 'ANI-ML/openbark-dev'
+    if: >-
+      github.repository == 'ANI-ML/openbark-dev' && (
+        github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') ||
+        contains(github.event.head_commit.message, '[ios-testflight]')
+      )
     runs-on: macos-15
     timeout-minutes: 90
     environment: testflight

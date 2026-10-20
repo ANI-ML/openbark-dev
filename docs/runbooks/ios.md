@@ -145,5 +145,5 @@ The names follow Tauri's iOS signing guide (`IOS_CERTIFICATE`, `IOS_CERTIFICATE_
 ## For engineering
 
 - The workflow imports the certificate through the Tauri CLI (`IOS_CERTIFICATE`), writes the `.p8` to `~/.appstoreconnect/private_keys/AuthKey_<id>.p8` (one of the folders `altool` searches) and sets `APPLE_API_KEY_PATH`, builds with `tauri ios build --export-method app-store-connect --build-number <run number>`, uploads with `xcrun altool --upload-app --type ios --apiKey --apiIssuer`, and removes the key at the end.
-- The simulator check (`.github/workflows/ios.yml`) needs no secrets.
+- The simulator check (`.github/workflows/ios.yml`) needs no secrets. On a development branch it runs for a commit whose message contains `[ios-check]` (and `[ios-init]` runs the init job); the TestFlight job likewise for `[ios-testflight]`, but the `testflight` environment's rules (step 6.2) keep the signing secrets to `main` and `v*` tags, so from a branch it skips with its notice.
 - `apps/desktop/src-tauri/gen/apple` is committed (made by the iOS init job). Regenerate it with the init job when Tauri or the app's iOS settings change, and commit the artifact.
