@@ -1415,14 +1415,23 @@ export const hubAdd = (repo: string, file: string, acceptLicense: boolean) =>
     : api<ModelRow>("/api/hub/add", post({ repo, file, accept_license: acceptLicense }));
 
 /**
+ * WebKitGTK (the Linux desktop app) won't play media from an app-defined
+ * scheme at all (media error 4 before any request), so there the player
+ * starts from the fallback.
+ */
+const linuxWebview = () => typeof navigator !== "undefined" && /Linux/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent);
+
+/**
  * A URL the player can use for the recording. Audio is encrypted on disk
  * (ADR-0008), so it's decrypted as it's played, in byte ranges: by the
  * server in web mode, and by the desktop app's `obaudio` scheme
- * (`obaudio://localhost/<id>`, `http://obaudio.localhost/<id>` on Windows).
- * Nothing to revoke.
+ * (`obaudio://localhost/<id>` on macOS, `http://obaudio.localhost/<id>` on
+ * Windows). On the Linux desktop it's a blob: URL from
+ * {@link audioFallbackUrl}; revoke blob: URLs when done.
  */
 export async function audioUrl(s: SessionView): Promise<string> {
   if (!isDesktop) return `/api/sessions/${enc(s.id)}/audio`;
+  if (linuxWebview()) return (await audioFallbackUrl(s)) ?? convertFileSrc(s.id, "obaudio");
   return convertFileSrc(s.id, "obaudio");
 }
 

@@ -1,8 +1,10 @@
 """Check the desktop self-test's results (scripts/ci/desktop-selftest.sh).
 
 Usage: python3 check-selftest.py results.json
-Exits 1 when the model didn't load, or a recording didn't play to the end
-from the app's own audio URL. The blob fallback is reported, not required.
+Exits 1 when the model wasn't loaded at quit, or a recording didn't play to
+the end the way the app plays it (engine.ts audioUrl): from the app's own
+audio URL on macOS and Windows, and from the blob: URL on Linux, where
+WebKitGTK won't play an app-defined scheme.
 """
 
 import json
@@ -22,20 +24,25 @@ def main(path: str) -> int:
     audio = r.get("audio")
     if audio is None:
         problems.append("no audio results")
-    else:
-        if audio.get("fatal"):
-            problems.append(f"audio: {audio['fatal']}")
+        audio = {}
+    if audio.get("fatal"):
+        problems.append(f"audio: {audio['fatal']}")
+    if audio:
         print(f"- webview: {audio.get('user_agent', '?')}")
-        for case in audio.get("cases", []):
-            ok = case.get("ended") and not case.get("error") and \
-                abs((case.get("duration") or 0) - case.get("expected_secs", 0)) < 0.5
-            print(f"- {case.get('label')}: {'played to the end' if ok else 'FAILED'} "
-                  f"(duration {case.get('duration')}, error {case.get('media_error')}, "
-                  f"events {' '.join(case.get('events', []))})")
-            if not ok and "(app URL)" in case.get("label", ""):
-                problems.append(f"{case.get('label')} didn't play to the end")
-        if not audio.get("cases"):
-            problems.append("no recordings were played")
+    played = {}
+    for case in audio.get("cases", []):
+        ok = bool(case.get("ended") and not case.get("error")
+                  and abs((case.get("duration") or 0) - case.get("expected_secs", 0)) < 0.5)
+        played[case.get("label", "")] = ok
+        print(f"- {case.get('label')}: {'played to the end' if ok else 'FAILED'} "
+              f"(duration {case.get('duration')}, error {case.get('media_error')}, "
+              f"events {' '.join(case.get('events', []))})")
+    if audio and not played:
+        problems.append("no recordings were played")
+    used = "(blob fallback)" if r.get("platform") == "linux" else "(app URL)"
+    for label, ok in played.items():
+        if label.endswith(used) and not ok:
+            problems.append(f"{label}, the way the app plays it here, didn't play to the end")
     for p in problems:
         print(f"FAIL: {p}")
     return 1 if problems else 0

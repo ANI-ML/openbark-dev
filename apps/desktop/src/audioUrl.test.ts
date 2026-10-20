@@ -41,6 +41,14 @@ describe("the recording's URL for the player", () => {
     expect(calls).toEqual([{ cmd: "session_audio", args: { id: visit.id } }]);
   });
 
+  it("Linux desktop: WebKitGTK can't play the app's scheme, so it starts from the blob: URL", async () => {
+    const { engine, calls } = await loadEngine(true);
+    vi.stubGlobal("navigator", { userAgent: "Mozilla/5.0 (X11; Ubuntu; Linux x86_64) AppleWebKit/605.1.15" });
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: () => "blob:tauri://localhost/2" }));
+    expect(await engine.audioUrl(visit)).toBe("blob:tauri://localhost/2");
+    expect(calls).toEqual([{ cmd: "session_audio", args: { id: visit.id } }]);
+  });
+
   it("web mode: the server's ranged route, and no fallback", async () => {
     const { engine } = await loadEngine(false);
     expect(engine.isDesktop).toBe(false);

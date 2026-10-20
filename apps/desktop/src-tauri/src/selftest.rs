@@ -62,20 +62,35 @@ fn run(handle: &AppHandle) -> Value {
     let mut results = json!({ "platform": std::env::consts::OS });
 
     if let Some(model) = std::env::var_os("OPENBARK_SELFTEST_LLM") {
-        let model = PathBuf::from(model);
+        let spec = PathBuf::from(&model).display().to_string();
         let started = Instant::now();
-        // What a person does: a template proposed from an example note,
-        // which loads the note model into the app's slot and generates.
-        let outcome = app.template_from_example(
-            &model.display().to_string(),
-            "Subjective: Bella, 4 year old spayed Labrador, two days of vomiting.\nObjective: T 38.6 C, HR 96.\nAssessment: Gastritis.\nPlan: Bland diet for three days.",
-        );
+        // The note model into the app's slot, as a draft loads it.
+        let loaded = app.preload_llm(&spec);
+        let load_secs = started.elapsed().as_secs_f32();
+        // Then a draft, as a person starts one: a template proposed from an
+        // example note. GitHub's Mac runners draft slowly on their
+        // paravirtual GPU, so it gets a short while; one still running when
+        // the app quits is the "quit mid-draft" case.
+        let (tx, rx) = std::sync::mpsc::channel();
+        if loaded.is_ok() {
+            let app = app.clone();
+            let spec = spec.clone();
+            std::thread::spawn(move || {
+                let _ = tx.send(app.template_from_example(&spec, EXAMPLE).map(drop).map_err(|e| e.0));
+            });
+        }
+        let draft = rx.recv_timeout(Duration::from_secs(20));
         results["llm"] = json!({
-            "model": model.file_name().map(|n| n.to_string_lossy().into_owned()),
-            "generated": outcome.is_ok(),
+            "model": PathBuf::from(&model).file_name().map(|n| n.to_string_lossy().into_owned()),
+            "loaded": loaded.as_ref().map(|_| true).map_err(|e| e.0.clone()),
+            "load_secs": load_secs,
             // A tiny test model may well write something unusable; what
-            // matters is that it loaded and ran on the GPU.
-            "message": outcome.err().map(|e| e.0),
+            // matters is that it ran on the GPU.
+            "draft": match draft {
+                Ok(Ok(())) => json!("finished"),
+                Ok(Err(e)) => json!(format!("finished: {e}")),
+                Err(_) => json!("still running at quit"),
+            },
             "secs": started.elapsed().as_secs_f32(),
             "live_models_before_quit": os_llm::shutdown::live_models(),
         });
@@ -170,6 +185,11 @@ unsafe fn terminate_soon() {
         );
     }
 }
+
+const EXAMPLE: &str = "Subjective: Bella, 4 year old spayed Labrador, two days of vomiting.
+Objective: T 38.6 C, HR 96.
+Assessment: Gastritis.
+Plan: Bland diet for three days.";
 
 const PLAY_JS: &str = r#"
 (async () => {

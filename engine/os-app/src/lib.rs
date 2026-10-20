@@ -2566,6 +2566,15 @@ impl App {
 
     // ---- templates -------------------------------------------------------
 
+    /// Load a note model into the slot, as a draft would, without drafting:
+    /// the quit checks (the desktop self-test, os-cli's exit_order example)
+    /// need a model on the GPU at exit, and GitHub's Mac runners draft on
+    /// their paravirtual GPU too slowly to wait for.
+    #[doc(hidden)]
+    pub fn preload_llm(&self, llm: &str) -> Result<()> {
+        self.load_llm(llm).map(drop)
+    }
+
     /// Propose a template from a note the clinic already writes (M2 item 5).
     /// Nothing is saved: the proposal opens in the builder for editing.
     pub fn template_from_example(&self, llm: &str, example: &str) -> Result<TemplateView> {
