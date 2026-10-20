@@ -1680,16 +1680,6 @@ async function startDesktopRecording(
   return { stop: () => invoke<SessionView>("stop_recording") };
 }
 
-const WORKLET = `
-class Tap extends AudioWorkletProcessor {
-  process(inputs) {
-    const ch = inputs[0] && inputs[0][0];
-    if (ch) this.port.postMessage(ch.slice(0));
-    return true;
-  }
-}
-registerProcessor("openbark-tap", Tap);`;
-
 /**
  * Web: the browser captures the user's own microphone and streams PCM to the
  * engine over a WebSocket. Levels are measured here so the meter reacts to
@@ -1716,9 +1706,14 @@ async function startBrowserRecording(
     );
   }
   const ctx = new AudioContext();
-  const url = URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" }));
-  await ctx.audioWorklet.addModule(url);
-  URL.revokeObjectURL(url);
+  try {
+    // A static file (public/mic-tap.js): the page's CSP refuses blob: modules.
+    await ctx.audioWorklet.addModule("/mic-tap.js");
+  } catch (e) {
+    stream.getTracks().forEach((t) => t.stop());
+    await ctx.close();
+    throw e;
+  }
   const source = ctx.createMediaStreamSource(stream);
   const tap = new AudioWorkletNode(ctx, "openbark-tap");
   source.connect(tap);

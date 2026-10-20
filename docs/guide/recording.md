@@ -49,7 +49,7 @@ If your clinic has set up [phone calls](phone-and-email.md) (your own Twilio acc
 
 When the client is on a phone on speaker in the room, tick **Phone on speaker** on **Record** (in the right-hand column) before you press Record. It's remembered on this computer until you untick it. The same option applies when you import a recording of such a visit.
 
-With it ticked, OpenBark listens harder for the quieter voice: speech detection hears a copy of the sound with quiet passages lifted, it separates a quiet voice from a louder one that answers it, and each quiet sentence is brought up to a normal level before it's transcribed. The recording itself is kept exactly as the microphone heard it. Leave the option off for ordinary consults in the room: lifting quiet sound can also pick up voices from the corridor.
+With it ticked, OpenBark listens harder for the quieter voice: speech detection hears a copy of the sound with quiet passages lifted, it separates a quiet voice from a louder one that answers it, and each quiet sentence is brought up to a normal level before it's transcribed. Sentences that sound like a phone line go to the second speech recogniser (the one that checks numbers), which hears phone audio better. The recording itself is kept exactly as the microphone heard it. Leave the option off for ordinary consults in the room: lifting quiet sound can also pick up voices from the corridor.
 
 ### Setting up
 
