@@ -304,15 +304,33 @@ impl LiveRecorder {
         let session_dir = session.dir.clone();
         let stop = Arc::new(AtomicBool::new(false));
         let discard = Arc::new(AtomicBool::new(false));
+        let feed = match source {
+            LiveSource::Call { blocks, .. } => Feed::Call(blocks),
+            // A microphone is opened now, so one that won't open (none
+            // connected, another app holding it) is an error from start, not
+            // a recording that never hears anything. The empty visit goes.
+            source @ (LiveSource::Microphone(_) | LiveSource::Stream { .. }) => {
+                match StartedSource::start(source, stop.clone()) {
+                    Ok(started) => Feed::Started(started),
+                    Err(e) => {
+                        let _ = std::fs::remove_dir_all(&session_dir);
+                        return Err(e);
+                    }
+                }
+            }
+            // Files and uploads decode on the worker; an import removes the
+            // visit itself when that fails.
+            source => Feed::Lazy(source),
+        };
         let (stop2, discard2) = (stop.clone(), discard.clone());
         let worker = std::thread::Builder::new()
             .name("openbark-live".into())
-            .spawn(move || match source {
-                LiveSource::Call { blocks, .. } => {
+            .spawn(move || match feed {
+                Feed::Call(blocks) => {
                     let parts = CallParts { vad, asr, lexicon, second };
                     run_call(session, blocks, options, parts, sink, stop2, discard2)
                 }
-                source => run(session, source, options, vad, asr, tracker, lexicon, second, sink, stop2),
+                feed => run(session, feed, options, vad, asr, tracker, lexicon, second, sink, stop2),
             })
             .map_err(|e| EngineError::Session(e.to_string()))?;
         Ok(Self { stop, discard, worker: Some(worker), session_dir })
@@ -353,6 +371,37 @@ impl Drop for LiveRecorder {
         if let Some(w) = self.worker.take() {
             let _ = w.join();
         }
+    }
+}
+
+/// Where a worker's audio comes from.
+enum Feed {
+    /// A phone call's two sides.
+    Call(mpsc::Receiver<CallBlock>),
+    /// A live source already running.
+    Started(StartedSource),
+    /// A file or upload, started by the worker.
+    Lazy(LiveSource),
+}
+
+/// A source feeding blocks, with the microphone's events.
+struct StartedSource {
+    handle: JoinHandle<()>,
+    device: String,
+    total_secs: Option<f32>,
+    rx: mpsc::Receiver<AudioBlock>,
+    mic_rx: mpsc::Receiver<MicEvent>,
+    /// The browser names its own microphone; the engine only sees blocks.
+    from_browser: bool,
+}
+
+impl StartedSource {
+    fn start(source: LiveSource, stop: Arc<AtomicBool>) -> Result<Self, EngineError> {
+        let (tx, rx) = mpsc::channel::<AudioBlock>();
+        let (mic_tx, mic_rx) = mpsc::channel::<MicEvent>();
+        let from_browser = matches!(source, LiveSource::Stream { .. });
+        let (handle, device, total_secs) = spawn_source(source, tx, stop, mic_tx)?;
+        Ok(Self { handle, device, total_secs, rx, mic_rx, from_browser })
     }
 }
 
@@ -472,7 +521,7 @@ fn spawn_source(
 #[allow(clippy::too_many_arguments)]
 fn run(
     mut session: Session,
-    source: LiveSource,
+    feed: Feed,
     options: LiveOptions,
     vad: os_asr::SileroVad,
     asr: os_asr::OfflineAsr,
@@ -513,11 +562,11 @@ fn run(
     };
     let _awake = AwakeGuard::acquire(AwakeReason::Recording);
     let started = Instant::now();
-    let (tx, rx) = mpsc::channel::<AudioBlock>();
-    let (mic_tx, mic_rx) = mpsc::channel::<MicEvent>();
-    // The browser names its own microphone; the engine only sees blocks.
-    let from_browser = matches!(source, LiveSource::Stream { .. });
-    let (source, mut device, total_secs) = spawn_source(source, tx, stop.clone(), mic_tx)?;
+    let StartedSource { handle: source, mut device, total_secs, rx, mic_rx, from_browser } = match feed {
+        Feed::Started(started) => started,
+        Feed::Lazy(source) => StartedSource::start(source, stop.clone())?,
+        Feed::Call(_) => unreachable!("calls run in run_call"),
+    };
     // Live sources (not files or uploads) are watched for trouble.
     let watched = total_secs.is_none();
     let mut health = HealthTracker::new(
