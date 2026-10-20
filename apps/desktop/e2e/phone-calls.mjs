@@ -246,6 +246,8 @@ try {
   const before = visits().length;
   const [phone] = await Promise.all([context.waitForEvent("page"), main.getByRole("button", { name: "Call" }).click()]);
   phone.on("pageerror", (e) => errors.push(`phone: ${e.message}`));
+  globalThis.__phonePage = phone;
+  context.on("page", (p) => console.log(`  (a new page opened: ${p.url()})`));
   await phone.getByText("Patel · Bella").waitFor();
   check(await phone.getByText("This call will be recorded and announced.").isVisible(), "the pre-call line");
   await phone.setViewportSize({ width: 360, height: 760 });
@@ -327,7 +329,8 @@ try {
   await phone.getByText("Read this to the client now:").waitFor({ timeout: 15000 });
   await phone.waitForTimeout(4000); // the engine is recording by now
   await phone.getByRole("button", { name: "Hang up" }).click();
-  await main.getByText("The announcement wasn't confirmed as read", { exact: false }).waitFor({ timeout: 30000 });
+  await main.getByText("The announcement wasn't confirmed as read, so the recording was deleted", { exact: false }).waitFor({ timeout: 30000 });
+  check(await main.getByText("Not recorded. The announcement wasn't confirmed as read.").isVisible(), "Review says the announcement wasn't confirmed");
   const unannounced = newest();
   check(!existsSync(join(visitsDir, unannounced, "audio.wav")) && !existsSync(join(visitsDir, unannounced, "transcript.jsonl")), "no audio or transcript kept when the announcement wasn't confirmed");
   const unannouncedMeta = (await api("GET", `/api/sessions/${unannounced}`)).body;
@@ -369,9 +372,11 @@ try {
   await phone.getByRole("button", { name: "New call" }).click();
   await main.goto(`${base}/`);
   await main.getByRole("button", { name: "Patients" }).first().click();
+  await phone.evaluate(() => (window.__beforeReload = true));
   await main.getByRole("button", { name: "Call a number" }).click();
-  await phone.waitForLoadState();
-  await phone.getByText("New call").first().waitFor({ timeout: 15000 });
+  // The pop-up is opened again by name: wait until it has really reloaded.
+  await phone.waitForFunction(() => !window.__beforeReload, null, { timeout: 15000 });
+  await phone.getByRole("heading", { name: "New call" }).waitFor({ timeout: 15000 });
   await phone.getByLabel("Number").fill("+1 555 555 0188");
   await phone.getByRole("button", { name: "Call", exact: true }).click();
   await phone.getByRole("button", { name: "I've read it" }).click({ timeout: 15000 });
@@ -401,12 +406,14 @@ try {
   // ---- 6. Errors in plain words -------------------------------------------------
   step("errors");
   await phone.getByRole("button", { name: "New call" }).click();
+  // No patient now (Call a number): the dial pad starts empty.
+  check((await phone.getByLabel("Number").inputValue()) === "", "a call with no patient starts with an empty dial pad");
+  await phone.getByLabel("Number").fill("+1 555 555 0142");
   await phone.evaluate(() => localStorage.setItem("e2e-fake-fail", "31005"));
   await phone.getByRole("button", { name: "Call", exact: true }).click();
   await phone.getByText("Can't reach Twilio. Check this computer's internet connection.").waitFor();
   check(true, "a signalling failure says to check the internet connection");
   await phone.getByRole("button", { name: "New call" }).click();
-  await phone.waitForFunction(() => document.querySelector(".phone-dial input")?.value);
   await phone.getByLabel("Number").fill("555");
   await phone.waitForTimeout(500);
   check((await phone.getByLabel("Number").inputValue()) === "555", "what was typed stays on the dial pad");
@@ -445,7 +452,13 @@ try {
 } catch (e) {
   problems.push(`stopped: ${e.message.split("\n")[0]}`);
   await main.screenshot({ path: join(out, "failure-main.png"), fullPage: true }).catch(() => {});
-  for (const p of context.pages()) if (p !== main) await p.screenshot({ path: join(out, "failure-phone.png"), fullPage: true }).catch(() => {});
+  let n = 0;
+  for (const p of context.pages()) {
+    if (p === main) continue;
+    n += 1;
+    console.log(`  page ${n}: ${p.url()}${p === globalThis.__phonePage ? " (the test's phone page)" : ""}`);
+    await p.screenshot({ path: join(out, `failure-phone-${n}.png`), fullPage: true }).catch(() => {});
+  }
 } finally {
   await browser.close();
   fake.kill();
