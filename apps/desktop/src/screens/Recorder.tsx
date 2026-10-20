@@ -6,6 +6,8 @@ import { useApp } from "../context";
 import * as engine from "../engine";
 import { templateName, useT } from "../i18n";
 import { ConsentStep } from "../components/ConsentStep";
+import { MicCheck } from "../components/MicCheck";
+import { micNotice, switchNote, type MicHealth } from "../mic/health";
 import { PatientFields } from "../components/PatientFields";
 import { PatientPicker } from "../components/PatientPicker";
 import { ProcessingBar } from "../components/ProcessingBar";
@@ -32,6 +34,8 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
   /** How far an import, or a stopped recording, has got. */
   const [progress, setProgress] = useState<engine.ProcessingProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** The recording's microphone: silent, stalled, lost, switched or low quality. */
+  const [mic, setMic] = useState<MicHealth | null>(null);
   const [patient, setPatient] = useState<engine.Patient>(engine.emptyPatient);
   const phone = useMediaQuery(PHONE);
   /** Phones: the patient fold starts open only when the visit was started from a patient's page. */
@@ -66,10 +70,26 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
   /** Stopped or imported: the recording is being turned into a transcript and note. */
   const processing = state === "stopping" || state === "importing";
 
+  /** A new microphone health: toast a switch, and keep the latest for the notice. */
+  const micRef = useRef<MicHealth | null>(null);
+  const onMic = (next: MicHealth | null) => {
+    const note = next ? switchNote(t, micRef.current, next) : null;
+    micRef.current = next;
+    setMic(next);
+    if (note) {
+      app.toast(note);
+      app.announce(note);
+    }
+  };
+
   useEffect(() => {
     const offs = [
       engine.on("segment", (s) => setSegments((prev) => (prev.some((p) => p.id === s.id) ? prev : [...prev, s]))),
       engine.on("level", (l) => setElapsed(l.seconds)),
+      // Desktop: the engine watches the microphone. Web mode: the browser does (onHealth below).
+      engine.on("mic", (h) => {
+        if (engine.isDesktop) onMic(h);
+      }),
       // Transcription steps only: drafting (Review) reports on the same channel.
       engine.on("progress", (p) => {
         if (["upload", "convert", "read", "transcribe", "check", "save"].includes(p.stage)) setProgress(p);
@@ -84,6 +104,14 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
   }, [app.user?.id]);
 
   const missing = app.status?.models.filter((m) => !m.installed) ?? [];
+
+  // Load the speech models while the screen is open, so Record starts at
+  // once; give the memory back when it closes.
+  const ready = missing.length === 0 && Boolean(app.status);
+  useEffect(() => {
+    if (ready) void engine.prewarmSpeech(app.settings.labelSpeakers);
+  }, [ready, app.settings.labelSpeakers]);
+  useEffect(() => () => void engine.releaseSpeech(), []);
   /** The visit type chosen on this device is one this person can draft with. */
   const templateAvailable = templates.length === 0 || templates.some((x) => x.id === app.settings.template);
 
@@ -128,19 +156,33 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
     setState("starting");
     setSegments([]);
     setElapsed(0);
+    onMic(null);
     try {
       recording.current = await engine.startRecording(
         app.settings.labelSpeakers,
-        app.settings.device,
+        engine.isDesktop ? app.settings.device : app.settings.browserMic,
         patient,
         consent,
-        (level, seconds) => {
-          app.levels.push(level);
-          setElapsed(seconds);
-          // Audio is flowing: say so now, not when the start call returns.
-          setState((s) => (s === "starting" ? "recording" : s));
+        {
+          onLevel: (level, seconds) => {
+            app.levels.push(level);
+            setElapsed(seconds);
+            // Audio is flowing: say so now, not when the start call returns.
+            setState((s) => (s === "starting" ? "recording" : s));
+          },
+          onHealth: onMic,
+          onEnded: (message) => {
+            recording.current = null;
+            onMic(null);
+            setError(message);
+            setState("idle");
+          },
         },
       );
+      const opened = recording.current.mic;
+      if (opened?.fellBack) {
+        app.toast(t("The chosen microphone isn't connected. Recording from {device}.", { device: opened.label }));
+      }
       if (stopWhenReady.current) {
         stopWhenReady.current = false;
         await finish();
@@ -213,8 +255,11 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
     app.announce(t("The client declined. Not recording."));
   }
 
+  const notice = state === "recording" ? micNotice(t, mic, !engine.isDesktop) : null;
   const statusLine =
-    state === "recording"
+    state === "recording" && mic?.state === "lost"
+      ? t("Paused: no microphone")
+      : state === "recording"
       ? t("Recording. Audio is saved as you go.")
       : state === "consent"
         ? t("Confirm consent to record.")
@@ -251,7 +296,12 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
 
       {error && (
         <p className="ob-notice" data-tone="danger" role="alert">
-          {error}
+          {t(error)}
+        </p>
+      )}
+      {notice && (
+        <p className="ob-notice mic-notice" data-tone={notice.tone === "danger" ? "danger" : undefined} role="alert">
+          {notice.text}
         </p>
       )}
 
@@ -359,6 +409,7 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
         </section>
 
         <aside className="recorder-rail" aria-label={t("Recording options")}>
+          <MicCheck disabled={state !== "idle"} id="recorder-mic" />
           <button type="button" className="link small" onClick={() => app.navigate({ screen: "templates" })}>
             {t("Edit templates")}
           </button>

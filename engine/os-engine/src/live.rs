@@ -13,6 +13,12 @@
 //! The source can also be a WAV file played through the same path (for tests
 //! and CI, where there is no microphone).
 //!
+//! A microphone is kept open by [`os_asr::mic::Supervisor`]: unplugged, it
+//! moves to the system default (or pauses until one is back); with "System
+//! default" chosen it follows a new default. The worker watches every live
+//! source for digital silence and for audio that stops arriving, and tells
+//! the app through [`LiveSink::mic`] ([`crate::mic_health`]).
+//!
 //! A phone call ([`LiveSource::Call`], ADR-0023 section 7) arrives as two
 //! streams, the clinic's microphone and the client's voice. It is written as
 //! a two-channel recording (clinic left, client right), each channel gets its
@@ -26,12 +32,14 @@ use std::sync::mpsc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use os_asr::capture::{AudioBlock, MicCapture};
-use os_asr::{AsrBackend, Audio, SAMPLE_RATE, WavWriter};
+use os_asr::capture::AudioBlock;
+use os_asr::mic::{CpalBackend, MicEvent, Supervisor, Timing};
+use os_asr::{AsrBackend, Audio, SAMPLE_RATE, StreamResampler, WavWriter};
 use os_models::ModelStore;
 use serde::Serialize;
 
 use crate::awake::{AwakeGuard, AwakeReason};
+use crate::mic_health::{HealthTiming, HealthTracker, MicHealth};
 use crate::session::Session;
 use crate::transcribe::TranscribeStats;
 use crate::transcript::{Segment, Transcript};
@@ -129,6 +137,9 @@ pub trait LiveSink: Send {
     /// How far processing has got, for a progress bar (imports, and the
     /// finishing steps after a recording stops).
     fn progress(&mut self, _progress: &Progress) {}
+    /// The microphone's health changed (live sources only): silent, stalled,
+    /// lost, switched, or a low-quality Bluetooth hands-free input.
+    fn mic(&mut self, _health: &MicHealth) {}
 }
 
 /// A step of turning audio into a saved transcript.
@@ -179,6 +190,44 @@ pub struct LiveResult {
     pub finish_ms: u64,
 }
 
+/// The speech models a recording needs. Loading them takes a few seconds,
+/// so the app can load them when the Record screen opens ([`SpeechModels::load`])
+/// and hand them to [`LiveRecorder::start_with`] when Record is pressed.
+pub struct SpeechModels {
+    vad: os_asr::SileroVad,
+    asr: os_asr::OfflineAsr,
+    tracker: Option<os_diar::SpeakerTracker>,
+    stt: String,
+    speaker_threshold: f32,
+}
+
+impl SpeechModels {
+    /// Voice detection, the recogniser chosen by `options`, and the speaker
+    /// tracker when speakers are labelled.
+    pub fn load(store: &ModelStore, options: &LiveOptions) -> Result<Self, EngineError> {
+        let started = Instant::now();
+        let vad = os_asr::SileroVad::new(os_asr::VadOptions::new(models::single_file(store, models::VAD)?))?;
+        let asr = os_asr::OfflineAsr::new(models::asr_model(store, &models::best_stt(store, &options.stt))?)?;
+        let tracker = if options.label_speakers {
+            Some(os_diar::SpeakerTracker::new(
+                &models::single_file(store, models::EMBEDDING)?,
+                options.speaker_threshold,
+            )?)
+        } else {
+            None
+        };
+        tracing::info!(ms = started.elapsed().as_millis() as u64, "speech models loaded");
+        Ok(Self { vad, asr, tracker, stt: options.stt.clone(), speaker_threshold: options.speaker_threshold })
+    }
+
+    /// Loaded for the same recogniser and speaker settings as `options`.
+    pub fn suits(&self, options: &LiveOptions) -> bool {
+        self.stt == options.stt
+            && self.tracker.is_some() == options.label_speakers
+            && self.speaker_threshold == options.speaker_threshold
+    }
+}
+
 pub struct LiveRecorder {
     stop: Arc<AtomicBool>,
     /// Set by [`LiveRecorder::discard`]: a call's recording is deleted
@@ -197,19 +246,28 @@ impl LiveRecorder {
         options: LiveOptions,
         sink: Box<dyn LiveSink>,
     ) -> Result<Self, EngineError> {
-        // Load models up front so errors surface before recording starts.
-        let vad = os_asr::SileroVad::new(os_asr::VadOptions::new(models::single_file(store, models::VAD)?))?;
-        let asr = os_asr::OfflineAsr::new(models::asr_model(store, &models::best_stt(store, &options.stt))?)?;
+        Self::start_with(store, sessions_root, source, options, None, sink)
+    }
+
+    /// [`LiveRecorder::start`] with speech models loaded ahead of time; they
+    /// are used when they suit `options`, otherwise loaded now.
+    pub fn start_with(
+        store: &ModelStore,
+        sessions_root: &Path,
+        source: LiveSource,
+        options: LiveOptions,
+        warm: Option<SpeechModels>,
+        sink: Box<dyn LiveSink>,
+    ) -> Result<Self, EngineError> {
         let is_call = matches!(source, LiveSource::Call { .. });
-        // Calls: the channel says who is speaking, so no embeddings (ADR-0023 section 7).
-        let tracker = if options.label_speakers && !is_call {
-            Some(os_diar::SpeakerTracker::new(
-                &models::single_file(store, models::EMBEDDING)?,
-                options.speaker_threshold,
-            )?)
-        } else {
-            None
+        // Load models up front so errors surface before recording starts.
+        let models = match warm {
+            Some(m) if m.suits(&options) => m,
+            _ => SpeechModels::load(store, &options)?,
         };
+        let SpeechModels { vad, asr, tracker, .. } = models;
+        // Calls: the channel says who is speaking, so no embeddings (ADR-0023 section 7).
+        let tracker = if is_call { None } else { tracker };
         let label = match &source {
             LiveSource::Microphone(_) => "recording".to_string(),
             LiveSource::File { path, .. } => {
@@ -222,9 +280,9 @@ impl LiveRecorder {
         };
         let lexicon = crate::vocab::Lexicon::default_with_user();
         // Second recogniser for segments that matter (M1 item 4); optional.
-        let second = models::asr_model(store, &models::best_stt(store, SECOND_STT))
-            .ok()
-            .and_then(|m| os_asr::OfflineAsr::with_threads(m, os_asr::second_threads()).ok());
+        // It's the larger model, so it loads in the background once recording
+        // has started rather than delaying the start (segments wait for it).
+        let second = models::asr_model(store, &models::best_stt(store, SECOND_STT)).ok().map(SecondAsr::load);
         if second.is_none() {
             tracing::info!("second recogniser not installed; number cross-check off");
         }
@@ -298,6 +356,28 @@ impl Drop for LiveRecorder {
     }
 }
 
+/// The second recogniser, loading on its own thread.
+struct SecondAsr(JoinHandle<Option<os_asr::OfflineAsr>>);
+
+impl SecondAsr {
+    fn load(model: os_asr::AsrModel) -> Self {
+        Self(std::thread::spawn(move || {
+            let started = Instant::now();
+            let asr = os_asr::OfflineAsr::with_threads(model, os_asr::second_threads()).ok();
+            match &asr {
+                Some(_) => tracing::info!(ms = started.elapsed().as_millis() as u64, "second recogniser loaded"),
+                None => tracing::warn!("second recogniser didn't load; number cross-check off"),
+            }
+            asr
+        }))
+    }
+
+    /// Waits for it to finish loading.
+    fn get(self) -> Option<os_asr::OfflineAsr> {
+        self.0.join().ok().flatten()
+    }
+}
+
 /// Feed blocks to `tx` from the chosen source until `stop` is set (or the
 /// file ends). Returns the device name, and for a file or upload its length
 /// in seconds.
@@ -305,6 +385,7 @@ fn spawn_source(
     source: LiveSource,
     tx: mpsc::Sender<AudioBlock>,
     stop: Arc<AtomicBool>,
+    mic_events: mpsc::Sender<MicEvent>,
 ) -> Result<(JoinHandle<()>, String, Option<f32>), EngineError> {
     if let LiveSource::Stream { label, blocks } = source {
         // Forward caller-pushed blocks until the caller hangs up or we stop.
@@ -327,11 +408,17 @@ fn spawn_source(
     let handle = std::thread::spawn(move || match source {
         LiveSource::Microphone(device) => {
             // cpal streams aren't Send: create, hold and drop on this thread.
-            match MicCapture::start(device.as_deref(), tx) {
-                Ok(mic) => {
-                    let _ = ready_tx.send(Ok((mic.device_name.clone(), None)));
+            // The supervisor reopens or switches the microphone as needed.
+            match Supervisor::start(CpalBackend, device, tx, Timing::default()) {
+                Ok((mut mic, first)) => {
+                    let name = mic.device_name().unwrap_or("microphone").to_string();
+                    let _ = ready_tx.send(Ok((name, None)));
+                    let _ = mic_events.send(first);
                     while !stop.load(Ordering::SeqCst) {
-                        std::thread::sleep(Duration::from_millis(20));
+                        for event in mic.poll(Instant::now()) {
+                            let _ = mic_events.send(event);
+                        }
+                        std::thread::sleep(Duration::from_millis(50));
                     }
                 }
                 Err(e) => {
@@ -389,7 +476,7 @@ fn run(
     asr: os_asr::OfflineAsr,
     mut tracker: Option<os_diar::SpeakerTracker>,
     lexicon: crate::vocab::Lexicon,
-    second: Option<os_asr::OfflineAsr>,
+    second: Option<SecondAsr>,
     mut sink: Box<dyn LiveSink>,
     stop: Arc<AtomicBool>,
 ) -> Result<LiveResult, EngineError> {
@@ -405,6 +492,8 @@ fn run(
             let handle = std::thread::Builder::new()
                 .name("openbark-second-opinion".into())
                 .spawn(move || {
+                    // Jobs queue while the model loads.
+                    let Some(second) = second.get() else { return };
                     for (i, samples, primary) in job_rx {
                         if let Ok(text) = second.transcribe(&samples) {
                             let opinion = crate::crosscheck::compare(&primary, &text);
@@ -423,7 +512,15 @@ fn run(
     let _awake = AwakeGuard::acquire(AwakeReason::Recording);
     let started = Instant::now();
     let (tx, rx) = mpsc::channel::<AudioBlock>();
-    let (source, device, total_secs) = spawn_source(source, tx, stop.clone())?;
+    let (mic_tx, mic_rx) = mpsc::channel::<MicEvent>();
+    // The browser names its own microphone; the engine only sees blocks.
+    let from_browser = matches!(source, LiveSource::Stream { .. });
+    let (source, mut device, total_secs) = spawn_source(source, tx, stop.clone(), mic_tx)?;
+    // Live sources (not files or uploads) are watched for trouble.
+    let watched = total_secs.is_none();
+    let mut health = HealthTracker::new(if from_browser { "" } else { &device }, 0, Instant::now(), HealthTiming::default());
+    let mut health_at = Instant::now();
+    let mut devices_used: Vec<String> = Vec::new();
     // Imports report seconds transcribed, at most every 1% (or 2 s of audio).
     let report_every = total_secs.map(|t| (t / 100.0).max(2.0));
     let mut reported = 0.0f32;
@@ -440,7 +537,7 @@ fn run(
     .map_err(|e| EngineError::Session(e.to_string()))?;
     let mut streaming = vad.streaming()?;
     let mut transcript = Transcript::default();
-    let mut resampler: Option<(u32, os_asr::sherpa_onnx::LinearResampler)> = None;
+    let mut resampler = StreamResampler::new();
     let mut level_acc = (0.0f32, 0usize);
     let level_every = (SAMPLE_RATE / 20) as usize;
     let mut asr_ms = 0u64;
@@ -485,7 +582,36 @@ fn run(
 
     let mut stopped_at: Option<Instant> = None;
     loop {
-        let block = match rx.recv_timeout(Duration::from_millis(100)) {
+        let received = rx.recv_timeout(Duration::from_millis(100));
+        if watched {
+            let now = Instant::now();
+            for event in mic_rx.try_iter() {
+                match event {
+                    MicEvent::Opened { device: name, sample_rate, replaced } => {
+                        health.opened(&name, sample_rate, replaced.as_deref(), now);
+                        if !devices_used.contains(&name) {
+                            devices_used.push(name);
+                        }
+                    }
+                    MicEvent::Lost { .. } => health.lost(),
+                    // The tracker notices the gap itself; the reopen follows.
+                    MicEvent::Stalled { .. } => {}
+                }
+            }
+            if let Ok(block) = &received {
+                health.block(crate::mic_health::peak(&block.samples), block.sample_rate, now);
+            }
+            if now.duration_since(health_at) >= Duration::from_millis(100) || received.is_err() {
+                health_at = now;
+                if let Some(h) = health.tick(now, wav.duration_secs()) {
+                    if h.state != crate::mic_health::MicState::Ok {
+                        tracing::warn!(state = ?h.state, device = %h.device, "microphone trouble");
+                    }
+                    sink.mic(&h);
+                }
+            }
+        }
+        let block = match received {
             Ok(b) => b,
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 if stop.load(Ordering::SeqCst) {
@@ -499,21 +625,8 @@ fn run(
         if stop.load(Ordering::SeqCst) {
             stopped_at.get_or_insert_with(Instant::now);
         }
-        let samples = if block.sample_rate == SAMPLE_RATE {
-            block.samples
-        } else {
-            if resampler.as_ref().map(|(r, _)| *r) != Some(block.sample_rate) {
-                let r = os_asr::sherpa_onnx::LinearResampler::create(
-                    block.sample_rate as i32,
-                    SAMPLE_RATE as i32,
-                )
-                .ok_or_else(|| {
-                    EngineError::Session(format!("cannot resample from {} Hz", block.sample_rate))
-                })?;
-                resampler = Some((block.sample_rate, r));
-            }
-            resampler.as_ref().expect("set above").1.resample(&block.samples, false)
-        };
+        let samples =
+            resampler.process(block.samples, block.sample_rate).map_err(|e| EngineError::Session(e.to_string()))?;
         wav.write(&samples).map_err(|e| EngineError::Session(e.to_string()))?;
 
         for s in &samples {
@@ -571,6 +684,10 @@ fn run(
     }
     sink.progress(&Progress::new(Stage::Save, 0.0, 1.0));
     let audio_secs = wav.finish().map_err(|e| EngineError::Session(e.to_string()))?;
+    // Every microphone the recording used, in order, when it switched.
+    if devices_used.len() > 1 {
+        device = devices_used.join(", then ");
+    }
     session.finish_live_audio(&device, audio_secs)?;
 
     let stats = TranscribeStats {
@@ -598,27 +715,19 @@ struct CallParts {
     vad: os_asr::SileroVad,
     asr: os_asr::OfflineAsr,
     lexicon: crate::vocab::Lexicon,
-    second: Option<os_asr::OfflineAsr>,
+    second: Option<SecondAsr>,
 }
 
 /// One side of a call: its resampler and voice detector.
 struct Side {
     speaker: u32,
-    resampler: Option<(u32, os_asr::sherpa_onnx::LinearResampler)>,
+    resampler: StreamResampler,
     vad: os_asr::StreamingVad,
 }
 
 impl Side {
     fn resample_16k(&mut self, samples: Vec<f32>, rate: u32) -> Result<Vec<f32>, EngineError> {
-        if rate == SAMPLE_RATE {
-            return Ok(samples);
-        }
-        if self.resampler.as_ref().map(|(r, _)| *r) != Some(rate) {
-            let r = os_asr::sherpa_onnx::LinearResampler::create(rate as i32, SAMPLE_RATE as i32)
-                .ok_or_else(|| EngineError::Session(format!("cannot resample from {rate} Hz")))?;
-            self.resampler = Some((rate, r));
-        }
-        Ok(self.resampler.as_ref().expect("set above").1.resample(&samples, false))
+        self.resampler.process(samples, rate).map_err(|e| EngineError::Session(e.to_string()))
     }
 }
 
@@ -635,6 +744,9 @@ fn run_call(
     discard: Arc<AtomicBool>,
 ) -> Result<LiveResult, EngineError> {
     let CallParts { vad, asr, lexicon, second } = parts;
+    // Loading in the background; needed only when the call ends.
+    let mut second = second;
+    let checking = second.is_some();
     let _awake = AwakeGuard::acquire(AwakeReason::Recording);
     let started = Instant::now();
     let audio_path = session.audio_path();
@@ -648,8 +760,8 @@ fn run_call(
     }
     .map_err(|e| EngineError::Session(e.to_string()))?;
     let mut sides = [
-        Side { speaker: CLINIC_CHANNEL, resampler: None, vad: vad.streaming()? },
-        Side { speaker: CLIENT_CHANNEL, resampler: None, vad: vad.streaming()? },
+        Side { speaker: CLINIC_CHANNEL, resampler: StreamResampler::new(), vad: vad.streaming()? },
+        Side { speaker: CLIENT_CHANNEL, resampler: StreamResampler::new(), vad: vad.streaming()? },
     ];
     let mut transcript = Transcript::default();
     // Segments needing a second listen, checked when the call ends (calls are
@@ -687,7 +799,7 @@ fn run_call(
                 text,
             };
             sink.segment(&segment);
-            if second.is_some() && crate::crosscheck::worth_checking(&segment) {
+            if checking && crate::crosscheck::worth_checking(&segment) {
                 to_check.push((transcript.segments.len(), u.samples));
             }
             transcript.segments.push(segment);
@@ -757,6 +869,7 @@ fn run_call(
         });
     }
 
+    let second = second.take().and_then(SecondAsr::get);
     let heard_secs = wav.duration_secs();
     sink.progress(&Progress::new(Stage::Transcribe, heard_secs, 0.0));
     for side in sides.iter_mut() {

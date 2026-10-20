@@ -38,6 +38,7 @@ use os_models::{CatalogEntry, Layout, LlmEngine, ModelStore, Slot, Source, Verif
 use serde::Serialize;
 
 pub use os_asr::capture::AudioBlock;
+pub use os_asr::resample::{MAX_RATE as MAX_SAMPLE_RATE, MIN_RATE as MIN_SAMPLE_RATE};
 pub use os_engine::template_store::{ProfileSummary, ShareMode, TemplateSummary};
 pub use os_engine::users::TemplateMode;
 pub use templates::{
@@ -47,8 +48,11 @@ pub use templates::{
 
 #[doc(hidden)]
 pub mod demo;
+mod mic;
 mod phone;
 mod templates;
+pub use mic::{MicLevel, MicTestStarted};
+pub use os_engine::mic_health::{MicHealth, MicQuality, MicState};
 pub use os_connect::{ConnectStore, PhonePrefs};
 pub use os_engine::live::CallBlock;
 pub use os_engine::session::PatientInfo as Patient;
@@ -70,6 +74,11 @@ pub trait Events: Send + Sync {
     fn progress(&self, _progress: &Progress) {}
     /// Bytes moved so far when a folder changes (ADR-0013).
     fn moving(&self, _done: u64, _total: u64) {}
+    /// The recording's microphone: silent, stalled, lost, switched, or a
+    /// Bluetooth headset in hands-free mode. Sent when it changes.
+    fn mic(&self, _health: &MicHealth) {}
+    /// The microphone test's level, about 20 times a second.
+    fn mic_test(&self, _level: &MicLevel) {}
 }
 
 /// Where models or visits are kept (Settings, Storage).
@@ -300,6 +309,10 @@ pub struct App {
     recording_work: Mutex<Option<Busy>>,
     /// The live recording's hold on its visit, until it stops.
     recording_lock: Mutex<Option<VisitLock>>,
+    /// Speech models loaded when the Record screen opened, for the next recording.
+    warm: Mutex<mic::Warm>,
+    /// A microphone test running from the Record screen or Settings.
+    mic_test: Mutex<Option<mic::MicTest>>,
     /// Visits being imported, recorded, drafted, saved or deleted (ADR-0022).
     visit_locks: VisitLocks,
     gate: Arc<Gate>,
@@ -1197,6 +1210,8 @@ impl App {
             recorder: Mutex::new(None),
             recording_work: Mutex::new(None),
             recording_lock: Mutex::new(None),
+            warm: Mutex::new(mic::Warm::Empty),
+            mic_test: Mutex::new(None),
             visit_locks: Arc::new(Mutex::new(HashMap::new())),
             gate: Arc::new(Gate::default()),
             hardware: probe_hardware(),
@@ -1840,6 +1855,8 @@ impl App {
         }
         let recorded_by = self.who(by, Need::Any)?;
         let work = self.begin_work()?;
+        // The test's meter gives way to the recording's waveform.
+        self.stop_mic_test();
         let mut slot = self.recorder.lock().map_err(|_| AppError("recorder lock poisoned".into()))?;
         if slot.is_some() {
             return Err(AppError("A recording is already running. Stop it first.".into()));
@@ -1853,11 +1870,14 @@ impl App {
         options.patient = patient.filter(|p| !p.is_empty());
         options.consent = consent;
         options.recorded_by = recorded_by;
-        let recorder = LiveRecorder::start(
+        // Loaded when the Record screen opened, if they were.
+        let warm = self.take_warm(&options);
+        let recorder = LiveRecorder::start_with(
             &self.store,
             &self.sessions_root,
             source,
             options,
+            warm,
             Box::new(EventsSink(events)),
         )?;
         let id = folder_name(&recorder.session_dir);
@@ -2644,6 +2664,8 @@ impl App {
             return Ok(backend.clone());
         }
         *slot = None; // one model per process: free before loading
+        // Speech models loaded ahead of a recording give the memory back too.
+        self.release_speech();
         // While it loads (minutes, for MLX), status calls read this instead
         // of waiting for the slot.
         let loading_mlx =
@@ -2674,6 +2696,8 @@ impl App {
     /// `main`). The app refuses to load models from here on.
     pub fn shutdown(&self, timeout: std::time::Duration) -> bool {
         os_llm::shutdown::begin();
+        self.stop_mic_test();
+        self.release_speech();
         let deadline = std::time::Instant::now() + timeout;
         let released = self.release_llms(deadline);
         // A handle's count reaches zero just before the model behind it is
@@ -3670,6 +3694,9 @@ impl LiveSink for EventsSink {
     }
     fn progress(&mut self, progress: &Progress) {
         self.0.progress(progress);
+    }
+    fn mic(&mut self, health: &MicHealth) {
+        self.0.mic(health);
     }
 }
 

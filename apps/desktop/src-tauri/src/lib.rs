@@ -2,7 +2,8 @@
 //!
 //! Web mode (`openbark serve`) exposes the same operations over HTTP, so the
 //! UI behaves identically in both. Events: `transcript-segment`, `note-token`,
-//! `audio-level`, `download-progress`, `phone-call-saved`.
+//! `audio-level`, `download-progress`, `phone-call-saved`, `mic-status` (the
+//! recording's microphone health) and `mic-test` (the microphone test's level).
 //!
 //! Phone calls (ADR-0023 section 4) run in a second window, `phone`, the only
 //! window allowed to reach Twilio and the only one granted the microphone. It
@@ -63,6 +64,12 @@ impl Events for TauriEvents {
     fn moving(&self, done: u64, total: u64) {
         let _ = self.0.emit("move-progress", Moving { done, total });
     }
+    fn mic(&self, health: &os_app::MicHealth) {
+        let _ = self.0.emit("mic-status", health);
+    }
+    fn mic_test(&self, level: &os_app::MicLevel) {
+        let _ = self.0.emit("mic-test", level);
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -88,6 +95,38 @@ fn status(app: State<'_, AppState>) -> os_app::Status {
 #[tauri::command]
 fn input_devices(app: State<'_, AppState>) -> Vec<String> {
     app.input_devices()
+}
+
+/// The Record screen opened: load the speech models now, if memory allows.
+#[tauri::command]
+fn prewarm_speech(app: State<'_, AppState>, speakers: bool) -> bool {
+    app.prewarm_speech(speakers)
+}
+
+/// The Record screen closed: give the memory back.
+#[tauri::command]
+fn release_speech(app: State<'_, AppState>) {
+    app.release_speech();
+}
+
+#[tauri::command]
+async fn mic_test_start(
+    handle: AppHandle,
+    app: State<'_, AppState>,
+    device: Option<String>,
+) -> Result<os_app::MicTestStarted, String> {
+    let app = app.inner().clone();
+    work(move || app.start_mic_test(device, Arc::new(TauriEvents(handle)))).await
+}
+
+#[tauri::command]
+async fn mic_test_stop(app: State<'_, AppState>) -> Result<(), String> {
+    let app = app.inner().clone();
+    work(move || {
+        app.stop_mic_test();
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -1114,6 +1153,10 @@ pub fn run() {
     let handler = for_wry(tauri::generate_handler![
         status,
         input_devices,
+        prewarm_speech,
+        release_speech,
+        mic_test_start,
+        mic_test_stop,
         storage,
         check_folder,
         change_folder,

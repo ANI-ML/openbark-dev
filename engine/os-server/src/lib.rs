@@ -136,6 +136,7 @@ enum ServerEvent {
     Download { model: String, done: u64, total: u64 },
     Progress(os_app::Progress),
     Moving { done: u64, total: u64 },
+    Mic(os_app::MicHealth),
 }
 
 struct Broadcaster(broadcast::Sender<ServerEvent>);
@@ -158,6 +159,9 @@ impl Events for Broadcaster {
     }
     fn moving(&self, done: u64, total: u64) {
         let _ = self.0.send(ServerEvent::Moving { done, total });
+    }
+    fn mic(&self, health: &os_app::MicHealth) {
+        let _ = self.0.send(ServerEvent::Mic(health.clone()));
     }
 }
 
@@ -297,6 +301,8 @@ fn router(state: St, ui_dir: &std::path::Path, port: u16) -> Router {
         .route("/api/users/{uid}/admin", post(set_user_admin))
         .route("/api/users/{uid}/profile", get(profile_summary))
         .route("/api/live", get(live))
+        .route("/api/record/prewarm", post(record_prewarm))
+        .route("/api/record/release", post(record_release))
         .route("/api/record/start", post(record_start))
         .route("/api/record/stop", post(record_stop))
         .route("/api/models", get(|State(s): State<St>| async move { Json(s.app().models()) }))
@@ -1728,12 +1734,51 @@ fn rate() -> u32 {
 
 /// Browser microphone streaming: binary messages are little-endian f32 PCM
 /// (mono, `sample_rate` Hz). Text "stop" ends the recording; the server replies
-/// with the saved encounter as JSON text, then closes.
+/// with the saved encounter as JSON text, then closes. Text
+/// `{"sample_rate": 44100}` changes the rate of the blocks that follow (the
+/// browser switched to a microphone running at another rate).
 async fn live(State(s): State<St>, Query(q): Query<LiveQuery>, ws: WebSocketUpgrade) -> Response {
     ws.on_upgrade(move |socket| live_session(s, q, socket))
 }
 
+/// A rate the recorder can resample from.
+fn usable_rate(rate: u32) -> bool {
+    (os_app::MIN_SAMPLE_RATE..=os_app::MAX_SAMPLE_RATE).contains(&rate)
+}
+
+/// A text message's new sample rate, if it is one.
+fn rate_change(text: &str) -> Option<u32> {
+    #[derive(Deserialize)]
+    struct RateChange {
+        sample_rate: u32,
+    }
+    serde_json::from_str::<RateChange>(text).ok().map(|r| r.sample_rate)
+}
+
+#[derive(Deserialize)]
+struct Prewarm {
+    #[serde(default = "yes")]
+    speakers: bool,
+}
+
+/// The Record screen opened: load the speech models now, if memory allows.
+async fn record_prewarm(State(s): State<St>, Json(req): Json<Prewarm>) -> impl IntoResponse {
+    let ready = tokio::task::spawn_blocking(move || s.app().prewarm_speech(req.speakers)).await.unwrap_or(false);
+    Json(serde_json::json!({ "loading": ready }))
+}
+
+/// The Record screen closed: give the memory back.
+async fn record_release(State(s): State<St>) -> impl IntoResponse {
+    let _ = tokio::task::spawn_blocking(move || s.app().release_speech()).await;
+    Json(serde_json::json!({}))
+}
+
 async fn live_session(s: St, mut q: LiveQuery, mut socket: WebSocket) {
+    if !usable_rate(q.sample_rate) {
+        let error = "This browser reported a microphone rate OpenBark can't use. Reload the page and try again, or use another browser.";
+        let _ = socket.send(Message::Text(serde_json::json!({ "error": error }).to_string().into())).await;
+        return;
+    }
     let patient = std::mem::take(&mut q.patient).into_patient();
     let consent = std::mem::take(&mut q.consent).into_consent();
     let (tx, rx) = std::sync::mpsc::channel::<AudioBlock>();
@@ -1781,6 +1826,14 @@ async fn live_session(s: St, mut q: LiveQuery, mut socket: WebSocket) {
                 }
             }
             Message::Text(t) if t.as_str() == "stop" => break,
+            Message::Text(t) => match rate_change(t.as_str()) {
+                Some(rate) if usable_rate(rate) => {
+                    tracing::info!(rate, "browser microphone rate changed");
+                    q.sample_rate = rate;
+                }
+                Some(rate) => tracing::warn!(rate, "ignored an unusable browser microphone rate"),
+                None => {}
+            },
             Message::Close(_) => break,
             _ => {}
         }
