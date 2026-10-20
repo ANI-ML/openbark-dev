@@ -208,15 +208,25 @@ fn nearest_speaker(span: &SpeechSpan, turns: &[SpeakerTurn]) -> Option<u32> {
 /// Live speaker labelling: one voice embedding per utterance, matched to the
 /// speakers heard so far by cosine similarity (new speaker below the
 /// threshold). No pass over the whole recording is needed after stop.
+///
+/// A voice through a telephone (a client on a phone on speaker) carries
+/// almost nothing above 3.4 kHz, while a voice in the room reaches 8 kHz.
+/// The voice model can place the two close together (narrowband, quiet,
+/// reverberant speech loses what tells voices apart), so each speaker also
+/// keeps the mean of its utterances' high-band level ([`high_band_db`]), and
+/// a phone voice and a room voice are never merged ([`band_apart`]).
 pub struct SpeakerTracker {
     extractor: os_asr::sherpa_onnx::SpeakerEmbeddingExtractor,
     speakers: Vec<Centroid>,
     threshold: f32,
+    band_cue: bool,
 }
 
 struct Centroid {
     sum: Vec<f32>,
     count: u32,
+    band_sum: f32,
+    band_count: u32,
 }
 
 impl Centroid {
@@ -224,11 +234,87 @@ impl Centroid {
         let norm = self.sum.iter().map(|v| v * v).sum::<f32>().sqrt().max(1e-9);
         self.sum.iter().zip(e).map(|(a, b)| a * b).sum::<f32>() / norm
     }
+
+    fn band(&self) -> Option<f32> {
+        (self.band_count > 0).then(|| self.band_sum / self.band_count as f32)
+    }
+
+    fn add(&mut self, embedding: &[f32], band: Option<f32>) {
+        self.sum.iter_mut().zip(embedding).for_each(|(s, e)| *s += e);
+        self.count += 1;
+        if let Some(b) = band {
+            self.band_sum += b;
+            self.band_count += 1;
+        }
+    }
 }
 
 /// Utterances shorter than this give unreliable embeddings: they are matched
 /// to an existing speaker but never start a new one.
 const MIN_EMBED_SECS: f32 = 1.0;
+
+/// Below this high-band level (dB, see [`high_band_db`]) an utterance sounds
+/// like a telephone. Synthetic consults: room voices -20 to -2 dB per line,
+/// phone voices -40 to -30 dB.
+pub const PHONE_BAND_DB: f32 = -24.0;
+
+/// Are two high-band levels a phone voice and a room voice? One must sound
+/// like a telephone and the two must be at least `gap` dB apart, so voices in
+/// an ordinary consult (all full band) are never split by this.
+pub fn band_apart(a: f32, b: f32, gap: f32) -> bool {
+    (a - b).abs() > gap && a.min(b) < PHONE_BAND_DB
+}
+
+/// Energy between 4 and 8 kHz relative to the telephone band (300 to 3400
+/// Hz), in dB, for 16 kHz audio. Speech in the room: about -20 to 0 dB over
+/// a sentence; speech through a phone line: about -30 dB or lower (only
+/// the room's own noise is up there).
+pub fn high_band_db(samples: &[f32]) -> f32 {
+    let qs = [0.541_196_1f32, 1.306_563];
+    let mut high: Vec<Biquad> = qs.iter().map(|q| Biquad::new(4000.0, *q, true)).collect();
+    let mut band: Vec<Biquad> = qs
+        .iter()
+        .map(|q| Biquad::new(300.0, *q, true))
+        .chain(qs.iter().map(|q| Biquad::new(3400.0, *q, false)))
+        .collect();
+    let (mut h, mut m) = (0.0f64, 0.0f64);
+    for &x in samples {
+        let hx = high.iter_mut().fold(x, |v, f| f.run(v));
+        let mx = band.iter_mut().fold(x, |v, f| f.run(v));
+        h += (hx * hx) as f64;
+        m += (mx * mx) as f64;
+    }
+    (10.0 * (h / m.max(1e-20)).max(1e-12).log10()) as f32
+}
+
+/// An RBJ-cookbook biquad at 16 kHz.
+struct Biquad {
+    b: [f32; 3],
+    a: [f32; 2],
+    z: [f32; 2],
+}
+
+impl Biquad {
+    fn new(freq: f32, q: f32, high: bool) -> Self {
+        let w = 2.0 * std::f32::consts::PI * freq / os_asr::SAMPLE_RATE as f32;
+        let (sin, cos) = w.sin_cos();
+        let alpha = sin / (2.0 * q);
+        let a0 = 1.0 + alpha;
+        let b = if high {
+            [(1.0 + cos) / 2.0, -(1.0 + cos), (1.0 + cos) / 2.0]
+        } else {
+            [(1.0 - cos) / 2.0, 1.0 - cos, (1.0 - cos) / 2.0]
+        };
+        Self { b: b.map(|x| x / a0), a: [-2.0 * cos / a0, (1.0 - alpha) / a0], z: [0.0; 2] }
+    }
+
+    fn run(&mut self, x: f32) -> f32 {
+        let y = self.b[0] * x + self.z[0];
+        self.z[0] = self.b[1] * x - self.a[0] * y + self.z[1];
+        self.z[1] = self.b[2] * x - self.a[1] * y;
+        y
+    }
+}
 
 impl SpeakerTracker {
     pub fn new(embedding_model: &str, threshold: f32) -> Result<Self, DiarError> {
@@ -243,7 +329,7 @@ impl SpeakerTracker {
         };
         let extractor =
             os_asr::sherpa_onnx::SpeakerEmbeddingExtractor::create(&config).ok_or(DiarError::Create)?;
-        Ok(Self { extractor, speakers: Vec::new(), threshold })
+        Ok(Self { extractor, speakers: Vec::new(), threshold, band_cue: true })
     }
 
     fn embed(&self, samples: &[f32]) -> Option<Vec<f32>> {
@@ -262,26 +348,45 @@ impl SpeakerTracker {
     /// Speaker index for one utterance (16 kHz mono), or `None` if unknown.
     pub fn assign(&mut self, samples: &[f32]) -> Option<u32> {
         let embedding = self.embed(samples)?;
+        let secs = samples.len() as f32 / os_asr::SAMPLE_RATE as f32;
+        let long_enough = secs >= MIN_EMBED_SECS;
+        let band = self.band_cue.then(|| high_band_db(samples));
+        // A short utterance's high band is less certain: it needs a wider gap.
+        let gap = if long_enough { 10.0 } else { 16.0 };
         let best = self
             .speakers
             .iter()
             .enumerate()
+            .filter(|(_, c)| match (band, c.band()) {
+                (Some(b), Some(cb)) => !band_apart(b, cb, gap),
+                _ => true,
+            })
             .map(|(i, c)| (i, c.similarity(&embedding)))
             .max_by(|a, b| a.1.total_cmp(&b.1));
-        let long_enough = samples.len() as f32 / os_asr::SAMPLE_RATE as f32 >= MIN_EMBED_SECS;
+        let learn = if long_enough { band } else { None };
         match best {
             Some((i, sim)) if sim >= self.threshold || !long_enough => {
                 if long_enough {
-                    let c = &mut self.speakers[i];
-                    c.sum.iter_mut().zip(&embedding).for_each(|(s, e)| *s += e);
-                    c.count += 1;
+                    self.speakers[i].add(&embedding, learn);
                 }
                 Some(i as u32)
             }
             _ if long_enough => {
-                self.speakers.push(Centroid { sum: embedding, count: 1 });
+                let mut c =
+                    Centroid { sum: vec![0.0; embedding.len()], count: 0, band_sum: 0.0, band_count: 0 };
+                c.add(&embedding, learn);
+                self.speakers.push(c);
                 Some(self.speakers.len() as u32 - 1)
             }
+            // Short, and unlike every speaker so far by its band: the nearest
+            // voice overall rather than a voice it can't be.
+            None if !self.speakers.is_empty() => self
+                .speakers
+                .iter()
+                .enumerate()
+                .map(|(i, c)| (i, c.similarity(&embedding)))
+                .max_by(|a, b| a.1.total_cmp(&b.1))
+                .map(|(i, _)| i as u32),
             _ => None,
         }
     }
@@ -300,6 +405,37 @@ mod tests {
     }
     fn turn(start: f32, end: f32, speaker: u32) -> SpeakerTurn {
         SpeakerTurn { start, end, speaker }
+    }
+
+    fn tone(freq: f32, secs: f32) -> Vec<f32> {
+        (0..(secs * 16_000.0) as usize)
+            .map(|i| 0.1 * (2.0 * std::f32::consts::PI * freq * i as f32 / 16_000.0).sin())
+            .collect()
+    }
+
+    #[test]
+    fn high_band_level_tells_a_phone_line_from_the_room() {
+        // Room speech has energy up to 8 kHz; a phone line stops at 3.4 kHz.
+        let room: Vec<f32> =
+            tone(1000.0, 1.0).iter().zip(tone(6000.0, 1.0)).map(|(a, b)| a + 0.3 * b).collect();
+        let phone: Vec<f32> =
+            tone(1000.0, 1.0).iter().zip(tone(6000.0, 1.0)).map(|(a, b)| a + 0.001 * b).collect();
+        let (r, p) = (high_band_db(&room), high_band_db(&phone));
+        assert!(r > -12.0 && r < -8.0, "room {r}");
+        assert!(p < -40.0, "phone {p}");
+        assert!(band_apart(r, p, 10.0));
+    }
+
+    #[test]
+    fn full_band_voices_are_never_split_by_band() {
+        // Two room voices 15 dB apart in high band, both above the phone level.
+        assert!(!band_apart(-3.0, -18.0, 10.0));
+        // A phone voice and a room voice.
+        assert!(band_apart(-12.0, -32.0, 10.0));
+        // Two phone voices.
+        assert!(!band_apart(-30.0, -36.0, 10.0));
+        // A short utterance needs the wider gap.
+        assert!(!band_apart(-12.0, -26.0, 16.0));
     }
 
     #[test]

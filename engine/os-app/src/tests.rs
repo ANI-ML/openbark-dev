@@ -39,7 +39,7 @@ fn test_env() -> &'static Path {
 }
 
 /// An App on a temporary visits folder, with its own team file.
-fn app_in(tmp: &Path) -> App {
+pub(crate) fn app_in(tmp: &Path) -> App {
     test_env();
     let mut app = App::new(ModelStore::new(tmp.join("models")), tmp.join("sessions"));
     app.users = UserStore::new(tmp.join("users.json"));

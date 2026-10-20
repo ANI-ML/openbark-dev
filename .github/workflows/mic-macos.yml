@@ -1,0 +1,79 @@
+name: Microphone checks (macOS)
+
+# Native microphone capture on a real Mac runner (CoreAudio through cpal):
+# the capture, supervisor, resampler and health unit tests built for macOS,
+# then a recording from a virtual microphone (BlackHole) whose system default
+# changes mid-recording, as when AirPods connect. scripts/ci/mic-macos.sh has
+# the details.
+#
+# Manual, because macOS runners are costly: run it from the Actions tab, or
+# push a commit whose message contains [mic-macos] to a fix/, feat/,
+# release/ or chore/ branch. It never runs in the public copy of the source.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["fix/**", "feat/**", "release/**", "chore/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mic-macos-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  mic-macos:
+    name: Native microphone (macOS arm64)
+    if: github.repository == 'ANI-ML/openbark-dev' && (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[mic-macos]'))
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-mic-macos/${{ github.repository }}/${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-mic-macos/${{ github.repository }}/
+            cargo-macos-repro/${{ github.repository }}/
+            cargo-macos/${{ github.repository }}/
+      - name: Capture, supervisor, resampler and health tests (macOS build)
+        run: cargo test --release -p os-asr -p os-engine --lib
+      - name: Build
+        run: cargo build --release -p os-cli --bin openbark
+      - name: Restore speech models
+        id: models
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/models
+          key: speech-models-${{ hashFiles('engine/os-models/catalog.json') }}
+      - name: Download speech models
+        if: steps.models.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/models
+          for id in silero-vad parakeet-tdt-0.6b-v3-int8; do
+            target/release/openbark --models-dir ~/models models pull "$id"
+          done
+      - name: Record from virtual microphones, switching the default mid-recording
+        shell: bash
+        run: |
+          code=0
+          bash scripts/ci/mic-macos.sh target/release/openbark ~/models target/mic-macos || code=$?
+          cat target/mic-macos/summary.md >> "$GITHUB_STEP_SUMMARY" || true
+          exit $code
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          # Synthetic speech and logs only: no patient data exists on CI.
+          name: mic-macos
+          path: |
+            target/mic-macos/*.txt
+            target/mic-macos/*.log
+            target/mic-macos/summary.md

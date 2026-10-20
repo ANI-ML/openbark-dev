@@ -5,7 +5,10 @@
 
 mod audio;
 pub mod capture;
+pub mod level;
+pub mod mic;
 mod recognizer;
+pub mod resample;
 mod vad;
 mod wav;
 
@@ -14,6 +17,7 @@ pub use sherpa_onnx;
 
 pub use audio::{Audio, AudioError, SAMPLE_RATE};
 pub use recognizer::{AsrModel, OfflineAsr};
+pub use resample::StreamResampler;
 pub use vad::{SileroVad, SpeechSpan, StreamingVad, Utterance, VadOptions};
 pub use wav::{AudioSink, WavWriter};
 

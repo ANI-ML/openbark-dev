@@ -175,8 +175,10 @@ export const HELP_TOPICS = [
     steps: [
       "On Record, choose Find a patient to pick an animal you've seen before, or enter a new patient's name, the client's last name and the reason for the visit. They're optional and can be added later.",
       "Choose the kind of visit, then press Record or Space to start.",
+      "Not sure the microphone is working? Press Test microphone on the right and speak: the bar should move. If the microphone is unplugged while you record, recording moves to another one or pauses until one is back, and the screen says so.",
       "Each sentence appears in the live transcript once it's finished. The audio is saved, encrypted, as you go.",
       "Press the button again to stop. A progress bar shows the transcript being finished, then the note is drafted and opens in Review.",
+      "Client on a phone on speaker? Tick Phone on speaker before you start, and put the phone between you and the computer with the volume up. Calling through OpenBark's own phone records the client more clearly still.",
       "You can also import a recording made elsewhere, such as a phone's call recording. A progress bar shows how far it has got and the time left.",
     ],
   },

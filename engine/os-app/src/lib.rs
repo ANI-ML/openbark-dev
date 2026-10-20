@@ -38,6 +38,7 @@ use os_models::{CatalogEntry, Layout, LlmEngine, ModelStore, Slot, Source, Verif
 use serde::Serialize;
 
 pub use os_asr::capture::AudioBlock;
+pub use os_asr::resample::{MAX_RATE as MAX_SAMPLE_RATE, MIN_RATE as MIN_SAMPLE_RATE};
 pub use os_engine::template_store::{ProfileSummary, ShareMode, TemplateSummary};
 pub use os_engine::users::TemplateMode;
 pub use templates::{
@@ -47,10 +48,13 @@ pub use templates::{
 
 #[doc(hidden)]
 pub mod demo;
+mod mic;
 mod phone;
 mod templates;
+pub use mic::{MicLevel, MicTestStarted};
 pub use os_connect::{ConnectStore, PhonePrefs};
 pub use os_engine::live::CallBlock;
+pub use os_engine::mic_health::{MicHealth, MicQuality, MicState};
 pub use os_engine::session::PatientInfo as Patient;
 pub use os_engine::session::{CallDirection, CallInfo, ConsentOutcome};
 pub use os_engine::session::{Consent as RecordingConsent, ConsentMethod, ConsentRule};
@@ -70,6 +74,11 @@ pub trait Events: Send + Sync {
     fn progress(&self, _progress: &Progress) {}
     /// Bytes moved so far when a folder changes (ADR-0013).
     fn moving(&self, _done: u64, _total: u64) {}
+    /// The recording's microphone: silent, stalled, lost, switched, or a
+    /// Bluetooth headset in hands-free mode. Sent when it changes.
+    fn mic(&self, _health: &MicHealth) {}
+    /// The microphone test's level, about 20 times a second.
+    fn mic_test(&self, _level: &MicLevel) {}
 }
 
 /// Where models or visits are kept (Settings, Storage).
@@ -300,6 +309,10 @@ pub struct App {
     recording_work: Mutex<Option<Busy>>,
     /// The live recording's hold on its visit, until it stops.
     recording_lock: Mutex<Option<VisitLock>>,
+    /// Speech models loaded when the Record screen opened, for the next recording.
+    warm: Mutex<mic::Warm>,
+    /// A microphone test running from the Record screen or Settings.
+    mic_test: Mutex<Option<mic::MicTest>>,
     /// Visits being imported, recorded, drafted, saved or deleted (ADR-0022).
     visit_locks: VisitLocks,
     gate: Arc<Gate>,
@@ -1197,6 +1210,8 @@ impl App {
             recorder: Mutex::new(None),
             recording_work: Mutex::new(None),
             recording_lock: Mutex::new(None),
+            warm: Mutex::new(mic::Warm::Empty),
+            mic_test: Mutex::new(None),
             visit_locks: Arc::new(Mutex::new(HashMap::new())),
             gate: Arc::new(Gate::default()),
             hardware: probe_hardware(),
@@ -1725,24 +1740,29 @@ impl App {
     /// Runs the file through the live pipeline at full speed, so imports and
     /// recordings get the same segmentation and speaker labels (the live
     /// tracker was more accurate than full-recording diarization on short
-    /// clips; M1 tuning).
+    /// clips; M1 tuning). `speakerphone`: a client on a phone on speaker
+    /// (see `LiveOptions::speakerphone`).
+    #[allow(clippy::too_many_arguments)]
     pub fn import_file(
         &self,
         path: &Path,
         label_speakers: bool,
+        speakerphone: bool,
         patient: Option<PatientInfo>,
         consent: Option<Consent>,
         by: Option<&str>,
         events: &dyn Events,
     ) -> Result<SessionView> {
         let source = LiveSource::File { path: path.to_path_buf(), realtime: false };
-        self.import_source(source, label_speakers, patient, consent, by, events)
+        self.import_source(source, label_speakers, speakerphone, patient, consent, by, events)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn import_source(
         &self,
         source: LiveSource,
         label_speakers: bool,
+        speakerphone: bool,
         patient: Option<PatientInfo>,
         consent: Option<Consent>,
         by: Option<&str>,
@@ -1759,6 +1779,7 @@ impl App {
         let (tx, rx) = std::sync::mpsc::channel::<Live>();
         let mut options = LiveOptions::microphone();
         options.label_speakers = label_speakers;
+        options.speakerphone = speakerphone;
         options.patient = patient.filter(|p| !p.is_empty());
         options.consent = consent;
         options.recorded_by = recorded_by;
@@ -1801,6 +1822,7 @@ impl App {
         name: &str,
         wav: &[u8],
         label_speakers: bool,
+        speakerphone: bool,
         patient: Option<PatientInfo>,
         consent: Option<Consent>,
         by: Option<&str>,
@@ -1813,7 +1835,7 @@ impl App {
         let file = Path::new(name).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let name = if file.is_empty() { "recording.wav".to_string() } else { file };
         let source = LiveSource::Memory { name, bytes: wav.to_vec() };
-        self.import_source(source, label_speakers, patient, consent, by, events)
+        self.import_source(source, label_speakers, speakerphone, patient, consent, by, events)
     }
 
     // ---- live recording --------------------------------------------------
@@ -1826,10 +1848,14 @@ impl App {
     /// = default) or from blocks the caller pushes (`stream`). Consent is the
     /// clinic's responsibility (the app shows a one-time notice); when the
     /// per-recording consent step is used, the consent is checked and saved.
+    /// `speakerphone`: a client on a phone on speaker in the room (see
+    /// `LiveOptions::speakerphone`).
+    #[allow(clippy::too_many_arguments)]
     pub fn start_recording(
         &self,
         source: RecordingSource,
         label_speakers: bool,
+        speakerphone: bool,
         patient: Option<PatientInfo>,
         consent: Option<Consent>,
         by: Option<&str>,
@@ -1840,6 +1866,8 @@ impl App {
         }
         let recorded_by = self.who(by, Need::Any)?;
         let work = self.begin_work()?;
+        // The test's meter gives way to the recording's waveform.
+        self.stop_mic_test();
         let mut slot = self.recorder.lock().map_err(|_| AppError("recorder lock poisoned".into()))?;
         if slot.is_some() {
             return Err(AppError("A recording is already running. Stop it first.".into()));
@@ -1850,18 +1878,31 @@ impl App {
         };
         let mut options = LiveOptions::microphone();
         options.label_speakers = label_speakers;
+        options.speakerphone = speakerphone;
         options.patient = patient.filter(|p| !p.is_empty());
         options.consent = consent;
         options.recorded_by = recorded_by;
-        let recorder = LiveRecorder::start(
+        // Loaded when the Record screen opened, if they were.
+        let warm_key = options.clone();
+        let mut warm = self.take_warm(&options);
+        let started = LiveRecorder::start_with(
             &self.store,
             &self.sessions_root,
             source,
             options,
+            &mut warm,
             Box::new(EventsSink(events)),
-        )?;
+        );
+        // Not used (the microphone didn't open): kept for the next try.
+        if let Some(models) = warm.take() {
+            self.keep_warm(&warm_key, models);
+        }
+        let recorder = started?;
         let id = folder_name(&recorder.session_dir);
         *slot = Some(recorder);
+        drop(slot);
+        // A test that finished opening while this recording started gives way too.
+        self.stop_mic_test();
         *self.recording_work.lock().map_err(|_| AppError("recorder lock poisoned".into()))? = Some(work);
         *self.recording_lock.lock().map_err(|_| AppError("recorder lock poisoned".into()))? =
             self.lock_visit(&id, Holder::Recording).ok();
@@ -2644,6 +2685,8 @@ impl App {
             return Ok(backend.clone());
         }
         *slot = None; // one model per process: free before loading
+        // Speech models loaded ahead of a recording give the memory back too.
+        self.release_speech();
         // While it loads (minutes, for MLX), status calls read this instead
         // of waiting for the slot.
         let loading_mlx =
@@ -2674,6 +2717,8 @@ impl App {
     /// `main`). The app refuses to load models from here on.
     pub fn shutdown(&self, timeout: std::time::Duration) -> bool {
         os_llm::shutdown::begin();
+        self.stop_mic_test();
+        self.release_speech();
         let deadline = std::time::Instant::now() + timeout;
         let released = self.release_llms(deadline);
         // A handle's count reaches zero just before the model behind it is
@@ -3670,6 +3715,9 @@ impl LiveSink for EventsSink {
     }
     fn progress(&mut self, progress: &Progress) {
         self.0.progress(progress);
+    }
+    fn mic(&mut self, health: &MicHealth) {
+        self.0.mic(health);
     }
 }
 

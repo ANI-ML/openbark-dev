@@ -1,0 +1,51 @@
+# Synthetic consult: written for OpenBark's test suite; not a real patient.
+# Speakerphone: a rabbit brought in by a pet sitter while the owner, on a
+# phone on speaker 25 dB below the vet, gives the history (the hardest of the
+# four; see speaker-diabetic-callback.yaml).
+id: speaker-rabbit-history
+title: Speakerphone, rabbit not eating, owner gives the history by phone
+category: speakerphone
+species: rabbit
+speakers:
+  dvm: bm_lewis
+  client: af_sky
+phone:
+  speaker: client
+  level_db: -25
+  seed: 41
+pause_secs: 0.7
+lines:
+  - [dvm, "Hello, it's Doctor Haddad. Your sitter brought Clover in, and I'd like to ask you a few questions while I look at her. You're on speaker."]
+  - [client, "Thank you. I'm away for work until Friday. The sitter said she hasn't eaten since yesterday morning."]
+  - [dvm, "When did she last pass droppings, do you know?"]
+  - [client, "The sitter said there were only a few tiny dry ones last night, and none this morning."]
+  - [dvm, "What does she normally eat?"]
+  - [client, "Unlimited timothy hay, a quarter cup of pellets, and fresh greens in the evening, mostly romaine and cilantro."]
+  - [dvm, "Has anything changed recently? Diet, stress, new animals?"]
+  - [client, "We moved apartments two weeks ago. And the sitter is new, so maybe that's stressful for her."]
+  - [dvm, "Has she had any problems like this before?"]
+  - [client, "Once, last spring. She was in for gut stasis, and she got better with fluids and the syringe feeding."]
+  - [dvm, "Is she on any medication at the moment?"]
+  - [client, "No medications. She was spayed when she was six months old. She's four years old now."]
+  - [dvm, "Okay. She weighs one point nine kilos. Her temperature is thirty eight point one, which is normal for a rabbit. Heart rate is two hundred and twenty."]
+  - [dvm, "Her gut sounds are reduced on both sides. Her belly is soft, with no gas I can feel and no mass. Her incisors look good and are not overgrown."]
+  - [dvm, "With the scope, I can see small sharp points on her lower back teeth, on the left side. That could make chewing hay sore."]
+  - [client, "Oh, I didn't know that was possible. Would that be why she stopped eating?"]
+  - [dvm, "It could be part of it, along with the stress of the move. Right now this looks like early gut stasis."]
+  - [dvm, "I'd like to give fluids under the skin today, start syringe feeding with a critical care formula, and give meloxicam for pain."]
+  - [dvm, "I'd also like to trim those tooth points under a short sedation, maybe tomorrow if she's eating a bit."]
+  - [client, "Yes to all of it. Can she stay with you overnight? The sitter isn't comfortable syringe feeding."]
+  - [dvm, "Yes, we'll keep her in the hospital tonight and update you tomorrow morning."]
+  - [client, "Please call me before nine, I have meetings after that. And she hates being picked up, so be gentle with her back legs."]
+  - [dvm, "We will. I'll call you before nine tomorrow."]
+
+expected:
+  vitals:
+    weight: "1.9"
+    temperature: "38.1"
+    heart_rate: "220"
+  medications:
+    - { drug: meloxicam }
+  # Said only by the client: timothy, moved, last spring, spayed.
+  must_mention: [timothy, moved, spring, spayed, stasis, critical care, "nine"]
+  must_not_mention: [GI obstruction confirmed, dental trim performed]

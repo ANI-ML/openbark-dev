@@ -1,0 +1,140 @@
+[
+  {
+    "speaker": "dvm",
+    "start": 0.0,
+    "end": 7.123375,
+    "text": "Hello, it's Doctor Haddad. Your sitter brought Clover in, and I'd like to ask you a few questions while I look at her. You're on speaker."
+  },
+  {
+    "speaker": "client",
+    "start": 7.823375,
+    "end": 13.353375,
+    "text": "Thank you. I'm away for work until Friday. The sitter said she hasn't eaten since yesterday morning."
+  },
+  {
+    "speaker": "dvm",
+    "start": 14.053375,
+    "end": 16.377937,
+    "text": "When did she last pass droppings, do you know?"
+  },
+  {
+    "speaker": "client",
+    "start": 17.077938,
+    "end": 21.519312,
+    "text": "The sitter said there were only a few tiny dry ones last night, and none this morning."
+  },
+  {
+    "speaker": "dvm",
+    "start": 22.219313,
+    "end": 23.713938,
+    "text": "What does she normally eat?"
+  },
+  {
+    "speaker": "client",
+    "start": 24.413937,
+    "end": 30.343437,
+    "text": "Unlimited timothy hay, a quarter cup of pellets, and fresh greens in the evening, mostly romaine and cilantro."
+  },
+  {
+    "speaker": "dvm",
+    "start": 31.043438,
+    "end": 34.672813,
+    "text": "Has anything changed recently? Diet, stress, new animals?"
+  },
+  {
+    "speaker": "client",
+    "start": 35.372814,
+    "end": 40.188812,
+    "text": "We moved apartments two weeks ago. And the sitter is new, so maybe that's stressful for her."
+  },
+  {
+    "speaker": "dvm",
+    "start": 40.888813,
+    "end": 43.219437,
+    "text": "Has she had any problems like this before?"
+  },
+  {
+    "speaker": "client",
+    "start": 43.919437,
+    "end": 49.659874,
+    "text": "Once, last spring. She was in for gut stasis, and she got better with fluids and the syringe feeding."
+  },
+  {
+    "speaker": "dvm",
+    "start": 50.359875,
+    "end": 52.53775,
+    "text": "Is she on any medication at the moment?"
+  },
+  {
+    "speaker": "client",
+    "start": 53.23775,
+    "end": 58.221,
+    "text": "No medications. She was spayed when she was six months old. She's four years old now."
+  },
+  {
+    "speaker": "dvm",
+    "start": 58.921,
+    "end": 67.36875,
+    "text": "Okay. She weighs one point nine kilos. Her temperature is thirty eight point one, which is normal for a rabbit. Heart rate is two hundred and twenty."
+  },
+  {
+    "speaker": "dvm",
+    "start": 68.06875,
+    "end": 76.55588,
+    "text": "Her gut sounds are reduced on both sides. Her belly is soft, with no gas I can feel and no mass. Her incisors look good and are not overgrown."
+  },
+  {
+    "speaker": "dvm",
+    "start": 77.255875,
+    "end": 83.64475,
+    "text": "With the scope, I can see small sharp points on her lower back teeth, on the left side. That could make chewing hay sore."
+  },
+  {
+    "speaker": "client",
+    "start": 84.34475,
+    "end": 88.29394,
+    "text": "Oh, I didn't know that was possible. Would that be why she stopped eating?"
+  },
+  {
+    "speaker": "dvm",
+    "start": 88.993935,
+    "end": 94.28738,
+    "text": "It could be part of it, along with the stress of the move. Right now this looks like early gut stasis."
+  },
+  {
+    "speaker": "dvm",
+    "start": 94.98737,
+    "end": 102.031876,
+    "text": "I'd like to give fluids under the skin today, start syringe feeding with a critical care formula, and give meloxicam for pain."
+  },
+  {
+    "speaker": "dvm",
+    "start": 102.73187,
+    "end": 108.39362,
+    "text": "I'd also like to trim those tooth points under a short sedation, maybe tomorrow if she's eating a bit."
+  },
+  {
+    "speaker": "client",
+    "start": 109.09363,
+    "end": 114.376,
+    "text": "Yes to all of it. Can she stay with you overnight? The sitter isn't comfortable syringe feeding."
+  },
+  {
+    "speaker": "dvm",
+    "start": 115.076,
+    "end": 119.072624,
+    "text": "Yes, we'll keep her in the hospital tonight and update you tomorrow morning."
+  },
+  {
+    "speaker": "client",
+    "start": 119.77263,
+    "end": 125.80325,
+    "text": "Please call me before nine, I have meetings after that. And she hates being picked up, so be gentle with her back legs."
+  },
+  {
+    "speaker": "dvm",
+    "start": 126.50325,
+    "end": 129.29225,
+    "text": "We will. I'll call you before nine tomorrow."
+  }
+]

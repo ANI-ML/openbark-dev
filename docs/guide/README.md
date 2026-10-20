@@ -7,7 +7,7 @@ The same walkthroughs are in the app under **Help**, each with a short video.
 | | Guide | What it covers |
 |---|---|---|
 | 1 | [Getting started](getting-started.md) | The consent notice, downloading the models, your name and languages |
-| 2 | [Recording a consult](recording.md) | Patient details, recording, importing a recording (such as a phone call) |
+| 2 | [Recording a consult](recording.md) | Patient details, recording, importing a recording (such as a phone call), a client on a phone on speaker |
 | 3 | [Reviewing and signing](review.md) | Checking the draft against the recording, Ask, Edit, signing, addenda |
 | 4 | [Templates](templates.md) | Your clinic's own note headings, and standards |
 | 5 | [Client documents, PDF and copying](documents.md) | Discharge instructions, client summaries, PDFs, pasting into your PIMS |

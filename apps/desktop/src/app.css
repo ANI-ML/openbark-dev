@@ -282,6 +282,21 @@
   background: var(--surface);
 }
 .recorder-meta { display: flex; flex-direction: column; gap: 4px; }
+/* Microphone picker and test (Record rail, Settings): an ink level bar on a
+   hairline track, and a one-line verdict with a tone dot. */
+.mic-check { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.mic-check-row { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.mic-meter { flex: 1 1 auto; min-width: 60px; height: 8px; border-radius: var(--r-full); background: var(--surface-3, var(--border)); overflow: hidden; }
+.mic-meter > span { display: block; height: 100%; width: 100%; border-radius: inherit; background: var(--ink); transform-origin: left; transform: scaleX(0); transition: transform 60ms linear; }
+.mic-meter:not([data-active]) > span { background: var(--border-strong); }
+.mic-check-device { overflow-wrap: anywhere; }
+.mic-check-verdict { display: flex; gap: 8px; align-items: baseline; color: var(--ink-2); }
+.mic-check-verdict::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: var(--r-full); background: var(--ink-3); transform: translateY(-1px); }
+.mic-check-verdict[data-tone="ok"]::before { background: var(--ok); }
+.mic-check-verdict[data-tone="warn"]::before { background: var(--warn); }
+.mic-check-verdict[data-tone="danger"]::before { background: var(--danger); }
+.mic-check-verdict[data-tone="danger"] { color: var(--ink); }
+@media (prefers-reduced-motion: reduce) { .mic-meter > span { transition: none; } }
 .stage-wave { flex: 1 1 200px; min-width: 0; height: 40px; }
 /* Import and finishing progress: full width under the stage's controls. */
 .processing { flex: 1 0 100%; display: flex; flex-direction: column; gap: 8px; }

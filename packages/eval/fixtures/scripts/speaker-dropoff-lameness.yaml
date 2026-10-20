@@ -1,0 +1,53 @@
+# Synthetic consult: written for OpenBark's test suite; not a real patient.
+# Speakerphone: the dog was dropped off and the owner gives the history over a
+# phone on speaker, 22 dB below the vet (see speaker-diabetic-callback.yaml).
+id: speaker-dropoff-lameness
+title: Speakerphone, drop-off lameness exam with the owner on the phone
+category: speakerphone
+species: canine
+speakers:
+  dvm: bf_emma
+  client: am_michael
+phone:
+  speaker: client
+  level_db: -22
+  seed: 23
+pause_secs: 0.7
+lines:
+  - [dvm, "Hello, this is Doctor Brennan. I've got Duke in the exam room with me now. I have you on speaker so I can examine him while we talk."]
+  - [client, "Great, thanks for calling. He's been limping on his back left leg since last Tuesday."]
+  - [dvm, "Did anything happen that day? A fall, or rough play?"]
+  - [client, "He was chasing a squirrel at the park and he yelped when he turned. He held the leg up for a few minutes, then walked on it."]
+  - [dvm, "Has it been getting better, worse, or staying the same?"]
+  - [client, "It was better over the weekend, but after our hike on Sunday it got worse again. He's toe touching in the mornings."]
+  - [dvm, "Have you given him anything for pain?"]
+  - [client, "I gave him one of his old carprofen tablets, the seventy five milligram ones, on Monday morning. Just the one."]
+  - [dvm, "Okay, good to know. Nothing else? No aspirin or ibuprofen?"]
+  - [client, "No, nothing else. He also gets a glucosamine chew every day."]
+  - [dvm, "Is he eating and drinking normally?"]
+  - [client, "Yes, totally normal. He's still trying to jump on the couch, which I've been stopping."]
+  - [dvm, "Alright. He weighs thirty two kilos today. Temperature is thirty eight point six, heart rate ninety six."]
+  - [dvm, "Walking him in the hallway, he's a grade three out of five lame on the left hind. Standing, he shifts his weight off that leg."]
+  - [dvm, "On the left knee, there's some swelling on the inside, and I can feel a positive drawer and tibial thrust. The right knee feels stable."]
+  - [dvm, "His hips move freely without pain, and his toes and pads look fine."]
+  - [client, "What does the drawer mean?"]
+  - [dvm, "It means the knee joint is loose. I'm most suspicious of a torn cranial cruciate ligament, which is like an ACL tear in people."]
+  - [client, "Oh no. My last dog had that. She had the TPLO surgery."]
+  - [dvm, "That's one of the options. I'd like to take x-rays of both knees today, under sedation, to confirm and plan."]
+  - [client, "Yes, go ahead with the x-rays. But please call me before doing anything else, I need to talk to my wife about surgery."]
+  - [dvm, "Of course. For now, no running, jumping, or stairs. Leash walks only, ten minutes at a time."]
+  - [dvm, "Since he had carprofen on Monday, I'll start meloxicam tomorrow morning instead, once a day with food, for fourteen days."]
+  - [client, "Okay. Strict rest, and the new anti-inflammatory starting tomorrow. Should I stop the glucosamine?"]
+  - [dvm, "No, the glucosamine is fine to continue. I'll call you this afternoon after the x-rays."]
+  - [client, "Thank you. My number is the cell on file. I'll keep my phone on."]
+
+expected:
+  vitals:
+    weight: "32"
+    temperature: "38.6"
+    heart_rate: "96"
+  medications:
+    - { drug: meloxicam, duration: "14" }
+  # Said only by the client: Tuesday, squirrel, hike, carprofen 75, glucosamine, TPLO.
+  must_mention: [Tuesday, squirrel, hike, carprofen, glucosamine, TPLO, cruciate, x-ray, "fourteen days"]
+  must_not_mention: [surgery scheduled, TPLO performed]

@@ -54,6 +54,9 @@ pub struct RecordArgs {
     /// Print each segment as JSON instead of text.
     #[arg(long)]
     pub jsonl: bool,
+    /// A client on a phone on speaker in the room: pick up the quieter voice.
+    #[arg(long)]
+    pub speakerphone: bool,
     #[command(flatten)]
     pub llm: LlmArgs,
 }
@@ -82,6 +85,31 @@ impl LiveSink for TerminalSink {
         } else {
             let who = s.speaker.map_or("Speaker ?".to_string(), |n| format!("Speaker {}", n + 1));
             println!("[{}] {who}: {}", s.id, s.text);
+        }
+    }
+
+    fn mic(&mut self, h: &os_engine::mic_health::MicHealth) {
+        use os_engine::mic_health::{MicQuality, MicState};
+        if self.meter {
+            eprint!("\r{:60}\r", "");
+        }
+        let note = match h.state {
+            MicState::Ok => match (&h.switched_from, h.quality) {
+                (Some(from), _) => Some(format!("now recording from {} (was {from})", h.device)),
+                (None, MicQuality::Narrowband) => Some(format!("{} sends telephone-quality audio", h.device)),
+                (None, MicQuality::HandsFree) => {
+                    Some(format!("{} is in Bluetooth hands-free mode", h.device))
+                }
+                (None, MicQuality::Good) => None,
+            },
+            MicState::Silent => {
+                Some("no sound from the microphone: is it muted, or blocked in privacy settings?".into())
+            }
+            MicState::Stalled => Some("no audio is arriving from the microphone".into()),
+            MicState::Lost => Some("microphone disconnected: paused until one is back".into()),
+        };
+        if let Some(note) = note {
+            eprintln!("microphone: {note}");
         }
     }
 }
@@ -134,6 +162,7 @@ pub fn record(store: &ModelStore, args: RecordArgs) -> Result<()> {
         );
     }
     options.label_speakers = !args.no_speakers;
+    options.speakerphone = args.speakerphone;
     if let Some(t) = args.speaker_threshold {
         options.speaker_threshold = t;
     }

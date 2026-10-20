@@ -6,6 +6,8 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { recordInBrowser } from "./mic/browser";
+import type { MicHealth, MicQuality } from "./mic/health";
 
 export interface Hint {
   heard: string;
@@ -1612,6 +1614,7 @@ export interface ProcessingProgress {
 
 export async function importRecording(
   speakers: boolean,
+  speakerphone: boolean,
   patient: Patient | null,
   consent: RecordingConsent | null,
   onPicked: () => void,
@@ -1622,7 +1625,7 @@ export async function importRecording(
     const picked = await open({ multiple: false, filters: [{ name: "Recording", extensions: AUDIO_EXTENSIONS }] });
     if (typeof picked !== "string") return null;
     onPicked();
-    return invoke<SessionView>("import_file", { path: picked, speakers, patient: p, consent, by: actor });
+    return invoke<SessionView>("import_file", { path: picked, speakers, speakerphone, patient: p, consent, by: actor });
   }
   const file = await pickBrowserFile();
   if (!file) return null;
@@ -1630,6 +1633,7 @@ export async function importRecording(
   const upload = (body: Blob, name: string) => {
     const q = new URLSearchParams({
       diarize: String(speakers),
+      speakerphone: String(speakerphone),
       name,
       patient_name: p?.name ?? "",
       others: (p?.others ?? [])
@@ -1664,144 +1668,138 @@ export async function importRecording(
 export interface Recording {
   /** Resolves to the saved encounter once the transcript is complete. */
   stop(): Promise<SessionView>;
+  /** Web mode: the microphone the browser opened. */
+  mic?: { label: string; sampleRate: number; fellBack: boolean };
 }
 
 /** Desktop: the engine records the microphone natively (levels arrive as events). */
 async function startDesktopRecording(
   speakers: boolean,
+  speakerphone: boolean,
   device: string | null,
   patient: Patient | null,
   consent: RecordingConsent | null,
 ): Promise<Recording> {
-  await invoke<string>("start_recording", { device, speakers, patient, consent, by: actor });
+  await invoke<string>("start_recording", { device, speakers, speakerphone, patient, consent, by: actor });
   return { stop: () => invoke<SessionView>("stop_recording") };
 }
 
-const WORKLET = `
-class Tap extends AudioWorkletProcessor {
-  process(inputs) {
-    const ch = inputs[0] && inputs[0][0];
-    if (ch) this.port.postMessage(ch.slice(0));
-    return true;
-  }
-}
-registerProcessor("openbark-tap", Tap);`;
-
 /**
  * Web: the browser captures the user's own microphone and streams PCM to the
- * engine over a WebSocket. Levels are measured here so the meter reacts to
- * the real input with no round trip.
+ * engine over a WebSocket (mic/browser.ts). Levels are measured there so the
+ * meter reacts to the real input with no round trip.
  */
 async function startBrowserRecording(
   speakers: boolean,
+  speakerphone: boolean,
+  deviceId: string | null,
   patient: Patient | null,
   consent: RecordingConsent | null,
-  onLevel: (l: number, s: number) => void,
+  hooks: RecordingHooks,
 ): Promise<Recording> {
-  if (!navigator.mediaDevices?.getUserMedia) {
-    throw new Error("This browser can't record audio. Use a current version of Chrome, Edge, Firefox or Safari.");
-  }
-  let stream: MediaStream;
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio: { channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: true },
-    });
-  } catch {
-    throw new Error(
-      "Microphone access was blocked. Allow the microphone for this page in the browser's address bar, then try again.",
-    );
-  }
-  const ctx = new AudioContext();
-  const url = URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" }));
-  await ctx.audioWorklet.addModule(url);
-  URL.revokeObjectURL(url);
-  const source = ctx.createMediaStreamSource(stream);
-  const tap = new AudioWorkletNode(ctx, "openbark-tap");
-  source.connect(tap);
-
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  const q = new URLSearchParams({
-    speakers: String(speakers),
-    sample_rate: String(ctx.sampleRate),
-    patient_name: patient?.name ?? "",
-    others: (patient?.others ?? [])
-      .map((o) => o.trim())
-      .filter(Boolean)
-      .join("\n"),
-    species: patient?.species ?? "",
-    patient_id: patient?.patient_id ?? "",
-    last_name: patient?.last_name ?? "",
-    reason: patient?.reason ?? "",
-    ...consentQuery(consent),
-    by: actor ?? "",
-  });
-  const ws = new WebSocket(`${proto}://${location.host}/api/live?${q}`);
-  ws.binaryType = "arraybuffer";
-  const opened = new Promise<void>((resolve, reject) => {
-    ws.onmessage = (e) => {
-      const msg = JSON.parse(String(e.data)) as { started?: string; error?: string };
-      if (msg.error) reject(new Error(msg.error));
-      else resolve();
-    };
-    ws.onerror = () => reject(new Error("Couldn't reach the OpenBark engine. Check that `openbark serve` is running."));
-  });
-
-  let samples = 0;
-  let acc = 0;
-  let n = 0;
-  const every = Math.round(ctx.sampleRate / 20);
-  // The worklet posts a copied (non-shared) buffer.
-  tap.port.onmessage = (e: MessageEvent<Float32Array<ArrayBuffer>>) => {
-    const block = e.data;
-    if (ws.readyState === WebSocket.OPEN) ws.send(block);
-    samples += block.length;
-    for (const v of block) {
-      acc += v * v;
-      if (++n >= every) {
-        const db = 20 * Math.log10(Math.max(1e-6, Math.sqrt(acc / n)));
-        onLevel(Math.min(1, Math.max(0, (db + 60) / 60)), samples / ctx.sampleRate);
-        acc = 0;
-        n = 0;
-      }
-    }
+  const connect = (sampleRate: number) => {
+    const q = new URLSearchParams({
+      speakers: String(speakers),
+      speakerphone: String(speakerphone),
+      sample_rate: String(sampleRate),
+      patient_name: patient?.name ?? "",
+      others: (patient?.others ?? [])
+        .map((o) => o.trim())
+        .filter(Boolean)
+        .join("\n"),
+      species: patient?.species ?? "",
+      patient_id: patient?.patient_id ?? "",
+      last_name: patient?.last_name ?? "",
+      reason: patient?.reason ?? "",
+      ...consentQuery(consent),
+      by: actor ?? "",
+    });
+    return new WebSocket(`${proto}://${location.host}/api/live?${q}`);
   };
-  try {
-    await opened;
-  } catch (e) {
-    stream.getTracks().forEach((t) => t.stop());
-    await ctx.close();
-    throw e;
-  }
-
-  return {
-    stop: () =>
-      new Promise<SessionView>((resolve, reject) => {
-        tap.port.onmessage = null;
-        stream.getTracks().forEach((t) => t.stop());
-        void ctx.close();
-        ws.onmessage = (e) => {
-          const msg = JSON.parse(String(e.data)) as { session?: SessionView; error?: string };
-          if (msg.session) resolve(msg.session);
-          else reject(new Error(msg.error ?? "The recording couldn't be saved."));
-        };
-        ws.send("stop");
-      }),
-  };
+  const rec = await recordInBrowser({
+    deviceId,
+    connect,
+    onLevel: hooks.onLevel,
+    onHealth: (h) => hooks.onHealth?.(h),
+    onEnded: (m) => hooks.onEnded?.(m),
+  });
+  return { stop: () => rec.stop() as Promise<SessionView>, mic: rec.mic };
 }
 
-/** Start recording; `consent` is saved with the encounter when the consent step was used. */
+export interface RecordingHooks {
+  onLevel(level: number, seconds: number): void;
+  /** Web mode: the browser's own view of its microphone (desktop: the "mic" event). */
+  onHealth?(health: MicHealth): void;
+  /** Web mode: the recording ended by itself (the engine went away). */
+  onEnded?(message: string): void;
+}
+
+/**
+ * Start recording; `consent` is saved with the encounter when the consent
+ * step was used. `device` is the desktop microphone's name, or in web mode
+ * the browser's device id; null is the system default.
+ */
+export type { MicHealth, MicQuality };
+
 export function startRecording(
   speakers: boolean,
+  speakerphone: boolean,
   device: string | null,
   patient: Patient | null,
   consent: RecordingConsent | null,
-  onLevel: (level: number, seconds: number) => void,
+  hooks: RecordingHooks | ((level: number, seconds: number) => void),
 ): Promise<Recording> {
   const p = hasPatient(patient) ? patient : null;
+  const h = typeof hooks === "function" ? { onLevel: hooks } : hooks;
   return isDesktop
-    ? startDesktopRecording(speakers, device, p, consent)
-    : startBrowserRecording(speakers, p, consent, onLevel);
+    ? startDesktopRecording(speakers, speakerphone, device, p, consent)
+    : startBrowserRecording(speakers, speakerphone, device, p, consent, h);
 }
+
+/**
+ * The Record screen opened: load the speech models now (if memory allows),
+ * so Record starts at once. Best effort: false when it didn't.
+ */
+export const prewarmSpeech = (speakers: boolean, speakerphone = false): Promise<boolean> =>
+  (isDesktop
+    ? invoke<boolean>("prewarm_speech", { speakers, speakerphone })
+    : api<{ loading: boolean }>("/api/record/prewarm", post({ speakers, speakerphone })).then((r) => r.loading)
+  ).catch(() => false);
+
+/** The Record screen closed: give the memory back. */
+export const releaseSpeech = (): Promise<void> =>
+  (isDesktop ? invoke<void>("release_speech") : api<unknown>("/api/record/release", post({})).then(() => undefined)).catch(
+    () => undefined,
+  );
+
+/** The microphone a desktop test opened. */
+export interface MicTestStarted {
+  /** This test's number: its "micTest" events carry it. */
+  test: number;
+  device: string;
+  sample_rate: number;
+  quality: MicQuality;
+  /** The chosen microphone wasn't connected; this is the default. */
+  replaced: string | null;
+}
+
+/** The desktop microphone test's level (the "micTest" event), about 20 times a second. */
+export interface MicLevel {
+  /** Which test sent it (a stopped test's last events can still arrive). */
+  test: number;
+  device: string;
+  sample_rate: number;
+  quality: MicQuality;
+  level: number;
+  silent: boolean;
+  done: boolean;
+}
+
+/** Desktop: test a microphone (levels arrive as "micTest" events). */
+export const micTestStart = (device: string | null) => invoke<MicTestStarted>("mic_test_start", { device });
+/** Stop the test with this number (or whichever is running). */
+export const micTestStop = (test?: number) => invoke<void>("mic_test_stop", { test: test ?? null });
 
 const METHOD_TEXT: Record<ConsentMethod, string> = {
   verbal: "agreed out loud",
@@ -1969,6 +1967,10 @@ export function onCallSaved(cb: (id: string) => void): () => void {
 
 type Unlisten = () => void;
 type Handlers = {
+  /** The recording's microphone health (desktop; web mode reports its own). */
+  mic: Set<(h: MicHealth) => void>;
+  /** The desktop microphone test's level. */
+  micTest: Set<(l: MicLevel) => void>;
   segment: Set<(s: Segment) => void>;
   token: Set<(t: string) => void>;
   level: Set<(l: { level: number; seconds: number }) => void>;
@@ -1977,6 +1979,8 @@ type Handlers = {
   moving: Set<(m: { done: number; total: number }) => void>;
 };
 const handlers: Handlers = {
+  mic: new Set(),
+  micTest: new Set(),
   segment: new Set(),
   token: new Set(),
   level: new Set(),
@@ -1996,6 +2000,8 @@ function sse() {
 }
 
 const TAURI_EVENT: Record<keyof Handlers, string> = {
+  mic: "mic-status",
+  micTest: "mic-test",
   segment: "transcript-segment",
   token: "note-token",
   level: "audio-level",

@@ -17,6 +17,7 @@ pub mod faithfulness;
 pub mod fingerprints;
 pub mod from_example;
 pub mod live;
+pub mod mic_health;
 pub mod models;
 pub mod note;
 pub mod numbers;

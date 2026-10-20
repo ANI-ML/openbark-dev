@@ -2,13 +2,16 @@
 // every step should show, the percentage should only go up, and the visit
 // should open when it's done. Run against a demo server, never a clinic's
 // own data:
-//   OPENBARK_URL=http://localhost:4321 node e2e/import-progress.mjs <recording>
+//   OPENBARK_URL=http://localhost:4321 node e2e/import-progress.mjs <recording> [microphone.wav]
+// PHONE_ON_SPEAKER=1 ticks "Phone on speaker" first (ADR-0026) and checks
+// that the import and the recording ask the engine for it.
 import { mkdirSync } from "node:fs";
 import { chromium } from "@playwright/test";
 
 const base = process.env.OPENBARK_URL ?? "http://localhost:4321";
 const out = process.env.OUT_DIR ?? "../../target/progress";
 const file = process.argv[2];
+const phoneOnSpeaker = process.env.PHONE_ON_SPEAKER === "1";
 if (!file) throw new Error("usage: node e2e/import-progress.mjs <recording>");
 mkdirSync(out, { recursive: true });
 
@@ -39,8 +42,13 @@ for (const v of [
   });
   const page = await ctx.newPage();
   page.on("pageerror", (e) => problems.push(`${v.name}: ${e}`));
+  const uploads = [];
+  page.on("request", (r) => {
+    if (r.method() === "POST" && new URL(r.url()).pathname === "/api/sessions") uploads.push(r.url());
+  });
   await page.goto(base);
   await page.locator(".recorder").waitFor();
+  if (phoneOnSpeaker) await tickPhoneOnSpeaker(page, v.name);
 
   const chooser = page.waitForEvent("filechooser");
   await page.getByRole("button", { name: "Import a recording" }).click();
@@ -70,6 +78,8 @@ for (const v of [
   }
   const opened = (await page.locator(".review-bar, .pane-pad").count()) > 0;
   if (!opened) problems.push(`${v.name}: the visit didn't open`);
+  const asked = uploads.some((u) => new URL(u).searchParams.get("speakerphone") === String(phoneOnSpeaker));
+  if (!asked) problems.push(`${v.name}: the upload didn't say speakerphone=${phoneOnSpeaker} (${uploads.join(", ")})`);
   console.log(`${v.name}: ${opened ? "opened" : "did not open"} after ${Math.round((Date.now() - started) / 1000)} s`);
   for (const s of seen)
     console.log(`  ${String(Math.round(s.at / 1000)).padStart(4)} s  ${String(s.pct).padStart(3)}%  ${s.text}`);
@@ -104,8 +114,11 @@ if (mic) {
   });
   const page = await ctx.newPage();
   page.on("pageerror", (e) => problems.push(`record: ${e}`));
+  const sockets = [];
+  page.on("websocket", (ws) => sockets.push(ws.url()));
   await page.goto(base);
   await page.locator(".recorder").waitFor();
+  if (phoneOnSpeaker) await tickPhoneOnSpeaker(page, "record");
   await page.getByRole("button", { name: "Start recording" }).click();
   await page.getByRole("button", { name: "Stop recording" }).waitFor();
   await page.waitForTimeout(25_000);
@@ -124,6 +137,9 @@ if (mic) {
   }
   const opened = (await page.locator(".review-bar, .pane-pad").count()) > 0;
   if (!opened) problems.push("record: the visit didn't open after stopping");
+  const live = sockets.find((u) => new URL(u).pathname === "/api/live");
+  if (!live || new URL(live).searchParams.get("speakerphone") !== String(phoneOnSpeaker))
+    problems.push(`record: the live stream didn't say speakerphone=${phoneOnSpeaker} (${live})`);
   console.log(
     `record: ${opened ? "opened" : "did not open"} ${Math.round((Date.now() - started) / 1000)} s after stop`,
   );
@@ -131,3 +147,13 @@ if (mic) {
   await rec.close();
 }
 console.log(problems.length ? `PROBLEMS:\n${problems.join("\n")}` : "all checks passed");
+
+/** Tick "Phone on speaker" on Record and check its hint (ADR-0026). */
+async function tickPhoneOnSpeaker(page, name) {
+  const box = page.getByRole("checkbox", { name: "Phone on speaker" });
+  // Phones fold the options away less often than the patient, but scroll to it.
+  await box.scrollIntoViewIfNeeded();
+  if (!(await box.isChecked())) await box.check();
+  const hint = page.getByText("Picks up the quieter voice of a client on a phone on speaker.", { exact: false });
+  if (!(await hint.isVisible())) problems.push(`${name}: the Phone on speaker hint isn't shown`);
+}
