@@ -1,0 +1,43 @@
+[package]
+name = "os-sync"
+description = "OpenBark end-to-end encrypted sync (ADR-0017): keys, the OBS1 and OBB1 formats, merging, the outbox and the Supabase REST client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# The store (sessions, patients, the vault, the clock). No engine features:
+# sync links on the phone without the native libraries (ADR-0018 section 1).
+os-engine.workspace = true
+# Allowed an HTTP client by scripts/ci/check-network.sh (docs/network.md R7
+# and R8): Supabase Auth and REST only.
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+uuid = { workspace = true, features = ["v4"] }
+sha2.workspace = true
+hex.workspace = true
+base64 = "=0.23.1"
+# The vault's cipher and random numbers, as in os-engine.
+chacha20poly1305 = "=0.11.0"
+getrandom = "=0.4.3"
+# The pairing key from the 6-word code (as the team PINs, ADR-0017 section 3).
+argon2 = "=0.6.0"
+# Key derivation and the pairing MAC; already in Cargo.lock on digest 0.11.
+hkdf = "=0.13.0"
+hmac = "=0.13.0"
+# Device keys and sealed boxes (ADR-0017 section 4). Checked live 2026-10-20
+# (docs/versions.md); random bytes come from getrandom, not rand.
+x25519-dalek = { version = "=3.0.0", default-features = false, features = ["static_secrets", "zeroize", "precomputed-tables"] }
+ed25519-dalek = { version = "=3.0.0", default-features = false, features = ["fast", "zeroize"] }
+# The Recovery Kit's 24 words and the 6-word pairing code (BIP-39 English list).
+bip39 = { version = "=3.0.0", default-features = false, features = ["std"] }
+# The pairing and Recovery Kit QR codes, as SVG.
+qrcode = { version = "=0.14.1", default-features = false, features = ["svg"] }
+
+[dev-dependencies]
+tempfile.workspace = true

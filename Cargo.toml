@@ -7,6 +7,7 @@ members = [
     "engine/os-models",
     "engine/os-engine",
     "engine/os-connect",
+    "engine/os-sync",
     "engine/os-app",
     "engine/os-server",
     "engine/os-cli",
@@ -85,6 +86,7 @@ os-diar = { path = "engine/os-diar", default-features = false }
 os-models = { path = "engine/os-models" }
 os-engine = { path = "engine/os-engine", default-features = false }
 os-connect = { path = "engine/os-connect" }
+os-sync = { path = "engine/os-sync" }
 os-server = { path = "engine/os-server" }
 os-app = { path = "engine/os-app", default-features = false }
 

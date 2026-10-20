@@ -566,10 +566,10 @@ $$;
 
 -- A pending device that holds the Recovery Kit approves itself: the kit
 -- token proves it (its SHA-256 is the account's kit_verifier). The device
--- opened the kit's envelope itself, wrapped the AMK to its own key, and
--- signed the roster with itself added.
-create or replace function sync.approve_with_kit(
-  kit_token text, envelope text, amk_version integer, roster text, roster_version integer)
+-- opened the kit's envelope itself and wrapped the AMK to its own key. It
+-- can't read the roster while pending, so it adds itself with set_roster
+-- straight after, before it seals anything.
+create or replace function sync.approve_with_kit(kit_token text, envelope text, amk_version integer)
 returns jsonb
 language plpgsql
 security definer
@@ -595,16 +595,11 @@ begin
   if approve_with_kit.amk_version <> acct.amk_version then
     perform sync.fail('stale_amk');
   end if;
-  if approve_with_kit.roster_version <> acct.roster_version + 1 then
-    perform sync.fail('stale_roster');
-  end if;
   insert into sync.key_envelopes (user_id, recipient, device_id, amk_version, envelope)
     values (uid, me.id::text, me.id, acct.amk_version, sync.b64(envelope, 512))
   on conflict (user_id, recipient, amk_version) do update set envelope = excluded.envelope;
   update sync.devices set status = 'approved', approved_at = now(), pair_mac = null, pair_blob = null,
     pending_expires_at = null, last_seen_at = now() where id = me.id;
-  update sync.accounts set roster = sync.b64(approve_with_kit.roster, 65536),
-    roster_version = approve_with_kit.roster_version, updated_at = now() where user_id = uid;
   return sync.account_state();
 end;
 $$;
@@ -1035,7 +1030,7 @@ grant execute on function
   sync.register_device(uuid, text, text, text, text, text, text),
   sync.rebind_device(uuid, text),
   sync.approve_device(uuid, text, integer, text, integer),
-  sync.approve_with_kit(text, text, integer, text, integer),
+  sync.approve_with_kit(text, text, integer),
   sync.revoke_device(uuid),
   sync.set_roster(text, integer),
   sync.get_account(),
