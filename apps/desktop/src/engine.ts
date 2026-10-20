@@ -164,7 +164,13 @@ export interface SessionSummary {
   reason: string;
   /** Name of the template the latest draft used. */
   template: string;
+  /** Encrypted sync (ADR-0017): synced, pending or stopped; absent while sync is off. */
+  sync?: SyncVisitState | null;
+  /** A visit from another device: the device that holds its audio. */
+  audio_on?: string | null;
 }
+
+export type SyncVisitState = "synced" | "pending" | "stopped";
 
 export interface SessionView {
   id: string;
@@ -203,6 +209,23 @@ export interface SessionView {
   chart_checks?: ChartCheck[];
   /** Teeth with a drafted chart entry no veterinarian has confirmed; signing waits until it's empty. */
   unconfirmed_teeth?: string[];
+  /** A visit from another device (ADR-0017 section 7): the device that holds the audio. */
+  audio_on?: { device_id: string; device_name: string } | null;
+  /** Drafts set aside when this visit met a signature from another device, offered as addenda. */
+  set_aside?: SetAsideRun[];
+  /** Encrypted sync state of this visit. */
+  sync?: SyncVisitState | null;
+}
+
+/** A draft set aside by sync (ADR-0017 section 9). */
+export interface SetAsideRun {
+  run_id: string;
+  reason: "signed_elsewhere" | "signed_later";
+  created_at: string;
+  by: string | null;
+  signed_at: string;
+  signed_on: string | null;
+  markdown: string | null;
 }
 
 /** A veterinarian's confirmation of the drafted chart entries on one tooth (ADR-0021 decision 10). */
@@ -1469,6 +1492,122 @@ export const verifyUser = (uid: string, pin: string) =>
 
 export const encryptExisting = () =>
   isDesktop ? invoke<number>("encrypt_existing") : api<number>("/api/encryption/encrypt-existing", { method: "POST" });
+// ---- encrypted sync (ADR-0017) ---------------------------------------------
+// Rust makes every sync call (the desktop app's commands, or `openbark serve`
+// in web mode). This screen never sees a key, a token or the server.
+
+export type SyncPhase = "off" | "code_sent" | "pending" | "kit_check" | "active" | "signed_out" | "revoked";
+
+export interface SyncDevice {
+  id: string;
+  name: string;
+  platform: string;
+  status: "approved" | "revoked" | "pending";
+  this_device: boolean;
+  last_seen_at: string | null;
+  approved_at: string | null;
+}
+
+export interface SyncConflict {
+  visit: string;
+  field: string;
+  kept: unknown;
+  other: unknown;
+  kept_from: string;
+  other_from: string;
+  at: string;
+}
+
+export interface SyncPairing {
+  words: string[];
+  qr_svg: string;
+  expires_at: string | null;
+}
+
+export interface SyncKit {
+  words: string[];
+  qr_svg: string;
+  /** Which two words (1-based) to type back. */
+  check: [number, number];
+}
+
+export interface SyncStatus {
+  available: boolean;
+  phase: SyncPhase;
+  email?: string | null;
+  server?: string;
+  custom_server?: boolean;
+  device_id?: string;
+  device_name?: string;
+  devices?: SyncDevice[];
+  last_sync_at?: string | null;
+  last_error?: string | null;
+  pending_uploads?: number;
+  conflicts?: SyncConflict[];
+  warnings?: string[];
+  pairing?: SyncPairing | null;
+  kit?: SyncKit | null;
+  kit_check?: [number, number] | null;
+  keys_in?: string;
+  busy?: boolean;
+}
+
+export type SyncNext =
+  | ({ next: "kit" } & SyncKit)
+  | ({ next: "pair" } & SyncPairing)
+  | { next: "active" };
+
+export interface SyncPending {
+  device_id: string;
+  name: string;
+  platform: string;
+}
+
+export const syncStatus = () => (isDesktop ? invoke<SyncStatus>("sync_status") : api<SyncStatus>("/api/sync"));
+export const syncSetServer = (url: string, key: string) =>
+  isDesktop
+    ? invoke<SyncStatus>("sync_set_server", { url, key, by: actor })
+    : api<SyncStatus>("/api/sync/server", post({ url, key, by: actor }));
+export const syncSendCode = (email: string) =>
+  isDesktop
+    ? invoke<SyncStatus>("sync_send_code", { email, by: actor })
+    : api<SyncStatus>("/api/sync/code", post({ email, by: actor }));
+/** `backfillDays` null uploads every visit on this computer. */
+export const syncVerify = (code: string, deviceName: string, backfillDays: number | null) =>
+  isDesktop
+    ? invoke<SyncNext>("sync_verify", { code, deviceName, backfillDays, by: actor })
+    : api<SyncNext>("/api/sync/verify", post({ code, device_name: deviceName, backfill_days: backfillDays, by: actor }));
+export const syncConfirmKit = (answers: [number, string][]) =>
+  isDesktop
+    ? invoke<SyncStatus>("sync_confirm_kit", { answers, by: actor })
+    : api<SyncStatus>("/api/sync/kit/confirm", post({ answers, by: actor }));
+export const syncNewCode = () =>
+  isDesktop ? invoke<SyncPairing>("sync_new_code") : api<SyncPairing>("/api/sync/pair/new", post({}));
+/** Find the waiting device whose words were typed; with `approve`, add it. */
+export const syncPair = (words: string, approve: boolean) =>
+  isDesktop
+    ? invoke<SyncPending>("sync_pair", { words, approve, by: actor })
+    : api<SyncPending>("/api/sync/pair", post({ words, approve, by: actor }));
+export const syncRecover = (words: string) =>
+  isDesktop
+    ? invoke<SyncStatus>("sync_recover", { words, by: actor })
+    : api<SyncStatus>("/api/sync/recover", post({ words, by: actor }));
+export const syncNow = () => (isDesktop ? invoke<SyncStatus>("sync_now") : api<SyncStatus>("/api/sync/now", post({})));
+export const syncRemoveDevice = (deviceId: string) =>
+  isDesktop
+    ? invoke<SyncStatus>("sync_remove_device", { deviceId, by: actor })
+    : api<SyncStatus>(`/api/sync/devices/${enc(deviceId)}/remove`, post({ by: actor }));
+export const syncOff = () =>
+  isDesktop ? invoke<SyncStatus>("sync_off", { by: actor }) : api<SyncStatus>("/api/sync/off", post({ by: actor }));
+export const syncDeleteAccount = (confirm: string) =>
+  isDesktop
+    ? invoke<SyncStatus>("sync_delete_account", { confirm, by: actor })
+    : api<SyncStatus>("/api/sync/delete-account", post({ confirm, by: actor }));
+export const syncStopVisit = (id: string) =>
+  isDesktop
+    ? invoke<SyncStatus>("sync_stop_visit", { id, by: actor })
+    : api<SyncStatus>(`/api/sync/visits/${enc(id)}/stop`, post({ by: actor }));
+
 export const recoveryKey = () =>
   isDesktop ? invoke<string>("recovery_key") : api<string>("/api/encryption/recovery-key");
 

@@ -3942,6 +3942,7 @@ dependencies = [
  "os-engine",
  "os-llm",
  "os-models",
+ "os-sync",
  "serde",
  "serde_json",
  "sysinfo",

@@ -822,6 +822,113 @@ async fn hub_add(
     work(move || app.hub_add(&repo, &file, accept_license)).await
 }
 
+// ---- encrypted sync (ADR-0017): Rust makes every call; the WebView sees no key.
+
+#[tauri::command]
+fn sync_status(app: State<'_, AppState>) -> serde_json::Value {
+    app.sync_status()
+}
+
+#[tauri::command]
+async fn sync_set_server(
+    app: State<'_, AppState>,
+    url: String,
+    key: String,
+    by: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let app = app.inner().clone();
+    work(move || app.sync_set_server(&url, &key, by.as_deref())).await
+}
+
+#[tauri::command]
+async fn sync_send_code(app: State<'_, AppState>, email: String, by: Option<String>) -> Result<serde_json::Value, String> {
+    let app = app.inner().clone();
+    work(move || app.sync_send_code(&email, by.as_deref())).await
+}
+
+#[tauri::command]
+async fn sync_verify(
+    app: State<'_, AppState>,
+    code: String,
+    device_name: String,
+    backfill_days: Option<u32>,
+    by: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let app = app.inner().clone();
+    work(move || app.sync_verify(&code, &device_name, backfill_days, by.as_deref())).await
+}
+
+#[tauri::command]
+async fn sync_confirm_kit(
+    app: State<'_, AppState>,
+    answers: Vec<(usize, String)>,
+    by: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let app = app.inner().clone();
+    work(move || app.sync_confirm_kit(answers, by.as_deref())).await
+}
+
+#[tauri::command]
+async fn sync_pair(
+    app: State<'_, AppState>,
+    words: String,
+    approve: bool,
+    by: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let app = app.inner().clone();
+    work(move || app.sync_pair(&words, approve, by.as_deref())).await
+}
+
+#[tauri::command]
+async fn sync_new_code(app: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let app = app.inner().clone();
+    work(move || app.sync_new_code()).await
+}
+
+#[tauri::command]
+async fn sync_recover(app: State<'_, AppState>, words: String, by: Option<String>) -> Result<serde_json::Value, String> {
+    let app = app.inner().clone();
+    work(move || app.sync_recover(&words, by.as_deref())).await
+}
+
+#[tauri::command]
+async fn sync_now(app: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let app = app.inner().clone();
+    work(move || app.sync_now()).await
+}
+
+#[tauri::command]
+async fn sync_remove_device(
+    app: State<'_, AppState>,
+    device_id: String,
+    by: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let app = app.inner().clone();
+    work(move || app.sync_remove_device(&device_id, by.as_deref())).await
+}
+
+#[tauri::command]
+async fn sync_off(app: State<'_, AppState>, by: Option<String>) -> Result<serde_json::Value, String> {
+    let app = app.inner().clone();
+    work(move || app.sync_off(by.as_deref())).await
+}
+
+#[tauri::command]
+async fn sync_delete_account(
+    app: State<'_, AppState>,
+    confirm: String,
+    by: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let app = app.inner().clone();
+    work(move || app.sync_delete_account(&confirm, by.as_deref())).await
+}
+
+#[tauri::command]
+async fn sync_stop_visit(app: State<'_, AppState>, id: String, by: Option<String>) -> Result<serde_json::Value, String> {
+    let app = app.inner().clone();
+    work(move || app.sync_stop_visit(&id, by.as_deref())).await
+}
+
 /// The app's entry point. Desktop builds call it from `main.rs`; on iOS and
 /// Android Tauri calls it as the mobile entry point (ADR-0018 section 7).
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -830,6 +937,8 @@ pub fn run() {
         Arc::new(App::new(ModelStore::default_location(), os_engine::session::default_root()));
     // Deleted visits (ADR-0022): recover what a crash left, remove what's due, then hourly.
     app.start_housekeeping();
+    // Encrypted sync polls every 30 s once turned on (ADR-0017).
+    app.start_sync();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -875,6 +984,19 @@ pub fn run() {
             verify_user,
             encrypt_existing,
             recovery_key,
+            sync_status,
+            sync_set_server,
+            sync_send_code,
+            sync_verify,
+            sync_confirm_kit,
+            sync_pair,
+            sync_new_code,
+            sync_recover,
+            sync_now,
+            sync_remove_device,
+            sync_off,
+            sync_delete_account,
+            sync_stop_visit,
             list_templates,
             template,
             preview_template,
