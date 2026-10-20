@@ -3296,8 +3296,8 @@ pub fn merge_repeats(note: &mut Value) {
 /// ("resorption" and "resorption_type", "closed" and "closed_sectioned",
 /// a root fracture's "root" and resorption stage 4c's "root_worse")
 /// lets the model close the string after the shorter one before the longer
-/// one is considered: Gemma 4 E4B charted "type 2" as a resorption stage 2,
-/// and "sectioned and extracted, closed" as a closed extraction, that way.
+/// one is considered: Gemma 4 E4B charted "type 2" as a resorption stage 2
+/// that way (docs/eval/M2.md).
 /// With these names no drafting id starts another, so stage or type,
 /// sectioned or not, is a choice between two words. Only the drafting
 /// grammar and prompt use them; a draft is read back into the finding
