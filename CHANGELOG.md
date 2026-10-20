@@ -2,9 +2,18 @@
 
 All notable changes to OpenBark, newest first. Generated from `website/content/history.json` by `scripts/website-build.py`; edit that file, not this one. The same history is on the website's Version history page.
 
-## 0.1.1 (beta)
+## 0.1.2 (beta)
 
 ### Beta: Ready for clinics to try
+
+#### 2026-10-20: Phone calls, a fuller dental chart, a calmer design
+
+Call clients from OpenBark and get the call drafted as a visit, chart more of each dental, and a smoother app and website.
+
+- Phone calls through your clinic's own Twilio account: call out from OpenBark, record after an announcement the client can decline, and get the call drafted as a visit.
+- The dental chart captures more of what's said (about 92% of findings in our testing), and Species is filled in from the breed.
+- A calmer, more responsive design across the app and the website.
+- On Mac, quitting no longer crashes, and recordings play back.
 
 #### 2026-10-19: Your own templates, MLX on Mac, a dental chart
 
