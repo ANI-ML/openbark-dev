@@ -221,6 +221,9 @@ impl SpeechModels {
     }
 
     /// Loaded for the same recogniser and speaker settings as `options`.
+    /// TODO(speakerphone merge): if `LiveOptions::speakerphone` changes how
+    /// the voice detector or tracker are built, load them from it here and
+    /// compare it in `suits` (and in os-app's WarmKey).
     pub fn suits(&self, options: &LiveOptions) -> bool {
         self.stt == options.stt
             && self.tracker.is_some() == options.label_speakers

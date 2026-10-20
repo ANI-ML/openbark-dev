@@ -108,6 +108,7 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
   // Load the speech models while the screen is open, so Record starts at
   // once; give the memory back when it closes.
   const ready = missing.length === 0 && Boolean(app.status);
+  // TODO(speakerphone merge): pass Phone on speaker too if it changes the models loaded.
   useEffect(() => {
     if (ready) void engine.prewarmSpeech(app.settings.labelSpeakers);
   }, [ready, app.settings.labelSpeakers]);
