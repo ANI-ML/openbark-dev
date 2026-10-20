@@ -405,6 +405,12 @@ fn run(
     mut sink: Box<dyn LiveSink>,
     stop: Arc<AtomicBool>,
 ) -> Result<LiveResult, EngineError> {
+    // Speakerphone: the second recogniser (Whisper) hears speech through a
+    // phone line better than the main one (speakerphone fixtures: client words
+    // captured 86% against 76%), so it transcribes the phone voice's
+    // utterances itself. Both threads share the one instance.
+    let second = second.map(std::sync::Arc::new);
+    let phone_asr = if options.speakerphone { second.clone() } else { None };
     // Background second opinions: (segment index, audio, primary text) in,
     // (index, opinion, hints) out. Runs alongside capture so stop isn't delayed.
     type Job = (usize, Vec<f32>, String);
@@ -472,7 +478,13 @@ fn run(
             // Speakerphone: a quiet utterance reaches the models at a normal level.
             let levelled = speakerphone.then(|| os_asr::level::normalise(&u.samples));
             let heard = levelled.as_deref().unwrap_or(&u.samples);
-            let text = asr.transcribe(heard)?;
+            let phone_voice = phone_asr.as_ref().filter(|_| {
+                os_diar::high_band_db(&u.samples) < os_diar::PHONE_BAND_DB
+            });
+            let text = match phone_voice {
+                Some(whisper) => whisper.transcribe(heard)?,
+                None => asr.transcribe(heard)?,
+            };
             let speaker = tracker.as_mut().and_then(|tr| tr.assign(heard));
             *asr_ms += t.elapsed().as_millis() as u64;
             if text.is_empty() {
@@ -488,7 +500,9 @@ fn run(
                 text,
             };
             sink.segment(&segment);
+            // A phone voice's utterance was heard by the second recogniser already.
             if let Some(tx) = &job_tx
+                && phone_voice.is_none()
                 && crate::crosscheck::worth_checking(&segment)
                 && tx.send((transcript.segments.len(), heard.to_vec(), segment.text.clone())).is_ok()
             {

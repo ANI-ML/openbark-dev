@@ -128,6 +128,12 @@ impl SileroVad {
                         crate::level::speech_level_db(&samples[a.min(samples.len())..b.min(samples.len())])
                     })
                 })
+                .flat_map(|(a, b)| {
+                    let (a, b) = (a.min(samples.len()), b.min(samples.len()));
+                    split_at_level_dips(&samples[a..b], self.options.level_step_db)
+                        .into_iter()
+                        .map(move |(x, y)| (a + x, a + y))
+                })
                 .collect()
         } else {
             detect(&audio.samples)?
@@ -212,6 +218,66 @@ pub fn split_at_level_steps(
         from = c;
     }
     out.push((from, end));
+    out
+}
+
+/// Cut speech wherever a pause separates two stretches whose levels differ by
+/// at least `step_db`: a quiet voice and a loud one taking turns, which the
+/// detector on the original audio didn't separate either (at 15 dB below the
+/// vet a phone voice is loud enough for it, and the room echo bridges the
+/// pause). A pause is at least 160 ms within 6 dB of the quietest part.
+/// Returns sample ranges within `samples`, each at least [`MIN_PIECE`] long.
+pub fn split_at_level_dips(samples: &[f32], step_db: f32) -> Vec<(usize, usize)> {
+    const FRAME: usize = SAMPLE_RATE as usize / 50; // 20 ms
+    const MIN_DIP: usize = 8; // frames
+    let whole = vec![(0, samples.len())];
+    let levels: Vec<f32> = samples
+        .chunks(FRAME)
+        .map(|f| 10.0 * (f.iter().map(|s| s * s).sum::<f32>() / f.len() as f32).max(1e-14).log10())
+        .collect();
+    if levels.len() < 3 * MIN_DIP {
+        return whole;
+    }
+    let mut sorted = levels.clone();
+    sorted.sort_by(f32::total_cmp);
+    let floor = sorted[sorted.len() / 10] + 6.0;
+    // Pauses: runs of quiet frames, as frame ranges.
+    let mut dips: Vec<(usize, usize)> = Vec::new();
+    let mut run: Option<usize> = None;
+    for (i, l) in levels.iter().chain(std::iter::once(&f32::MAX)).enumerate() {
+        match (*l < floor, run) {
+            (true, None) => run = Some(i),
+            (false, Some(s)) => {
+                if i - s >= MIN_DIP && s > 0 && i < levels.len() {
+                    dips.push((s, i));
+                }
+                run = None;
+            }
+            _ => {}
+        }
+    }
+    // Stretches between pauses, and the level of each.
+    let mut bounds = vec![0usize];
+    for &(s, e) in &dips {
+        bounds.push(s);
+        bounds.push(e);
+    }
+    bounds.push(levels.len());
+    let stretch = |k: usize| (bounds[2 * k] * FRAME, (bounds[2 * k + 1] * FRAME).min(samples.len()));
+    let count = dips.len() + 1;
+    let level = |(a, b): (usize, usize)| crate::level::speech_level_db(&samples[a..b]);
+    let mut out = Vec::new();
+    let mut from = 0usize;
+    for k in 0..count - 1 {
+        let (left, right) = (stretch(k), stretch(k + 1));
+        let cut = (dips[k].0 + dips[k].1) / 2 * FRAME;
+        let long_enough = left.1 - left.0 >= MIN_PIECE && right.1 - right.0 >= MIN_PIECE;
+        if long_enough && cut >= from + MIN_PIECE && (level(left) - level(right)).abs() >= step_db {
+            out.push((from, cut));
+            from = cut;
+        }
+    }
+    out.push((from, samples.len()));
     out
 }
 
@@ -353,7 +419,17 @@ impl StreamingVad {
                 let b = b.clamp(offset, offset + history.len()) - offset;
                 crate::level::speech_level_db(&history[a..b.max(a)])
             };
+            let offset = self.history_start;
             split_at_level_steps((start, end), &self.raw_spans, self.step_db, &level)
+                .into_iter()
+                .flat_map(|(a, b)| {
+                    let (x0, x1) = (a.max(offset) - offset, b.max(offset) - offset);
+                    let x1 = x1.min(self.history.len());
+                    split_at_level_dips(&self.history[x0.min(x1)..x1], self.step_db)
+                        .into_iter()
+                        .map(move |(x, y)| (a + x, a + y))
+                })
+                .collect()
         } else {
             vec![(start, end)]
         };
@@ -427,6 +503,38 @@ mod tests {
         // The raw detector split the speech at a pause; the levelled one didn't.
         let pieces = split_at_level_steps((0, 6 * S), &[(0, 2 * S), (2 * S + 4_000, 6 * S)], 8.0, &flat);
         assert_eq!(pieces, vec![(0, 6 * S)]);
+    }
+
+    fn tone(secs: f32, db: f32) -> Vec<f32> {
+        let amp = 10f32.powf(db / 20.0) * std::f32::consts::SQRT_2;
+        (0..(secs * S as f32) as usize).map(|i| amp * (i as f32 * 0.2).sin()).collect()
+    }
+
+    #[test]
+    fn a_pause_between_a_loud_and_a_quiet_voice_is_cut() {
+        // Vet at -22 dBFS, 0.6 s pause (noise at -70), client at -38, pause, vet.
+        let mut s = tone(2.0, -22.0);
+        let gap = tone(0.6, -70.0);
+        s.extend(&gap);
+        let client_at = s.len();
+        s.extend(tone(2.0, -38.0));
+        s.extend(&gap);
+        let vet_at = s.len();
+        s.extend(tone(2.0, -22.0));
+        let pieces = split_at_level_dips(&s, 8.0);
+        assert_eq!(pieces.len(), 3, "{pieces:?}");
+        let near = |a: usize, b: usize| a.abs_diff(b) <= S * 4 / 10;
+        assert!(near(pieces[0].1, client_at - gap.len() / 2), "{pieces:?}");
+        assert!(near(pieces[1].1, vet_at - gap.len() / 2), "{pieces:?}");
+        assert_eq!(pieces[2].1, s.len());
+    }
+
+    #[test]
+    fn pauses_between_sentences_of_one_voice_are_not_cut() {
+        let mut s = tone(2.0, -22.0);
+        s.extend(tone(0.6, -70.0));
+        s.extend(tone(2.0, -25.0)); // a little softer, the same voice
+        assert_eq!(split_at_level_dips(&s, 8.0), vec![(0, s.len())]);
     }
 
     #[test]

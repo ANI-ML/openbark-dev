@@ -6,6 +6,10 @@ Written for the speakerphone fixtures (a client on a phone on speaker, much
 quieter than the vet), where one speaker can be lost while the other is fine.
 For each script speaker it reports:
 
+- captured: share of that speaker's words in the transcript, recognised
+  right (1 - (substitutions + deletions) / words).
+- turns dropped: that speaker's script lines with fewer than half their
+  words captured.
 - wer: word error rate of that speaker's words. The whole transcript is
   aligned to the whole script (word level, edit distance), so a word lost at
   a segment boundary counts against the speaker who said it. Insertions count
@@ -100,11 +104,12 @@ def overlap(a0, a1, b0, b1):
 
 def score(segs, ref):
     roles = sorted({r["speaker"] for r in ref})
-    ref_words, ref_role = [], []
-    for r in ref:
+    ref_words, ref_role, ref_line = [], [], []
+    for n, r in enumerate(ref):
         w = words(r["text"])
         ref_words += w
         ref_role += [r["speaker"]] * len(w)
+        ref_line += [n] * len(w)
     segs = sorted(segs, key=lambda s: s["start"])
     hyp_words, hyp_seg = [], []
     for k, s in enumerate(segs):
@@ -112,13 +117,14 @@ def score(segs, ref):
         hyp_words += w
         hyp_seg += [k] * len(w)
 
-    errors, hits = Counter(), Counter()
+    errors, hits, line_hits = Counter(), Counter(), Counter()
     for op, i, _ in align(ref_words, hyp_words):
         if op == "ins":
             role = ref_role[i] if i is not None else ref_role[0]
             errors[role] += 1
         elif op == "ok":
             hits[ref_role[i]] += 1
+            line_hits[ref_line[i]] += 1
         else:
             errors[ref_role[i]] += 1
     total = Counter(ref_role)
@@ -150,6 +156,9 @@ def score(segs, ref):
     out = {"labels": len({s.get("speaker") for s in segs}), "segments": len(segs), "speakers": {}}
     for role in roles:
         lines = [r for r in ref if r["speaker"] == role]
+        line_ids = [n for n, r in enumerate(ref) if r["speaker"] == role]
+        # A turn is dropped when fewer than half its words made it.
+        dropped = sum(1 for n in line_ids if line_hits[n] < len(words(ref[n]["text"])) / 2)
         speech = sum(r["end"] - r["start"] for r in lines)
         covered = sum(
             overlap(s["start"], s["end"], r["start"], r["end"]) for r in lines for s in segs
@@ -162,8 +171,10 @@ def score(segs, ref):
             "words": total[role],
             "wer": round(errors[role] / total[role], 3) if total[role] else 0.0,
             "hits": hits[role],
+            "captured": round(hits[role] / total[role], 3) if total[role] else 0.0,
             "covered": round(min(1.0, covered / speech), 3) if speech else 0.0,
             "lines": len(lines),
+            "turns_dropped": dropped,
             "segments_per_line": round(len(mine) / len(lines), 2) if lines else 0.0,
             "median_segment_words": seg_lens[len(seg_lens) // 2] if seg_lens else 0,
             "labelled_right": round(right / n_words, 3) if n_words else 0.0,
@@ -183,9 +194,9 @@ def main(argv):
     print(f"{result['segments']} segments, {result['labels']} speaker labels")
     for role, s in result["speakers"].items():
         print(
-            f"  {role:<8} WER {s['wer']:.1%}  covered {s['covered']:.0%}  "
+            f"  {role:<8} captured {s['captured']:.0%}  WER {s['wer']:.1%}  covered {s['covered']:.0%}  "
             f"segments/line {s['segments_per_line']:.2f}  median words {s['median_segment_words']}  "
-            f"labelled right {s['labelled_right']:.0%}  ({s['words']} words, {s['lines']} lines)"
+            f"labelled right {s['labelled_right']:.0%}  turns dropped {s['turns_dropped']}/{s['lines']}  ({s['words']} words)"
         )
 
 
