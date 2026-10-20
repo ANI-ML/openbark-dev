@@ -20,10 +20,11 @@
           "title": "Phone calls, a fuller dental chart, a calmer design",
           "summary": "Call clients from OpenBark and get the call drafted as a visit, chart more of each dental, and a smoother app and website.",
           "items": [
-            {"text": "Phone calls through your clinic's own Twilio account: call out from OpenBark, record after an announcement the client can decline, and get the call drafted as a visit.", "status": "shipped"},
+            {"text": "Phone calls through your clinic's own Twilio account: call out from OpenBark, record after an announcement the client can decline, and get the call drafted as a visit.", "status": "testing"},
             {"text": "The dental chart captures more of what's said (about 92% of findings in our testing), and Species is filled in from the breed.", "status": "shipped"},
             {"text": "A calmer, more responsive design across the app and the website.", "status": "shipped"},
-            {"text": "On Mac, quitting no longer crashes, and recordings play back.", "status": "shipped"}
+            {"text": "OpenBark no longer reports a crash when you quit it on a Mac after drafting a note.", "status": "shipped"},
+            {"text": "Recordings play again in the desktop app, and long ones start and seek without loading the whole file.", "status": "shipped"}
           ]
         },
         {
