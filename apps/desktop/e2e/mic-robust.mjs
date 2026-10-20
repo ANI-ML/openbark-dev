@@ -155,7 +155,7 @@ if (want("test")) {
   await page.goto(base);
   const rail = page.locator(".recorder-rail");
   await rail.getByRole("button", { name: "Test microphone" }).click();
-  await rail.getByText("Hearing you.").waitFor({ timeout: 15_000 });
+  await rail.locator(".mic-check-verdict", { hasText: "Hearing you." }).waitFor({ timeout: 15_000 });
   const level = Number(await rail.locator("[role=meter]").getAttribute("aria-valuenow"));
   check(level > 0, `the meter moves (${level})`);
   const options = await rail.locator("select option").allInnerTexts();
@@ -167,6 +167,20 @@ if (want("test")) {
     await page.evaluate(() => window.__ob.streams.every((s) => s.getAudioTracks().every((t) => t.readyState === "ended"))),
     "stopping the test lets the microphone go",
   );
+  // A double click opens one microphone, and Stop closes everything.
+  await rail.getByRole("button", { name: "Test microphone" }).dblclick();
+  await rail.locator(".mic-check-verdict", { hasText: "Hearing you." }).waitFor({ timeout: 15_000 });
+  await rail.getByRole("button", { name: "Stop test" }).click();
+  await page.waitForTimeout(500);
+  const states = await page.evaluate(() => window.__ob.streams.map((s) => s.getAudioTracks()[0].readyState));
+  check(states.every((x) => x === "ended"), `after a double click and Stop, every microphone is closed (${states.join(", ")})`);
+  // Record pressed while a test is opening: the test's microphone closes.
+  await rail.getByRole("button", { name: "Test microphone" }).click();
+  await startRecording(page);
+  await page.waitForTimeout(1500);
+  const live = await page.evaluate(() => window.__ob.streams.filter((s) => s.getAudioTracks()[0].readyState === "live").length);
+  check(live === 1, `while recording, only the recording's microphone is open (${live})`);
+  await stopAndOpen(page);
   await browser.close();
 }
 
