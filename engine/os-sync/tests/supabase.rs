@@ -526,6 +526,14 @@ fn a_removed_device_is_locked_out_at_once_and_erases_its_copies() {
     // A carries on, and still has B's visit (it was synced before).
     assert!(a.visits().iter().any(|s| s.meta.id == b_own.meta.id));
     assert!(a.svc.status().devices.iter().any(|d| d.id == b.svc.device_id() && d.status == "revoked"));
+
+    // B can ask to join again, with new keys, and needs a new approval.
+    let NextStep::Pair(pair) = sign_in(&env, &b, &email, "Old laptop", &used) else { panic!("expected to wait") };
+    assert_eq!(b.svc.status().phase, Phase::Pending);
+    a.svc.approve_pairing(&pair.words.join(" ")).unwrap();
+    b.sync();
+    assert_eq!(b.svc.status().phase, Phase::Active);
+    assert!(b.visits().iter().any(|s| s.meta.id == own.meta.id), "approved again, it receives the visits again");
 }
 
 #[test]

@@ -42,14 +42,33 @@ else
   run() { bash -lc "$1"; }
 fi
 
-copy="rm -rf $scratch/supabase && mkdir -p $scratch && cp -r '$src' $scratch/supabase"
+# Copied over the scratch copy, not replacing the folder: the running Edge
+# Functions container has it mounted.
+copy="mkdir -p $scratch/supabase && cp -r '$src/.' $scratch/supabase/"
+
+# After a reset the REST API reconnects to the database for a few seconds:
+# wait until a sync function answers.
+wait_ready() {
+  local key
+  key="$(run "cd $scratch && $cli status -o env 2>/dev/null" | tr -d '"' | sed -n 's/^ANON_KEY=//p')"
+  for _ in $(seq 1 60); do
+    if curl -sf -o /dev/null -X POST http://127.0.0.1:54321/rest/v1/rpc/device_status       -H "apikey: $key" -H 'Content-Profile: sync' -H 'Content-Type: application/json'       -d '{"device_id":"00000000-0000-0000-0000-000000000000","rebind_secret":"AA=="}'; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo "the local REST API isn't answering" >&2
+  return 1
+}
 
 case "$cmd" in
   start)
     run "$copy && cd $scratch && ($cli stop --no-backup >/dev/null 2>&1 || true) && $cli start && $cli db reset"
+    wait_ready
     ;;
   reset)
     run "$copy && cd $scratch && $cli db reset"
+    wait_ready
     ;;
   stop)
     run "cd $scratch && $cli stop --no-backup"

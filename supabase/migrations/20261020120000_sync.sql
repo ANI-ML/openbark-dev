@@ -452,8 +452,10 @@ begin
     perform sync.fail('no_account');
   end if;
   select * into existing from sync.devices d where d.id = register_device.device_id;
-  if existing.id is not null and (existing.user_id <> uid or existing.status <> 'pending') then
-    perform sync.fail(case when existing.status = 'revoked' then 'revoked' else 'device_exists' end);
+  -- A removed device may ask again (it gets new keys and needs a new
+  -- approval, like any new device); an approved one rebinds instead.
+  if existing.id is not null and (existing.user_id <> uid or existing.status = 'approved') then
+    perform sync.fail('device_exists');
   end if;
   if (select count(*) from sync.devices d
       where d.user_id = uid and d.status = 'pending' and d.pending_expires_at > now()
@@ -468,6 +470,7 @@ begin
       sync.b64(ed25519_pub, 32), sync.b64(rebind_verifier, 32), sync.b64(pair_mac, 32), sync.b64(pair_blob, 1024),
       now() + interval '10 minutes')
   on conflict (id) do update set
+    status = 'pending', approved_at = null, revoked_at = null,
     session_id = excluded.session_id, platform = excluded.platform, x25519_pub = excluded.x25519_pub,
     ed25519_pub = excluded.ed25519_pub, rebind_verifier = excluded.rebind_verifier, pair_mac = excluded.pair_mac,
     pair_blob = excluded.pair_blob, pending_expires_at = excluded.pending_expires_at;
