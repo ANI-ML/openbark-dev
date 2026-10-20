@@ -44,12 +44,16 @@ impl LlamaCppOptions {
 }
 
 pub struct LlamaCppBackend {
-    // Field order matters: the model must drop before the backend.
+    // Field order matters: the model must drop before the backend (whose
+    // drop calls llama_backend_free), and both before `_live`, so the
+    // process-wide count reaches zero only once both are freed (see
+    // [`crate::shutdown`]).
     model: LlamaModel,
     backend: LlamaBackend,
     options: LlamaCppOptions,
     chat_template: Option<String>,
     model_name: String,
+    _live: crate::shutdown::LiveModel,
 }
 
 impl LlamaCppBackend {
@@ -59,6 +63,12 @@ impl LlamaCppBackend {
         if !Path::new(&options.model_path).is_file() {
             return Err(LlmError::ModelNotFound(options.model_path.display().to_string()));
         }
+        if crate::shutdown::stopping() {
+            return Err(LlmError::Stopped);
+        }
+        // Counted from before the backend starts, so a load still running
+        // when the app quits keeps the count above zero.
+        let live = crate::shutdown::LiveModel::new();
         let mut backend = LlamaBackend::init().map_err(|e| LlmError::Load(e.to_string()))?;
         if std::env::var_os("OPENBARK_LLAMA_LOG").is_none() {
             backend.void_logs();
@@ -71,7 +81,7 @@ impl LlamaCppBackend {
         // uninformative (Google's Gemma 4 GGUFs say "Hf").
         let model_name = options.model_path.file_stem().unwrap_or_default().to_string_lossy().into_owned();
         tracing::info!(model = %model_name, has_template = chat_template.is_some(), "llm loaded");
-        Ok(Self { model, backend, options, chat_template, model_name })
+        Ok(Self { model, backend, options, chat_template, model_name, _live: live })
     }
 
     fn token_text(&self, token: llama_cpp_2::token::LlamaToken) -> String {
@@ -145,6 +155,9 @@ impl LlmBackend for LlamaCppBackend {
         let mut batch = LlamaBatch::new(n_batch as usize, 1);
         let last = tokens.len() - 1;
         for (chunk_idx, chunk) in tokens.chunks(n_batch as usize).enumerate() {
+            if crate::shutdown::stopping() {
+                return Err(LlmError::Stopped);
+            }
             batch.clear();
             for (i, token) in chunk.iter().enumerate() {
                 let pos = chunk_idx * n_batch as usize + i;
@@ -164,6 +177,10 @@ impl LlmBackend for LlamaCppBackend {
         let mut hit_max_tokens = true;
 
         while completion_tokens < request.max_tokens {
+            // The app is quitting: free the context now (see crate::shutdown).
+            if crate::shutdown::stopping() {
+                return Err(LlmError::Stopped);
+            }
             let token = sampler.next(&ctx, batch.n_tokens() - 1)?;
             if vocab.is_eog(token) {
                 hit_max_tokens = false;

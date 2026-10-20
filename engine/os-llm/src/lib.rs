@@ -7,6 +7,7 @@
 mod chat_template;
 mod llama;
 pub mod mlx;
+pub mod shutdown;
 
 pub use chat_template::ChatMessage;
 pub use llama::{LlamaCppBackend, LlamaCppOptions};
@@ -72,6 +73,9 @@ pub enum LlmError {
     Grammar(String),
     #[error("inference: {0}")]
     Inference(String),
+    /// The process is shutting down ([`shutdown::begin`]).
+    #[error("OpenBark is closing, so the note model stopped")]
+    Stopped,
 }
 
 /// A compute device llama.cpp can use (GPU or CPU).

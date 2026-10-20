@@ -180,6 +180,7 @@ pub async fn serve(options: ServerOptions) -> std::io::Result<()> {
     // Deleted visits: recover what a crash left, remove what's due, then hourly.
     app.start_housekeeping();
     let state: St = Arc::new(Shared { app: RwLock::new(app), events: Arc::new(Broadcaster(tx)) });
+    let shared = state.clone();
     let app = router(state, &options.ui_dir, options.port);
 
     // Loopback only: there is no authentication yet (see module docs).
@@ -198,7 +199,42 @@ pub async fn serve(options: ServerOptions) -> std::io::Result<()> {
         }
     };
     tracing::info!(%addr, "OpenBark web mode");
-    axum::serve(listener, app).await
+    tokio::select! {
+        served = axum::serve(listener, app) => served,
+        () = stop_requested() => {
+            eprintln!("OpenBark is stopping.");
+            stop(shared.app()).await
+        }
+    }
+}
+
+/// Ctrl+C, or a polite termination request (SIGTERM, as from `kill` or a
+/// service manager).
+async fn stop_requested() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        match signal(SignalKind::terminate()) {
+            Ok(mut term) => tokio::select! {
+                _ = tokio::signal::ctrl_c() => {}
+                _ = term.recv() => {}
+            },
+            Err(_) => {
+                let _ = tokio::signal::ctrl_c().await;
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+    }
+}
+
+/// Free the note model, then end the process (os_app::App::shutdown): with
+/// a model still loaded at exit, llama.cpp's Metal teardown aborts on macOS.
+async fn stop(app: Arc<App>) -> ! {
+    let _ = tokio::task::spawn_blocking(move || app.shutdown(os_app::SHUTDOWN_WAIT)).await;
+    os_app::exit_process(0)
 }
 
 /// The whole server: the API, the UI's files, and the guard that keeps other
@@ -531,9 +567,9 @@ async fn restart(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
     std::process::Command::new(exe).args(std::env::args_os().skip(1)).spawn().map_err(|e| {
         ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("OpenBark couldn't restart: {e}"))
     })?;
-    tokio::spawn(async {
+    tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-        std::process::exit(0);
+        stop(app).await
     });
     Ok(Json(serde_json::json!({ "restarting": true })))
 }
@@ -721,41 +757,27 @@ async fn open_session(
     blocking(move || s.app().open_session(&id, q.pet.as_deref())).await
 }
 
-/// The recording, decrypted in memory (never as a plain file), with byte
-/// ranges so the browser's player can seek.
+/// The recording, decrypted in memory (never as a plain file), in byte
+/// ranges so the player can seek; only the chunks asked for are decrypted
+/// (os_app::App::session_audio_part).
 async fn session_audio(
     State(s): State<St>,
     UrlPath(id): UrlPath<String>,
+    method: axum::http::Method,
     headers: axum::http::HeaderMap,
 ) -> Result<Response, ApiError> {
-    use axum::http::header;
-    let wav = tokio::task::spawn_blocking(move || s.app().session_audio(&id))
+    let range = headers.get(axum::http::header::RANGE).and_then(|v| v.to_str().ok()).map(str::to_owned);
+    let head = method == axum::http::Method::HEAD;
+    let part = tokio::task::spawn_blocking(move || s.app().session_audio_part(&id, range.as_deref(), head))
         .await
         .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))??;
-    let total = wav.len();
-    let range = headers
-        .get(header::RANGE)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("bytes="))
-        .and_then(|v| v.split_once('-'))
-        .and_then(|(a, b)| {
-            let start: usize = a.parse().ok()?;
-            let end: usize =
-                if b.is_empty() { total.checked_sub(1)? } else { b.parse::<usize>().ok()?.min(total - 1) };
-            (start <= end && end < total).then_some((start, end))
-        });
-    let common =
-        [(header::CONTENT_TYPE, "audio/wav".to_string()), (header::ACCEPT_RANGES, "bytes".to_string())];
-    Ok(match range {
-        Some((start, end)) => (
-            StatusCode::PARTIAL_CONTENT,
-            common,
-            [(header::CONTENT_RANGE, format!("bytes {start}-{end}/{total}"))],
-            wav[start..=end].to_vec(),
-        )
-            .into_response(),
-        None => (common, wav).into_response(),
-    })
+    let mut response = Response::builder().status(part.status);
+    for (name, value) in part.headers() {
+        response = response.header(name, value);
+    }
+    response
+        .body(axum::body::Body::from(part.body))
+        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
 async fn list_users(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
@@ -1685,6 +1707,58 @@ mod tests {
         let status = res.status();
         let bytes = axum::body::to_bytes(res.into_body(), usize::MAX).await.unwrap();
         (status, serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null))
+    }
+
+    /// The player's requests for a recording, as WebKit and Chromium send them.
+    #[tokio::test]
+    async fn recordings_play_in_ranges() {
+        let srv = server();
+        let visits = os_app::demo::audio_visits(&srv.app.sessions_root).unwrap();
+        let v = &visits[0];
+        let whole = srv.app.session_audio(&v.id).unwrap();
+        let total = whole.len();
+        let get = |range: Option<String>, method: &'static str| {
+            let mut r = Request::builder()
+                .method(method)
+                .uri(format!("/api/sessions/{}/audio", v.id))
+                .header("host", format!("127.0.0.1:{PORT}"));
+            if let Some(range) = range {
+                r = r.header("range", range);
+            }
+            let router = srv.router.clone();
+            async move {
+                let res = router.oneshot(r.body(Body::empty()).unwrap()).await.unwrap();
+                let status = res.status();
+                let h = |n: &str| res.headers().get(n).map(|v| v.to_str().unwrap().to_string());
+                let heads = (h("content-type"), h("content-range"), h("accept-ranges"), h("cache-control"));
+                let body = axum::body::to_bytes(res.into_body(), usize::MAX).await.unwrap();
+                (status, heads, body)
+            }
+        };
+        let (status, (ty, cr, ar, cc), body) = get(Some("bytes=0-1".into()), "GET").await;
+        assert_eq!(status, StatusCode::PARTIAL_CONTENT);
+        assert_eq!(ty.as_deref(), Some("audio/wav"));
+        assert_eq!(cr, Some(format!("bytes 0-1/{total}")));
+        assert_eq!(ar.as_deref(), Some("bytes"));
+        assert_eq!(cc.as_deref(), Some("no-store"));
+        assert_eq!(&body[..], &whole[..2]);
+        let (status, (_, cr, ..), body) = get(Some("bytes=0-".into()), "GET").await;
+        assert_eq!(status, StatusCode::PARTIAL_CONTENT);
+        let max = os_app::AUDIO_PART_MAX as usize;
+        assert_eq!(cr, Some(format!("bytes 0-{}/{total}", max - 1)));
+        assert_eq!(&body[..], &whole[..max]);
+        let (status, _, body) = get(Some(format!("bytes={}-", total - 10)), "GET").await;
+        assert_eq!(status, StatusCode::PARTIAL_CONTENT);
+        assert_eq!(&body[..], &whole[total - 10..]);
+        let (status, (_, cr, ..), _) = get(Some(format!("bytes={total}-")), "GET").await;
+        assert_eq!(status, StatusCode::RANGE_NOT_SATISFIABLE);
+        assert_eq!(cr, Some(format!("bytes */{total}")));
+        let (status, _, body) = get(None, "GET").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(&body[..], &whole[..]);
+        let (status, _, body) = get(None, "HEAD").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.is_empty());
     }
 
     #[tokio::test]

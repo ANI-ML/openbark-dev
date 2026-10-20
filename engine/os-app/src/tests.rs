@@ -1466,3 +1466,141 @@ fn a_removal_waiting_for_a_model_load_doesnt_hold_up_downloads() {
         assert_eq!(removed.files_removed, 1);
     });
 }
+
+// ---- shutdown order (os_llm::shutdown; the Metal abort on quit) ------------
+// `App::shutdown` also sets os-llm's process-wide stop flag, which would stop
+// other tests' models, so these drive its release step directly. The flag
+// itself is tested in os-llm/tests/shutdown.rs, in its own process.
+
+#[test]
+fn release_frees_the_loaded_note_model() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app = app_in(tmp.path());
+    let (backend, _) = FakeLlm::loaded("llama.cpp");
+    let weak = Arc::downgrade(&backend);
+    app.loaned.lock().unwrap().push(("gguf".into(), false, weak.clone()));
+    load_fake(&app, "gguf", backend);
+    assert!(app.release_llms(std::time::Instant::now()));
+    assert_eq!(loaded_id(&app), None);
+    assert_eq!(weak.strong_count(), 0, "the model itself is freed, not just unlisted");
+}
+
+#[test]
+fn release_waits_for_a_running_draft_then_frees_its_model() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app = app_in(tmp.path());
+    let (backend, _) = FakeLlm::loaded("llama.cpp");
+    let weak = Arc::downgrade(&backend);
+    app.loaned.lock().unwrap().push(("gguf".into(), false, weak.clone()));
+    load_fake(&app, "gguf", backend.clone());
+    // A draft holds the model for a moment, then finishes.
+    let draft = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        drop(backend);
+    });
+    let started = std::time::Instant::now();
+    assert!(app.release_llms(started + std::time::Duration::from_secs(10)));
+    assert!(started.elapsed() >= std::time::Duration::from_millis(100), "waited for the draft");
+    assert_eq!(weak.strong_count(), 0);
+    draft.join().unwrap();
+}
+
+#[test]
+fn release_gives_up_at_the_deadline_while_a_draft_still_holds_the_model() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app = app_in(tmp.path());
+    let (held, _) = FakeLlm::loaded("llama.cpp");
+    app.loaned.lock().unwrap().push(("gguf".into(), false, Arc::downgrade(&held)));
+    let started = std::time::Instant::now();
+    assert!(!app.release_llms(started + std::time::Duration::from_millis(50)));
+    assert!(started.elapsed() < std::time::Duration::from_secs(5), "bounded");
+    drop(held);
+    assert!(app.release_llms(std::time::Instant::now()));
+}
+
+#[test]
+fn release_gives_up_at_the_deadline_while_a_model_is_loading() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app = app_in(tmp.path());
+    // A load holds the slot's lock for as long as it runs.
+    let loading = app.llm.lock().unwrap();
+    std::thread::scope(|s| {
+        let app = &app;
+        let gave_up = s.spawn(move || {
+            app.release_llms(std::time::Instant::now() + std::time::Duration::from_millis(50))
+        });
+        assert!(!gave_up.join().unwrap());
+    });
+    drop(loading);
+    assert!(app.release_llms(std::time::Instant::now()));
+}
+
+// ---- recordings for the player (bug: replay failed in the macOS app) -------
+
+#[test]
+fn range_headers_are_planned_like_http_says() {
+    use RangePlan::*;
+    assert_eq!(plan_range(None, 100), Whole);
+    assert_eq!(plan_range(Some("bytes=0-1"), 100), Part(0, 1));
+    assert_eq!(plan_range(Some("bytes=0-"), 100), Part(0, 99));
+    assert_eq!(plan_range(Some("bytes=10-1000"), 100), Part(10, 99));
+    assert_eq!(plan_range(Some("bytes=-10"), 100), Part(90, 99));
+    assert_eq!(plan_range(Some("bytes=-1000"), 100), Part(0, 99));
+    assert_eq!(plan_range(Some("bytes=5-9, 20-30"), 100), Part(5, 9), "the first of several");
+    assert_eq!(plan_range(Some("bytes=100-"), 100), Unsatisfiable);
+    assert_eq!(plan_range(Some("bytes=-0"), 100), Unsatisfiable);
+    assert_eq!(plan_range(Some("bytes=0-"), 0), Unsatisfiable);
+    // Nonsense is ignored: the whole recording.
+    for h in ["items=0-1", "bytes=9-3", "bytes=a-b", "bytes=-", "bytes=0"] {
+        assert_eq!(plan_range(Some(h), 100), Whole, "{h}");
+    }
+}
+
+#[test]
+fn recordings_are_served_in_ranges_that_match_the_whole_file() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app = app_in(tmp.path());
+    let visits = demo::audio_visits(&app.sessions_root).unwrap();
+    assert_eq!(visits.len(), 2);
+    for v in &visits {
+        let whole = app.session_audio(&v.id).unwrap();
+        assert!(os_engine::vault::is_encrypted(&app.sessions_root.join(&v.id).join("audio.wav")));
+        let total = whole.len() as u64;
+        // 16 kHz, 16-bit, `channels` wide, plus the 44-byte header.
+        assert_eq!(total, 44 + (v.secs * 16_000.0) as u64 * 2 * v.channels as u64);
+        assert_eq!(&whole[22..24], &v.channels.to_le_bytes());
+        // WebKit's first probe, then the open-ended request (capped).
+        let probe = app.session_audio_part(&v.id, Some("bytes=0-1"), false).unwrap();
+        assert_eq!((probe.status, probe.start, probe.end, probe.total), (206, 0, 1, total));
+        assert_eq!(probe.body, &whole[..2]);
+        let open = app.session_audio_part(&v.id, Some("bytes=0-"), false).unwrap();
+        assert_eq!(open.status, 206);
+        assert_eq!(open.end, AUDIO_PART_MAX - 1, "an open-ended answer is capped");
+        assert_eq!(open.body, &whole[..AUDIO_PART_MAX as usize]);
+        let tail = app.session_audio_part(&v.id, Some(&format!("bytes={}-", total - 1000)), false).unwrap();
+        assert_eq!((tail.start, tail.end), (total - 1000, total - 1));
+        assert_eq!(tail.body, &whole[total as usize - 1000..]);
+        let suffix = app.session_audio_part(&v.id, Some("bytes=-44"), false).unwrap();
+        assert_eq!(suffix.body, &whole[total as usize - 44..]);
+        let past = app.session_audio_part(&v.id, Some(&format!("bytes={total}-")), false).unwrap();
+        assert_eq!(past.status, 416);
+        assert!(past.headers().contains(&("Content-Range", format!("bytes */{total}"))));
+        let head = app.session_audio_part(&v.id, None, true).unwrap();
+        assert_eq!((head.status, head.body.len()), (200, 0));
+        assert!(head.headers().contains(&("Content-Length", total.to_string())));
+        let full = app.session_audio_part(&v.id, None, false).unwrap();
+        assert_eq!(full.body, whole);
+        let h = open.headers();
+        for want in [
+            ("Content-Type", "audio/wav".to_string()),
+            ("Accept-Ranges", "bytes".to_string()),
+            ("Cache-Control", "no-store".to_string()),
+            ("Content-Range", format!("bytes 0-{}/{total}", AUDIO_PART_MAX - 1)),
+            ("Content-Length", AUDIO_PART_MAX.to_string()),
+        ] {
+            assert!(h.contains(&want), "{want:?} in {h:?}");
+        }
+    }
+    assert!(app.session_audio_part("no-such-visit", None, false).is_err());
+    assert!(app.session_audio_part("../escape", None, false).is_err());
+}
