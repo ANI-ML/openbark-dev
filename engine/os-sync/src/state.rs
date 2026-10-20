@@ -255,7 +255,9 @@ impl Paths {
 
 pub fn load(paths: &Paths) -> Result<State, SyncError> {
     match os_engine::vault::read(&paths.state()) {
-        Ok(bytes) => serde_json::from_slice(&bytes).map_err(|e| SyncError::Format(format!("sync state: {e}"))),
+        Ok(bytes) => {
+            serde_json::from_slice(&bytes).map_err(|e| SyncError::Format(format!("sync state: {e}")))
+        }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(State::default()),
         Err(e) => Err(SyncError::Io(e.to_string())),
     }
@@ -359,7 +361,9 @@ impl KeychainStore {
 impl SecretStore for KeychainStore {
     fn load(&self) -> Result<Secrets, SyncError> {
         match os_engine::keychain::get(&self.account).map_err(SyncError::Keychain)? {
-            Some(text) => serde_json::from_str(&text).map_err(|_| SyncError::Format("damaged sync secrets".into())),
+            Some(text) => {
+                serde_json::from_str(&text).map_err(|_| SyncError::Format("damaged sync secrets".into()))
+            }
             None => Ok(Secrets::default()),
         }
     }

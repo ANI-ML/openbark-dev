@@ -326,7 +326,10 @@ struct SyncServerBody {
     by: Option<String>,
 }
 
-async fn sync_server(State(s): State<St>, Json(r): Json<SyncServerBody>) -> Result<impl IntoResponse, ApiError> {
+async fn sync_server(
+    State(s): State<St>,
+    Json(r): Json<SyncServerBody>,
+) -> Result<impl IntoResponse, ApiError> {
     blocking(move || s.app().sync_set_server(&r.url, &r.key, r.by.as_deref())).await
 }
 
@@ -353,7 +356,10 @@ struct SyncVerifyBody {
     by: Option<String>,
 }
 
-async fn sync_verify(State(s): State<St>, Json(r): Json<SyncVerifyBody>) -> Result<impl IntoResponse, ApiError> {
+async fn sync_verify(
+    State(s): State<St>,
+    Json(r): Json<SyncVerifyBody>,
+) -> Result<impl IntoResponse, ApiError> {
     blocking(move || s.app().sync_verify(&r.code, &r.device_name, r.backfill_days, r.by.as_deref())).await
 }
 
@@ -364,7 +370,10 @@ struct SyncKitBody {
     by: Option<String>,
 }
 
-async fn sync_confirm_kit(State(s): State<St>, Json(r): Json<SyncKitBody>) -> Result<impl IntoResponse, ApiError> {
+async fn sync_confirm_kit(
+    State(s): State<St>,
+    Json(r): Json<SyncKitBody>,
+) -> Result<impl IntoResponse, ApiError> {
     blocking(move || s.app().sync_confirm_kit(r.answers, r.by.as_deref())).await
 }
 
@@ -385,7 +394,10 @@ async fn sync_new_code(State(s): State<St>) -> Result<impl IntoResponse, ApiErro
     blocking(move || s.app().sync_new_code()).await
 }
 
-async fn sync_recover(State(s): State<St>, Json(r): Json<SyncWordsBody>) -> Result<impl IntoResponse, ApiError> {
+async fn sync_recover(
+    State(s): State<St>,
+    Json(r): Json<SyncWordsBody>,
+) -> Result<impl IntoResponse, ApiError> {
     blocking(move || s.app().sync_recover(&r.words, r.by.as_deref())).await
 }
 

@@ -112,7 +112,7 @@ fn obs1_parser_never_panics_and_mutations_never_open() {
 
 #[test]
 fn obb1_parser_never_panics_and_mutations_never_open() {
-    let mut rng = Rng(0xFEED_FACE_0B_B1);
+    let mut rng = Rng(0xFEED_FACE_0BB1);
     let dev = DeviceKeys::generate().unwrap();
     let dek = SymKey::random().unwrap();
     let id = uuid::Uuid::new_v4().to_string();

@@ -80,7 +80,14 @@ impl Roster {
     }
 
     /// Seal under the AMK, signed by `device`.
-    pub fn seal(&self, amk: &SymKey, account: &str, version: i64, device: &DeviceKeys, device_id: &str) -> Result<Vec<u8>, SyncError> {
+    pub fn seal(
+        &self,
+        amk: &SymKey,
+        account: &str,
+        version: i64,
+        device: &DeviceKeys,
+        device_id: &str,
+    ) -> Result<Vec<u8>, SyncError> {
         let header = Header {
             v: 1,
             id: account.to_string(),
@@ -103,11 +110,10 @@ impl Roster {
         let plain = seal::open_obs1(&obj, &roster_key(amk))?;
         let roster: Roster =
             serde_json::from_slice(&plain).map_err(|_| SyncError::Format("damaged device list".into()))?;
-        let signer = roster
-            .active()
-            .find(|d| d.id == obj.header.dev)
-            .and_then(Entry::ed_pub)
-            .ok_or_else(|| SyncError::Integrity("the device list was signed by a device it doesn't list".into()))?;
+        let signer =
+            roster.active().find(|d| d.id == obj.header.dev).and_then(Entry::ed_pub).ok_or_else(|| {
+                SyncError::Integrity("the device list was signed by a device it doesn't list".into())
+            })?;
         if !seal::verify_obs1(&obj, &signer) {
             return Err(SyncError::Integrity("the device list's signature is wrong".into()));
         }

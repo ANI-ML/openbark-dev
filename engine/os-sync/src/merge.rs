@@ -131,7 +131,10 @@ mod tests {
         assert_eq!(merge_field(Some(&base), false, &h(150, "a"), &h(120, "b")), FieldMerge::TakeRemote);
         // Both changed it: the later change wins, whichever side.
         assert_eq!(merge_field(Some(&base), true, &h(150, "a"), &h(120, "b")), FieldMerge::ConflictKeepLocal);
-        assert_eq!(merge_field(Some(&base), true, &h(110, "a"), &h(120, "b")), FieldMerge::ConflictTakeRemote);
+        assert_eq!(
+            merge_field(Some(&base), true, &h(110, "a"), &h(120, "b")),
+            FieldMerge::ConflictTakeRemote
+        );
         // Never synced before.
         assert_eq!(merge_field(None, false, &h(1, "a"), &h(1, "b")), FieldMerge::TakeRemote);
     }
@@ -174,7 +177,11 @@ mod tests {
     fn the_first_signature_is_the_record_and_nothing_is_dropped() {
         // A drafted at 9:00; B drafted at 9:05 and signed at 9:06; A, offline,
         // redrafted at 9:10 and signed at 9:12.
-        let mut m = meta(vec![run("r1", 0, None, "aaaa"), run("r2", 5, Some(6), "bbbb"), run("r3", 10, Some(12), "aaaa")]);
+        let mut m = meta(vec![
+            run("r1", 0, None, "aaaa"),
+            run("r2", 5, Some(6), "bbbb"),
+            run("r3", 10, Some(12), "aaaa"),
+        ]);
         let names = |tag: Option<&str>| tag.map(|t| format!("device {t}"));
         assert!(settle(&mut m, &names));
         assert_eq!(m.runs.len(), 3);

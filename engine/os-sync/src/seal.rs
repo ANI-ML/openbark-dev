@@ -130,7 +130,7 @@ pub fn parse_obs1(bytes: &[u8]) -> Result<Obs1<'_>, SyncError> {
     let body = 7 + hlen;
     let sig_at = bytes.len() - SIG;
     let ct = &bytes[body + NONCE..sig_at];
-    if !(BUCKETS.contains(&ct.len()) || (ct.len() % 8192 == 0 && ct.len() <= MAX_OBS1_BODY)) {
+    if !(BUCKETS.contains(&ct.len()) || (ct.len().is_multiple_of(8192) && ct.len() <= MAX_OBS1_BODY)) {
         return Err(bad("padding"));
     }
     Ok(Obs1 {
@@ -157,7 +157,12 @@ fn padded_ct_len(len: usize) -> Result<usize, SyncError> {
 }
 
 /// Seal `body` as an OBS1 object under `dek`, signed by `device`.
-pub fn seal_obs1(header: &Header, body: &[u8], dek: &SymKey, device: &DeviceKeys) -> Result<Vec<u8>, SyncError> {
+pub fn seal_obs1(
+    header: &Header,
+    body: &[u8],
+    dek: &SymKey,
+    device: &DeviceKeys,
+) -> Result<Vec<u8>, SyncError> {
     let hbytes = serde_json::to_vec(header).expect("header serialises");
     if hbytes.len() > MAX_HEADER {
         return Err(SyncError::Format("header too long".into()));
@@ -309,7 +314,12 @@ pub fn seal_blob(
         for (i, chunk) in piece.chunks(CHUNK).enumerate() {
             let nonce = keys::random::<NONCE>()?;
             out.extend_from_slice(&nonce);
-            out.extend_from_slice(&keys::aead_seal(&key.0, &nonce, &chunk_aad(&hbytes, i, i + 1 == chunks), chunk)?);
+            out.extend_from_slice(&keys::aead_seal(
+                &key.0,
+                &nonce,
+                &chunk_aad(&hbytes, i, i + 1 == chunks),
+                chunk,
+            )?);
         }
         let sig = device.sign(&out);
         out.extend_from_slice(&sig);
@@ -340,10 +350,16 @@ pub fn open_blob(
         }
         let b = parse_obb1(bytes)?;
         let h = &b.header;
-        if h.id != id || h.space != space || h.ver != ver || h.part as usize != p || h.parts as usize != parts.len() {
+        if h.id != id
+            || h.space != space
+            || h.ver != ver
+            || h.part as usize != p
+            || h.parts as usize != parts.len()
+        {
             return Err(SyncError::Integrity("a blob part belongs elsewhere".into()));
         }
-        let ed = signer(&h.dev).ok_or_else(|| SyncError::Integrity("a blob part from an unknown device".into()))?;
+        let ed = signer(&h.dev)
+            .ok_or_else(|| SyncError::Integrity("a blob part from an unknown device".into()))?;
         if !keys::verify(&ed, b.signed, b.sig) {
             return Err(SyncError::Integrity("a blob part's signature is wrong".into()));
         }

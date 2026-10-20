@@ -80,7 +80,10 @@ impl Recorder {
     /// The bearer token of the latest REST call.
     fn last_token(&self) -> Option<String> {
         self.requests().iter().rev().find(|r| r.url.contains("/rest/v1/")).and_then(|r| {
-            r.headers.iter().find(|(k, _)| k == "Authorization").map(|(_, v)| v.trim_start_matches("Bearer ").to_string())
+            r.headers
+                .iter()
+                .find(|(k, _)| k == "Authorization")
+                .map(|(_, v)| v.trim_start_matches("Bearer ").to_string())
         })
     }
 }
@@ -210,7 +213,9 @@ fn sign_in(env: &Env, c: &Computer, email: &str, name: &str, used: &Mutex<BTreeS
 /// The first computer: a new account, its Recovery Kit checked.
 fn first_computer(env: &Env, email: &str, used: &Mutex<BTreeSet<String>>) -> (Computer, Vec<String>) {
     let a = Computer::new(env);
-    let NextStep::Kit(kit) = sign_in(env, &a, email, "Front desk PC", used) else { panic!("expected a new account") };
+    let NextStep::Kit(kit) = sign_in(env, &a, email, "Front desk PC", used) else {
+        panic!("expected a new account")
+    };
     assert_eq!(kit.words.len(), 24);
     assert_eq!(a.svc.status().phase, Phase::KitCheck);
     // Nothing syncs before the kit is checked.
@@ -224,7 +229,9 @@ fn first_computer(env: &Env, email: &str, used: &Mutex<BTreeSet<String>>) -> (Co
 /// Another computer joins: signs in, shows its code, A types it.
 fn join(env: &Env, a: &Computer, email: &str, name: &str, used: &Mutex<BTreeSet<String>>) -> Computer {
     let b = Computer::new(env);
-    let NextStep::Pair(pair) = sign_in(env, &b, email, name, used) else { panic!("expected to wait for approval") };
+    let NextStep::Pair(pair) = sign_in(env, &b, email, name, used) else {
+        panic!("expected to wait for approval")
+    };
     assert_eq!(pair.words.len(), 6);
     assert!(pair.qr_svg.contains("<svg"));
     // The wrong code finds nothing.
@@ -275,7 +282,8 @@ fn add_run(s: &mut Session, plan: &str) -> String {
     std::fs::create_dir_all(s.dir.join(&dir)).unwrap();
     let note = json!({"note": {"plan": plan}, "faithfulness": {"passed": true}, "markdown": format!("## Plan\n{plan}\n")});
     os_engine::vault::write(&s.dir.join(&dir).join("note.json"), note.to_string().as_bytes()).unwrap();
-    os_engine::vault::write(&s.dir.join(&dir).join("note.md"), format!("## Plan\n{plan}\n").as_bytes()).unwrap();
+    os_engine::vault::write(&s.dir.join(&dir).join("note.md"), format!("## Plan\n{plan}\n").as_bytes())
+        .unwrap();
     let run_id = uuid::Uuid::now_v7().to_string();
     let run: RunInfo = serde_json::from_value(json!({
         "dir": dir, "run_id": run_id, "device": device.tag, "llm": "test-model", "template": "soap@0.1.0",
@@ -288,7 +296,10 @@ fn add_run(s: &mut Session, plan: &str) -> String {
 }
 
 fn find(c: &Computer, id: &str) -> Session {
-    c.visits().into_iter().find(|s| s.meta.id == id).unwrap_or_else(|| panic!("visit {id} isn't on this computer"))
+    c.visits()
+        .into_iter()
+        .find(|s| s.meta.id == id)
+        .unwrap_or_else(|| panic!("visit {id} isn't on this computer"))
 }
 
 /// Every row of a table in the sync schema, read with the service role.
@@ -333,7 +344,10 @@ fn check_fields(v: &Value) {
                     && let Some(s) = x.as_str()
                 {
                     let b = keys::unb64(s).unwrap();
-                    assert!(seal::parse_obs1(&b).is_ok() || seal::parse_obb1(&b).is_ok(), "a body wasn't OBS1 or OBB1");
+                    assert!(
+                        seal::parse_obs1(&b).is_ok() || seal::parse_obb1(&b).is_ok(),
+                        "a body wasn't OBS1 or OBB1"
+                    );
                     let t = String::from_utf8_lossy(&b);
                     assert!(!t.contains("AUDIO-MARKER") && !t.contains("RIFF"));
                 }
@@ -435,11 +449,14 @@ fn the_server_sees_only_ciphertext() {
 
     // Every stored row of every table: no fixture name, no transcript or
     // note words, no audio; bodies are OBS1 and blob parts OBB1.
-    let tables = ["accounts", "devices", "key_envelopes", "spaces", "space_members", "space_keys", "objects", "blobs"];
+    let tables =
+        ["accounts", "devices", "key_envelopes", "spaces", "space_members", "space_keys", "objects", "blobs"];
     for t in tables {
         let rows = raw_rows(&env, t);
         let text = serde_json::to_string(&rows).unwrap();
-        for name in FIXTURE_NAMES.iter().chain(FIXTURE_WORDS.iter()).chain(["Front desk PC", "Back office"].iter()) {
+        for name in
+            FIXTURE_NAMES.iter().chain(FIXTURE_WORDS.iter()).chain(["Front desk PC", "Back office"].iter())
+        {
             assert!(!text.contains(name), "{name} is readable in sync.{t}");
         }
         assert!(!text.contains("AUDIO-MARKER"));
@@ -485,15 +502,27 @@ fn a_removed_device_is_locked_out_at_once_and_erases_its_copies() {
     let b_token = b.rec.last_token().unwrap();
     let b_id = b.svc.device_id();
     let b_keys = b.store.load().unwrap().keys.unwrap();
-    let space = raw_rows(&env, "spaces").into_iter().find(|s| {
-        raw_rows(&env, "devices").iter().any(|d| d["id"] == b.svc.device_id() && d["user_id"] == s["owner"])
-    }).unwrap()["id"].as_str().unwrap().to_string();
+    let space = raw_rows(&env, "spaces")
+        .into_iter()
+        .find(|s| {
+            raw_rows(&env, "devices")
+                .iter()
+                .any(|d| d["id"] == b.svc.device_id() && d["user_id"] == s["owner"])
+        })
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     a.svc.remove_device(&b_id).unwrap();
 
     // B's access token hasn't expired, yet the server refuses it at once.
-    let client = os_sync::supabase::Client::new(Server { url: env.url.clone(), key: env.key.clone() }, Recorder::new());
-    let pulled = client.rpc("pull", json!({"space_id": space, "after": 0, "max_rows": 10}), Some(&b_token)).unwrap();
+    let client = os_sync::supabase::Client::new(
+        Server { url: env.url.clone(), key: env.key.clone() },
+        Recorder::new(),
+    );
+    let pulled =
+        client.rpc("pull", json!({"space_id": space, "after": 0, "max_rows": 10}), Some(&b_token)).unwrap();
     assert_eq!(pulled["rows"], json!([]), "row level security returns nothing to a revoked device");
     let refused = client.rpc("push", json!({"space_id": space, "items": []}), Some(&b_token));
     assert!(matches!(refused, Err(SyncError::Refused(c)) if c == "not_approved"));
@@ -502,7 +531,10 @@ fn a_removed_device_is_locked_out_at_once_and_erases_its_copies() {
     let after = make_visit(a.root(), "Maple", "Okonkwo");
     a.sync();
     let objects = raw_rows(&env, "objects");
-    let new_rows: Vec<&Value> = objects.iter().filter(|o| o["space_id"] == space.as_str() && o["key_version"].as_i64() == Some(2)).collect();
+    let new_rows: Vec<&Value> = objects
+        .iter()
+        .filter(|o| o["space_id"] == space.as_str() && o["key_version"].as_i64() == Some(2))
+        .collect();
     assert!(!new_rows.is_empty(), "objects are under the rotated space key");
     for o in new_rows {
         let wrapped = hex_bytes(&o["wrapped_dek"]);
@@ -530,12 +562,17 @@ fn a_removed_device_is_locked_out_at_once_and_erases_its_copies() {
     assert_ne!(b.svc.device_id(), b_id, "a removed id never rejoins");
 
     // B can ask to join again, with new keys, and needs a new approval.
-    let NextStep::Pair(pair) = sign_in(&env, &b, &email, "Old laptop", &used) else { panic!("expected to wait") };
+    let NextStep::Pair(pair) = sign_in(&env, &b, &email, "Old laptop", &used) else {
+        panic!("expected to wait")
+    };
     assert_eq!(b.svc.status().phase, Phase::Pending);
     a.svc.approve_pairing(&pair.words.join(" ")).unwrap();
     b.sync();
     assert_eq!(b.svc.status().phase, Phase::Active);
-    assert!(b.visits().iter().any(|s| s.meta.id == own.meta.id), "approved again, it receives the visits again");
+    assert!(
+        b.visits().iter().any(|s| s.meta.id == own.meta.id),
+        "approved again, it receives the visits again"
+    );
 }
 
 #[test]
@@ -553,7 +590,9 @@ fn a_new_device_recovers_everything_from_the_kit_after_a_rotation() {
 
     // Every other device is gone: a new computer with only the kit.
     let c = Computer::new(&env);
-    let NextStep::Pair(_) = sign_in(&env, &c, &email, "New computer", &used) else { panic!("expected to wait") };
+    let NextStep::Pair(_) = sign_in(&env, &c, &email, "New computer", &used) else {
+        panic!("expected to wait")
+    };
     assert!(c.svc.recover_with_kit("abandon ability able about above absent absorb abstract absurd abuse access accident account accuse achieve acid acoustic acquire across act action actor actress actual").is_err());
     c.svc.recover_with_kit(&kit.join(" ")).unwrap();
     c.sync();
@@ -588,11 +627,19 @@ fn row_level_security_keeps_accounts_and_pending_devices_apart() {
     let spaces = raw_rows(&env, "spaces");
     let devices = raw_rows(&env, "devices");
     let owner_of = |dev: &str| devices.iter().find(|d| d["id"] == dev).unwrap()["user_id"].clone();
-    let y_space = spaces.iter().find(|s| s["owner"] == owner_of(&y.svc.device_id())).unwrap()["id"].as_str().unwrap().to_string();
+    let y_space = spaces.iter().find(|s| s["owner"] == owner_of(&y.svc.device_id())).unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
-    let client = os_sync::supabase::Client::new(Server { url: env.url.clone(), key: env.key.clone() }, Recorder::new());
+    let client = os_sync::supabase::Client::new(
+        Server { url: env.url.clone(), key: env.key.clone() },
+        Recorder::new(),
+    );
     // X can't read Y's objects, blobs, keys or devices.
-    let pulled = client.rpc("pull", json!({"space_id": y_space, "after": 0, "max_rows": 100}), Some(&x_token)).unwrap();
+    let pulled = client
+        .rpc("pull", json!({"space_id": y_space, "after": 0, "max_rows": 100}), Some(&x_token))
+        .unwrap();
     assert_eq!(pulled["rows"], json!([]));
     let keys_x = client.rpc("my_keys", json!({}), Some(&x_token)).unwrap();
     assert!(keys_x["space_keys"].as_array().unwrap().iter().all(|k| k["space_id"] != y_space.as_str()));
@@ -624,9 +671,12 @@ fn row_level_security_keeps_accounts_and_pending_devices_apart() {
         &format!("{}/rest/v1/key_envelopes?select=recipient", env.url),
         &[("apikey", &env.key), ("Authorization", &bearer), ("Accept-Profile", "sync")],
     );
-    let recipients: Vec<&str> = env_rows.as_array().unwrap().iter().filter_map(|r| r["recipient"].as_str()).collect();
+    let recipients: Vec<&str> =
+        env_rows.as_array().unwrap().iter().filter_map(|r| r["recipient"].as_str()).collect();
     assert_eq!(recipients, ["kit"], "a pending device sees no other device's envelope");
-    let pulled = client.rpc("pull", json!({"space_id": y_space, "after": 0, "max_rows": 100}), Some(&p_token)).unwrap();
+    let pulled = client
+        .rpc("pull", json!({"space_id": y_space, "after": 0, "max_rows": 100}), Some(&p_token))
+        .unwrap();
     assert_eq!(pulled["rows"], json!([]), "a pending device reads no objects");
     let own_devs = client.rpc("list_devices", json!({}), Some(&p_token)).unwrap();
     assert_eq!(own_devs.as_array().unwrap().len(), 1, "a pending device sees only its own row");
@@ -650,7 +700,10 @@ fn stopping_a_visit_removes_the_cloud_copy_and_keeps_local_ones() {
     assert!(b.visits().iter().any(|s| s.meta.id == v.meta.id));
     assert_eq!(a.svc.visit_states().get(&v.meta.id).map(String::as_str), Some("stopped"));
     assert_eq!(b.svc.visit_states().get(&v.meta.id).map(String::as_str), Some("stopped"));
-    let live = raw_rows(&env, "objects").into_iter().filter(|o| o["deleted"] == false && o["kind"] != "tombstone").count();
+    let live = raw_rows(&env, "objects")
+        .into_iter()
+        .filter(|o| o["deleted"] == false && o["kind"] != "tombstone")
+        .count();
     let _ = live;
     // A change to the stopped visit doesn't upload.
     let mut s = find(&a, &v.meta.id);
@@ -669,10 +722,11 @@ fn the_portal_removes_a_device_and_deleting_the_account_removes_every_row() {
     a.sync();
     let b = join(&env, &a, &email, "Tablet", &used);
     let a_token = a.rec.last_token().unwrap();
-    let user = raw_rows(&env, "devices").into_iter().find(|d| d["id"] == a.svc.device_id()).unwrap()["user_id"]
-        .as_str()
-        .unwrap()
-        .to_string();
+    let user =
+        raw_rows(&env, "devices").into_iter().find(|d| d["id"] == a.svc.device_id()).unwrap()["user_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
 
     // The portal's Edge Function, with the person's own token.
     let r = reqwest::blocking::Client::new()
@@ -695,7 +749,8 @@ fn the_portal_removes_a_device_and_deleting_the_account_removes_every_row() {
     a.svc.delete_account(&email).unwrap();
     for t in ["accounts", "devices", "key_envelopes", "spaces"] {
         let rows = raw_rows(&env, t);
-        let mine = rows.iter().filter(|x| x["user_id"] == user.as_str() || x["owner"] == user.as_str()).count();
+        let mine =
+            rows.iter().filter(|x| x["user_id"] == user.as_str() || x["owner"] == user.as_str()).count();
         assert_eq!(mine, 0, "sync.{t} still has rows for the deleted account");
     }
     assert_eq!(a.visits().len(), 1);

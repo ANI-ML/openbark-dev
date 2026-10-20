@@ -208,7 +208,8 @@ pub fn run_files(dir: &Path) -> Result<(Vec<String>, Vec<u8>), SyncError> {
         if name.ends_with(".tmp") {
             continue;
         }
-        let bytes = os_engine::vault::read(&path).map_err(|e| SyncError::Io(format!("{}: {e}", path.display())))?;
+        let bytes =
+            os_engine::vault::read(&path).map_err(|e| SyncError::Io(format!("{}: {e}", path.display())))?;
         guard::refuse_audio_file(&name, &bytes)?;
         let text = match String::from_utf8(bytes) {
             Ok(t) => t,
@@ -277,7 +278,8 @@ mod tests {
         assert_eq!(back[0], ("note.json".to_string(), b"{\"note\":{}}".to_vec()));
         std::fs::write(dir.path().join("audio.wav"), b"RIFF....WAVE").unwrap();
         assert!(run_files(dir.path()).is_err(), "a recording in a run folder stops the upload");
-        let evil = serde_json::to_vec(&BTreeMap::from([("../session.json".to_string(), "x".to_string())])).unwrap();
+        let evil =
+            serde_json::to_vec(&BTreeMap::from([("../session.json".to_string(), "x".to_string())])).unwrap();
         assert!(run_files_from(&evil).is_err());
         assert_eq!(safe_run_leaf("runs/002_a3f9_gemma"), Some("002_a3f9_gemma".into()));
         assert_eq!(safe_run_leaf("runs/../x"), None);

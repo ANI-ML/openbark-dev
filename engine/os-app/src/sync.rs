@@ -38,7 +38,8 @@ fn err(e: os_sync::SyncError) -> AppError {
 /// How often desktops poll while open (ADR-0017 section 11): 30 s, or
 /// `OPENBARK_SYNC_INTERVAL_SECS` (tests).
 fn interval() -> std::time::Duration {
-    let secs = std::env::var("OPENBARK_SYNC_INTERVAL_SECS").ok().and_then(|s| s.parse::<u64>().ok()).unwrap_or(30);
+    let secs =
+        std::env::var("OPENBARK_SYNC_INTERVAL_SECS").ok().and_then(|s| s.parse::<u64>().ok()).unwrap_or(30);
     std::time::Duration::from_secs(secs.clamp(2, 3600))
 }
 
@@ -55,7 +56,9 @@ impl os_sync::Host for AppHost<'_> {
 impl App {
     #[cfg(feature = "sync")]
     fn sync_service(&self) -> Result<&Arc<os_sync::SyncService>> {
-        self.sync.as_ref().ok_or_else(|| AppError("Encrypted sync couldn't start on this computer. Check the log.".into()))
+        self.sync
+            .as_ref()
+            .ok_or_else(|| AppError("Encrypted sync couldn't start on this computer. Check the log.".into()))
     }
 
     /// Who may change sync: anyone single-user; with a team, the linked
@@ -74,7 +77,10 @@ impl App {
         if linked.is_none() || linked == id || manager {
             Ok(id)
         } else {
-            Err(AppError("Sync was turned on by another team member. Ask them, or a veterinarian, to change it.".into()))
+            Err(AppError(
+                "Sync was turned on by another team member. Ask them, or a veterinarian, to change it."
+                    .into(),
+            ))
         }
     }
 
@@ -95,8 +101,10 @@ impl App {
         #[cfg(feature = "sync")]
         {
             self.sync_actor(by, true)?;
-            let server = (!url.trim().is_empty())
-                .then(|| os_sync::supabase::Server { url: url.trim().to_string(), key: key.trim().to_string() });
+            let server = (!url.trim().is_empty()).then(|| os_sync::supabase::Server {
+                url: url.trim().to_string(),
+                key: key.trim().to_string(),
+            });
             self.sync_service()?.set_server(server).map_err(err)?;
             Ok(self.sync_status())
         }
@@ -134,7 +142,8 @@ impl App {
         #[cfg(feature = "sync")]
         {
             let linked = self.sync_actor(by, false)?;
-            let step = self.sync_service()?.verify_code(code, device_name, backfill_days, linked).map_err(err)?;
+            let step =
+                self.sync_service()?.verify_code(code, device_name, backfill_days, linked).map_err(err)?;
             Ok(serde_json::to_value(step).unwrap_or(Value::Null))
         }
         #[cfg(not(feature = "sync"))]

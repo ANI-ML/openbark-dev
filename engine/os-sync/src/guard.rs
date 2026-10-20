@@ -50,8 +50,18 @@ enum Sealed {
 }
 
 /// Field names that must never appear in a request, whatever they hold.
-const NEVER: [&str; 10] =
-    ["audio", "recording", "wav", "pcm", "transcript_text", "note_text", "patient_name", "name", "email_body", "file"];
+const NEVER: [&str; 10] = [
+    "audio",
+    "recording",
+    "wav",
+    "pcm",
+    "transcript_text",
+    "note_text",
+    "patient_name",
+    "name",
+    "email_body",
+    "file",
+];
 
 fn refuse(why: String) -> SyncError {
     SyncError::Guard(why)
@@ -140,7 +150,9 @@ pub fn refuse_audio(bytes: &[u8]) -> Result<(), SyncError> {
 pub fn refuse_audio_file(name: &str, bytes: &[u8]) -> Result<(), SyncError> {
     let lower = name.to_ascii_lowercase();
     let ext = lower.rsplit('.').next().unwrap_or_default();
-    if lower.starts_with("audio") || ["wav", "wave", "m4a", "mp3", "aac", "flac", "ogg", "opus", "caf", "aiff", "tmp"].contains(&ext) {
+    if lower.starts_with("audio")
+        || ["wav", "wave", "m4a", "mp3", "aac", "flac", "ogg", "opus", "caf", "aiff", "tmp"].contains(&ext)
+    {
         return Err(refuse(format!("{name} is a recording; audio never syncs")));
     }
     refuse_audio(bytes)
@@ -162,7 +174,10 @@ mod tests {
             dev: uuid::Uuid::now_v7().to_string(),
             ctr: 1,
         };
-        keys::b64(&seal::seal_obs1(&h, b"{}", &SymKey::random().unwrap(), &DeviceKeys::generate().unwrap()).unwrap())
+        keys::b64(
+            &seal::seal_obs1(&h, b"{}", &SymKey::random().unwrap(), &DeviceKeys::generate().unwrap())
+                .unwrap(),
+        )
     }
 
     #[test]

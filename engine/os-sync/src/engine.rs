@@ -137,10 +137,8 @@ impl SyncService {
     }
 
     fn run(&self, inner: &mut Inner, host: &dyn Host, report: &mut SyncReport) -> Result<(), SyncError> {
-        if inner.state.phase == Phase::Pending {
-            if !self.poll_pending(inner)? {
-                return Ok(());
-            }
+        if inner.state.phase == Phase::Pending && !self.poll_pending(inner)? {
+            return Ok(());
         }
         if inner.state.phase == Phase::KitCheck {
             self.load_devices(inner);
@@ -167,7 +165,9 @@ impl SyncService {
             || inner.secrets.keys.as_ref().is_none_or(|k| k.space_keys.is_empty())
         {
             self.refresh_keys(inner)?;
-        } else if inner.roster.is_none() || acct["roster_version"].as_i64() != Some(inner.state.roster_version) {
+        } else if inner.roster.is_none()
+            || acct["roster_version"].as_i64() != Some(inner.state.roster_version)
+        {
             self.refresh_roster(inner)?;
         }
         if acct["rotate_needed"].as_bool() == Some(true)
@@ -232,7 +232,10 @@ impl SyncService {
                     Ok(Applied::Later) => {
                         d.tries += 1;
                         if d.tries > 200 {
-                            inner.state.warn(format!("A {} object never found its visit and was set aside.", d.row.kind));
+                            inner.state.warn(format!(
+                                "A {} object never found its visit and was set aside.",
+                                d.row.kind
+                            ));
                         } else {
                             inner.state.deferred.push(d);
                         }
@@ -253,7 +256,9 @@ impl SyncService {
         let obj = seal::parse_obs1(&bytes)?;
         let h = &obj.header;
         if h.id != row.id || h.kind != row.kind || h.space != space {
-            return Err(SyncError::Integrity("an object's sealed name doesn't match where the server put it".into()));
+            return Err(SyncError::Integrity(
+                "an object's sealed name doesn't match where the server put it".into(),
+            ));
         }
         if h.ver as i64 != row.version {
             return Err(SyncError::Integrity(format!(
@@ -264,14 +269,19 @@ impl SyncService {
         if let Some(seen) = inner.state.seen.get(&row.id)
             && row.version < seen.version
         {
-            return Err(SyncError::Integrity(format!("an older version of a {} object came back (a rollback?)", row.kind)));
+            return Err(SyncError::Integrity(format!(
+                "an older version of a {} object came back (a rollback?)",
+                row.kind
+            )));
         }
         let mut signer = inner.roster.as_ref().and_then(|r| r.signer(&h.dev, h.ctr));
         if signer.is_none() {
             self.refresh_roster(inner)?;
             signer = inner.roster.as_ref().and_then(|r| r.signer(&h.dev, h.ctr));
         }
-        let signer = signer.ok_or_else(|| SyncError::Integrity("an object signed by a device the device list doesn't allow".into()))?;
+        let signer = signer.ok_or_else(|| {
+            SyncError::Integrity("an object signed by a device the device list doesn't allow".into())
+        })?;
         if !seal::verify_obs1(&obj, &signer) {
             return Err(SyncError::Integrity("an object's signature is wrong".into()));
         }
@@ -287,7 +297,8 @@ impl SyncService {
                 .map_err(|_| SyncError::Format("bad object key".into()))?,
         );
         let plain = seal::open_obs1(&obj, &dek)?;
-        let body: Body = serde_json::from_slice(&plain).map_err(|_| SyncError::Format("damaged object".into()))?;
+        let body: Body =
+            serde_json::from_slice(&plain).map_err(|_| SyncError::Format("damaged object".into()))?;
         let header = h.clone();
         drop(obj);
         // Blobs need the DEK: keep it for this row.
@@ -304,7 +315,10 @@ impl SyncService {
         report: &mut SyncReport,
     ) -> Result<Applied, SyncError> {
         if row.deleted {
-            inner.state.seen.insert(row.id.clone(), Seen { version: row.version, dev: String::new(), ctr: 0 });
+            inner
+                .state
+                .seen
+                .insert(row.id.clone(), Seen { version: row.version, dev: String::new(), ctr: 0 });
             return Ok(Applied::Done);
         }
         // This device's own object, already recorded.
@@ -332,7 +346,10 @@ impl SyncService {
             _ => Applied::Done,
         };
         if matches!(out, Applied::Done) {
-            inner.state.seen.insert(row.id.clone(), Seen { version: row.version, dev: header.dev, ctr: header.ctr });
+            inner
+                .state
+                .seen
+                .insert(row.id.clone(), Seen { version: row.version, dev: header.dev, ctr: header.ctr });
         }
         Ok(out)
     }
@@ -370,7 +387,8 @@ impl SyncService {
         body: &Body,
         report: &mut SyncReport,
     ) -> Result<Applied, SyncError> {
-        let vb: map::VisitBody = serde_json::from_value(body.data.clone()).map_err(|e| SyncError::Format(e.to_string()))?;
+        let vb: map::VisitBody =
+            serde_json::from_value(body.data.clone()).map_err(|e| SyncError::Format(e.to_string()))?;
         if self.skip_visit(inner, &vb.session_id) {
             return Ok(Applied::Done);
         }
@@ -397,14 +415,17 @@ impl SyncService {
             vs.header.version = Some(row.version);
             for f in VISIT_FIELDS {
                 if let Some(st) = vb.fields.get(f) {
-                    vs.fields.insert(f.into(), FieldSync { hash: map::hash_value(&values[f]), hlc: st.t.clone() });
+                    vs.fields
+                        .insert(f.into(), FieldSync { hash: map::hash_value(&values[f]), hlc: st.t.clone() });
                 }
             }
             idx.insert(vb.session_id.clone(), s.dir.clone());
             report.adopted += 1;
             return Ok(Applied::Done);
         }
-        let Some((mut s, _guard)) = self.held_visit(inner, host, idx, &vb.session_id) else { return Ok(Applied::Later) };
+        let Some((mut s, _guard)) = self.held_visit(inner, host, idx, &vb.session_id) else {
+            return Ok(Applied::Later);
+        };
         let mut vs = inner.state.visits.get(&vb.session_id).cloned().unwrap_or_default();
         let mut changed = false;
         for f in VISIT_FIELDS {
@@ -432,7 +453,15 @@ impl SyncService {
                 FieldMerge::KeepLocal => {}
                 FieldMerge::TakeRemote | FieldMerge::ConflictTakeRemote => {
                     if local_changed {
-                        self.log_conflict(inner, &vb.session_id, f, remote.v.clone(), local_v.clone(), &from, "this device");
+                        self.log_conflict(
+                            inner,
+                            &vb.session_id,
+                            f,
+                            remote.v.clone(),
+                            local_v.clone(),
+                            &from,
+                            "this device",
+                        );
                     }
                     map::apply_field(&mut s.meta, f, &remote.v)?;
                     changed = true;
@@ -440,10 +469,21 @@ impl SyncService {
                     vs.fields.insert(f.into(), FieldSync { hash: after, hlc: remote.t.clone() });
                 }
                 FieldMerge::ConflictKeepLocal => {
-                    self.log_conflict(inner, &vb.session_id, f, local_v.clone(), remote.v.clone(), "this device", &from);
+                    self.log_conflict(
+                        inner,
+                        &vb.session_id,
+                        f,
+                        local_v.clone(),
+                        remote.v.clone(),
+                        "this device",
+                        &from,
+                    );
                     // Recorded as the other's value: the next scan sees the
                     // local one as changed and pushes it with a later stamp.
-                    vs.fields.insert(f.into(), FieldSync { hash: map::hash_value(&remote.v), hlc: remote.t.clone() });
+                    vs.fields.insert(
+                        f.into(),
+                        FieldSync { hash: map::hash_value(&remote.v), hlc: remote.t.clone() },
+                    );
                 }
             }
         }
@@ -488,7 +528,12 @@ impl SyncService {
     }
 
     /// A blob's plaintext, for the row just opened.
-    fn fetch_blob(&self, inner: &mut Inner, row: &RemoteRow, hashes: &[String]) -> Result<Vec<u8>, SyncError> {
+    fn fetch_blob(
+        &self,
+        inner: &mut Inner,
+        row: &RemoteRow,
+        hashes: &[String],
+    ) -> Result<Vec<u8>, SyncError> {
         let space = inner.state.space_id.clone().ok_or(SyncError::NoKeys)?;
         let (_, _, dek) = inner
             .last_dek
@@ -509,7 +554,8 @@ impl SyncService {
         let roster = inner.roster.clone();
         let signer = move |dev: &str| roster.as_ref().and_then(|r| r.get(dev)).and_then(|e| e.ed_pub());
         let plain = seal::open_blob(&parts, hashes, &row.id, &space, row.version as u32, &dek, &signer)?;
-        guard::refuse_audio(&plain).map_err(|_| SyncError::Integrity("a blob looked like a recording".into()))?;
+        guard::refuse_audio(&plain)
+            .map_err(|_| SyncError::Integrity("a blob looked like a recording".into()))?;
         Ok(plain)
     }
 
@@ -521,11 +567,14 @@ impl SyncService {
         row: &RemoteRow,
         body: &Body,
     ) -> Result<Applied, SyncError> {
-        let tb: map::TranscriptBody = serde_json::from_value(body.data.clone()).map_err(|e| SyncError::Format(e.to_string()))?;
+        let tb: map::TranscriptBody =
+            serde_json::from_value(body.data.clone()).map_err(|e| SyncError::Format(e.to_string()))?;
         if self.skip_visit(inner, &tb.session_id) {
             return Ok(Applied::Done);
         }
-        let Some((mut s, _guard)) = self.held_visit(inner, host, idx, &tb.session_id) else { return Ok(Applied::Later) };
+        let Some((mut s, _guard)) = self.held_visit(inner, host, idx, &tb.session_id) else {
+            return Ok(Applied::Later);
+        };
         let mut vs = inner.state.visits.get(&tb.session_id).cloned().unwrap_or_default();
         let remote_hlc = parse_hlc(&body.hlc);
         let synced_hlc = parse_hlc(&vs.transcript.hlc);
@@ -566,18 +615,24 @@ impl SyncService {
         row: &RemoteRow,
         body: &Body,
     ) -> Result<Applied, SyncError> {
-        let rb: map::RunBody = serde_json::from_value(body.data.clone()).map_err(|e| SyncError::Format(e.to_string()))?;
+        let rb: map::RunBody =
+            serde_json::from_value(body.data.clone()).map_err(|e| SyncError::Format(e.to_string()))?;
         if self.skip_visit(inner, &rb.session_id) {
             return Ok(Applied::Done);
         }
-        let Some((mut s, _guard)) = self.held_visit(inner, host, idx, &rb.session_id) else { return Ok(Applied::Later) };
+        let Some((mut s, _guard)) = self.held_visit(inner, host, idx, &rb.session_id) else {
+            return Ok(Applied::Later);
+        };
         let rid = rb.run.id().to_string();
         if !s.meta.runs.iter().any(|r| r.id() == rid) {
             let files = map::run_files_from(&self.fetch_blob(inner, row, &rb.parts)?)?;
-            let leaf = map::safe_run_leaf(&rb.run.dir).unwrap_or_else(|| format!("{:03}_sync", s.meta.runs.len() + 1));
+            let leaf = map::safe_run_leaf(&rb.run.dir)
+                .unwrap_or_else(|| format!("{:03}_sync", s.meta.runs.len() + 1));
             let mut name = leaf.clone();
             let mut n = 2;
-            while s.dir.join("runs").join(&name).exists() || s.meta.runs.iter().any(|r| r.dir == format!("runs/{name}")) {
+            while s.dir.join("runs").join(&name).exists()
+                || s.meta.runs.iter().any(|r| r.dir == format!("runs/{name}"))
+            {
                 name = format!("{leaf}-{n}");
                 n += 1;
             }
@@ -602,13 +657,24 @@ impl SyncService {
         merge::settle(meta, &names)
     }
 
-    fn apply_event(&self, inner: &mut Inner, host: &dyn Host, idx: &Index, body: &Body) -> Result<Applied, SyncError> {
-        let eb: map::EventBody = serde_json::from_value(body.data.clone()).map_err(|e| SyncError::Format(e.to_string()))?;
+    fn apply_event(
+        &self,
+        inner: &mut Inner,
+        host: &dyn Host,
+        idx: &Index,
+        body: &Body,
+    ) -> Result<Applied, SyncError> {
+        let eb: map::EventBody =
+            serde_json::from_value(body.data.clone()).map_err(|e| SyncError::Format(e.to_string()))?;
         if self.skip_visit(inner, &eb.session_id) {
             return Ok(Applied::Done);
         }
-        let Some((mut s, _guard)) = self.held_visit(inner, host, idx, &eb.session_id) else { return Ok(Applied::Later) };
-        let Some(at) = s.meta.runs.iter().position(|r| r.id() == eb.run_id) else { return Ok(Applied::Later) };
+        let Some((mut s, _guard)) = self.held_visit(inner, host, idx, &eb.session_id) else {
+            return Ok(Applied::Later);
+        };
+        let Some(at) = s.meta.runs.iter().position(|r| r.id() == eb.run_id) else {
+            return Ok(Applied::Later);
+        };
         let vs = inner.state.visits.entry(eb.session_id.clone()).or_default();
         let mut changed = false;
         if let Some(sign) = &eb.sign {
@@ -646,29 +712,47 @@ impl SyncService {
         row: &RemoteRow,
         body: &Body,
     ) -> Result<Applied, SyncError> {
-        let cb: map::ChecksBody = serde_json::from_value(body.data.clone()).map_err(|e| SyncError::Format(e.to_string()))?;
+        let cb: map::ChecksBody =
+            serde_json::from_value(body.data.clone()).map_err(|e| SyncError::Format(e.to_string()))?;
         if self.skip_visit(inner, &cb.session_id) {
             return Ok(Applied::Done);
         }
-        let Some((mut s, _guard)) = self.held_visit(inner, host, idx, &cb.session_id) else { return Ok(Applied::Later) };
-        let Some(at) = s.meta.runs.iter().position(|r| r.id() == cb.run_id) else { return Ok(Applied::Later) };
+        let Some((mut s, _guard)) = self.held_visit(inner, host, idx, &cb.session_id) else {
+            return Ok(Applied::Later);
+        };
+        let Some(at) = s.meta.runs.iter().position(|r| r.id() == cb.run_id) else {
+            return Ok(Applied::Later);
+        };
         let mut vs = inner.state.visits.get(&cb.session_id).cloned().unwrap_or_default();
         let synced = vs.checks.get(&cb.run_id).cloned();
         let remote_hlc = parse_hlc(&body.hlc).ok_or_else(|| SyncError::Format("no clock".into()))?;
         let synced_hlc = synced.as_ref().and_then(|x| parse_hlc(&x.hlc));
-        let local_h = map::hash_value(&serde_json::to_value(&s.meta.runs[at].chart_checks).expect("serialises"));
+        let local_h =
+            map::hash_value(&serde_json::to_value(&s.meta.runs[at].chart_checks).expect("serialises"));
         let remote_h = map::hash_value(&serde_json::to_value(&cb.checks).expect("serialises"));
-        let local_changed = synced.as_ref().map_or(!s.meta.runs[at].chart_checks.is_empty(), |x| x.hash != local_h);
+        let local_changed =
+            synced.as_ref().map_or(!s.meta.runs[at].chart_checks.is_empty(), |x| x.hash != local_h);
         let local_hlc = merge::local_stamp(&mut inner.clock, None, synced_hlc.as_ref());
         let signed = s.meta.runs[at].signed_at.is_some();
-        match merge::merge_field(synced_hlc.as_ref(), local_changed && local_h != remote_h, &local_hlc, &remote_hlc) {
+        match merge::merge_field(
+            synced_hlc.as_ref(),
+            local_changed && local_h != remote_h,
+            &local_hlc,
+            &remote_hlc,
+        ) {
             FieldMerge::TakeRemote | FieldMerge::ConflictTakeRemote if !signed => {
                 s.meta.runs[at].chart_checks = cb.checks.clone();
                 s.save()?;
-                vs.checks.insert(cb.run_id.clone(), ObjSync { version: Some(row.version), hash: remote_h, hlc: body.hlc.clone() });
+                vs.checks.insert(
+                    cb.run_id.clone(),
+                    ObjSync { version: Some(row.version), hash: remote_h, hlc: body.hlc.clone() },
+                );
             }
             FieldMerge::ConflictKeepLocal => {
-                vs.checks.insert(cb.run_id.clone(), ObjSync { version: Some(row.version), hash: remote_h, hlc: body.hlc.clone() });
+                vs.checks.insert(
+                    cb.run_id.clone(),
+                    ObjSync { version: Some(row.version), hash: remote_h, hlc: body.hlc.clone() },
+                );
             }
             _ => {
                 let e = vs.checks.entry(cb.run_id.clone()).or_default();
@@ -680,12 +764,17 @@ impl SyncService {
     }
 
     fn apply_patient(&self, inner: &mut Inner, row: &RemoteRow, body: &Body) -> Result<Applied, SyncError> {
-        let pb: map::PatientBody = serde_json::from_value(body.data.clone()).map_err(|e| SyncError::Format(e.to_string()))?;
+        let pb: map::PatientBody =
+            serde_json::from_value(body.data.clone()).map_err(|e| SyncError::Format(e.to_string()))?;
         let store = PatientStore::for_sessions(&self.root);
         let merged = store.merge_in(vec![pb.record.clone()])?;
         let now = merged.iter().find(|r| r.id == pb.record.id);
-        let hash = now.map(|r| map::hash_value(&serde_json::to_value(r).expect("serialises"))).unwrap_or_default();
-        inner.state.patients.insert(pb.record.id.clone(), ObjSync { version: Some(row.version), hash, hlc: body.hlc.clone() });
+        let hash =
+            now.map(|r| map::hash_value(&serde_json::to_value(r).expect("serialises"))).unwrap_or_default();
+        inner.state.patients.insert(
+            pb.record.id.clone(),
+            ObjSync { version: Some(row.version), hash, hlc: body.hlc.clone() },
+        );
         Ok(Applied::Done)
     }
 
@@ -706,7 +795,9 @@ impl SyncService {
         match &st.linked_user {
             None => true,
             Some(user) => {
-                let me = |w: &Option<os_engine::users::Who>| w.as_ref().and_then(|w| w.id.as_deref()) == Some(user);
+                let me = |w: &Option<os_engine::users::Who>| {
+                    w.as_ref().and_then(|w| w.id.as_deref()) == Some(user)
+                };
                 me(&s.meta.recorded_by) || s.meta.runs.iter().any(|r| me(&r.by) || me(&r.signer))
             }
         }
@@ -723,7 +814,8 @@ impl SyncService {
         // brought back by a pull (ADR-0017 section 10: "Delete from this
         // device" removes this device's copy only).
         inner.state.dropped.retain(|id| !present.contains(id));
-        let gone: Vec<String> = inner.state.visits.keys().filter(|id| !present.contains(*id)).cloned().collect();
+        let gone: Vec<String> =
+            inner.state.visits.keys().filter(|id| !present.contains(*id)).cloned().collect();
         for id in gone {
             inner.state.dropped.insert(id);
         }
@@ -777,13 +869,23 @@ impl SyncService {
                 session_id: sid.clone(),
                 created_at: s.meta.created_at,
                 app_version: s.meta.app_version.clone(),
-                audio_on: s.meta.audio_on.as_ref().map(|a| a.device_id.clone()).unwrap_or_else(|| self.me().id.clone()),
+                audio_on: s
+                    .meta
+                    .audio_on
+                    .as_ref()
+                    .map(|a| a.device_id.clone())
+                    .unwrap_or_else(|| self.me().id.clone()),
                 fields: VISIT_FIELDS
                     .iter()
                     .map(|f| (f.to_string(), Stamped { v: values[*f].clone(), t: fields[*f].hlc.clone() }))
                     .collect(),
             };
-            let hlc = fields.values().filter_map(|x| parse_hlc(&x.hlc)).max().map(|h| h.to_string()).unwrap_or_default();
+            let hlc = fields
+                .values()
+                .filter_map(|x| parse_hlc(&x.hlc))
+                .max()
+                .map(|h| h.to_string())
+                .unwrap_or_default();
             self.enqueue(
                 inner,
                 "visit",
@@ -827,12 +929,20 @@ impl SyncService {
                 let oid = keys::object_id(naming, "run", &local);
                 if !inner.state.outbox.iter().any(|o| o.id == oid) {
                     let (files, blob) = map::run_files(&s.dir.join(&run.dir))?;
-                    let body = json!({"session_id": sid, "run": map::strip_run(run), "files": files, "parts": []});
+                    let body =
+                        json!({"session_id": sid, "run": map::strip_run(run), "files": files, "parts": []});
                     let stamp = inner.clock.now().to_string();
-                    self.enqueue(inner, "run", &oid, None, body, stamp, Some(blob), rid.clone(), Commit::Run {
-                        visit: sid.clone(),
-                        run_id: rid.clone(),
-                    })?;
+                    self.enqueue(
+                        inner,
+                        "run",
+                        &oid,
+                        None,
+                        body,
+                        stamp,
+                        Some(blob),
+                        rid.clone(),
+                        Commit::Run { visit: sid.clone(), run_id: rid.clone() },
+                    )?;
                 }
             }
             if let (Some(at), false) = (run.signed_at, vs.signs.contains(&rid)) {
@@ -841,14 +951,25 @@ impl SyncService {
                     let ev = map::EventBody {
                         session_id: sid.clone(),
                         run_id: rid.clone(),
-                        sign: Some(map::SignEvent { at, by: run.signed_by.clone().unwrap_or_default(), signer: run.signer.clone() }),
+                        sign: Some(map::SignEvent {
+                            at,
+                            by: run.signed_by.clone().unwrap_or_default(),
+                            signer: run.signer.clone(),
+                        }),
                         addendum: None,
                     };
                     let stamp = inner.clock.now().to_string();
-                    self.enqueue(inner, "event", &oid, None, serde_json::to_value(&ev).expect("json"), stamp, None, rid.clone(), Commit::Sign {
-                        visit: sid.clone(),
-                        run_id: rid.clone(),
-                    })?;
+                    self.enqueue(
+                        inner,
+                        "event",
+                        &oid,
+                        None,
+                        serde_json::to_value(&ev).expect("json"),
+                        stamp,
+                        None,
+                        rid.clone(),
+                        Commit::Sign { visit: sid.clone(), run_id: rid.clone() },
+                    )?;
                 }
             }
             for a in &run.addenda {
@@ -859,12 +980,24 @@ impl SyncService {
                 if inner.state.outbox.iter().any(|o| o.id == oid) {
                     continue;
                 }
-                let ev = map::EventBody { session_id: sid.clone(), run_id: rid.clone(), sign: None, addendum: Some(a.clone()) };
+                let ev = map::EventBody {
+                    session_id: sid.clone(),
+                    run_id: rid.clone(),
+                    sign: None,
+                    addendum: Some(a.clone()),
+                };
                 let stamp = inner.clock.now().to_string();
-                self.enqueue(inner, "event", &oid, None, serde_json::to_value(&ev).expect("json"), stamp, None, a.id.clone(), Commit::Addendum {
-                    visit: sid.clone(),
-                    id: a.id.clone(),
-                })?;
+                self.enqueue(
+                    inner,
+                    "event",
+                    &oid,
+                    None,
+                    serde_json::to_value(&ev).expect("json"),
+                    stamp,
+                    None,
+                    a.id.clone(),
+                    Commit::Addendum { visit: sid.clone(), id: a.id.clone() },
+                )?;
             }
             if !run.chart_checks.is_empty() || vs.checks.contains_key(&rid) {
                 let h = map::hash_value(&serde_json::to_value(&run.chart_checks).expect("serialises"));
@@ -873,8 +1006,13 @@ impl SyncService {
                     let oid = keys::object_id(naming, "checks", &local);
                     if !Self::queued(&inner.state, &oid, &h) {
                         let at = run.chart_checks.iter().map(|c| c.at).max();
-                        let stamp = merge::local_stamp(&mut inner.clock, at, parse_hlc(&synced.hlc).as_ref()).to_string();
-                        let body = map::ChecksBody { session_id: sid.clone(), run_id: rid.clone(), checks: run.chart_checks.clone() };
+                        let stamp = merge::local_stamp(&mut inner.clock, at, parse_hlc(&synced.hlc).as_ref())
+                            .to_string();
+                        let body = map::ChecksBody {
+                            session_id: sid.clone(),
+                            run_id: rid.clone(),
+                            checks: run.chart_checks.clone(),
+                        };
                         self.enqueue(
                             inner,
                             "checks",
@@ -904,8 +1042,12 @@ impl SyncService {
         if Self::queued(&inner.state, &oid, &h) {
             return Ok(());
         }
-        let stamp = merge::local_stamp(&mut inner.clock, Some(rec.updated_at.unwrap_or(rec.created_at)), parse_hlc(&synced.hlc).as_ref())
-            .to_string();
+        let stamp = merge::local_stamp(
+            &mut inner.clock,
+            Some(rec.updated_at.unwrap_or(rec.created_at)),
+            parse_hlc(&synced.hlc).as_ref(),
+        )
+        .to_string();
         self.enqueue(
             inner,
             "patient",
@@ -944,10 +1086,11 @@ impl SyncService {
         if let Some(b) = blob {
             guard::refuse_audio(&b)?;
             let mut ctr = inner.state.counter;
-            let sealed = seal::seal_blob(id, &space, version as u32, &b, &dek, &device, &self.me().id, &mut || {
-                ctr += 1;
-                ctr
-            })?;
+            let sealed =
+                seal::seal_blob(id, &space, version as u32, &b, &dek, &device, &self.me().id, &mut || {
+                    ctr += 1;
+                    ctr
+                })?;
             inner.state.counter = ctr;
             data["parts"] = json!(sealed.hashes);
             blobs = sealed.parts.iter().map(|p| keys::b64(p)).collect();
@@ -1041,9 +1184,14 @@ impl SyncService {
                         let v = res["version"].as_i64().unwrap_or(it.version);
                         self.commit(inner, &it.commit, v);
                         if it.op == "put" {
-                            let ctr = seal::parse_obs1(&keys::unb64(&it.body)?).map(|o| o.header.ctr).unwrap_or_default();
+                            let ctr = seal::parse_obs1(&keys::unb64(&it.body)?)
+                                .map(|o| o.header.ctr)
+                                .unwrap_or_default();
                             if res["status"] == "ok" {
-                                inner.state.seen.insert(it.id.clone(), Seen { version: v, dev: self.me().id.clone(), ctr });
+                                inner.state.seen.insert(
+                                    it.id.clone(),
+                                    Seen { version: v, dev: self.me().id.clone(), ctr },
+                                );
                             }
                         }
                         report.pushed += 1;
@@ -1055,7 +1203,9 @@ impl SyncService {
                             match self.apply_row(inner, host, &mut idx, &row, report) {
                                 Ok(Applied::Done) => {}
                                 Ok(Applied::Later) => inner.state.deferred.push(Deferred { row, tries: 0 }),
-                                Err(e) => inner.state.warn(format!("A conflicting object was set aside: {e}")),
+                                Err(e) => {
+                                    inner.state.warn(format!("A conflicting object was set aside: {e}"))
+                                }
                             }
                         }
                     }
@@ -1096,14 +1246,16 @@ impl SyncService {
                 st.visits.entry(visit.clone()).or_default().addenda.insert(id.clone());
             }
             Commit::Checks { visit, run_id, hash, hlc } => {
-                st.visits
-                    .entry(visit.clone())
-                    .or_default()
-                    .checks
-                    .insert(run_id.clone(), ObjSync { version: Some(version), hash: hash.clone(), hlc: hlc.clone() });
+                st.visits.entry(visit.clone()).or_default().checks.insert(
+                    run_id.clone(),
+                    ObjSync { version: Some(version), hash: hash.clone(), hlc: hlc.clone() },
+                );
             }
             Commit::Patient { id, hash, hlc } => {
-                st.patients.insert(id.clone(), ObjSync { version: Some(version), hash: hash.clone(), hlc: hlc.clone() });
+                st.patients.insert(
+                    id.clone(),
+                    ObjSync { version: Some(version), hash: hash.clone(), hlc: hlc.clone() },
+                );
             }
             Commit::Tombstone { visit } => {
                 st.stopped.insert(visit.clone());
@@ -1136,7 +1288,10 @@ impl SyncService {
         for a in &vs.addenda {
             ids.push(keys::object_id(&naming, "addendum", &format!("{session_id}/{a}")));
         }
-        inner.state.outbox.retain(|o| !ids.contains(&o.id) && commit_visit(&o.commit).as_deref() != Some(session_id));
+        inner
+            .state
+            .outbox
+            .retain(|o| !ids.contains(&o.id) && commit_visit(&o.commit).as_deref() != Some(session_id));
         let tid = keys::object_id(&naming, "tombstone", session_id);
         let stamp = inner.clock.now().to_string();
         self.enqueue(

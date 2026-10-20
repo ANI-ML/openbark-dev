@@ -27,7 +27,11 @@ pub struct Server {
 impl Server {
     /// The host, for the settings screen.
     pub fn host(&self) -> String {
-        self.url.trim_start_matches("https://").trim_start_matches("http://").trim_end_matches('/').to_string()
+        self.url
+            .trim_start_matches("https://")
+            .trim_start_matches("http://")
+            .trim_end_matches('/')
+            .to_string()
     }
 
     /// Checks: https (or http to this computer, for a local test server),
@@ -40,7 +44,9 @@ impl Server {
         }
         let rest = url.trim_start_matches("https://").trim_start_matches("http://");
         if rest.is_empty() || rest.contains('/') || rest.contains('?') || rest.contains('@') {
-            return Err(SyncError::User("Enter just the server's address, such as https://example.supabase.co.".into()));
+            return Err(SyncError::User(
+                "Enter just the server's address, such as https://example.supabase.co.".into(),
+            ));
         }
         if self.key.trim().is_empty() || self.key.len() > 512 || self.key.contains(char::is_whitespace) {
             return Err(SyncError::User("Enter the server's publishable key.".into()));
@@ -159,7 +165,8 @@ struct UserReply {
 /// this only reads which session the token is for).
 fn jwt_claim(token: &str, claim: &str) -> Option<String> {
     let payload = token.split('.').nth(1)?;
-    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(payload.trim_end_matches('=')).ok()?;
+    let bytes =
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(payload.trim_end_matches('=')).ok()?;
     let v: Value = serde_json::from_slice(&bytes).ok()?;
     v.get(claim)?.as_str().map(String::from)
 }
@@ -180,7 +187,13 @@ impl Client {
         self.server.url.trim_end_matches('/')
     }
 
-    fn send(&self, path: &str, body: &Value, bearer: Option<&str>, extra: &[(&str, &str)]) -> Result<Value, SyncError> {
+    fn send(
+        &self,
+        path: &str,
+        body: &Value,
+        bearer: Option<&str>,
+        extra: &[(&str, &str)],
+    ) -> Result<Value, SyncError> {
         let mut headers = vec![
             ("apikey".to_string(), self.server.key.clone()),
             ("Content-Type".to_string(), "application/json".to_string()),
@@ -264,12 +277,12 @@ impl Client {
 }
 
 fn session_from(v: Value) -> Result<AuthSession, SyncError> {
-    let t: TokenReply = serde_json::from_value(v).map_err(|_| SyncError::Server("unexpected sign-in reply".into()))?;
+    let t: TokenReply =
+        serde_json::from_value(v).map_err(|_| SyncError::Server("unexpected sign-in reply".into()))?;
     let session_id = jwt_claim(&t.access_token, "session_id")
         .ok_or_else(|| SyncError::Server("the sign-in token has no session".into()))?;
-    let expires_at = t
-        .expires_at
-        .unwrap_or_else(|| chrono::Utc::now().timestamp() + t.expires_in.unwrap_or(600));
+    let expires_at =
+        t.expires_at.unwrap_or_else(|| chrono::Utc::now().timestamp() + t.expires_in.unwrap_or(600));
     Ok(AuthSession {
         access_token: t.access_token,
         refresh_token: t.refresh_token,
@@ -293,9 +306,12 @@ fn error_from(status: u16, body: &Value) -> SyncError {
     if let Some(code) = message.strip_prefix("openbark:") {
         return SyncError::Refused(code.to_string());
     }
-    let code = body.get("error_code").or_else(|| body.get("code")).and_then(Value::as_str).unwrap_or_default();
+    let code =
+        body.get("error_code").or_else(|| body.get("code")).and_then(Value::as_str).unwrap_or_default();
     match (status, code) {
-        (_, "otp_expired") => SyncError::User("That code has expired or was already used. Ask for a new one.".into()),
+        (_, "otp_expired") => {
+            SyncError::User("That code has expired or was already used. Ask for a new one.".into())
+        }
         (_, "over_email_send_rate_limit") | (429, _) => {
             SyncError::User("Too many codes were asked for. Wait a minute and try again.".into())
         }
@@ -321,7 +337,12 @@ mod tests {
         ok.check().unwrap();
         assert_eq!(ok.host(), "abc.supabase.co");
         Server { url: "http://127.0.0.1:54321".into(), key: "k".into() }.check().unwrap();
-        for bad in ["http://example.org", "https://abc.supabase.co/rest/v1", "https://user@abc.supabase.co", "ftp://x"] {
+        for bad in [
+            "http://example.org",
+            "https://abc.supabase.co/rest/v1",
+            "https://user@abc.supabase.co",
+            "ftp://x",
+        ] {
             assert!(Server { url: bad.into(), key: "k".into() }.check().is_err(), "{bad}");
         }
         assert!(Server { url: "https://abc.supabase.co".into(), key: " ".into() }.check().is_err());
@@ -334,7 +355,10 @@ mod tests {
             SyncError::Refused(c) if c == "not_approved"
         ));
         assert!(matches!(error_from(401, &json!({})), SyncError::Unauthorized));
-        assert!(matches!(error_from(400, &json!({"error_code": "refresh_token_not_found"})), SyncError::SignedOut));
+        assert!(matches!(
+            error_from(400, &json!({"error_code": "refresh_token_not_found"})),
+            SyncError::SignedOut
+        ));
         assert!(matches!(error_from(403, &json!({"error_code": "otp_expired"})), SyncError::User(_)));
     }
 

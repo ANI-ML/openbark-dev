@@ -841,7 +841,11 @@ async fn sync_set_server(
 }
 
 #[tauri::command]
-async fn sync_send_code(app: State<'_, AppState>, email: String, by: Option<String>) -> Result<serde_json::Value, String> {
+async fn sync_send_code(
+    app: State<'_, AppState>,
+    email: String,
+    by: Option<String>,
+) -> Result<serde_json::Value, String> {
     let app = app.inner().clone();
     work(move || app.sync_send_code(&email, by.as_deref())).await
 }
@@ -886,7 +890,11 @@ async fn sync_new_code(app: State<'_, AppState>) -> Result<serde_json::Value, St
 }
 
 #[tauri::command]
-async fn sync_recover(app: State<'_, AppState>, words: String, by: Option<String>) -> Result<serde_json::Value, String> {
+async fn sync_recover(
+    app: State<'_, AppState>,
+    words: String,
+    by: Option<String>,
+) -> Result<serde_json::Value, String> {
     let app = app.inner().clone();
     work(move || app.sync_recover(&words, by.as_deref())).await
 }
@@ -924,7 +932,11 @@ async fn sync_delete_account(
 }
 
 #[tauri::command]
-async fn sync_stop_visit(app: State<'_, AppState>, id: String, by: Option<String>) -> Result<serde_json::Value, String> {
+async fn sync_stop_visit(
+    app: State<'_, AppState>,
+    id: String,
+    by: Option<String>,
+) -> Result<serde_json::Value, String> {
     let app = app.inner().clone();
     work(move || app.sync_stop_visit(&id, by.as_deref())).await
 }

@@ -114,7 +114,12 @@ fn aead(key: &[u8; 32]) -> XChaCha20Poly1305 {
     XChaCha20Poly1305::new(key.into())
 }
 
-pub fn aead_seal(key: &[u8; 32], nonce: &[u8; NONCE], aad: &[u8], plain: &[u8]) -> Result<Vec<u8>, SyncError> {
+pub fn aead_seal(
+    key: &[u8; 32],
+    nonce: &[u8; NONCE],
+    aad: &[u8],
+    plain: &[u8],
+) -> Result<Vec<u8>, SyncError> {
     aead(key)
         .encrypt(&XNonce::from(*nonce), Payload { msg: plain, aad })
         .map_err(|_| SyncError::Crypto("encryption failed".into()))
@@ -256,7 +261,12 @@ pub fn open_envelope(
     let me = PublicKey::from(secret).to_bytes();
     let shared = secret.diffie_hellman(&PublicKey::from(eph_pub));
     let key = envelope_key(shared.as_bytes(), &eph_pub, &me, aad, bind)?;
-    let plain = aead_open(&key, &sealed[37..37 + NONCE], &[ENVELOPE_MAGIC.as_slice(), &[1], aad].concat(), &sealed[37 + NONCE..])?;
+    let plain = aead_open(
+        &key,
+        &sealed[37..37 + NONCE],
+        &[ENVELOPE_MAGIC.as_slice(), &[1], aad].concat(),
+        &sealed[37 + NONCE..],
+    )?;
     plain.try_into().map_err(|_| SyncError::Format("bad envelope contents".into()))
 }
 
@@ -306,7 +316,8 @@ pub fn wrap_space_key(
     key: &SymKey,
     naming: &SymKey,
 ) -> Result<Vec<u8>, SyncError> {
-    let text = serde_json::to_vec(&SpaceSecret { key: b64(&key.0), naming: b64(&naming.0) }).expect("serialises");
+    let text =
+        serde_json::to_vec(&SpaceSecret { key: b64(&key.0), naming: b64(&naming.0) }).expect("serialises");
     wrap(&amk.derive("space-key"), &space_key_aad(space, version, amk_version), &text)
 }
 
@@ -318,7 +329,8 @@ pub fn unwrap_space_key(
     wrapped: &[u8],
 ) -> Result<(SymKey, SymKey), SyncError> {
     let text = unwrap(&amk.derive("space-key"), &space_key_aad(space, version, amk_version), wrapped)?;
-    let s: SpaceSecret = serde_json::from_slice(&text).map_err(|_| SyncError::Format("damaged space key".into()))?;
+    let s: SpaceSecret =
+        serde_json::from_slice(&text).map_err(|_| SyncError::Format("damaged space key".into()))?;
     Ok((SymKey(unb64_32(&s.key)?), SymKey(unb64_32(&s.naming)?)))
 }
 
@@ -378,10 +390,17 @@ impl Kit {
                 words.len()
             )));
         }
-        let m = bip39::Mnemonic::parse_in_normalized(bip39::Language::English, &words.join(" "))
-            .map_err(|_| SyncError::User("These words aren't a Recovery Kit. Check each word against the printed kit.".into()))?;
+        let m = bip39::Mnemonic::parse_in_normalized(bip39::Language::English, &words.join(" ")).map_err(
+            |_| {
+                SyncError::User(
+                    "These words aren't a Recovery Kit. Check each word against the printed kit.".into(),
+                )
+            },
+        )?;
         let entropy = m.to_entropy();
-        Ok(Self { seed: entropy.try_into().map_err(|_| SyncError::User("That isn't a 24-word kit.".into()))? })
+        Ok(Self {
+            seed: entropy.try_into().map_err(|_| SyncError::User("That isn't a 24-word kit.".into()))?,
+        })
     }
 
     pub fn x_secret(&self) -> StaticSecret {
@@ -423,8 +442,12 @@ pub fn normalise_words(text: &str) -> Result<Vec<String>, SyncError> {
         let found = list
             .iter()
             .find(|l| **l == w)
-            .or_else(|| if w.len() >= 4 { list.iter().find(|l| l.starts_with(&w[..4]) && l.len() >= 4) } else { None })
-            .ok_or_else(|| SyncError::User(format!("\"{w}\" isn't one of the words OpenBark uses. Check it.")))?;
+            .or_else(|| {
+                if w.len() >= 4 { list.iter().find(|l| l.starts_with(&w[..4]) && l.len() >= 4) } else { None }
+            })
+            .ok_or_else(|| {
+                SyncError::User(format!("\"{w}\" isn't one of the words OpenBark uses. Check it."))
+            })?;
         out.push(found.to_string());
     }
     Ok(out)
@@ -511,11 +534,9 @@ pub fn pairing_uri(device_id: &str, fingerprint: &[u8; 32], code: &PairingCode) 
 /// An SVG QR code for `text` (medium error correction).
 pub fn qr_svg(text: &str) -> String {
     match qrcode::QrCode::with_error_correction_level(text.as_bytes(), qrcode::EcLevel::M) {
-        Ok(code) => code
-            .render::<qrcode::render::svg::Color>()
-            .min_dimensions(220, 220)
-            .quiet_zone(true)
-            .build(),
+        Ok(code) => {
+            code.render::<qrcode::render::svg::Color>().min_dimensions(220, 220).quiet_zone(true).build()
+        }
         Err(_) => String::new(),
     }
 }
@@ -564,7 +585,13 @@ mod tests {
         let typed = words
             .iter()
             .enumerate()
-            .map(|(i, w)| format!("{}. {}", i + 1, if i % 2 == 0 { w.to_uppercase() } else { w[..4.min(w.len())].to_string() }))
+            .map(|(i, w)| {
+                format!(
+                    "{}. {}",
+                    i + 1,
+                    if i % 2 == 0 { w.to_uppercase() } else { w[..4.min(w.len())].to_string() }
+                )
+            })
             .collect::<Vec<_>>()
             .join("\n");
         let back = Kit::from_words(&typed).unwrap();

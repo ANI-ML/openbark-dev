@@ -221,7 +221,11 @@ impl SyncService {
     }
 
     /// Sync with a given transport and secret store (tests).
-    pub fn open(root: &Path, transport: Arc<dyn Transport>, store: Box<dyn SecretStore>) -> Result<Self, SyncError> {
+    pub fn open(
+        root: &Path,
+        transport: Arc<dyn Transport>,
+        store: Box<dyn SecretStore>,
+    ) -> Result<Self, SyncError> {
         let paths = Paths::for_root(root);
         let state = state::load(&paths)?;
         let device = match &state.device_id {
@@ -351,7 +355,11 @@ impl SyncService {
             conflicts: st.conflicts.iter().rev().take(50).cloned().collect(),
             warnings: st.warnings.clone(),
             pairing: if st.phase == Phase::Pending { self.pairing_view(inner) } else { None },
-            kit_check: if st.phase == Phase::KitCheck { account::kit_positions(&inner.secrets) } else { None },
+            kit_check: if st.phase == Phase::KitCheck {
+                account::kit_positions(&inner.secrets)
+            } else {
+                None
+            },
             keys_in: self.store.kind().to_string(),
             since: st.since,
             linked_user: st.linked_user.clone(),
@@ -404,7 +412,12 @@ impl SyncService {
 
     /// Call a sync function with this device's session; refresh once on an
     /// expired token.
-    fn rpc(&self, inner: &mut Inner, name: &str, args: serde_json::Value) -> Result<serde_json::Value, SyncError> {
+    fn rpc(
+        &self,
+        inner: &mut Inner,
+        name: &str,
+        args: serde_json::Value,
+    ) -> Result<serde_json::Value, SyncError> {
         let access = self.access(inner)?;
         match self.client(&inner.state).rpc(name, args.clone(), Some(&access)) {
             Err(SyncError::Unauthorized) => {
@@ -436,4 +449,3 @@ impl SyncService {
         inner.state.names.get(id_or_tag).cloned()
     }
 }
-
