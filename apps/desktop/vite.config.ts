@@ -12,7 +12,9 @@ import { defineConfig, type Plugin } from "vite";
  */
 export const MAIN_CSP =
   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; " +
-  "font-src 'self'; media-src 'self' asset: http://asset.localhost blob:; " +
+  // Recordings play through the desktop app's obaudio scheme (decrypted in
+  // ranges), or from a blob: copy where WebKitGTK won't play that scheme.
+  "font-src 'self'; media-src 'self' obaudio: http://obaudio.localhost asset: http://asset.localhost blob:; " +
   // 'self' also covers this server's own WebSockets in web mode (CSP Level 3).
   "connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'";
 
