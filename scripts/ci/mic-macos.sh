@@ -76,16 +76,17 @@ note "### 3. Recording with a switch of default microphone"
 note '```'; tail -25 "$out/record-clean.log" | tee -a "$out/summary.md"; note '```'
 note '```'; cat "$out/transcript.txt" | tee -a "$out/summary.md"; note '```'
 [ "$code" = 0 ] || { note "- FAIL: the recorder exited with $code"; fail=1; }
-if grep -q "no sound from the microphone" "$out/record-clean.log"; then
-  note "- finding: macOS gave the runner's process silence (microphone permission); the recorder said so"
+grep -q "now recording from BlackHole 16ch" "$out/record-clean.log"   && note "- ok: the recording followed the new default microphone"   || { note "- FAIL: no switch to BlackHole 16ch reported"; fail=1; }
+segments=$(grep -c '^\[' "$out/transcript.txt" || true)
+if [ "$segments" -ge 2 ]; then
+  note "- ok: $segments segments transcribed, before and after the switch"
 else
-  grep -q "now recording from BlackHole 16ch" "$out/record-clean.log" \
-    && note "- ok: the recording followed the new default microphone" \
-    || { note "- FAIL: no switch to BlackHole 16ch reported"; fail=1; }
-  segments=$(grep -c '^\[' "$out/transcript.txt" || true)
-  [ "$segments" -ge 2 ] \
-    && note "- ok: $segments segments transcribed, before and after the switch" \
-    || { note "- FAIL: only $segments segments transcribed"; fail=1; }
+  note "- FAIL: only $segments segments transcribed"
+  fail=1
+  # No speech at all and a silence warning: macOS gave the process silence.
+  grep -q "no sound from the microphone" "$out/record-clean.log"     && note "- the recorder warned of silence: likely no microphone permission for the runner's shell"
 fi
+# BlackHole is silent until speech plays, so a silence warning at the start is expected.
+grep -q "no sound from the microphone" "$out/record-clean.log"   && note "- ok: the silent stretch before the speech was warned about"
 SwitchAudioSource -t input -s "BlackHole 2ch" > /dev/null 2>&1 || true
 exit $fail

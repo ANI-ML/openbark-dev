@@ -313,6 +313,33 @@ if (want("background")) {
   await browser.close();
 }
 
+// ---- 7b. a long recording (LONG_SECS, off unless set) ---------------------------------------
+const longSecs = Number(process.env.LONG_SECS ?? 0);
+if (longSecs > 0 && want("long")) {
+  step(`Chromium: a ${longSecs} s recording`);
+  const browser = await chromium.launch({ args: chromiumArgs(speech) });
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, permissions: ["microphone"] });
+  await prepare(ctx);
+  const page = await ctx.newPage();
+  await page.goto(base);
+  await startRecording(page);
+  const t0 = Date.now();
+  const heap = () => page.evaluate(() => performance.memory?.usedJSHeapSize ?? 0);
+  const heap0 = await heap();
+  await page.waitForTimeout(longSecs * 1000);
+  const heap1 = await heap();
+  const wall = (Date.now() - t0) / 1000;
+  const shown = await elapsed(page);
+  const view = await stopAndOpen(page);
+  const secs = view.stats?.audio_secs ?? 0;
+  console.log(
+    `    ${secs.toFixed(1)} s recorded over ${wall.toFixed(1)} s (timer ${shown} s); ${view.transcript?.segments?.length ?? 0} segments; JS heap ${(heap0 / 1e6).toFixed(1)} MB then ${(heap1 / 1e6).toFixed(1)} MB`,
+  );
+  check(Math.abs(secs - wall) < 3, "no drift or loss over a long recording");
+  check(heap1 < heap0 + 50e6, "the page's memory stays flat");
+  await browser.close();
+}
+
 // ---- 8. Firefox end to end ----------------------------------------------------------------------------------
 if (want("firefox")) {
   step("Firefox: the microphone test and a recording (fake stream)");
