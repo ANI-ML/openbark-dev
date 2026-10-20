@@ -112,6 +112,11 @@ jobs:
           if (Test-Path target) { Remove-Item -Recurse -Force target }
           New-Item -ItemType Junction -Path target -Target D:/t | Out-Null
           "CARGO_TARGET_DIR=D:/t" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          # Ninja instead of the Visual Studio generator: under MSBuild the shader
+          # generator's install step can start before its configure step has written
+          # cmake_install.cmake (a step-ordering race seen on cold builds). Ninja is
+          # preinstalled on the image; the cmake crate passes MSVC's environment.
+          "CMAKE_GENERATOR=Ninja" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       # Keyed on the repository too, as in ci.yml: target/ holds absolute paths.
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         if: matrix.name != 'windows'
