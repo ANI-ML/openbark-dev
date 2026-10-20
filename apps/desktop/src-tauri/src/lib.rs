@@ -1250,14 +1250,11 @@ pub fn run() {
             selftest::page_loaded(webview);
         }
     });
-    builder
-        .build(tauri::generate_context!())
-        .expect("error while running OpenBark")
-        .run(|handle, event| {
-            if let tauri::RunEvent::Exit = event {
-                quitting(handle);
-            }
-        });
+    builder.build(tauri::generate_context!()).expect("error while running OpenBark").run(|handle, event| {
+        if let tauri::RunEvent::Exit = event {
+            quitting(handle);
+        }
+    });
 }
 
 /// The app is about to exit: Cmd-Q or the Quit menu item on macOS (AppKit
