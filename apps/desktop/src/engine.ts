@@ -1677,16 +1677,6 @@ async function startDesktopRecording(
   return { stop: () => invoke<SessionView>("stop_recording") };
 }
 
-const WORKLET = `
-class Tap extends AudioWorkletProcessor {
-  process(inputs) {
-    const ch = inputs[0] && inputs[0][0];
-    if (ch) this.port.postMessage(ch.slice(0));
-    return true;
-  }
-}
-registerProcessor("openbark-tap", Tap);`;
-
 /**
  * Web: the browser captures the user's own microphone and streams PCM to the
  * engine over a WebSocket. Levels are measured here so the meter reacts to
@@ -1712,11 +1702,10 @@ async function startBrowserRecording(
     );
   }
   const ctx = new AudioContext();
-  const url = URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" }));
-  await ctx.audioWorklet.addModule(url);
-  URL.revokeObjectURL(url);
+  // A static module: the page's CSP (script-src 'self') blocks a blob: one.
+  await ctx.audioWorklet.addModule("/mic-tap.js");
   const source = ctx.createMediaStreamSource(stream);
-  const tap = new AudioWorkletNode(ctx, "openbark-tap");
+  const tap = new AudioWorkletNode(ctx, "openbark-mic-tap");
   source.connect(tap);
 
   const proto = location.protocol === "https:" ? "wss" : "ws";
@@ -1751,8 +1740,8 @@ async function startBrowserRecording(
   let n = 0;
   const every = Math.round(ctx.sampleRate / 20);
   // The worklet posts a copied (non-shared) buffer.
-  tap.port.onmessage = (e: MessageEvent<Float32Array<ArrayBuffer>>) => {
-    const block = e.data;
+  tap.port.onmessage = (e: MessageEvent<{ samples: Float32Array<ArrayBuffer>; peak: number }>) => {
+    const block = e.data.samples;
     if (ws.readyState === WebSocket.OPEN) ws.send(block);
     samples += block.length;
     for (const v of block) {
