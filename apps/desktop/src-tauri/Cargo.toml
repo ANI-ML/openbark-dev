@@ -22,6 +22,8 @@ default = []
 cuda = ["os-llm/cuda"]
 vulkan = ["os-llm/vulkan"]
 metal = ["os-llm/metal"]
+# CI only, never in the installers: drives the app and quits (src/selftest.rs).
+selftest = []
 
 [build-dependencies]
 tauri-build.workspace = true

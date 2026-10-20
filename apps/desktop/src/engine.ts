@@ -2,7 +2,7 @@
 // - desktop (Tauri): commands in src-tauri/src/lib.rs, events via Tauri
 // - web (`openbark serve`): HTTP API in engine/os-server, events via SSE,
 //   and the browser's microphone streamed over a WebSocket
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
@@ -1416,11 +1416,23 @@ export const hubAdd = (repo: string, file: string, acceptLicense: boolean) =>
 
 /**
  * A URL the player can use for the recording. Audio is encrypted on disk
- * (ADR-0008): web mode decrypts it on the server; the desktop app fetches the
- * decrypted bytes and plays them from memory. Revoke desktop URLs when done.
+ * (ADR-0008), so it's decrypted as it's played, in byte ranges: by the
+ * server in web mode, and by the desktop app's `obaudio` scheme
+ * (`obaudio://localhost/<id>`, `http://obaudio.localhost/<id>` on Windows).
+ * Nothing to revoke.
  */
 export async function audioUrl(s: SessionView): Promise<string> {
   if (!isDesktop) return `/api/sessions/${enc(s.id)}/audio`;
+  return convertFileSrc(s.id, "obaudio");
+}
+
+/**
+ * The desktop player's fallback when its URL won't play: the whole decrypted
+ * recording, from memory (a blob: URL). Revoke it when done. Null in web mode,
+ * where there's nothing else to try.
+ */
+export async function audioFallbackUrl(s: SessionView): Promise<string | null> {
+  if (!isDesktop) return null;
   const bytes = await invoke<ArrayBuffer>("session_audio", { id: s.id });
   return URL.createObjectURL(new Blob([bytes], { type: "audio/wav" }));
 }

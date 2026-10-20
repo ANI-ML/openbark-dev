@@ -2630,8 +2630,12 @@ impl App {
     /// `main`). The app refuses to load models from here on.
     pub fn shutdown(&self, timeout: std::time::Duration) -> bool {
         os_llm::shutdown::begin();
-        let released = self.release_llms(std::time::Instant::now() + timeout);
-        let freed = released && os_llm::shutdown::wait_released(std::time::Duration::ZERO);
+        let deadline = std::time::Instant::now() + timeout;
+        let released = self.release_llms(deadline);
+        // A handle's count reaches zero just before the model behind it is
+        // freed (Arc drops the value after the count), so wait for that too.
+        let freed = released
+            && os_llm::shutdown::wait_released(deadline.saturating_duration_since(std::time::Instant::now()));
         if !freed {
             tracing::warn!(
                 live = os_llm::shutdown::live_models(),
