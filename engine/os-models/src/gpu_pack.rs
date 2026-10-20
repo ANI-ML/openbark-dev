@@ -132,6 +132,7 @@ pub fn entry() -> CatalogEntry {
             .collect(),
         layout: Layout::Archives,
         gated: false,
+        mobile: false,
     }
 }
 

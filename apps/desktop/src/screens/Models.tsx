@@ -10,7 +10,7 @@ import { HfTokenField } from "../components/HfTokenField";
 import { MLX_CARD_ID, MlxCard } from "../components/MlxCard";
 import { ModelGuide, ModelMeaning, ModelTags } from "../components/ModelGuide";
 import { RemoveModelDialog, rowBytes } from "../components/RemoveModelDialog";
-import { STARTERS } from "../modelGuide";
+import { PHONE_STARTERS, STARTERS } from "../modelGuide";
 
 const SLOT_LABEL: Record<engine.Slot, string> = {
   llm: "Notes",
@@ -136,6 +136,10 @@ export function Models() {
   // The GPU recognisers come with the GPU speech pack, not one by one.
   const shown = rows.filter((r) => r.remove !== "with_gpu_pack");
   const mac = app.status?.platform === "macos";
+  // A phone (ADR-0018 section 10): mobile models only, no MLX, no GPU pack,
+  // and no files from the device itself.
+  const phone = engine.isMobilePlatform(app.status?.platform) || app.status?.profile === "ios";
+  const tier = app.status?.mobile_tier ?? null;
 
   return (
     <div className="screen">
@@ -154,10 +158,12 @@ export function Models() {
           <h1>{t("Models")}</h1>
         </div>
         <div className="head-actions">
-          <Button onClick={() => setAdding(true)}>
-            <FilePlus size={20} aria-hidden />
-            {t("Add from this computer")}
-          </Button>
+          {!phone && (
+            <Button onClick={() => setAdding(true)}>
+              <FilePlus size={20} aria-hidden />
+              {t("Add from this computer")}
+            </Button>
+          )}
           <Button variant="primary" onClick={() => setBrowsing(true)}>
             <Search size={20} aria-hidden />
             {t("Browse Hugging Face")}
@@ -185,12 +191,23 @@ export function Models() {
         </p>
       )}
 
-      <ModelGuide
-        onOpenRepo={(repo) => {
-          setOpenRepo(repo);
-          setBrowsing(true);
-        }}
-      />
+      {phone ? (
+        <p className="ob-notice" data-tone={tier ? undefined : "danger"} data-testid="phone-tier">
+          {tier
+            ? t(
+                "Writing notes on this iPhone is optional. It uses a small model that fits this iPhone's memory ({ram} GB). Recording and transcribing need only the speech models.",
+                { ram: tier },
+              )
+            : t("OpenBark needs an iPhone with 6 GB of memory or more to write notes on the phone.")}
+        </p>
+      ) : (
+        <ModelGuide
+          onOpenRepo={(repo) => {
+            setOpenRepo(repo);
+            setBrowsing(true);
+          }}
+        />
+      )}
 
       <section className="group">
         <h2>{t("In use")}</h2>
@@ -226,8 +243,8 @@ export function Models() {
         </dl>
       </section>
 
-      <GpuCard />
-      <MlxCard onChange={setMlx} />
+      {!phone && <GpuCard />}
+      {!phone && <MlxCard onChange={setMlx} />}
 
       <section className="group">
         <h2>{t("Catalog")}</h2>
@@ -239,7 +256,7 @@ export function Models() {
                 <th>{t("Use")}</th>
                 <th className="num">{t("Size")}</th>
                 <th>{t("Licence")}</th>
-                <th>{t("On this computer")}</th>
+                <th>{phone ? t("On this phone") : t("On this computer")}</th>
                 <th aria-label={t("Actions")} />
               </tr>
             </thead>
@@ -262,7 +279,8 @@ export function Models() {
 
       {browsing && (
         <HubBrowser
-          mac={mac}
+          mac={mac && !phone}
+          phone={phone}
           initialRepo={openRepo}
           onClose={() => {
             setBrowsing(false);
@@ -354,6 +372,7 @@ function CatalogRow({
           </div>
         )}
         {r.slot === "llm" && <ModelTags name={r.id} />}
+        {r.phone_note && <div className="small muted row-help">{r.phone_note}</div>}
       </td>
       <td>{t(SLOT_LABEL[r.slot])}</td>
       <td className="num">{fmtBytes(r.size_bytes)}</td>
@@ -400,7 +419,7 @@ function CatalogRow({
         ) : (
           <div className="row-actions">
             {!r.installed && !local && (
-              <Button onClick={onDownload} disabled={r.fit === "wont_fit"}>
+              <Button onClick={onDownload} disabled={r.fit === "wont_fit" || Boolean(r.phone_note)}>
                 <Download size={20} aria-hidden />
                 {t("Download ({size})", { size: fmtBytes(r.size_bytes) })}
               </Button>
@@ -438,12 +457,15 @@ function CatalogRow({
 
 function HubBrowser({
   mac,
+  phone = false,
   initialRepo,
   onClose,
   onAdded,
   onGetMlxEngine,
 }: {
   mac: boolean;
+  /** A phone: small GGUFs that fit it, the rest held back with the reason. */
+  phone?: boolean;
   initialRepo?: string | null;
   onClose: () => void;
   onAdded: (id: string) => void;
@@ -452,7 +474,7 @@ function HubBrowser({
 }) {
   const t = useT();
   const [onlyMlx, setOnlyMlx] = useState(false);
-  const [q, setQ] = useState("gemma 4");
+  const [q, setQ] = useState(phone ? "qwen3 1.7b" : "gemma 4");
   const [results, setResults] = useState<engine.HubModel[] | null>(null);
   const [showAll, setShowAll] = useState(false);
   const [repo, setRepo] = useState<engine.HubRepoView | null>(null);
@@ -499,9 +521,10 @@ function HubBrowser({
       // An MLX build: suggest GGUF builds of the same model, which run
       // anywhere. A repo with nothing OpenBark can run (safetensors only, as
       // many gated originals are): suggest GGUF builds of it.
+      // On a phone, files held back for size aren't "nothing to run".
       const base = view.repo.model.mlx
         ? view.repo.base_model
-        : view.files.length === 0 && !view.mlx
+        : view.files.length === 0 && !view.mlx && !(view.held?.length ?? 0)
           ? view.repo.model.id
           : null;
       if (base) {
@@ -562,7 +585,11 @@ function HubBrowser({
           </header>
           <div className="sheet-body">
             <p className="small muted">
-              {mac
+              {phone
+                ? t(
+                    "Small note-writing models in GGUF format that fit this iPhone. Searching contacts huggingface.co; nothing else leaves this iPhone.",
+                  )
+                : mac
                 ? t(
                     "Note-writing models in GGUF format, and builds optimized for Apple silicon with MLX. Searching contacts huggingface.co; nothing else leaves this computer.",
                   )
@@ -604,17 +631,29 @@ function HubBrowser({
                 <div className="hub-starters">
                   <span className="small muted">{t("Good starting points")}</span>
                   <div className="ask-chips">
-                    {STARTERS.map((st) => (
-                      <button
-                        key={st.repo}
-                        type="button"
-                        className="ob-chip ask-chip"
-                        title={t(st.why)}
-                        onClick={() => open(st.repo)}
-                      >
-                        {`Gemma 4 ${st.size}`}
-                      </button>
-                    ))}
+                    {phone
+                      ? PHONE_STARTERS.map((st) => (
+                          <button
+                            key={st.repo}
+                            type="button"
+                            className="ob-chip ask-chip"
+                            title={t(st.why)}
+                            onClick={() => open(st.repo)}
+                          >
+                            {st.label}
+                          </button>
+                        ))
+                      : STARTERS.map((st) => (
+                          <button
+                            key={st.repo}
+                            type="button"
+                            className="ob-chip ask-chip"
+                            title={t(st.why)}
+                            onClick={() => open(st.repo)}
+                          >
+                            {`Gemma 4 ${st.size}`}
+                          </button>
+                        ))}
                   </div>
                 </div>
                 {results === null ? (
@@ -687,9 +726,18 @@ function HubBrowser({
                     onGetEngine={onGetMlxEngine}
                   />
                 )}
+                {repo.phone_note && (
+                  <p className="ob-notice" data-tone="warn" role="status" data-testid="phone-note">
+                    {repo.phone_note}
+                  </p>
+                )}
                 {repo.files.length === 0 ? (
-                  nothingToRun ? (
-                    <p className="small muted">{t("No GGUF or MLX files OpenBark can run in this repository.")}</p>
+                  nothingToRun && !repo.phone_note ? (
+                    <p className="small muted">
+                      {phone
+                        ? t("No GGUF files OpenBark can run in this repository.")
+                        : t("No GGUF or MLX files OpenBark can run in this repository.")}
+                    </p>
                   ) : null
                 ) : (
                   <div className="table-wrap">
@@ -729,6 +777,21 @@ function HubBrowser({
                       </tbody>
                     </table>
                   </div>
+                )}
+                {phone && (repo.held?.length ?? 0) > 0 && (
+                  <details className="hub-held">
+                    <summary className="small muted">
+                      {t("Not offered on this iPhone ({n})", { n: repo.held?.length ?? 0 })}
+                    </summary>
+                    <ul className="hub-held-list">
+                      {repo.held?.map((h) => (
+                        <li key={h.path} className="small">
+                          <span className="mono">{h.path}</span> <span className="faint">{fmtBytes(h.size_bytes)}</span>
+                          <div className="muted">{h.reason}</div>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
                 )}
                 {(mlxRepo || nothingToRun) && alternatives.length > 0 && (
                   <div className="hub-alternatives">

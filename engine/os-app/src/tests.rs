@@ -1466,3 +1466,106 @@ fn a_removal_waiting_for_a_model_load_doesnt_hold_up_downloads() {
         assert_eq!(removed.files_removed, 1);
     });
 }
+
+// ---- the phone profile (ADR-0018 section 10) ----------------------------------
+
+#[test]
+fn a_computer_keeps_every_model_and_its_defaults() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app = app_in(tmp.path());
+    let status = app.status();
+    assert_eq!(status.profile, Profile::Desktop);
+    assert_eq!(status.mobile_tier, None);
+    assert_eq!(status.default_llm, os_engine::models::DEFAULT_LLM);
+    assert!(
+        status.models.iter().any(|m| m.id == os_engine::models::DEFAULT_LLM),
+        "drafting is set up at start"
+    );
+    let rows = app.models();
+    assert!(rows.iter().any(|r| r.id == "gemma-4-12b-it-q4_0"));
+    assert!(rows.iter().any(|r| r.id == "whisper-large-v3-turbo-int8"));
+    assert!(!rows.iter().any(|r| r.id == "qwen3-1.7b-q4_k_m"), "phone-only models stay off computers");
+    assert!(rows.iter().all(|r| r.phone_note.is_none()));
+    let json = serde_json::to_value(&rows[0]).unwrap();
+    assert!(json.get("phone_note").is_none(), "desktop rows are as before");
+}
+
+#[test]
+fn a_phone_lists_mobile_models_and_picks_its_tier_default() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app = app_in(tmp.path());
+    let _phone = os_models::platform::override_for_tests(Profile::Ios, Some(7.6));
+    let status = app.status();
+    assert_eq!(status.profile, Profile::Ios);
+    assert_eq!(status.mobile_tier, Some(8));
+    assert_eq!(status.default_llm, "gemma-4-e2b-it-q4_0");
+    // Drafting is opt-in on a phone: only the speech models are needed to start.
+    let needed: Vec<&str> = status.models.iter().map(|m| m.id.as_str()).collect();
+    assert_eq!(
+        needed,
+        ["silero-vad", "parakeet-tdt-0.6b-v3-int8", "pyannote-segmentation-3.0", "wespeaker-en-resnet34-lm"]
+    );
+
+    let rows = app.models();
+    let ids: Vec<&str> = rows.iter().map(|r| r.id.as_str()).collect();
+    for id in ["gemma-4-e2b-it-q4_0", "qwen3-1.7b-q4_k_m", "gemma-4-e4b-it-q4_0", "parakeet-tdt-0.6b-v3-int8"]
+    {
+        assert!(ids.contains(&id), "{id} missing from {ids:?}");
+    }
+    for id in ["gemma-4-12b-it-q4_0", "whisper-large-v3-turbo-int8", "parakeet-tdt-0.6b-v3-fp32"] {
+        assert!(!ids.contains(&id), "{id} shown on a phone");
+    }
+    // E4B is listed (it fits 12 GB phones) but says it's too large for this one.
+    let e4b = rows.iter().find(|r| r.id == "gemma-4-e4b-it-q4_0").unwrap();
+    assert_eq!(e4b.fit, Fit::WontFit);
+    assert_eq!(
+        e4b.phone_note.as_deref(),
+        Some("Too large for this iPhone (8 GB): 5.2 GB. Models up to 3.5 GB fit.")
+    );
+    let e2b = rows.iter().find(|r| r.id == "gemma-4-e2b-it-q4_0").unwrap();
+    assert_eq!((e2b.fit, e2b.phone_note.as_deref()), (Fit::Fits, None));
+
+    // Downloading the too-large one is refused before any network call.
+    let err = app.download_model("gemma-4-e4b-it-q4_0", None, &Quiet).unwrap_err();
+    assert_eq!(err.0, "Too large for this iPhone (8 GB): 5.2 GB. Models up to 3.5 GB fit.");
+    let err = app.download_model("gemma-4-12b-it-q4_0", None, &Quiet).unwrap_err();
+    assert_eq!(err.0, NOT_FOR_PHONE);
+    // A Hub model added on a computer isn't offered on a phone.
+    hub_model(&app, "Big-12B-Q4_K_M", false);
+    assert!(!app.models().iter().any(|r| r.id.contains("Big-12B")));
+    // Nor is adding a model from files.
+    assert_eq!(app.inspect_import("C:/models/x.gguf", None).unwrap_err().0, NO_IMPORT_ON_PHONE);
+}
+
+#[test]
+fn phone_tiers_change_the_default_and_what_fits() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app = app_in(tmp.path());
+    {
+        let _six = os_models::platform::override_for_tests(Profile::Ios, Some(5.7));
+        let s = app.status();
+        assert_eq!((s.mobile_tier, s.default_llm.as_str()), (Some(6), "qwen3-1.7b-q4_k_m"));
+        let rows = app.models();
+        let e2b = rows.iter().find(|r| r.id == "gemma-4-e2b-it-q4_0").unwrap();
+        assert_eq!(e2b.fit, Fit::WontFit, "3.35 GB is over a 6 GB phone's budget");
+    }
+    {
+        let _twelve = os_models::platform::override_for_tests(Profile::Ios, Some(11.4));
+        let s = app.status();
+        assert_eq!((s.mobile_tier, s.default_llm.as_str()), (Some(12), "gemma-4-e2b-it-q4_0"));
+        let e4b = app.models().into_iter().find(|r| r.id == "gemma-4-e4b-it-q4_0").unwrap();
+        assert_eq!((e4b.fit, e4b.phone_note), (Fit::Fits, None));
+    }
+    {
+        let _four = os_models::platform::override_for_tests(Profile::Ios, Some(3.8));
+        let s = app.status();
+        assert_eq!((s.mobile_tier, s.default_llm.as_str()), (None, ""));
+        let e2b = app.models().into_iter().find(|r| r.id == "gemma-4-e2b-it-q4_0").unwrap();
+        assert_eq!(
+            e2b.phone_note.as_deref(),
+            Some("OpenBark needs an iPhone with 6 GB of memory or more to write notes on the phone.")
+        );
+    }
+    // Back on a computer.
+    assert_eq!(app.status().profile, Profile::Desktop);
+}

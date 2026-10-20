@@ -67,6 +67,17 @@ export function App() {
     engine.status().then(setStatus, () => setStatus(null));
   }, []);
 
+  // A phone writes notes with its tier's small model unless the person chose
+  // one of the phone's own (ADR-0018 section 10).
+  useEffect(() => {
+    if (status?.profile !== "ios" || status.default_llm === undefined) return;
+    const chosen = settings.llm;
+    if (chosen === "gemma-4-e4b-it-q4_0" || chosen === "gemma-4-12b-it-q4_0" || chosen === "") {
+      if (status.default_llm && status.default_llm !== chosen) setSettings({ llm: status.default_llm });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status?.profile, status?.default_llm]);
+
   useEffect(() => {
     refreshStatus();
     const off = engine.on("level", (l) => levels.push(l.level));

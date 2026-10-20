@@ -300,6 +300,12 @@ export interface Status {
   platform: string;
   /** Working alone, each person's own templates, or the hospital's (ADR-0024). */
   templates?: TemplatesMode;
+  /** Which models this build offers: every one, or mobile ones only (ADR-0018 section 10). */
+  profile?: "desktop" | "ios";
+  /** A phone's memory tier in GB (6, 8 or 12); null on a computer or a phone too small to draft. */
+  mobile_tier?: number | null;
+  /** The note model unless the person picks another: Gemma 4 E4B on a computer, the tier's on a phone. */
+  default_llm?: string;
 }
 
 export type Fit = "fits" | "tight" | "wont_fit";
@@ -347,6 +353,8 @@ export interface ModelRow {
   gated: boolean;
   /** Used where it is: the file or folder. */
   path: string | null;
+  /** On a phone: why this model can't be downloaded or used here. */
+  phone_note?: string;
 }
 
 /** What a removal did (ADR-0025 §10). */
@@ -436,6 +444,10 @@ export interface HubRepoView {
   /** GGUF choices; `parts` > 1 for a split GGUF. */
   files: { path: string; size_bytes: number; fit: Fit; parts: number }[];
   mlx: HubMlxView | null;
+  /** On a phone: the files held back, and why. */
+  held?: { path: string; size_bytes: number; reason: string }[];
+  /** On a phone: one line when anything is held back. */
+  phone_note?: string;
 }
 
 /** `hubAdd(repo, MLX_CHOICE, …)` adds an MLX repo's whole model folder. */

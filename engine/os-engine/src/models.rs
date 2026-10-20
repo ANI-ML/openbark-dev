@@ -134,9 +134,23 @@ pub fn transcriber(
 
 /// Models the default pipeline needs, with install status (for onboarding).
 pub fn required_status(store: &ModelStore) -> Vec<(String, String, bool)> {
+    required_status_for(store, os_models::platform::Profile::Desktop)
+}
+
+/// [`required_status`] for a profile. On a phone drafting is opt-in
+/// (ADR-0018 section 10), so only the speech models are needed to start:
+/// recording and transcribing work with them alone.
+pub fn required_status_for(
+    store: &ModelStore,
+    profile: os_models::platform::Profile,
+) -> Vec<(String, String, bool)> {
     let catalog = Catalog::builtin();
-    [VAD, DEFAULT_STT, SEGMENTATION, EMBEDDING, DEFAULT_LLM]
-        .iter()
+    let ids: &[&str] = if profile.is_mobile() {
+        &[VAD, os_models::platform::MOBILE_STT, SEGMENTATION, EMBEDDING]
+    } else {
+        &[VAD, DEFAULT_STT, SEGMENTATION, EMBEDDING, DEFAULT_LLM]
+    };
+    ids.iter()
         .filter_map(|id| catalog.get(id))
         .map(|m| (m.id.clone(), m.display_name.clone(), store.is_installed(m, Verify::Size)))
         .collect()

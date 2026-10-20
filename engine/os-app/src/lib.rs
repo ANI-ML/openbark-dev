@@ -32,6 +32,7 @@ pub use os_models::local::{ImportMode, ImportPreview};
 use os_models::locations::{self, Contents};
 pub use os_models::locations::{FolderKind, Moved, Source as FolderSource};
 use os_models::mlx_pack::{self, Support};
+use os_models::platform::{Profile, Tier};
 pub use os_models::remove::Removal;
 use os_models::remove::{self as removal, RemoveRule};
 use os_models::{CatalogEntry, Layout, LlmEngine, ModelStore, Slot, Source, Verify};
@@ -465,10 +466,19 @@ pub struct Status {
     pub plain_encounters: usize,
     /// Whether team members are set up (otherwise single-user).
     pub team: bool,
-    /// "macos", "windows" or "linux": the Mac shows MLX-optimized models.
+    /// "macos", "windows", "linux" or "ios": the Mac shows MLX-optimized
+    /// models, a phone only mobile ones.
     pub platform: String,
     /// Working alone, each person's own templates, or the hospital's (ADR-0024).
     pub templates: TemplatesMode,
+    /// Which models this build offers (ADR-0018 section 10).
+    pub profile: Profile,
+    /// A phone's memory tier (6, 8 or 12 GB); `None` on a computer, or on a
+    /// phone too small to draft.
+    pub mobile_tier: Option<u32>,
+    /// The model that writes notes unless the person picks another: Gemma 4
+    /// E4B on a computer, the tier's small model on a phone.
+    pub default_llm: String,
 }
 
 /// A visit as listed under a patient.
@@ -713,6 +723,10 @@ pub struct ModelRow {
     pub gated: bool,
     /// Used in place: where it is.
     pub path: Option<String>,
+    /// On a phone, why this model can't be downloaded or used here ("Too
+    /// large for this iPhone (8 GB): ..."). Never on a computer.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phone_note: Option<String>,
 }
 
 /// The MLX engine pack's self-test.
@@ -771,6 +785,12 @@ pub struct HubMlxView {
 const MODEL_BUSY: &str = "A note is being written with this model. Remove it when that's finished.";
 const MLX_FIRST: &str = "Download the MLX engine on the Models screen first.";
 const MLX_NEEDS: &str = "MLX models run on a Mac with Apple silicon and macOS 14 or later.";
+/// A model that isn't marked for phones, asked for on one (ADR-0018 section 10).
+const NOT_FOR_PHONE: &str =
+    "This model isn't made for phones. On an iPhone, OpenBark offers small models only.";
+/// Adding a model file from the phone itself (not in M3).
+const NO_IMPORT_ON_PHONE: &str =
+    "Adding a model from files isn't available on iPhone. Choose one from the list or from Hugging Face.";
 const MLX_DOWNLOADING: &str = "The MLX engine is already downloading.";
 const MLX_CHECK_FAILED: &str = "The MLX engine didn't pass its check on this computer. Choose Try again on the MLX engine card in Models.";
 
@@ -1119,7 +1139,7 @@ impl App {
     }
 
     pub fn status(&self) -> Status {
-        let models = os_engine::models::required_status(&self.store)
+        let models = os_engine::models::required_status_for(&self.store, Profile::current())
             .into_iter()
             .map(|(id, name, installed)| ModelStatus { id, name, installed })
             .collect();
@@ -1136,6 +1156,43 @@ impl App {
             team: self.users.is_team(),
             platform: platform(),
             templates: self.templates_mode(),
+            profile: Profile::current(),
+            mobile_tier: self.phone_tier().flatten().map(|t| t.ram_gb),
+            default_llm: self.default_llm(),
+        }
+    }
+
+    /// On a phone, its memory tier (`Some(None)` below 6 GB); `None` on a
+    /// computer (ADR-0018 section 10).
+    fn phone_tier(&self) -> Option<Option<Tier>> {
+        Profile::current().is_mobile().then(|| {
+            os_models::platform::tier_for_ram(os_models::platform::device_ram(self.hardware.ram_bytes))
+        })
+    }
+
+    /// The default note model for this device.
+    pub fn default_llm(&self) -> String {
+        match self.phone_tier() {
+            Some(Some(t)) => t.default_llm.to_string(),
+            Some(None) => String::new(),
+            None => os_engine::models::DEFAULT_LLM.to_string(),
+        }
+    }
+
+    /// Why a note model can't be used on this phone, if it can't.
+    fn phone_refusal(&self, m: &CatalogEntry) -> Option<String> {
+        let tier = self.phone_tier()?;
+        if !m.mobile {
+            return Some(NOT_FOR_PHONE.into());
+        }
+        if m.llm_engine() == Some(LlmEngine::Mlx) {
+            return Some(hub::MLX_NOT_ON_PHONE.into());
+        }
+        match &m.layout {
+            Layout::LlmGguf { model } => os_models::platform::check_gguf(tier, model, m.total_size(), None)
+                .err()
+                .map(|why| why.message(tier.map(|t| t.ram_gb))),
+            _ => None,
         }
     }
 
@@ -2729,11 +2786,15 @@ impl App {
 
     pub fn models(&self) -> Vec<ModelRow> {
         let builtin: Vec<String> = os_models::Catalog::builtin().models.into_iter().map(|m| m.id).collect();
+        let phone = Profile::current().is_mobile();
         hub::full_catalog(&self.store)
             .models
             .into_iter()
             // The GPU recognisers come with the GPU speech pack, not one by one.
             .filter(|m| m.id != os_engine::models::GPU_STT && m.id != os_engine::models::GPU_SECOND_STT)
+            // A phone lists mobile models only; a computer doesn't list the
+            // ones made for small phones (ADR-0018 section 10).
+            .filter(|m| if phone { m.mobile } else { !PHONE_ONLY.contains(&m.id.as_str()) })
             .map(|m| self.row(&m, builtin.contains(&m.id)))
             .collect()
     }
@@ -2753,7 +2814,9 @@ impl App {
             size_bytes: size,
             license: m.license.clone(),
             installed: self.store.is_installed(m, Verify::Size),
-            fit: if m.slot == Slot::Llm {
+            fit: if m.slot == Slot::Llm && self.phone_tier().is_some() {
+                if self.phone_refusal(m).is_some() { Fit::WontFit } else { Fit::Fits }
+            } else if m.slot == Slot::Llm {
                 hub::fit(size, self.hardware.gpu_memory_bytes, self.hardware.ram_bytes)
             } else {
                 Fit::Fits
@@ -2769,6 +2832,7 @@ impl App {
             missing: in_place.is_some_and(|p| !p.exists()),
             gated: m.gated,
             path: in_place.map(|p| p.display().to_string()),
+            phone_note: if m.slot == Slot::Llm { self.phone_refusal(m) } else { None },
         }
     }
 
@@ -2791,6 +2855,16 @@ impl App {
         let entry =
             catalog.get(id).ok_or_else(|| AppError(format!("No model called {id} in the catalog.")))?;
         // Gigabytes that could never write a note here.
+        if self.phone_tier().is_some() {
+            if !entry.mobile {
+                return Err(AppError(NOT_FOR_PHONE.into()));
+            }
+            if entry.slot == Slot::Llm
+                && let Some(why) = self.phone_refusal(entry)
+            {
+                return Err(AppError(why));
+            }
+        }
         if entry.llm_engine() == Some(LlmEngine::Mlx) && !mlx_runs_here() {
             return Err(AppError(MLX_NEEDS.into()));
         }
@@ -2879,6 +2953,9 @@ impl App {
     /// sizes, free space), so with a team it needs a veterinarian, as adding does.
     pub fn inspect_import(&self, path: &str, by: Option<&str>) -> Result<ImportPreview> {
         self.who(by, Need::Models)?;
+        if self.phone_tier().is_some() {
+            return Err(AppError(NO_IMPORT_ON_PHONE.into()));
+        }
         let preview = os_models::local::inspect(&self.store, Path::new(path.trim()))?;
         if preview.kind == ImportKind::Mlx && !mlx_runs_here() {
             return Err(AppError(MLX_NEEDS.into()));
@@ -3252,18 +3329,24 @@ impl App {
     }
 
     pub fn hub_search(&self, query: &str) -> Result<Vec<HubModel>> {
+        if let Some(tier) = self.phone_tier() {
+            return Ok(hub::search_mobile(query, 30, tier)?);
+        }
         Ok(hub::search(query, 30, None, platform() == "macos")?)
     }
 
     /// A repo's details. Metadata and public files without a token; the
     /// saved token only for a gated repo whose files are hidden (ADR-0025 §8).
     fn fetch_repo(&self, repo: &str) -> Result<HubRepo> {
-        let r = hub::repo(repo, None)?;
+        let phone = self.phone_tier().is_some();
+        let get =
+            |token: Option<&str>| if phone { hub::repo_mobile(repo, token) } else { hub::repo(repo, token) };
+        let r = get(None)?;
         if r.gated_kind.is_some()
             && r.access == Access::NeedsToken
             && let Some((token, _)) = secrets::hf_token()
         {
-            return Ok(hub::repo(repo, Some(&token))?);
+            return Ok(get(Some(&token))?);
         }
         Ok(r)
     }
@@ -3271,6 +3354,9 @@ impl App {
     pub fn hub_repo(&self, repo: &str) -> Result<HubRepoView> {
         let r = self.fetch_repo(repo)?;
         let fit = |size| hub::fit(size, self.hardware.gpu_memory_bytes, self.hardware.ram_bytes);
+        if let Some(tier) = self.phone_tier() {
+            return Ok(phone_repo_view(r, tier));
+        }
         let files = r
             .files
             .iter()
@@ -3292,7 +3378,7 @@ impl App {
             support: mlx_pack::support(),
             pack_installed: mlx_pack::installed(),
         });
-        Ok(HubRepoView { files, mlx, repo: r })
+        Ok(HubRepoView { files, mlx, repo: r, held: Vec::new(), phone_note: None })
     }
 
     /// Add a Hub file (or `@mlx`, the whole MLX folder) to the catalog;
@@ -3304,7 +3390,7 @@ impl App {
         }
         let _work = self.begin_work()?;
         let r = self.fetch_repo(repo)?;
-        let entry = hub::add_to_catalog(&self.store, &r, file, accept_license)?;
+        let entry = hub::add_to_catalog_for(&self.store, &r, file, accept_license, self.phone_tier())?;
         Ok(self.row(&entry, false))
     }
 
@@ -3319,7 +3405,7 @@ impl App {
 fn platform() -> String {
     std::env::var("OPENBARK_PLATFORM")
         .ok()
-        .filter(|p| matches!(p.as_str(), "macos" | "windows" | "linux"))
+        .filter(|p| matches!(p.as_str(), "macos" | "windows" | "linux" | "ios"))
         .unwrap_or_else(|| std::env::consts::OS.to_string())
 }
 
@@ -3420,6 +3506,63 @@ pub struct HubRepoView {
     pub repo: HubRepo,
     pub files: Vec<HubFileView>,
     pub mlx: Option<HubMlxView>,
+    /// On a phone, the files held back and why (ADR-0018 section 10).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub held: Vec<HeldFile>,
+    /// On a phone, one line when anything is held back.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phone_note: Option<String>,
+}
+
+/// A GGUF a phone doesn't offer.
+#[derive(Debug, Clone, Serialize)]
+pub struct HeldFile {
+    pub path: String,
+    pub size_bytes: u64,
+    pub reason: String,
+}
+
+/// Note models made for 6 GB phones: a computer doesn't list them.
+const PHONE_ONLY: &[&str] = &["qwen3-1.7b-q4_k_m"];
+
+/// The repo sheet on a phone: offered files only, the rest listed with why,
+/// and MLX never shown.
+fn phone_repo_view(mut r: HubRepo, tier: Option<Tier>) -> HubRepoView {
+    let ram = tier.map(|t| t.ram_gb);
+    let (kept, held) = hub::mobile_files(&r, tier);
+    let files = kept
+        .iter()
+        .map(|f| HubFileView {
+            path: f.path.clone(),
+            size_bytes: f.size,
+            fit: Fit::Fits,
+            parts: f.parts.len(),
+        })
+        .collect();
+    let phone_note = match (kept.is_empty(), held.first()) {
+        (_, None) => None,
+        (true, Some((_, why))) if held.iter().all(|(_, w)| w == why) => Some(why.message(ram)),
+        (true, Some(_)) => Some(match tier {
+            Some(t) => format!(
+                "No file in this repository fits this iPhone ({} GB). Models up to {:.1} GB and {}B parameters, in a 3 to 5-bit build, fit.",
+                t.ram_gb,
+                t.llm_budget_bytes as f64 / 1e9,
+                t.max_params_b
+            ),
+            None => os_models::platform::TooBig::PhoneTooSmall.message(None),
+        }),
+        (false, Some(_)) => Some(format!(
+            "{} more {} too large for this iPhone, or not built for phones.",
+            held.len(),
+            if held.len() == 1 { "file is" } else { "files are" }
+        )),
+    };
+    let held = held
+        .into_iter()
+        .map(|(f, why)| HeldFile { path: f.path, size_bytes: f.size, reason: why.message(ram) })
+        .collect();
+    r.files = kept;
+    HubRepoView { repo: r, files, mlx: None, held, phone_note }
 }
 
 /// What an import's worker reports to the thread that started it.
