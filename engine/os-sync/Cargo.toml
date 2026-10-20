@@ -10,8 +10,8 @@ rust-version.workspace = true
 # The store (sessions, patients, the vault, the clock). No engine features:
 # sync links on the phone without the native libraries (ADR-0018 section 1).
 os-engine.workspace = true
-# Allowed an HTTP client by scripts/ci/check-network.sh (docs/network.md R7
-# and R8): Supabase Auth and REST only.
+# Allowed an HTTP client by scripts/ci/check-network.sh (docs/network.md R12
+# and R13): Supabase Auth and REST only.
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true

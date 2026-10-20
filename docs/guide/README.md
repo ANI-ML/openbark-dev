@@ -1,6 +1,6 @@
 # OpenBark user guide
 
-OpenBark records a consultation, transcribes it, and drafts the medical record for a veterinarian to check and sign. Everything runs on your computer. Recordings and notes don't leave it unless you copy or export them.
+OpenBark records a consultation, transcribes it, and drafts the medical record for a veterinarian to check and sign. Everything runs on your computer. Recordings and notes stay on your devices unless you turn on encrypted sync. Even then, only encrypted copies leave, and our servers can't read them.
 
 The same walkthroughs are in the app under **Help**, each with a short video.
 
@@ -13,6 +13,7 @@ The same walkthroughs are in the app under **Help**, each with a short video.
 | 5 | [Client documents, PDF and copying](documents.md) | Discharge instructions, client summaries, PDFs, pasting into your PIMS |
 | 6 | [Team and security](team-and-security.md) | Team members and roles, encryption, the recovery key, moving computers |
 | 7 | [Models](models.md) | Choosing and downloading models, MLX on a Mac, gated models and tokens, adding and removing models |
+| 8 | [Encrypted sync](sync.md) | Preview: transcripts and notes between your computers, end-to-end encrypted; recordings never leave the device that made them |
 | | [Languages](../languages.md) | The app's language, the note's language, and what to expect |
 | | [Troubleshooting](troubleshooting.md) | Common messages and what to do |
 

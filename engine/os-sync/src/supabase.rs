@@ -2,7 +2,7 @@
 //! Auth (`/auth/v1`) for sign-in with an emailed code, PostgREST
 //! (`/rest/v1/rpc/...`, schema `sync`) for everything else, and one Edge
 //! Function (`/functions/v1/delete-account`). No Supabase SDK, no Storage,
-//! no Realtime. Every call is listed in docs/network.md (R7, R8).
+//! no Realtime. Every call is listed in docs/network.md (R12, R13).
 //!
 //! Requests go out through one [`Transport`], after the plaintext guard
 //! (`crate::guard`). Tests swap in a transport that records every body.
