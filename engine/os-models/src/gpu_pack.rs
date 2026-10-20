@@ -245,16 +245,25 @@ pub fn unpack(store: &ModelStore, mut progress: impl FnMut(usize, usize)) -> io:
             Ok(())
         };
         if archive.name.ends_with(".tar.bz2") {
-            let file = fs::File::open(&path)?;
-            let mut tar = tar::Archive::new(bzip2::read::BzDecoder::new(io::BufReader::new(file)));
-            for item in tar.entries()? {
-                let mut item = item?;
-                let name =
-                    item.path()?.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                // The archive has each library twice (bin/ and lib/); take lib/.
-                let in_lib = item.path()?.components().any(|c| c.as_os_str() == "lib");
-                if in_lib && name.ends_with(".dll") && wanted(&name) {
-                    put(&name, &mut item)?;
+            // The GPU speech pack is Windows-only; bzip2 isn't linked on iOS.
+            #[cfg(target_os = "ios")]
+            return Err(io::Error::other("the GPU speech pack isn't available on this device"));
+            #[cfg(not(target_os = "ios"))]
+            {
+                let file = fs::File::open(&path)?;
+                let mut tar = tar::Archive::new(bzip2::read::BzDecoder::new(io::BufReader::new(file)));
+                for item in tar.entries()? {
+                    let mut item = item?;
+                    let name = item
+                        .path()?
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    // The archive has each library twice (bin/ and lib/); take lib/.
+                    let in_lib = item.path()?.components().any(|c| c.as_os_str() == "lib");
+                    if in_lib && name.ends_with(".dll") && wanted(&name) {
+                        put(&name, &mut item)?;
+                    }
                 }
             }
         } else {

@@ -375,7 +375,7 @@ fn run(
     .map_err(|e| EngineError::Session(e.to_string()))?;
     let mut streaming = vad.streaming()?;
     let mut transcript = Transcript::default();
-    let mut resampler: Option<(u32, os_asr::sherpa_onnx::LinearResampler)> = None;
+    let mut resampler: Option<(u32, os_asr::Resampler)> = None;
     let mut level_acc = (0.0f32, 0usize);
     let level_every = (SAMPLE_RATE / 20) as usize;
     let mut asr_ms = 0u64;
@@ -438,13 +438,9 @@ fn run(
             block.samples
         } else {
             if resampler.as_ref().map(|(r, _)| *r) != Some(block.sample_rate) {
-                let r = os_asr::sherpa_onnx::LinearResampler::create(
-                    block.sample_rate as i32,
-                    SAMPLE_RATE as i32,
-                )
-                .ok_or_else(|| {
-                    EngineError::Session(format!("cannot resample from {} Hz", block.sample_rate))
-                })?;
+                let r = os_asr::Resampler::create(block.sample_rate as i32, SAMPLE_RATE as i32).ok_or_else(
+                    || EngineError::Session(format!("cannot resample from {} Hz", block.sample_rate)),
+                )?;
                 resampler = Some((block.sample_rate, r));
             }
             resampler.as_ref().expect("set above").1.resample(&block.samples, false)

@@ -6,6 +6,17 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[features]
+default = ["recorder", "stt", "inference", "sync"]
+# ADR-0018 section 1: the phone links only what it uses. Desktop builds take
+# them all.
+recorder = ["os-engine/recorder"]
+stt = ["os-engine/stt"]
+inference = ["os-engine/inference"]
+# Encrypted sync (ADR-0017). The os-sync crate arrives in M3 phase 2; the
+# feature exists now so every build already names it.
+sync = []
+
 [dependencies]
 os-asr.workspace = true
 os-engine.workspace = true
@@ -14,6 +25,11 @@ os-models.workspace = true
 chrono.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-sysinfo.workspace = true
 tracing.workspace = true
 tempfile.workspace = true
+
+[target.'cfg(not(target_os = "ios"))'.dependencies]
+sysinfo = { workspace = true, features = ["default"] }
+
+[target.'cfg(target_os = "ios")'.dependencies]
+sysinfo = { workspace = true, features = ["system", "disk"] }

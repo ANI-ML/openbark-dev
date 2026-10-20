@@ -7,6 +7,13 @@ license.workspace = true
 rust-version.workspace = true
 
 [features]
+default = ["stt", "inference", "recorder"]
+# Transcription on this device (sherpa-onnx; ADR-0018 section 1).
+stt = ["os-asr/stt"]
+# Drafting and speaker separation: llama.cpp (os-llm) and os-diar.
+inference = ["os-llm/llama", "os-diar/stt"]
+# Recording from the microphone (cpal).
+recorder = ["os-asr/capture"]
 # The end-to-end demo build only: OPENBARK_TEST_BUILTINS_DIR replaces built-in
 # templates at start, to simulate a release (ADR-0024 plan step 0). Never in releases.
 test-builtins = []
@@ -36,6 +43,14 @@ base64 = "=0.23.1"
 keepawake.workspace = true
 # The data key lives in the OS keychain (Credential Manager, Keychain, Secret Service).
 keyring = "=4.2.0"
+
+# iOS: the protected data store, items "after first unlock, this device only"
+# (ADR-0018 section 5). keyring 4's own platform store has no iOS store, so
+# keyring-core and Apple's store are used directly. The versions keyring
+# 4.2.0 already resolves to in Cargo.lock.
+[target.'cfg(target_os = "ios")'.dependencies]
+keyring-core = "=1.0.1"
+apple-native-keyring-store = { version = "=1.0.2", default-features = false, features = ["protected"] }
 
 [dev-dependencies]
 tempfile.workspace = true

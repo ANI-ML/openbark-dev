@@ -1,4 +1,5 @@
 use serde::Serialize;
+#[cfg(feature = "stt")]
 use sherpa_onnx::{SileroVadModelConfig, VadModelConfig, VoiceActivityDetector};
 
 use crate::{AsrError, Audio, SAMPLE_RATE, require_file};
@@ -42,6 +43,14 @@ impl SileroVad {
     }
 
     /// Find speech spans in a whole clip.
+    #[cfg(not(feature = "stt"))]
+    pub fn segments(&self, audio: &Audio) -> Result<Vec<SpeechSpan>, AsrError> {
+        let _ = (audio, &self.options);
+        Err(AsrError::NotInThisBuild)
+    }
+
+    /// Find speech spans in a whole clip.
+    #[cfg(feature = "stt")]
     pub fn segments(&self, audio: &Audio) -> Result<Vec<SpeechSpan>, AsrError> {
         let config = self.config();
         let buffer_secs = self.options.max_speech_secs + 10.0;
@@ -65,6 +74,15 @@ impl SileroVad {
     }
 }
 
+#[cfg(not(feature = "stt"))]
+impl SileroVad {
+    /// No live detector without speech recognition in the build.
+    pub fn streaming(&self) -> Result<StreamingVad, AsrError> {
+        Err(AsrError::NotInThisBuild)
+    }
+}
+
+#[cfg(feature = "stt")]
 impl SileroVad {
     fn config(&self) -> VadModelConfig {
         VadModelConfig {
@@ -93,6 +111,7 @@ impl SileroVad {
 }
 
 /// Silero's window: the detector consumes audio in blocks of this many samples.
+#[cfg(feature = "stt")]
 const WINDOW: usize = 512;
 
 /// One utterance from the live detector.
@@ -108,11 +127,30 @@ impl Utterance {
     }
 }
 
+#[cfg(feature = "stt")]
 pub struct StreamingVad {
     vad: VoiceActivityDetector,
     pending: Vec<f32>,
 }
 
+/// The live detector in a build without speech recognition: never created.
+#[cfg(not(feature = "stt"))]
+pub struct StreamingVad {
+    _never: std::convert::Infallible,
+}
+
+#[cfg(not(feature = "stt"))]
+impl StreamingVad {
+    pub fn accept(&mut self, _samples: &[f32]) -> Vec<Utterance> {
+        match self._never {}
+    }
+
+    pub fn finish(&mut self) -> Vec<Utterance> {
+        match self._never {}
+    }
+}
+
+#[cfg(feature = "stt")]
 impl StreamingVad {
     /// Feed 16 kHz mono samples; returns utterances that have ended.
     pub fn accept(&mut self, samples: &[f32]) -> Vec<Utterance> {

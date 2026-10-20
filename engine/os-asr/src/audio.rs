@@ -29,7 +29,15 @@ impl Audio {
         Self { samples }
     }
 
+    /// Read a WAV file and resample to 16 kHz if needed. Without `stt`
+    /// (no sherpa-onnx) WAV files are decoded like any other recording.
+    #[cfg(not(feature = "stt"))]
+    pub fn load_wav(path: &Path) -> Result<Self, AudioError> {
+        Self::decode(path)
+    }
+
     /// Read a WAV file and resample to 16 kHz if needed.
+    #[cfg(feature = "stt")]
     pub fn load_wav(path: &Path) -> Result<Self, AudioError> {
         let display = path.display().to_string();
         let wave = sherpa_onnx::Wave::read(path.to_str().ok_or_else(|| AudioError::Read(display.clone()))?)
@@ -38,8 +46,8 @@ impl Audio {
         let samples = if rate == SAMPLE_RATE as i32 {
             wave.samples().to_vec()
         } else {
-            let resampler = sherpa_onnx::LinearResampler::create(rate, SAMPLE_RATE as i32)
-                .ok_or(AudioError::Resample(rate))?;
+            let resampler =
+                crate::Resampler::create(rate, SAMPLE_RATE as i32).ok_or(AudioError::Resample(rate))?;
             resampler.resample(wave.samples(), true)
         };
         Ok(Self { samples })
@@ -202,8 +210,8 @@ fn resample(samples: Vec<f32>, rate: u32) -> Result<Vec<f32>, AudioError> {
     if rate == SAMPLE_RATE {
         return Ok(samples);
     }
-    let resampler = sherpa_onnx::LinearResampler::create(rate as i32, SAMPLE_RATE as i32)
-        .ok_or(AudioError::Resample(rate as i32))?;
+    let resampler =
+        crate::Resampler::create(rate as i32, SAMPLE_RATE as i32).ok_or(AudioError::Resample(rate as i32))?;
     Ok(resampler.resample(&samples, true))
 }
 

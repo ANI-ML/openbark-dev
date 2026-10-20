@@ -810,6 +810,9 @@ async fn hub_add(
     work(move || app.hub_add(&repo, &file, accept_license)).await
 }
 
+/// The app's entry point. Desktop builds call it from `main.rs`; on iOS and
+/// Android Tauri calls it as the mobile entry point (ADR-0018 section 7).
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app: AppState =
         Arc::new(App::new(ModelStore::default_location(), os_engine::session::default_root()));

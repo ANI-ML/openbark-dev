@@ -373,6 +373,11 @@ pub fn gpu_check_main() -> i32 {
 /// Whether the GPU passed its self-test: the saved result, or run the test
 /// now in a child process and save it (ADR-0014).
 fn verify_gpu(store: &ModelStore) -> bool {
+    // Phones can't start a child process (iOS forbids it) and have no GPU
+    // speech pack (ADR-0014, ADR-0018 section 7).
+    if cfg!(any(target_os = "ios", target_os = "android")) {
+        return false;
+    }
     let Some(file) = os_models::gpu_pack::check_file() else { return false };
     if let Ok(saved) = std::fs::read_to_string(&file) {
         return saved.trim() == "ok";

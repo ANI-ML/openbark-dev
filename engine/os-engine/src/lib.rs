@@ -15,6 +15,7 @@ pub mod edit;
 pub mod faithfulness;
 pub mod fingerprints;
 pub mod from_example;
+pub mod keychain;
 pub mod live;
 pub mod models;
 pub mod note;

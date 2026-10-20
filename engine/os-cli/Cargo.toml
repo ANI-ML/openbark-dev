@@ -23,11 +23,11 @@ test-builtins = ["os-engine/test-builtins"]
 mlx-test-mode = ["os-models/mlx-test-mode"]
 
 [dependencies]
-os-app.workspace = true
-os-asr.workspace = true
-os-diar.workspace = true
-os-engine.workspace = true
-os-llm.workspace = true
+os-app = { workspace = true, features = ["default"] }
+os-asr = { workspace = true, features = ["default"] }
+os-diar = { workspace = true, features = ["default"] }
+os-engine = { workspace = true, features = ["default"] }
+os-llm = { workspace = true, features = ["default"] }
 os-models.workspace = true
 os-server.workspace = true
 tokio.workspace = true
@@ -38,6 +38,8 @@ serde.workspace = true
 serde_json.workspace = true
 serde_yaml_ng.workspace = true
 tempfile.workspace = true
-sysinfo.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+
+[target.'cfg(not(target_os = "ios"))'.dependencies]
+sysinfo = { workspace = true, features = ["default"] }

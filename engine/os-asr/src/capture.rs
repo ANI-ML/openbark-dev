@@ -5,9 +5,15 @@
 //! channel; resampling, WAV writing and recognition happen on the consumer
 //! thread so the audio callback never blocks.
 
+//!
+//! Without the `capture` feature (a build that doesn't record) there is no
+//! microphone: [`input_devices`] is empty and [`MicCapture::start`] says so.
+
 use std::sync::mpsc::Sender;
 
+#[cfg(feature = "capture")]
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+#[cfg(feature = "capture")]
 use cpal::{Sample, SampleFormat};
 
 #[derive(Debug, thiserror::Error)]
@@ -18,8 +24,9 @@ pub enum CaptureError {
     DeviceNotFound(String),
     #[error("microphone error: {0}")]
     Device(String),
-    #[error("unsupported microphone sample format {0:?}")]
-    Format(SampleFormat),
+    /// The device's sample format, as cpal names it.
+    #[error("unsupported microphone sample format {0}")]
+    Format(String),
 }
 
 /// A block of mono samples at the device's native rate.
@@ -28,7 +35,33 @@ pub struct AudioBlock {
     pub sample_rate: u32,
 }
 
+/// What a build without the `capture` feature answers.
+#[cfg(not(feature = "capture"))]
+const NO_CAPTURE: &str = "recording isn't in this build";
+
+/// Names of available input devices: none without the `capture` feature.
+#[cfg(not(feature = "capture"))]
+pub fn input_devices() -> Vec<String> {
+    Vec::new()
+}
+
+/// A microphone stream, in a build that can't record.
+#[cfg(not(feature = "capture"))]
+pub struct MicCapture {
+    pub device_name: String,
+    pub sample_rate: u32,
+}
+
+#[cfg(not(feature = "capture"))]
+impl MicCapture {
+    pub fn start(device: Option<&str>, tx: Sender<AudioBlock>) -> Result<Self, CaptureError> {
+        let _ = (device, tx);
+        Err(CaptureError::Device(NO_CAPTURE.into()))
+    }
+}
+
 /// Names of available input devices; the first is the system default.
+#[cfg(feature = "capture")]
 pub fn input_devices() -> Vec<String> {
     let host = cpal::default_host();
     let default = host.default_input_device().and_then(|d| device_name(&d));
@@ -41,6 +74,7 @@ pub fn input_devices() -> Vec<String> {
     names
 }
 
+#[cfg(feature = "capture")]
 fn device_name(d: &cpal::Device) -> Option<String> {
     d.description().ok().map(|desc| desc.name().to_string())
 }
@@ -49,12 +83,14 @@ fn device_name(d: &cpal::Device) -> Option<String> {
 ///
 /// `cpal::Stream` is not `Send` on every platform, so create and drop it on
 /// the same thread.
+#[cfg(feature = "capture")]
 pub struct MicCapture {
     _stream: cpal::Stream,
     pub device_name: String,
     pub sample_rate: u32,
 }
 
+#[cfg(feature = "capture")]
 impl MicCapture {
     /// Open `device` (or the system default) and send mono blocks to `tx`.
     pub fn start(device: Option<&str>, tx: Sender<AudioBlock>) -> Result<Self, CaptureError> {
@@ -100,7 +136,7 @@ impl MicCapture {
             SampleFormat::U16 => stream!(u16),
             SampleFormat::U8 => stream!(u8),
             SampleFormat::I8 => stream!(i8),
-            f => return Err(CaptureError::Format(f)),
+            f => return Err(CaptureError::Format(format!("{f:?}"))),
         }
         .map_err(|e| CaptureError::Device(e.to_string()))?;
         stream.play().map_err(|e| CaptureError::Device(e.to_string()))?;

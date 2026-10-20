@@ -1,7 +1,7 @@
 import { Button } from "@openbark/ui";
 import { FolderOpen } from "lucide-react";
 import { useEffect, useState } from "react";
-import { fmtBytes } from "../context";
+import { fmtBytes, useApp } from "../context";
 import * as engine from "../engine";
 import { useT } from "../i18n";
 import { ChangeFolderSheet } from "./ChangeFolderSheet";
@@ -12,6 +12,9 @@ import { ChangeFolderSheet } from "./ChangeFolderSheet";
  */
 export function StorageSection() {
   const t = useT();
+  // A phone keeps everything in the app's own storage: iOS has no folder
+  // picker (ADR-0018 section 6).
+  const mobile = engine.isMobilePlatform(useApp().status?.platform);
   const [view, setView] = useState<engine.StorageView | null>(null);
   const [changing, setChanging] = useState<{ kind: engine.FolderKind; path?: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -53,10 +56,12 @@ export function StorageSection() {
           <span className="small faint">{t("Deleted visits: {size}", { size: fmtBytes(view?.deleted_bytes ?? 0) })}</span>
         )}
       </div>
-      <Button variant="ghost" onClick={() => void change(f.kind)} disabled={Boolean(f.fixed_by)}>
-        <FolderOpen size={18} aria-hidden />
-        {t("Change folder")}
-      </Button>
+      {!mobile && (
+        <Button variant="ghost" onClick={() => void change(f.kind)} disabled={Boolean(f.fixed_by)}>
+          <FolderOpen size={18} aria-hidden />
+          {t("Change folder")}
+        </Button>
+      )}
     </div>
   );
 
@@ -76,7 +81,11 @@ export function StorageSection() {
           {row(view.models, t("Models"), t("Speech and note models: large, and can be downloaded again"))}
         </div>
       )}
-      <p className="small faint">{t("Recordings and notes stay on this computer, or on the drive you choose.")}</p>
+      <p className="small faint">
+        {mobile
+          ? t("Recordings and notes stay in OpenBark's own storage on this phone.")
+          : t("Recordings and notes stay on this computer, or on the drive you choose.")}
+      </p>
       {changing && view && (
         <ChangeFolderSheet
           kind={changing.kind}

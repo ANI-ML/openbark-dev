@@ -296,7 +296,7 @@ export interface Status {
   plain_encounters: number;
   /** Team members are set up (otherwise single-user). */
   team: boolean;
-  /** "macos", "windows" or "linux": the Mac shows MLX-optimized models. */
+  /** "macos", "windows", "linux" or "ios": the Mac shows MLX-optimized models; a phone only mobile ones. */
   platform: string;
   /** Working alone, each person's own templates, or the hospital's (ADR-0024). */
   templates?: TemplatesMode;
@@ -760,6 +760,20 @@ export const setActor = (who: string | null) => {
 };
 
 export const isDesktop = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+/**
+ * The Tauri app on a phone or tablet (ADR-0018): there is no folder picker,
+ * and the opener can only open web links.
+ */
+export const isPhoneShell =
+  isDesktop && typeof navigator !== "undefined" && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+/**
+ * A phone: the app on one, or the phone screens in web mode
+ * (`OPENBARK_PLATFORM=ios`, for demos and tests on a computer).
+ */
+export const isMobilePlatform = (platform?: string | null) =>
+  isPhoneShell || platform === "ios" || platform === "android";
 
 /**
  * Web mode: a request to this computer's OpenBark. Every request carries
@@ -1446,7 +1460,8 @@ export const encryptExisting = () =>
 export const recoveryKey = () =>
   isDesktop ? invoke<string>("recovery_key") : api<string>("/api/encryption/recovery-key");
 
-export const canReveal = isDesktop;
+/** Show files: desktop only (the opener can only open web links on a phone). */
+export const canReveal = isDesktop && !isPhoneShell;
 export const reveal = (path: string) => revealItemInDir(path);
 
 // ---- importing a recording file -------------------------------------------

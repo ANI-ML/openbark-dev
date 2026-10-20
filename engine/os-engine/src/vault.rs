@@ -34,7 +34,7 @@ const NONCE: usize = 24;
 const TAG: usize = 16;
 /// Audio plaintext per chunk: 2 s of 16 kHz 16-bit mono.
 pub const CHUNK: usize = 64 * 1024;
-const SERVICE: &str = "OpenBark";
+/// Keychain account of the data key (service "OpenBark", [`crate::keychain`]).
 const ACCOUNT: &str = "data-key";
 
 /// Where the data key came from.
@@ -92,20 +92,17 @@ fn encode_key(key: &[u8; 32]) -> String {
     base64::engine::general_purpose::STANDARD.encode(key)
 }
 
-#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+/// The data key from the OS keychain (on iOS, the protected store: "after
+/// first unlock, this device only").
 fn keychain_get() -> Result<Option<[u8; 32]>, String> {
-    let entry = keyring::Entry::new(SERVICE, ACCOUNT).map_err(|e| e.to_string())?;
-    match entry.get_password() {
-        Ok(text) => decode_key(&text).map(Some).ok_or_else(|| "the stored key is damaged".to_string()),
-        Err(keyring::Error::NoEntry) => Ok(None),
-        Err(e) => Err(e.to_string()),
+    match crate::keychain::get(ACCOUNT)? {
+        Some(text) => decode_key(&text).map(Some).ok_or_else(|| "the stored key is damaged".to_string()),
+        None => Ok(None),
     }
 }
 
-#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 fn keychain_set(key: &[u8; 32]) -> Result<(), String> {
-    let entry = keyring::Entry::new(SERVICE, ACCOUNT).map_err(|e| e.to_string())?;
-    entry.set_password(&encode_key(key)).map_err(|e| e.to_string())?;
+    crate::keychain::set(ACCOUNT, &encode_key(key))?;
     // Read it back: some stores accept a write they can't keep.
     match keychain_get()? {
         Some(k) if &k == key => Ok(()),
@@ -113,29 +110,8 @@ fn keychain_set(key: &[u8; 32]) -> Result<(), String> {
     }
 }
 
-#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 fn keychain_delete() -> Result<bool, String> {
-    let entry = keyring::Entry::new(SERVICE, ACCOUNT).map_err(|e| e.to_string())?;
-    match entry.delete_credential() {
-        Ok(()) => Ok(true),
-        Err(keyring::Error::NoEntry) => Ok(false),
-        Err(e) => Err(e.to_string()),
-    }
-}
-
-#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
-fn keychain_delete() -> Result<bool, String> {
-    Ok(false)
-}
-
-#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
-fn keychain_get() -> Result<Option<[u8; 32]>, String> {
-    Err("no keychain on this platform".into())
-}
-
-#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
-fn keychain_set(_: &[u8; 32]) -> Result<(), String> {
-    Err("no keychain on this platform".into())
+    crate::keychain::delete(ACCOUNT)
 }
 
 fn write_key_file(key: &[u8; 32]) -> io::Result<()> {
@@ -181,6 +157,11 @@ pub fn init() -> io::Result<VaultStatus> {
                     };
                     match stored {
                         Ok(()) => (key, KeySource::Keychain, None),
+                        // iOS keeps keys only in the protected store: no
+                        // key file next to the visits (ADR-0018 section 5).
+                        Err(reason) if cfg!(target_os = "ios") => {
+                            return Err(err(format!("The keychain couldn't keep the data key: {reason}.")));
+                        }
                         Err(reason) => {
                             tracing::warn!(%reason, "keychain unavailable; keeping the data key in a file");
                             write_key_file(&key)?;

@@ -6,6 +6,11 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[features]
+default = ["stt"]
+# The sherpa-onnx models. Without it diarization says it isn't in this build.
+stt = ["os-asr/stt"]
+
 [dependencies]
 os-asr.workspace = true
 serde.workspace = true
