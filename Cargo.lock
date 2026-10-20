@@ -3856,6 +3856,7 @@ dependencies = [
  "indicatif",
  "os-app",
  "os-asr",
+ "os-connect",
  "os-diar",
  "os-engine",
  "os-llm",
