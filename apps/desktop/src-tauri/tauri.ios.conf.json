@@ -1,0 +1,26 @@
+{
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "OpenBark"
+      }
+    ],
+    "security": {
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$LOCALDATA/OpenBark/sessions/**",
+          "$HOME/Library/Application Support/OpenBark/sessions/**"
+        ]
+      }
+    }
+  },
+  "bundle": {
+    "shortDescription": "A veterinary scribe that stays on this iPhone",
+    "longDescription": "OpenBark records the consult and transcribes it on this iPhone. Recordings stay on this iPhone.",
+    "iOS": {
+      "minimumSystemVersion": "17.0"
+    }
+  }
+}

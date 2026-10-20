@@ -1,0 +1,133 @@
+# The iPhone app on GitHub's macOS runners (ADR-0018 section 8, M3 phase 0).
+#
+# - init: runs `tauri ios init` and offers src-tauri/gen/apple as an artifact
+#   to commit. Started by hand (job: init), or by a push whose commit message
+#   contains [ios-init].
+# - check: an unsigned simulator build and a WebView smoke test. On pull
+#   requests that touch the engine, the app or gen/apple; by hand (job:
+#   check); or on a push whose commit message contains [ios-check].
+#
+# macOS minutes count ten times on this private repository, so nothing here
+# runs on every push. Signed TestFlight builds are in ios-testflight.yml.
+name: iOS
+
+on:
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "init (tauri ios init) or check (simulator build and smoke test)"
+        type: choice
+        options: [check, init]
+        default: check
+      features:
+        description: "Extra cargo features for the check build (for example stt)"
+        type: string
+        default: ""
+  push:
+    branches-ignore: [main]
+  pull_request:
+    paths:
+      - "engine/**"
+      - "apps/desktop/**"
+      - "packages/ui/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/ios.yml"
+      - "scripts/ci/ios-*.sh"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  NODE_VERSION: "24.22.0"
+
+jobs:
+  init:
+    name: iOS init (tauri ios init)
+    if: >-
+      github.repository == 'ANI-ML/openbark-dev' && (
+        (github.event_name == 'workflow_dispatch' && inputs.job == 'init') ||
+        (github.event_name == 'push' && contains(github.event.head_commit.message, '[ios-init]'))
+      )
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Rust targets for iOS
+        run: rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+      - name: XcodeGen (tauri ios init generates the project with it)
+        run: brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
+      - name: tauri ios init
+        working-directory: apps/desktop
+        run: |
+          rm -rf src-tauri/gen/apple
+          pnpm tauri ios init --ci
+          ls -la src-tauri/gen/apple
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gen-apple
+          path: |
+            apps/desktop/src-tauri/gen/apple
+            !apps/desktop/src-tauri/gen/apple/build
+          include-hidden-files: true
+          retention-days: 14
+
+  check:
+    name: iOS check (simulator build + WebView smoke test)
+    if: >-
+      github.repository == 'ANI-ML/openbark-dev' && (
+        (github.event_name == 'workflow_dispatch' && inputs.job == 'check') ||
+        github.event_name == 'pull_request' ||
+        (github.event_name == 'push' && contains(github.event.head_commit.message, '[ios-check]'))
+      )
+    runs-on: macos-15
+    timeout-minutes: 90
+    # Job level: a push that skips this job must not cancel a running check.
+    concurrency:
+      group: ios-check-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Rust targets for iOS
+        run: rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-ios-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-ios-
+      - name: The engine type-checks for iOS (as on Windows)
+        run: bash scripts/ios-check.sh
+      - name: gen/apple (generated here if it isn't committed yet)
+        working-directory: apps/desktop
+        run: |
+          if [ ! -d src-tauri/gen/apple ]; then
+            brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
+            pnpm tauri ios init --ci
+          fi
+      - name: Simulator build (unsigned)
+        id: build
+        run: bash scripts/ci/ios-sim-build.sh "${{ inputs.features }}"
+      - name: WebView smoke test
+        run: bash scripts/ci/ios-smoke.sh "${{ steps.build.outputs.app }}" target/ios-smoke
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: ios-smoke
+          path: target/ios-smoke
+          retention-days: 14
+          if-no-files-found: ignore

@@ -73,6 +73,18 @@ async fn work<T: Send + 'static>(
 
 #[tauri::command]
 fn status(app: State<'_, AppState>) -> os_app::Status {
+    // The iOS check job's smoke test (ADR-0018 section 8): the interface asks
+    // for the status as soon as the WebView has loaded it, so a marker in the
+    // data folder proves the WebView ran the app. Only with OPENBARK_SMOKE=1.
+    if std::env::var("OPENBARK_SMOKE").as_deref() == Ok("1") {
+        let dir = os_engine::session::default_root();
+        let marker = dir.parent().unwrap_or(&dir).join("smoke-webview.txt");
+        if let Err(e) = std::fs::create_dir_all(marker.parent().unwrap_or(&dir))
+            .and_then(|_| std::fs::write(&marker, env!("CARGO_PKG_VERSION")))
+        {
+            tracing::warn!(error = %e, "couldn't write the smoke-test marker");
+        }
+    }
     app.status()
 }
 
