@@ -76,28 +76,51 @@ pub trait Transport: Send + Sync {
 }
 
 /// The real transport: reqwest, blocking, no redirects, 30 s timeout.
+///
+/// The client (and the runtime reqwest's blocking client keeps) is made on
+/// the first request, on the worker thread that sends it, and dropped on a
+/// thread of its own: the app is created and dropped inside async web
+/// servers, where creating or dropping a blocking runtime would panic.
 pub struct HttpTransport {
-    client: reqwest::blocking::Client,
+    client: std::sync::Mutex<Option<reqwest::blocking::Client>>,
 }
 
 impl HttpTransport {
     pub fn new() -> Result<Self, SyncError> {
-        let client = reqwest::blocking::Client::builder()
+        Ok(Self { client: std::sync::Mutex::new(None) })
+    }
+
+    fn client(&self) -> Result<reqwest::blocking::Client, SyncError> {
+        let mut slot = self.client.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(c) = slot.as_ref() {
+            return Ok(c.clone());
+        }
+        let c = reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(30))
             .connect_timeout(Duration::from_secs(10))
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(format!("OpenBark/{}", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|e| SyncError::Network(e.to_string()))?;
-        Ok(Self { client })
+        *slot = Some(c.clone());
+        Ok(c)
+    }
+}
+
+impl Drop for HttpTransport {
+    fn drop(&mut self) {
+        if let Some(c) = self.client.lock().unwrap_or_else(|p| p.into_inner()).take() {
+            let _ = std::thread::Builder::new().name("openbark-sync-drop".into()).spawn(move || drop(c));
+        }
     }
 }
 
 impl Transport for HttpTransport {
     fn send(&self, req: &Request) -> Result<Response, SyncError> {
+        let client = self.client()?;
         let mut r = match req.method {
-            "GET" => self.client.get(&req.url),
-            _ => self.client.post(&req.url),
+            "GET" => client.get(&req.url),
+            _ => client.post(&req.url),
         };
         for (k, v) in &req.headers {
             r = r.header(k.as_str(), v.as_str());
@@ -114,6 +137,7 @@ impl Transport for HttpTransport {
         })?;
         let status = resp.status().as_u16();
         let body = resp.bytes().map_err(|e| SyncError::Network(e.without_url().to_string()))?.to_vec();
+        drop(client);
         Ok(Response { status, body })
     }
 }
