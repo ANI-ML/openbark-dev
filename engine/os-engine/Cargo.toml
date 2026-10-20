@@ -38,6 +38,8 @@ tracing.workspace = true
 chacha20poly1305 = "=0.11.0"
 getrandom = "=0.4.3"
 base64 = "=0.23.1"
+# Team PINs (ADR-0017 section 3): Argon2id, PHC strings. Checked live 2026-10-19.
+argon2 = "=0.6.0"
 
 [target.'cfg(any(windows, target_os = "macos", target_os = "linux"))'.dependencies]
 keepawake.workspace = true
