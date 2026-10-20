@@ -555,7 +555,7 @@ begin
   end if;
   insert into sync.key_envelopes (user_id, recipient, device_id, amk_version, envelope)
     values (uid, target.id::text, target.id, acct.amk_version, sync.b64(envelope, 512))
-  on conflict (user_id, recipient, amk_version) do update set envelope = excluded.envelope;
+  on conflict on constraint key_envelopes_pkey do update set envelope = excluded.envelope;
   update sync.devices set status = 'approved', approved_at = now(), pair_mac = null, pair_blob = null,
     pending_expires_at = null where id = target.id;
   update sync.accounts set roster = sync.b64(approve_device.roster, 65536),
@@ -597,7 +597,7 @@ begin
   end if;
   insert into sync.key_envelopes (user_id, recipient, device_id, amk_version, envelope)
     values (uid, me.id::text, me.id, acct.amk_version, sync.b64(envelope, 512))
-  on conflict (user_id, recipient, amk_version) do update set envelope = excluded.envelope;
+  on conflict on constraint key_envelopes_pkey do update set envelope = excluded.envelope;
   update sync.devices set status = 'approved', approved_at = now(), pair_mac = null, pair_blob = null,
     pending_expires_at = null, last_seen_at = now() where id = me.id;
   return sync.account_state();
@@ -880,7 +880,7 @@ begin
       values (sp.id, (item ->> 'id')::uuid, item ->> 'kind', coalesce(cur.version, 0) + 1, next_seq,
         sync.b64(item ->> 'body', 73728), sync.b64(item ->> 'wrapped_dek', 256), sp.key_version,
         (item ->> 'padded_size')::integer)
-    on conflict (space_id, id) do update set
+    on conflict on constraint objects_pkey do update set
       version = excluded.version, seq = excluded.seq, body = excluded.body, wrapped_dek = excluded.wrapped_dek,
       key_version = excluded.key_version, padded_size = excluded.padded_size, updated_at = now();
     -- Parts of older versions go with them.
