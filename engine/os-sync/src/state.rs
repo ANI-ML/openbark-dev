@@ -170,6 +170,10 @@ pub struct State {
     /// recorded, drafted or signed sync.
     #[serde(default)]
     pub linked_user: Option<String>,
+    /// This device's sync id when it isn't the visits folder's device id
+    /// (after this device was removed, it joins again under a new id).
+    #[serde(default)]
+    pub device_id: Option<String>,
     /// When this device asked to join (its code lasts 10 minutes).
     #[serde(default)]
     pub pending_since: Option<DateTime<Utc>>,

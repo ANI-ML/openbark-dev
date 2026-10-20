@@ -166,7 +166,7 @@ impl SyncService {
             let r = self.rpc(
                 &mut inner,
                 "rebind_device",
-                json!({"device_id": self.device.id, "rebind_secret": keys::b64(keys.rebind_secret())}),
+                json!({"device_id": self.me().id, "rebind_secret": keys::b64(keys.rebind_secret())}),
             );
             match r {
                 Ok(v) if v["device"]["status"] == "approved" => {
@@ -205,9 +205,9 @@ impl SyncService {
             kit_pub: keys::b64(&kit.x_pub()),
             devices: vec![self.self_entry(inner, &device)],
         };
-        let sealed_roster = roster.seal(&amk, &account, 1, &device, &self.device.id)?;
+        let sealed_roster = roster.seal(&amk, &account, 1, &device, &self.me().id)?;
         let args = json!({
-            "device_id": self.device.id,
+            "device_id": self.me().id,
             "platform": platform_ok(platform()),
             "x25519_pub": keys::b64(&device.x_pub()),
             "ed25519_pub": keys::b64(&device.ed_pub()),
@@ -215,7 +215,7 @@ impl SyncService {
             "kit_pub": keys::b64(&kit.x_pub()),
             "kit_verifier": keys::b64(&kit.verifier()),
             "space_id": space,
-            "device_envelope": keys::b64(&keys::seal_to(&device.x_pub(), &amk.0, &keys::amk_aad(1, &self.device.id), None)?),
+            "device_envelope": keys::b64(&keys::seal_to(&device.x_pub(), &amk.0, &keys::amk_aad(1, &self.me().id), None)?),
             "kit_envelope": keys::b64(&keys::seal_to(&kit.x_pub(), &amk.0, &keys::amk_aad(1, "kit"), None)?),
             "space_key": keys::b64(&keys::wrap_space_key(&amk, &space, 1, 1, &space_key, &naming)?),
             "roster": keys::b64(&sealed_roster),
@@ -240,13 +240,13 @@ impl SyncService {
         st.roster_version = 1;
         st.phase = Phase::KitCheck;
         inner.roster = Some(roster);
-        state::audit(&self.paths, "account_created", json!({"device": self.device.id}));
+        state::audit(&self.paths, "account_created", json!({"device": self.me().id}));
         Ok(NextStep::Kit(self.kit_view(inner).ok_or(SyncError::NoKeys)?))
     }
 
     fn self_entry(&self, inner: &Inner, device: &DeviceKeys) -> Entry {
         Entry {
-            id: self.device.id.clone(),
+            id: self.me().id.clone(),
             name: inner.state.device_name.clone(),
             platform: platform_ok(platform()).to_string(),
             x25519_pub: keys::b64(&device.x_pub()),
@@ -309,10 +309,10 @@ impl SyncService {
             }
         };
         let code = PairingCode::generate()?;
-        let pk = code.key(&self.device.id)?;
+        let pk = code.key(&self.me().id)?;
         let blob = keys::wrap(
             &keys::pair_blob_key(&pk),
-            self.device.id.as_bytes(),
+            self.me().id.as_bytes(),
             &serde_json::to_vec(&json!({"name": inner.state.device_name, "platform": platform()})).expect("json"),
         )?;
         inner.secrets.pairing = Some(code.text());
@@ -323,12 +323,12 @@ impl SyncService {
             inner,
             "register_device",
             json!({
-                "device_id": self.device.id,
+                "device_id": self.me().id,
                 "platform": platform_ok(platform()),
                 "x25519_pub": keys::b64(&device.x_pub()),
                 "ed25519_pub": keys::b64(&device.ed_pub()),
                 "rebind_verifier": keys::b64(&device.rebind_verifier()),
-                "pair_mac": keys::b64(&keys::pair_mac(&pk, &self.device.id, &device.x_pub(), &device.ed_pub())),
+                "pair_mac": keys::b64(&keys::pair_mac(&pk, &self.me().id, &device.x_pub(), &device.ed_pub())),
                 "pair_blob": keys::b64(&blob),
             }),
         )?;
@@ -340,9 +340,9 @@ impl SyncService {
     pub(crate) fn pairing_view(&self, inner: &Inner) -> Option<PairingView> {
         let code = PairingCode::parse(inner.secrets.pairing.as_deref()?).ok()?;
         let device = inner.secrets.device_keys().ok()??;
-        let fp = keys::fingerprint(&self.device.id, &device.x_pub(), &device.ed_pub());
+        let fp = keys::fingerprint(&self.me().id, &device.x_pub(), &device.ed_pub());
         Some(PairingView {
-            qr_svg: keys::qr_svg(&keys::pairing_uri(&self.device.id, &fp, &code)),
+            qr_svg: keys::qr_svg(&keys::pairing_uri(&self.me().id, &fp, &code)),
             words: code.words,
             expires_at: inner.state.pending_since.map(|t| (t + Duration::minutes(10)).to_rfc3339()),
         })
@@ -380,18 +380,18 @@ impl SyncService {
             _ => return Ok(false),
         }
         let code = PairingCode::parse(inner.secrets.pairing.as_deref().ok_or(SyncError::NoKeys)?)?;
-        let bind = keys::pair_bind(&code.key(&self.device.id)?);
+        let bind = keys::pair_bind(&code.key(&self.me().id)?);
         let keys_v = self.rpc(inner, "my_keys", json!({}))?;
         let device = self.device_keys(inner)?;
         let (version, amk) = keys_v["envelopes"]
             .as_array()
             .into_iter()
             .flatten()
-            .filter(|e| e["recipient"].as_str() == Some(self.device.id.as_str()))
+            .filter(|e| e["recipient"].as_str() == Some(self.me().id.as_str()))
             .filter_map(|e| {
                 let v = e["amk_version"].as_u64()? as u32;
                 let env = keys::unb64(e["envelope"].as_str()?).ok()?;
-                keys::open_envelope(device.x_secret(), &env, &keys::amk_aad(v, &self.device.id), Some(&bind))
+                keys::open_envelope(device.x_secret(), &env, &keys::amk_aad(v, &self.me().id), Some(&bind))
                     .ok()
                     .map(|k| (v, SymKey(k)))
             })
@@ -406,7 +406,7 @@ impl SyncService {
         inner.secrets_dirty = true;
         self.refresh_keys(inner)?;
         inner.state.phase = Phase::Active;
-        state::audit(&self.paths, "joined", json!({"device": self.device.id}));
+        state::audit(&self.paths, "joined", json!({"device": self.me().id}));
         Ok(true)
     }
 
@@ -418,11 +418,11 @@ impl SyncService {
         let mut keys_now = inner.secrets.keys.clone().unwrap_or_default();
         for e in v["envelopes"].as_array().into_iter().flatten() {
             let ver = e["amk_version"].as_u64().unwrap_or_default() as u32;
-            if e["recipient"].as_str() != Some(self.device.id.as_str()) || ver <= keys_now.amk_version && !keys_now.amk.is_empty() {
+            if e["recipient"].as_str() != Some(self.me().id.as_str()) || ver <= keys_now.amk_version && !keys_now.amk.is_empty() {
                 continue;
             }
             let env = keys::unb64(e["envelope"].as_str().unwrap_or_default())?;
-            if let Ok(k) = keys::open_envelope(device.x_secret(), &env, &keys::amk_aad(ver, &self.device.id), None) {
+            if let Ok(k) = keys::open_envelope(device.x_secret(), &env, &keys::amk_aad(ver, &self.me().id), None) {
                 keys_now.amk_version = ver;
                 keys_now.amk = keys::b64(&k);
             }
@@ -474,7 +474,7 @@ impl SyncService {
             inner.state.names.insert(d.id.clone(), d.name.clone());
             inner.state.names.insert(d.tag(), d.name.clone());
         }
-        let listed = roster.active().any(|d| d.id == self.device.id);
+        let listed = roster.active().any(|d| d.id == self.me().id);
         inner.roster = Some(roster);
         if !listed {
             let device = self.device_keys(inner)?;
@@ -513,7 +513,7 @@ impl SyncService {
     fn seal_roster(&self, inner: &Inner, roster: &Roster, version: i64) -> Result<Vec<u8>, SyncError> {
         let amk = self.account_keys(inner)?.amk()?;
         let account = inner.state.user_id.clone().ok_or(SyncError::SignedOut)?;
-        roster.seal(&amk, &account, version, &self.device_keys(inner)?, &self.device.id)
+        roster.seal(&amk, &account, version, &self.device_keys(inner)?, &self.me().id)
     }
 
     /// On a device that syncs: find the pending device whose code was typed.
@@ -661,7 +661,7 @@ impl SyncService {
             .max_by_key(|(v, _)| *v)
             .ok_or_else(|| SyncError::User("This Recovery Kit doesn't open this account's keys.".into()))?;
         let device = self.device_keys(&inner)?;
-        let envelope = keys::seal_to(&device.x_pub(), &amk.0, &keys::amk_aad(version, &self.device.id), None)?;
+        let envelope = keys::seal_to(&device.x_pub(), &amk.0, &keys::amk_aad(version, &self.me().id), None)?;
         self.rpc(
             &mut inner,
             "approve_with_kit",
@@ -675,7 +675,7 @@ impl SyncService {
             inner.state.warn("The device list names a different Recovery Kit.");
         }
         inner.state.phase = Phase::Active;
-        state::audit(&self.paths, "recovered_with_kit", json!({"device": self.device.id}));
+        state::audit(&self.paths, "recovered_with_kit", json!({"device": self.me().id}));
         self.persist(&mut inner)?;
         self.publish(&inner, false);
         Ok(())
@@ -699,7 +699,7 @@ impl SyncService {
         let last_ctr = inner.state.seen.values().filter(|s| s.dev == device_id).map(|s| s.ctr).max();
         self.rpc(&mut inner, "revoke_device", json!({"device_id": device_id}))?;
         state::audit(&self.paths, "device_removed", json!({"device": device_id}));
-        if device_id == self.device.id {
+        if device_id == self.me().id {
             self.handle_revoked(&mut inner);
             self.persist(&mut inner)?;
             self.publish(&inner, false);
@@ -784,7 +784,7 @@ impl SyncService {
         let roster_v = inner.state.roster_version + 1;
         // The roster is sealed under the new AMK.
         let account = inner.state.user_id.clone().ok_or(SyncError::SignedOut)?;
-        let sealed_roster = roster.seal(&amk, &account, roster_v, &self.device_keys(inner)?, &self.device.id)?;
+        let sealed_roster = roster.seal(&amk, &account, roster_v, &self.device_keys(inner)?, &self.me().id)?;
         let new_keys = AccountKeys {
             amk_version: new_amk_v,
             amk: keys::b64(&amk.0),
@@ -839,7 +839,12 @@ impl SyncService {
         inner.devices.clear();
         let server = inner.state.server.clone();
         let email = inner.state.email.clone();
-        inner.state = State { phase: Phase::Revoked, server, email, ..Default::default() };
+        // A removed id never rejoins: if this device asks again, it does so
+        // as a new device, with new keys and a new id.
+        let fresh = uuid::Uuid::now_v7().to_string();
+        *self.device.write().unwrap_or_else(|p| p.into_inner()) = os_engine::device::Device::from_id(&fresh);
+        inner.clock = os_engine::hlc::Clock::new(fresh.clone());
+        inner.state = State { phase: Phase::Revoked, server, email, device_id: Some(fresh), ..Default::default() };
         state::audit(&self.paths, "revoked_here", json!({"erased_visits": erased}));
         let _ = state::save(&self.paths, &inner.state);
     }

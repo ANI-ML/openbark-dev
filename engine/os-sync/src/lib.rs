@@ -170,7 +170,9 @@ pub struct SyncStatus {
 pub struct SyncService {
     root: PathBuf,
     paths: Paths,
-    device: os_engine::device::Device,
+    /// This device's sync id: the visits folder's device id, or a fresh one
+    /// after this device was removed (a removed id never rejoins).
+    device: std::sync::RwLock<os_engine::device::Device>,
     store: Box<dyn SecretStore>,
     transport: Arc<dyn Transport>,
     inner: Mutex<Inner>,
@@ -221,8 +223,11 @@ impl SyncService {
     /// Sync with a given transport and secret store (tests).
     pub fn open(root: &Path, transport: Arc<dyn Transport>, store: Box<dyn SecretStore>) -> Result<Self, SyncError> {
         let paths = Paths::for_root(root);
-        let device = os_engine::device::for_root(root);
         let state = state::load(&paths)?;
+        let device = match &state.device_id {
+            Some(id) => os_engine::device::Device::from_id(id),
+            None => os_engine::device::for_root(root),
+        };
         let secrets = store.load().unwrap_or_else(|e| {
             tracing::warn!(error = %e, "couldn't read the sync keys");
             Secrets::default()
@@ -234,7 +239,7 @@ impl SyncService {
         let svc = Self {
             root: root.to_path_buf(),
             paths,
-            device,
+            device: std::sync::RwLock::new(device),
             store,
             transport,
             inner: Mutex::new(Inner {
@@ -261,8 +266,13 @@ impl SyncService {
         &self.root
     }
 
-    pub fn device_id(&self) -> &str {
-        &self.device.id
+    pub fn device_id(&self) -> String {
+        self.me().id
+    }
+
+    /// This device's sync identity.
+    fn me(&self) -> os_engine::device::Device {
+        self.device.read().unwrap_or_else(|p| p.into_inner()).clone()
     }
 
     /// Sync is on (signed in, joining or active) on this device.
@@ -317,7 +327,7 @@ impl SyncService {
                     .or_else(|| st.names.get(&id).cloned())
                     .unwrap_or_default();
                 Some(DeviceView {
-                    this_device: id == self.device.id,
+                    this_device: id == self.me().id,
                     id,
                     name,
                     platform: d["platform"].as_str().unwrap_or_default().to_string(),
@@ -332,7 +342,7 @@ impl SyncService {
             email: st.email.clone(),
             server: server.host(),
             custom_server: server.url != HOSTED_URL,
-            device_id: self.device.id.clone(),
+            device_id: self.me().id.clone(),
             device_name: st.device_name.clone(),
             devices,
             last_sync_at: st.last_sync_at,

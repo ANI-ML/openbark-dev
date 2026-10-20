@@ -483,12 +483,13 @@ fn a_removed_device_is_locked_out_at_once_and_erases_its_copies() {
     a.sync();
     assert!(b.visits().iter().any(|s| s.meta.id == own.meta.id));
     let b_token = b.rec.last_token().unwrap();
+    let b_id = b.svc.device_id();
     let b_keys = b.store.load().unwrap().keys.unwrap();
     let space = raw_rows(&env, "spaces").into_iter().find(|s| {
         raw_rows(&env, "devices").iter().any(|d| d["id"] == b.svc.device_id() && d["user_id"] == s["owner"])
     }).unwrap()["id"].as_str().unwrap().to_string();
 
-    a.svc.remove_device(b.svc.device_id()).unwrap();
+    a.svc.remove_device(&b_id).unwrap();
 
     // B's access token hasn't expired, yet the server refuses it at once.
     let client = os_sync::supabase::Client::new(Server { url: env.url.clone(), key: env.key.clone() }, Recorder::new());
@@ -525,7 +526,8 @@ fn a_removed_device_is_locked_out_at_once_and_erases_its_copies() {
     assert!(b.store.load().unwrap().keys.is_none(), "its sync keys are erased");
     // A carries on, and still has B's visit (it was synced before).
     assert!(a.visits().iter().any(|s| s.meta.id == b_own.meta.id));
-    assert!(a.svc.status().devices.iter().any(|d| d.id == b.svc.device_id() && d.status == "revoked"));
+    assert!(a.svc.status().devices.iter().any(|d| d.id == b_id && d.status == "revoked"));
+    assert_ne!(b.svc.device_id(), b_id, "a removed id never rejoins");
 
     // B can ask to join again, with new keys, and needs a new approval.
     let NextStep::Pair(pair) = sign_in(&env, &b, &email, "Old laptop", &used) else { panic!("expected to wait") };
@@ -545,7 +547,7 @@ fn a_new_device_recovers_everything_from_the_kit_after_a_rotation() {
     let v1 = make_visit(a.root(), "Maple", "Okonkwo");
     a.sync();
     let b = join(&env, &a, &email, "Spare", &used);
-    a.svc.remove_device(b.svc.device_id()).unwrap();
+    a.svc.remove_device(&b.svc.device_id()).unwrap();
     let v2 = make_visit(a.root(), "Biscuit", "Fairweather");
     a.sync();
 
@@ -586,7 +588,7 @@ fn row_level_security_keeps_accounts_and_pending_devices_apart() {
     let spaces = raw_rows(&env, "spaces");
     let devices = raw_rows(&env, "devices");
     let owner_of = |dev: &str| devices.iter().find(|d| d["id"] == dev).unwrap()["user_id"].clone();
-    let y_space = spaces.iter().find(|s| s["owner"] == owner_of(y.svc.device_id())).unwrap()["id"].as_str().unwrap().to_string();
+    let y_space = spaces.iter().find(|s| s["owner"] == owner_of(&y.svc.device_id())).unwrap()["id"].as_str().unwrap().to_string();
 
     let client = os_sync::supabase::Client::new(Server { url: env.url.clone(), key: env.key.clone() }, Recorder::new());
     // X can't read Y's objects, blobs, keys or devices.

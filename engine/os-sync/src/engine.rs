@@ -132,7 +132,7 @@ impl SyncService {
     /// Without a session: did the server revoke this device?
     fn was_revoked(&self, inner: &Inner) -> bool {
         let Ok(Some(device)) = inner.secrets.device_keys() else { return false };
-        let args = json!({"device_id": self.device.id, "rebind_secret": keys::b64(device.rebind_secret())});
+        let args = json!({"device_id": self.me().id, "rebind_secret": keys::b64(device.rebind_secret())});
         matches!(self.client(&inner.state).rpc("device_status", args, None), Ok(Value::String(s)) if s == "revoked")
     }
 
@@ -155,7 +155,7 @@ impl SyncService {
                 let r = self.rpc(
                     inner,
                     "rebind_device",
-                    json!({"device_id": self.device.id, "rebind_secret": keys::b64(device.rebind_secret())}),
+                    json!({"device_id": self.me().id, "rebind_secret": keys::b64(device.rebind_secret())}),
                 )?;
                 if r["device"]["status"] != "approved" {
                     return Err(SyncError::Revoked);
@@ -308,7 +308,7 @@ impl SyncService {
             return Ok(Applied::Done);
         }
         // This device's own object, already recorded.
-        if inner.state.seen.get(&row.id).is_some_and(|s| s.version == row.version && s.dev == self.device.id) {
+        if inner.state.seen.get(&row.id).is_some_and(|s| s.version == row.version && s.dev == self.me().id) {
             return Ok(Applied::Done);
         }
         let (header, body) = self.open_row(inner, row)?;
@@ -447,7 +447,7 @@ impl SyncService {
                 }
             }
         }
-        if s.meta.audio_on.is_none() && vb.audio_on != self.device.id && !s.has_audio() {
+        if s.meta.audio_on.is_none() && vb.audio_on != self.me().id && !s.has_audio() {
             s.meta.audio_on = Some(AudioOn {
                 device_id: vb.audio_on.clone(),
                 device_name: self.name_of(inner, &vb.audio_on).unwrap_or_default(),
@@ -777,7 +777,7 @@ impl SyncService {
                 session_id: sid.clone(),
                 created_at: s.meta.created_at,
                 app_version: s.meta.app_version.clone(),
-                audio_on: s.meta.audio_on.as_ref().map(|a| a.device_id.clone()).unwrap_or_else(|| self.device.id.clone()),
+                audio_on: s.meta.audio_on.as_ref().map(|a| a.device_id.clone()).unwrap_or_else(|| self.me().id.clone()),
                 fields: VISIT_FIELDS
                     .iter()
                     .map(|f| (f.to_string(), Stamped { v: values[*f].clone(), t: fields[*f].hlc.clone() }))
@@ -944,7 +944,7 @@ impl SyncService {
         if let Some(b) = blob {
             guard::refuse_audio(&b)?;
             let mut ctr = inner.state.counter;
-            let sealed = seal::seal_blob(id, &space, version as u32, &b, &dek, &device, &self.device.id, &mut || {
+            let sealed = seal::seal_blob(id, &space, version as u32, &b, &dek, &device, &self.me().id, &mut || {
                 ctr += 1;
                 ctr
             })?;
@@ -959,7 +959,7 @@ impl SyncService {
             space: space.clone(),
             kind: kind.to_string(),
             ver: version as u32,
-            dev: self.device.id.clone(),
+            dev: self.me().id.clone(),
             ctr: inner.state.counter,
         };
         let plain = serde_json::to_vec(&Body { hlc, data }).expect("serialises");
@@ -1043,7 +1043,7 @@ impl SyncService {
                         if it.op == "put" {
                             let ctr = seal::parse_obs1(&keys::unb64(&it.body)?).map(|o| o.header.ctr).unwrap_or_default();
                             if res["status"] == "ok" {
-                                inner.state.seen.insert(it.id.clone(), Seen { version: v, dev: self.device.id.clone(), ctr });
+                                inner.state.seen.insert(it.id.clone(), Seen { version: v, dev: self.me().id.clone(), ctr });
                             }
                         }
                         report.pushed += 1;
