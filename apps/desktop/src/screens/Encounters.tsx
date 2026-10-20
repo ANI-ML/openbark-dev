@@ -19,14 +19,23 @@ export function Encounters({ embedded = false }: { embedded?: boolean } = {}) {
     engine.listSessions().then(setRows, () => setRows([]));
   }, []);
 
-  const status = (r: engine.SessionSummary) =>
-    r.signed ? (
-      <StatusDot tone="ok">{t("Signed")}</StatusDot>
-    ) : r.runs > 0 ? (
-      <StatusDot tone="warn">{t("Draft")}</StatusDot>
-    ) : (
-      <StatusDot>{t("Transcribed")}</StatusDot>
-    );
+  const syncWords: Record<engine.SyncVisitState, string> = {
+    synced: t("Synced"),
+    pending: t("Waiting to sync"),
+    stopped: t("Not syncing"),
+  };
+  const status = (r: engine.SessionSummary) => (
+    <span className="visit-status">
+      {r.signed ? (
+        <StatusDot tone="ok">{t("Signed")}</StatusDot>
+      ) : r.runs > 0 ? (
+        <StatusDot tone="warn">{t("Draft")}</StatusDot>
+      ) : (
+        <StatusDot>{t("Transcribed")}</StatusDot>
+      )}
+      {r.sync && <span className="small faint sync-state">{syncWords[r.sync]}</span>}
+    </span>
+  );
   // No patient entered: say so, with where the visit came from (a file name or a live recording) after it.
   const noPatient = (source: string) => (
     <span className="faint">

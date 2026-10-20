@@ -63,6 +63,8 @@
   --ob-accent-50: #FDF4EC; --ob-accent-100: #FAE3CC; --ob-accent-300: #F0B07A;
   --ob-accent-500: #E27A2B; --ob-accent-600: #C9661F; --ob-accent-700: #A65218;
   --ob-surface: #FFFFFF; --ob-surface-2: #F2F4F7; --ob-surface-3: #E5E8EE;
+  /* QR codes (sync pairing, the Recovery Kit) stay dark on light in every theme, so phones can scan them. */
+  --qr-light: #FFFFFF; --qr-dark: #000000;
   --ob-text: #182230; --ob-text-2: #4B5563; --ob-text-3: #6B7280;
   --ob-success: #1F8A5B; --ob-warning: #B7791F; --ob-danger: #C2410C; --ob-info: #2F6FE4;
 
