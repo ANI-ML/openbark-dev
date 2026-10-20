@@ -43,6 +43,10 @@ pub struct Leveller {
     block_min: f32,
     block_frames: usize,
     minima: std::collections::VecDeque<f32>,
+    target: f32,
+    ceiling: f32,
+    max_gain: f32,
+    release: f32,
 }
 
 impl Default for Leveller {
@@ -61,6 +65,10 @@ impl Leveller {
             block_min: f32::MAX,
             block_frames: 0,
             minima: std::collections::VecDeque::new(),
+            target: db_to_amp(TARGET_DBFS),
+            ceiling: db_to_amp(NOISE_CEILING_DBFS),
+            max_gain: db_to_amp(MAX_GAIN_DB),
+            release: 0.9,
         }
     }
 
@@ -115,9 +123,10 @@ impl Leveller {
         let floor = self.noise_floor().unwrap_or(self.block_min).max(1e-6);
         // Fast attack, ~100 ms release: a quiet voice after a loud one is
         // lifted within a few hundred milliseconds, its first word included.
-        self.envelope = if rms > self.envelope { 0.5 * self.envelope + 0.5 * rms } else { 0.9 * self.envelope + 0.1 * rms };
-        let want = db_to_amp(TARGET_DBFS) / self.envelope.max(1e-7);
-        let cap = (db_to_amp(NOISE_CEILING_DBFS) / floor).min(db_to_amp(MAX_GAIN_DB));
+        let r = self.release;
+        self.envelope = if rms > self.envelope { 0.5 * self.envelope + 0.5 * rms } else { r * self.envelope + (1.0 - r) * rms };
+        let want = self.target / self.envelope.max(1e-7);
+        let cap = (self.ceiling / floor).min(self.max_gain);
         want.min(cap).max(1.0)
     }
 }
@@ -143,15 +152,20 @@ pub fn normalise(samples: &[f32]) -> Vec<f32> {
 
 /// The gain [`normalise`] applies.
 pub fn utterance_gain(samples: &[f32]) -> f32 {
+    (db_to_amp(TARGET_DBFS - speech_level_db(samples))).clamp(1.0, db_to_amp(MAX_GAIN_DB))
+}
+
+/// The level of the speech in `samples` (dBFS): the RMS of the louder half
+/// of its 10 ms frames, so pauses between words don't pull it down.
+pub fn speech_level_db(samples: &[f32]) -> f32 {
     let mut energies: Vec<f32> =
         samples.chunks(FRAME).map(|f| f.iter().map(|s| s * s).sum::<f32>() / f.len() as f32).collect();
     if energies.is_empty() {
-        return 1.0;
+        return -140.0;
     }
     energies.sort_by(|a, b| b.total_cmp(a));
     let loud = &energies[..energies.len().div_ceil(2)];
-    let rms = (loud.iter().sum::<f32>() / loud.len() as f32).sqrt().max(1e-7);
-    (db_to_amp(TARGET_DBFS) / rms).clamp(1.0, db_to_amp(MAX_GAIN_DB))
+    10.0 * (loud.iter().sum::<f32>() / loud.len() as f32).max(1e-14).log10()
 }
 
 #[cfg(test)]

@@ -1203,6 +1203,9 @@ impl PatientQuery {
 struct CreateSession {
     #[serde(default)]
     diarize: bool,
+    /// A client on a phone on speaker in the room.
+    #[serde(default)]
+    speakerphone: bool,
     #[serde(default)]
     name: Option<String>,
     #[serde(flatten)]
@@ -1226,6 +1229,7 @@ async fn create_session(
             &name,
             &body,
             q.diarize,
+            q.speakerphone,
             q.patient.into_patient(),
             q.consent.into_consent(),
             q.by.as_deref(),
@@ -1687,6 +1691,9 @@ async fn mute_standard(
 struct LiveQuery {
     #[serde(default = "yes")]
     speakers: bool,
+    /// A client on a phone on speaker in the room.
+    #[serde(default)]
+    speakerphone: bool,
     #[serde(default = "rate")]
     sample_rate: u32,
     #[serde(flatten)]
@@ -1722,6 +1729,7 @@ async fn live_session(s: St, mut q: LiveQuery, mut socket: WebSocket) {
             s.app().start_recording(
                 RecordingSource::Stream(rx),
                 q.speakers,
+                q.speakerphone,
                 patient,
                 consent,
                 q.by.as_deref(),
@@ -1780,6 +1788,9 @@ struct RecordStart {
     device: Option<String>,
     #[serde(default = "yes")]
     speakers: bool,
+    /// A client on a phone on speaker in the room.
+    #[serde(default)]
+    speakerphone: bool,
     #[serde(default)]
     patient: Option<Patient>,
     #[serde(default)]
@@ -1797,6 +1808,7 @@ async fn record_start(
         s.app().start_recording(
             RecordingSource::Microphone(req.device),
             req.speakers,
+            req.speakerphone,
             req.patient,
             req.consent,
             req.by.as_deref(),

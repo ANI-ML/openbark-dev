@@ -28,6 +28,9 @@ pub struct Transcriber {
     pub vad: SileroVad,
     pub asr: Box<dyn AsrBackend>,
     pub diarizer: Option<Diarizer>,
+    /// A client on a phone on speaker (see `LiveOptions::speakerphone`):
+    /// each span is brought to a normal level before recognition.
+    pub speakerphone: bool,
 }
 
 impl Transcriber {
@@ -99,7 +102,9 @@ impl Transcriber {
             if span.end - span.start < MIN_SPEECH_SECS {
                 continue;
             }
-            let text = self.asr.transcribe(audio.slice(span.start, span.end))?;
+            let slice = audio.slice(span.start, span.end);
+            let levelled = self.speakerphone.then(|| os_asr::level::normalise(slice));
+            let text = self.asr.transcribe(levelled.as_deref().unwrap_or(slice))?;
             if text.is_empty() {
                 continue;
             }

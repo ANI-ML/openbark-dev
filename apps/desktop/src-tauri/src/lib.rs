@@ -526,13 +526,22 @@ async fn import_file(
     app: State<'_, AppState>,
     path: String,
     speakers: bool,
+    speakerphone: Option<bool>,
     patient: Option<Patient>,
     consent: Option<RecordingConsent>,
     by: Option<String>,
 ) -> Result<os_app::SessionView, String> {
     let app = app.inner().clone();
     work(move || {
-        app.import_file(Path::new(&path), speakers, patient, consent, by.as_deref(), &TauriEvents(handle))
+        app.import_file(
+            Path::new(&path),
+            speakers,
+            speakerphone.unwrap_or(false),
+            patient,
+            consent,
+            by.as_deref(),
+            &TauriEvents(handle),
+        )
     })
     .await
 }
@@ -543,6 +552,7 @@ async fn start_recording(
     app: State<'_, AppState>,
     device: Option<String>,
     speakers: bool,
+    speakerphone: Option<bool>,
     patient: Option<Patient>,
     consent: Option<RecordingConsent>,
     by: Option<String>,
@@ -552,6 +562,7 @@ async fn start_recording(
         app.start_recording(
             RecordingSource::Microphone(device),
             speakers,
+            speakerphone.unwrap_or(false),
             patient,
             consent,
             by.as_deref(),

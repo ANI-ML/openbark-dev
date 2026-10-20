@@ -1606,24 +1606,29 @@ impl App {
     /// Runs the file through the live pipeline at full speed, so imports and
     /// recordings get the same segmentation and speaker labels (the live
     /// tracker was more accurate than full-recording diarization on short
-    /// clips; M1 tuning).
+    /// clips; M1 tuning). `speakerphone`: a client on a phone on speaker
+    /// (see `LiveOptions::speakerphone`).
+    #[allow(clippy::too_many_arguments)]
     pub fn import_file(
         &self,
         path: &Path,
         label_speakers: bool,
+        speakerphone: bool,
         patient: Option<PatientInfo>,
         consent: Option<Consent>,
         by: Option<&str>,
         events: &dyn Events,
     ) -> Result<SessionView> {
         let source = LiveSource::File { path: path.to_path_buf(), realtime: false };
-        self.import_source(source, label_speakers, patient, consent, by, events)
+        self.import_source(source, label_speakers, speakerphone, patient, consent, by, events)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn import_source(
         &self,
         source: LiveSource,
         label_speakers: bool,
+        speakerphone: bool,
         patient: Option<PatientInfo>,
         consent: Option<Consent>,
         by: Option<&str>,
@@ -1640,6 +1645,7 @@ impl App {
         let (tx, rx) = std::sync::mpsc::channel::<Live>();
         let mut options = LiveOptions::microphone();
         options.label_speakers = label_speakers;
+        options.speakerphone = speakerphone;
         options.patient = patient.filter(|p| !p.is_empty());
         options.consent = consent;
         options.recorded_by = recorded_by;
@@ -1682,6 +1688,7 @@ impl App {
         name: &str,
         wav: &[u8],
         label_speakers: bool,
+        speakerphone: bool,
         patient: Option<PatientInfo>,
         consent: Option<Consent>,
         by: Option<&str>,
@@ -1694,7 +1701,7 @@ impl App {
         let file = Path::new(name).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let name = if file.is_empty() { "recording.wav".to_string() } else { file };
         let source = LiveSource::Memory { name, bytes: wav.to_vec() };
-        self.import_source(source, label_speakers, patient, consent, by, events)
+        self.import_source(source, label_speakers, speakerphone, patient, consent, by, events)
     }
 
     // ---- live recording --------------------------------------------------
@@ -1707,10 +1714,14 @@ impl App {
     /// = default) or from blocks the caller pushes (`stream`). Consent is the
     /// clinic's responsibility (the app shows a one-time notice); when the
     /// per-recording consent step is used, the consent is checked and saved.
+    /// `speakerphone`: a client on a phone on speaker in the room (see
+    /// `LiveOptions::speakerphone`).
+    #[allow(clippy::too_many_arguments)]
     pub fn start_recording(
         &self,
         source: RecordingSource,
         label_speakers: bool,
+        speakerphone: bool,
         patient: Option<PatientInfo>,
         consent: Option<Consent>,
         by: Option<&str>,
@@ -1731,6 +1742,7 @@ impl App {
         };
         let mut options = LiveOptions::microphone();
         options.label_speakers = label_speakers;
+        options.speakerphone = speakerphone;
         options.patient = patient.filter(|p| !p.is_empty());
         options.consent = consent;
         options.recorded_by = recorded_by;

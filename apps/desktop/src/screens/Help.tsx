@@ -177,6 +177,7 @@ export const HELP_TOPICS = [
       "Choose the kind of visit, then press Record or Space to start.",
       "Each sentence appears in the live transcript once it's finished. The audio is saved, encrypted, as you go.",
       "Press the button again to stop. A progress bar shows the transcript being finished, then the note is drafted and opens in Review.",
+      "Client on a phone on speaker? Tick Phone on speaker before you start, and put the phone between you and the computer with the volume up. Calling through OpenBark's own phone records the client more clearly still.",
       "You can also import a recording made elsewhere, such as a phone's call recording. A progress bar shows how far it has got and the time left.",
     ],
   },

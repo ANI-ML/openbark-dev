@@ -329,8 +329,7 @@ impl SpeakerTracker {
         };
         let extractor =
             os_asr::sherpa_onnx::SpeakerEmbeddingExtractor::create(&config).ok_or(DiarError::Create)?;
-        let band_cue = std::env::var("OPENBARK_X_BAND").map_or(true, |v| v != "0");
-        Ok(Self { extractor, speakers: Vec::new(), threshold, band_cue })
+        Ok(Self { extractor, speakers: Vec::new(), threshold, band_cue: true })
     }
 
     fn embed(&self, samples: &[f32]) -> Option<Vec<f32>> {

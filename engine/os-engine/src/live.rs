@@ -96,6 +96,12 @@ pub struct LiveOptions {
     pub recorded_by: Option<crate::users::Who>,
     /// A phone call's details, saved with the visit at the start (ADR-0023).
     pub call: Option<crate::session::CallInfo>,
+    /// A client on a phone on speaker in the room (the Record screen's
+    /// "Phone on speaker", ADR-0026): voice detection hears a levelled copy
+    /// of the audio and cuts where a louder voice starts or stops, and each
+    /// utterance reaches the recogniser and the speaker model at a normal
+    /// level. The saved recording is untouched.
+    pub speakerphone: bool,
 }
 
 impl LiveOptions {
@@ -108,6 +114,7 @@ impl LiveOptions {
             consent: None,
             recorded_by: None,
             call: None,
+            speakerphone: false,
         }
     }
 }
@@ -198,9 +205,14 @@ impl LiveRecorder {
         sink: Box<dyn LiveSink>,
     ) -> Result<Self, EngineError> {
         // Load models up front so errors surface before recording starts.
-        let vad = os_asr::SileroVad::new(os_asr::VadOptions::new(models::single_file(store, models::VAD)?))?;
-        let asr = os_asr::OfflineAsr::new(models::asr_model(store, &models::best_stt(store, &options.stt))?)?;
         let is_call = matches!(source, LiveSource::Call { .. });
+        let mut vad_options = os_asr::VadOptions::new(models::single_file(store, models::VAD)?);
+        // A call has each side on its own channel at a good level.
+        if options.speakerphone && !is_call {
+            vad_options = vad_options.speakerphone();
+        }
+        let vad = os_asr::SileroVad::new(vad_options)?;
+        let asr = os_asr::OfflineAsr::new(models::asr_model(store, &models::best_stt(store, &options.stt))?)?;
         // Calls: the channel says who is speaking, so no embeddings (ADR-0023 section 7).
         let tracker = if options.label_speakers && !is_call {
             Some(os_diar::SpeakerTracker::new(
@@ -446,6 +458,7 @@ fn run(
     let mut asr_ms = 0u64;
 
     let mut checks_queued = 0usize;
+    let speakerphone = options.speakerphone;
     let mut handle_utterances = |utterances: Vec<os_asr::Utterance>,
                                  transcript: &mut Transcript,
                                  sink: &mut Box<dyn LiveSink>,
@@ -456,13 +469,11 @@ fn run(
                 continue;
             }
             let t = Instant::now();
-            let asr_norm = std::env::var("OPENBARK_X_ASR_NORM").is_ok_and(|v| v == "1");
-            let emb_norm = std::env::var("OPENBARK_X_EMB_NORM").is_ok_and(|v| v == "1");
-            let levelled = (asr_norm || emb_norm).then(|| os_asr::level::normalise(&u.samples));
-            let for_asr = if asr_norm { levelled.as_deref().unwrap_or(&u.samples) } else { &u.samples };
-            let for_emb = if emb_norm { levelled.as_deref().unwrap_or(&u.samples) } else { &u.samples };
-            let text = asr.transcribe(for_asr)?;
-            let speaker = tracker.as_mut().and_then(|tr| tr.assign(for_emb));
+            // Speakerphone: a quiet utterance reaches the models at a normal level.
+            let levelled = speakerphone.then(|| os_asr::level::normalise(&u.samples));
+            let heard = levelled.as_deref().unwrap_or(&u.samples);
+            let text = asr.transcribe(heard)?;
+            let speaker = tracker.as_mut().and_then(|tr| tr.assign(heard));
             *asr_ms += t.elapsed().as_millis() as u64;
             if text.is_empty() {
                 continue;
@@ -479,7 +490,7 @@ fn run(
             sink.segment(&segment);
             if let Some(tx) = &job_tx
                 && crate::crosscheck::worth_checking(&segment)
-                && tx.send((transcript.segments.len(), for_asr.to_vec(), segment.text.clone())).is_ok()
+                && tx.send((transcript.segments.len(), heard.to_vec(), segment.text.clone())).is_ok()
             {
                 checks_queued += 1;
             }

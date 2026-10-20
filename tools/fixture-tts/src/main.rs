@@ -55,6 +55,20 @@ struct Args {
     /// Appended to the output file names, e.g. "-paced".
     #[arg(long, default_value = "")]
     suffix: String,
+    /// Keep each voiced line here and reuse it (Kokoro is the slow part).
+    #[arg(long)]
+    cache: Option<PathBuf>,
+    /// Speakerphone scripts: render without the phone (everyone in the room,
+    /// dry), as a control.
+    #[arg(long)]
+    no_phone: bool,
+    /// Speakerphone scripts: the phone's direct-to-reverberant ratio in dB
+    /// (default -3: mostly room echo; higher is a phone nearer the mic).
+    #[arg(long, default_value_t = -3.0)]
+    phone_drr: f32,
+    /// Speakerphone scripts: override the phone voice's level (dB re the vet).
+    #[arg(long)]
+    phone_level: Option<f32>,
     scripts: Vec<PathBuf>,
 }
 
@@ -125,18 +139,34 @@ fn render(tts: &OfflineTts, resampler: &LinearResampler, path: &Path, args: &Arg
     for (speaker, text) in &script.lines {
         let voice = script.speakers.get(speaker).ok_or_else(|| anyhow!("unknown speaker {speaker}"))?;
         let sid = VOICES.iter().position(|v| v == voice).ok_or_else(|| anyhow!("unknown voice {voice}"))?;
+        let cached = args.cache.as_ref().map(|dir| {
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            std::hash::Hash::hash(&(voice, text, args.speed.to_bits()), &mut h);
+            dir.join(format!("{:016x}.wav", std::hash::Hasher::finish(&h)))
+        });
+        if let Some(wave) = cached.as_ref().and_then(|p| os_asr::sherpa_onnx::Wave::read(p.to_str()?)) {
+            voiced.push(wave.samples().to_vec());
+            continue;
+        }
         let config = GenerationConfig { sid: sid as i32, speed: args.speed, ..Default::default() };
         let audio = tts
             .generate_with_config::<fn(&[f32], f32) -> bool>(text, &config, None)
             .ok_or_else(|| anyhow!("TTS failed on: {text}"))?;
         resampler.reset();
-        voiced.push(resampler.resample(audio.samples(), true));
+        let line = resampler.resample(audio.samples(), true);
+        if let Some(path) = &cached {
+            std::fs::create_dir_all(path.parent().context("cache dir")?)?;
+            os_asr::sherpa_onnx::write(path.to_str().context("path")?, &line, OUT_RATE);
+        }
+        voiced.push(line);
     }
     // What the room mic hears of each line (the dry line without `phone:`),
     // which may ring on past the line's end (reverb).
-    let heard: Vec<Vec<f32>> = match &script.phone {
+    let phone = if args.no_phone { None } else { script.phone.clone() };
+    let heard: Vec<Vec<f32>> = match &phone {
         None => voiced.clone(),
         Some(spec) => {
+            let level_db = args.phone_level.unwrap_or(spec.level_db);
             if !script.speakers.contains_key(&spec.speaker) {
                 bail!("phone speaker {} isn't one of the script's speakers", spec.speaker);
             }
@@ -148,7 +178,7 @@ fn render(tts: &OfflineTts, resampler: &LinearResampler, path: &Path, args: &Arg
                     let seed = spec.seed.wrapping_add(i as u64);
                     if on_phone(i) {
                         // Mostly reverberant: the phone is a metre or more away.
-                        phone::in_room(&phone::phone_line(line), -3.0, seed)
+                        phone::in_room(&phone::phone_line(line), args.phone_drr, seed)
                     } else {
                         // The vet is close to the mic: a light touch of the room.
                         phone::in_room(line, 12.0, seed)
@@ -163,7 +193,7 @@ fn render(tts: &OfflineTts, resampler: &LinearResampler, path: &Path, args: &Arg
                 phone::rms_of(&lines)
             };
             let (room, far) = (level(false), level(true));
-            let gain = room * 10f32.powf(spec.level_db / 20.0) / far.max(1e-9);
+            let gain = room * 10f32.powf(level_db / 20.0) / far.max(1e-9);
             for (i, line) in heard.iter_mut().enumerate() {
                 if on_phone(i) {
                     line.iter_mut().for_each(|s| *s *= gain);
@@ -188,7 +218,7 @@ fn render(tts: &OfflineTts, resampler: &LinearResampler, path: &Path, args: &Arg
         samples.resize(samples.len().max(at + dry.len() + pause), 0.0);
         samples.truncate(at + dry.len() + pause.max(line.len().saturating_sub(dry.len())));
     }
-    if let Some(spec) = &script.phone {
+    if let Some(spec) = &phone {
         let vet: Vec<&[f32]> = voiced
             .iter()
             .zip(&script.lines)

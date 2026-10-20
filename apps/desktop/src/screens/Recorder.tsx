@@ -131,6 +131,7 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
     try {
       recording.current = await engine.startRecording(
         app.settings.labelSpeakers,
+        app.settings.phoneOnSpeaker,
         app.settings.device,
         patient,
         consent,
@@ -169,6 +170,7 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
     try {
       const view = await engine.importRecording(
         app.settings.labelSpeakers,
+        app.settings.phoneOnSpeaker,
         patient,
         consent,
         () => {
@@ -371,6 +373,23 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
             />
             <span>{t("Label speakers")}</span>
           </label>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={app.settings.phoneOnSpeaker}
+              onChange={(e) => app.setSettings({ phoneOnSpeaker: e.target.checked })}
+              disabled={state !== "idle"}
+              aria-describedby={app.settings.phoneOnSpeaker ? "phone-on-speaker-hint" : undefined}
+            />
+            <span>{t("Phone on speaker")}</span>
+          </label>
+          {app.settings.phoneOnSpeaker && (
+            <p className="small faint" id="phone-on-speaker-hint">
+              {t(
+                "Picks up the quieter voice of a client on a phone on speaker. Put the phone between you and the computer, volume up.",
+              )}
+            </p>
+          )}
           <label className="check">
             <input
               type="checkbox"
