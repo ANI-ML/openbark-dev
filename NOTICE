@@ -13,6 +13,9 @@ models in the default catalog:
   "Gemma" is a trademark of Google LLC. OpenBark is not affiliated with or
   endorsed by Google.
 
+- Qwen3 1.7B, by the Qwen team (Alibaba Cloud), licensed under Apache-2.0.
+  GGUF conversion by Unsloth. Offered on iPhones with 6 GB of memory.
+
 - Parakeet TDT 0.6B v3, by NVIDIA, licensed under CC-BY-4.0.
   https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3
   ONNX export by the k2-fsa/sherpa-onnx project.
