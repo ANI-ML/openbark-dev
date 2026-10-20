@@ -12,7 +12,22 @@ While recording and drafting, the computer doesn't go to sleep. The recording is
 
 ## In the browser (web mode)
 
-When you use OpenBark in a browser on this computer, the browser asks for permission to use the microphone the first time. Allow it. If you blocked it, allow the microphone for the page in the browser's address bar, then try again.
+When you use OpenBark in a browser on this computer, the browser asks for permission to use the microphone the first time. Allow it. If you blocked it, allow the microphone for the page in the browser's address bar, then try again. Open OpenBark at `http://localhost` on this computer: browsers only allow the microphone on a secure page, and the computer's network address isn't one.
+
+## Checking the microphone
+
+On **Record**, the right-hand column has a **Microphone** list and **Test microphone**. Choose a microphone (or leave **System default**), press **Test microphone** and speak: the bar moves with your voice, and a line underneath says **Hearing you**, or what's wrong. The test stops when you press **Stop test**, start recording, or after a minute. The same check is in **Settings → Recording**.
+
+While you record, OpenBark keeps an eye on the microphone and says so on the Record screen when:
+
+- **it sends only silence** for a few seconds: it's muted, or OpenBark (or the browser) isn't allowed to use it;
+- **no sound arrives** at all: OpenBark reopens the microphone by itself;
+- **it's unplugged** or a Bluetooth headset drops out: recording moves to the system's default microphone and a message says which one. With no microphone left, recording pauses, nothing silent is added, and it carries on as soon as one is connected. Stop at any time to keep what was recorded;
+- **a Bluetooth headset is in its call mode**, which records in narrow phone quality: use the computer's own microphone or a wired one for consults.
+
+With **System default** chosen, recording follows the system: connect AirPods or a headset and make it the default, and recording moves to it. A microphone chosen by name is kept, and taken back if it's unplugged and plugged in again.
+
+Opening Record also loads the speech models in the background (when the computer has memory to spare), so recording starts as soon as you press the button.
 
 ## Importing a recording
 
