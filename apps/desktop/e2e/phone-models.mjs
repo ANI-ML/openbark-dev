@@ -90,7 +90,12 @@ for (const v of variants) {
     (await e4b.innerText()).includes("Too large for this iPhone (8 GB)"),
     `${v.name}: E4B should say it's too large for this iPhone`,
   );
-  check(await e4b.getByRole("button", { name: /Download/ }).isDisabled(), `${v.name}: E4B can't be downloaded`);
+  // Not downloaded: Download is disabled. Already on disk (a shared demo
+  // models folder): it can't be chosen to write notes.
+  const dl = e4b.getByRole("button", { name: /Download/ });
+  if (await dl.count()) check(await dl.isDisabled(), `${v.name}: E4B can't be downloaded`);
+  const option = page.locator("select.ob-select option", { hasText: "Gemma 4 E4B" });
+  if (await option.count()) check(await option.first().isDisabled(), `${v.name}: E4B can't be chosen to write notes`);
   await page.screenshot({ path: `${out}/models-${v.name}.png`, fullPage: true });
 
   if (process.env.HUB === "1" && v.name === "desktop-light") {

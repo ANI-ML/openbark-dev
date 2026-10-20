@@ -1533,6 +1533,11 @@ fn a_phone_lists_mobile_models_and_picks_its_tier_default() {
     // A Hub model added on a computer isn't offered on a phone.
     hub_model(&app, "Big-12B-Q4_K_M", false);
     assert!(!app.models().iter().any(|r| r.id.contains("Big-12B")));
+    // Nor is loading one that doesn't fit, to draft.
+    assert_eq!(
+        app.load_llm("gemma-4-e4b-it-q4_0").err().map(|e| e.0).as_deref(),
+        Some("Too large for this iPhone (8 GB): 5.2 GB. Models up to 3.5 GB fit.")
+    );
     // Nor is adding a model from files.
     assert_eq!(app.inspect_import("C:/models/x.gguf", None).unwrap_err().0, NO_IMPORT_ON_PHONE);
 }

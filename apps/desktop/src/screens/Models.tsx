@@ -130,7 +130,8 @@ export function Models() {
 
   const llms = rows.filter((r) => r.slot === "llm" && r.installed && !r.missing);
   // An MLX model can't write notes where the engine can't run or isn't installed.
-  const canDraft = (r: engine.ModelRow) => r.engine !== "mlx" || mlxUsable(mlx);
+  // On a phone, a model too large for it can't write notes there either.
+  const canDraft = (r: engine.ModelRow) => (r.engine !== "mlx" || mlxUsable(mlx)) && !r.phone_note;
   const current = rows.find((r) => r.id === app.settings.llm);
   const currentProgress = progress[app.settings.llm];
   // The GPU recognisers come with the GPU speech pack, not one by one.
@@ -223,7 +224,11 @@ export function Models() {
               >
                 {llms.map((m) => (
                   <option key={m.id} value={m.id} disabled={!canDraft(m) && m.id !== app.settings.llm}>
-                    {canDraft(m) ? m.name : t("{name} (needs the MLX engine)", { name: m.name })}
+                    {canDraft(m)
+                      ? m.name
+                      : m.phone_note
+                        ? t("{name} (too large for this iPhone)", { name: m.name })
+                        : t("{name} (needs the MLX engine)", { name: m.name })}
                   </option>
                 ))}
                 {!llms.some((m) => m.id === app.settings.llm) && (

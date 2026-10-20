@@ -1542,6 +1542,7 @@
   "{model} didn't finish downloading: {error} Try again to resume where it stopped.": "Le téléchargement de {model} n'a pas abouti : {error} Réessayez pour reprendre là où il s'est arrêté.",
   "{name} (needs the MLX engine)": "{name} (nécessite le moteur MLX)",
   "{name} (shared)": "{name} (partagé)",
+  "{name} (too large for this iPhone)": "{name} (trop grand pour cet iPhone)",
   "{name} added to the team": "{name} ajouté à l'équipe",
   "{name} copy": "Copie de {name}",
   "{name} didn't pass OpenBark's check, so it can't write notes.": "{name} n'a pas réussi la vérification d'OpenBark, il ne peut donc pas rédiger de notes.",

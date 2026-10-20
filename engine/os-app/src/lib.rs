@@ -2541,6 +2541,13 @@ impl App {
         {
             return Ok(backend.clone());
         }
+        // A phone never loads a model that doesn't fit it (ADR-0018 section 10).
+        if self.phone_tier().is_some()
+            && let Some(m) = hub::full_catalog(&self.store).get(id)
+            && let Some(why) = self.phone_refusal(m)
+        {
+            return Err(AppError(why));
+        }
         *slot = None; // one model per process: free before loading
         // While it loads (minutes, for MLX), status calls read this instead
         // of waiting for the slot.
