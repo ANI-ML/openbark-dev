@@ -225,7 +225,11 @@ fn render(tts: &OfflineTts, resampler: &LinearResampler, path: &Path, args: &Arg
             .filter(|(_, (s, _))| *s != spec.speaker)
             .map(|(l, _)| l.as_slice())
             .collect();
-        let noise = phone::room_noise(samples.len(), phone::rms_of(&vet) * 10f32.powf(spec.noise_db / 20.0), spec.seed);
+        let noise = phone::room_noise(
+            samples.len(),
+            phone::rms_of(&vet) * 10f32.powf(spec.noise_db / 20.0),
+            spec.seed,
+        );
         samples.iter_mut().zip(noise).for_each(|(s, n)| *s += n);
         let peak = samples.iter().fold(0.0f32, |m, x| m.max(x.abs()));
         if peak > 0.98 {

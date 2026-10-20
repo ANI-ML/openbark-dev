@@ -372,7 +372,8 @@ impl SpeakerTracker {
                 Some(i as u32)
             }
             _ if long_enough => {
-                let mut c = Centroid { sum: vec![0.0; embedding.len()], count: 0, band_sum: 0.0, band_count: 0 };
+                let mut c =
+                    Centroid { sum: vec![0.0; embedding.len()], count: 0, band_sum: 0.0, band_count: 0 };
                 c.add(&embedding, learn);
                 self.speakers.push(c);
                 Some(self.speakers.len() as u32 - 1)
@@ -415,7 +416,8 @@ mod tests {
     #[test]
     fn high_band_level_tells_a_phone_line_from_the_room() {
         // Room speech has energy up to 8 kHz; a phone line stops at 3.4 kHz.
-        let room: Vec<f32> = tone(1000.0, 1.0).iter().zip(tone(6000.0, 1.0)).map(|(a, b)| a + 0.3 * b).collect();
+        let room: Vec<f32> =
+            tone(1000.0, 1.0).iter().zip(tone(6000.0, 1.0)).map(|(a, b)| a + 0.3 * b).collect();
         let phone: Vec<f32> =
             tone(1000.0, 1.0).iter().zip(tone(6000.0, 1.0)).map(|(a, b)| a + 0.001 * b).collect();
         let (r, p) = (high_band_db(&room), high_band_db(&phone));

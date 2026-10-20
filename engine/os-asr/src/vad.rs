@@ -92,7 +92,8 @@ impl SileroVad {
     }
 
     fn detector(&self) -> Result<VoiceActivityDetector, AsrError> {
-        VoiceActivityDetector::create(&self.config(), self.options.max_speech_secs + 10.0).ok_or(AsrError::Create)
+        VoiceActivityDetector::create(&self.config(), self.options.max_speech_secs + 10.0)
+            .ok_or(AsrError::Create)
     }
 
     /// Find speech spans in a whole clip.
@@ -139,7 +140,8 @@ impl SileroVad {
             detect(&audio.samples)?
         };
         let total = audio.samples.len();
-        let (before, after) = (secs_to_samples(self.options.pad_before_secs), secs_to_samples(self.options.pad_after_secs));
+        let (before, after) =
+            (secs_to_samples(self.options.pad_before_secs), secs_to_samples(self.options.pad_after_secs));
         let mut out: Vec<SpeechSpan> = Vec::new();
         let mut last_end = 0usize;
         for (start, end) in spans {
@@ -147,7 +149,10 @@ impl SileroVad {
             let from = start.saturating_sub(before).max(last_end.min(start));
             let to = (end + after).min(total).max(from);
             last_end = to;
-            out.push(SpeechSpan { start: from as f32 / SAMPLE_RATE as f32, end: to as f32 / SAMPLE_RATE as f32 });
+            out.push(SpeechSpan {
+                start: from as f32 / SAMPLE_RATE as f32,
+                end: to as f32 / SAMPLE_RATE as f32,
+            });
         }
         Ok(out)
     }
@@ -364,7 +369,9 @@ impl StreamingVad {
         if let Some(lev) = &mut self.leveller {
             self.pending.extend(lev.finish());
         }
-        for (vad, pending) in [(Some(&self.vad), &mut self.pending), (self.raw.as_ref(), &mut self.raw_pending)] {
+        for (vad, pending) in
+            [(Some(&self.vad), &mut self.pending), (self.raw.as_ref(), &mut self.raw_pending)]
+        {
             let Some(vad) = vad else { continue };
             if !pending.is_empty() {
                 pending.resize(WINDOW, 0.0);

@@ -118,8 +118,9 @@ fn rms(samples: &[f32]) -> f32 {
 
 /// RMS over every line of one speaker.
 pub fn rms_of(lines: &[&[f32]]) -> f32 {
-    let (sum, n) =
-        lines.iter().fold((0.0f64, 0usize), |(s, n), l| (s + l.iter().map(|x| (x * x) as f64).sum::<f64>(), n + l.len()));
+    let (sum, n) = lines
+        .iter()
+        .fold((0.0f64, 0usize), |(s, n), l| (s + l.iter().map(|x| (x * x) as f64).sum::<f64>(), n + l.len()));
     if n == 0 { 0.0 } else { (sum / n as f64).sqrt() as f32 }
 }
 
@@ -140,7 +141,8 @@ pub fn phone_line(samples: &[f32]) -> Vec<f32> {
     wide.iter()
         .map(|&x| {
             let a = x.abs();
-            env = if a > env { attack * env + (1.0 - attack) * a } else { release * env + (1.0 - release) * a };
+            env =
+                if a > env { attack * env + (1.0 - attack) * a } else { release * env + (1.0 - release) * a };
             let gain = if env > threshold { (threshold / env).powf(1.0 - 1.0 / 3.0) } else { 1.0 };
             // A small loudspeaker driven hard: soft clipping.
             let drive = 2.0;
@@ -154,14 +156,13 @@ pub fn phone_line(samples: &[f32]) -> Vec<f32> {
 pub fn reverb(samples: &[f32], rt60: f32, seed: u64, tail_secs: f32) -> Vec<f32> {
     let mut rng = Rng::new(seed ^ 0x5EED);
     // Freeverb's tunings, scaled to 16 kHz, jittered a little per room.
-    let combs: Vec<usize> = [565.0f32, 587.0, 541.0, 516.0]
-        .iter()
-        .map(|d| (d * (1.0 + 0.08 * rng.next())) as usize)
-        .collect();
+    let combs: Vec<usize> =
+        [565.0f32, 587.0, 541.0, 516.0].iter().map(|d| (d * (1.0 + 0.08 * rng.next())) as usize).collect();
     let allpasses = [82usize, 202];
     let predelay = (0.012 * RATE as f32) as usize;
     let n = samples.len() + (tail_secs * RATE as f32) as usize;
-    let input = |i: usize| if i >= predelay { samples.get(i - predelay).copied().unwrap_or(0.0) } else { 0.0 };
+    let input =
+        |i: usize| if i >= predelay { samples.get(i - predelay).copied().unwrap_or(0.0) } else { 0.0 };
     let mut out = vec![0.0f32; n];
     for &d in &combs {
         let g = 10f32.powf(-3.0 * d as f32 / (rt60 * RATE as f32));

@@ -124,7 +124,11 @@ impl Leveller {
         // Fast attack, ~100 ms release: a quiet voice after a loud one is
         // lifted within a few hundred milliseconds, its first word included.
         let r = self.release;
-        self.envelope = if rms > self.envelope { 0.5 * self.envelope + 0.5 * rms } else { r * self.envelope + (1.0 - r) * rms };
+        self.envelope = if rms > self.envelope {
+            0.5 * self.envelope + 0.5 * rms
+        } else {
+            r * self.envelope + (1.0 - r) * rms
+        };
         let want = self.target / self.envelope.max(1e-7);
         let cap = (self.ceiling / floor).min(self.max_gain);
         want.min(cap).max(1.0)
@@ -136,7 +140,11 @@ fn limit(x: f32) -> f32 {
     const KNEE: f32 = 0.9;
     const CEILING: f32 = 0.99;
     let a = x.abs();
-    if a <= KNEE { x } else { x.signum() * (KNEE + (CEILING - KNEE) * ((a - KNEE) / (CEILING - KNEE)).tanh()) }
+    if a <= KNEE {
+        x
+    } else {
+        x.signum() * (KNEE + (CEILING - KNEE) * ((a - KNEE) / (CEILING - KNEE)).tanh())
+    }
 }
 
 /// One gain for a whole utterance: its speech (the louder half of its 10 ms

@@ -125,7 +125,8 @@ pub fn rerun(store: &ModelStore, args: RerunArgs) -> Result<()> {
         }
         let wav = os_engine::vault::read(&session.audio_path())?;
         let audio = Audio::decode_bytes(wav, "audio.wav")?;
-        let transcriber = os_engine::models::transcriber(store, &args.stt, args.diarize, None, None, None, false)?;
+        let transcriber =
+            os_engine::models::transcriber(store, &args.stt, args.diarize, None, None, None, false)?;
         let (transcript, stats) = transcriber.run(&audio, &mut |_| {})?;
         session.save_transcript(&transcript, &args.stt, args.diarize, &stats)?;
         transcript

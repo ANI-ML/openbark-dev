@@ -478,9 +478,8 @@ fn run(
             // Speakerphone: a quiet utterance reaches the models at a normal level.
             let levelled = speakerphone.then(|| os_asr::level::normalise(&u.samples));
             let heard = levelled.as_deref().unwrap_or(&u.samples);
-            let phone_voice = phone_asr.as_ref().filter(|_| {
-                os_diar::high_band_db(&u.samples) < os_diar::PHONE_BAND_DB
-            });
+            let phone_voice =
+                phone_asr.as_ref().filter(|_| os_diar::high_band_db(&u.samples) < os_diar::PHONE_BAND_DB);
             let text = match phone_voice {
                 Some(whisper) => whisper.transcribe(heard)?,
                 None => asr.transcribe(heard)?,
