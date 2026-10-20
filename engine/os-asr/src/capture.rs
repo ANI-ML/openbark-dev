@@ -196,6 +196,7 @@ impl MicCapture {
                 let tx = tx.clone();
                 let data_flags = flags.clone();
                 let err_flags = flags.clone();
+                let mut mixer = Downmixer::new(channels, sample_rate);
                 dev.build_input_stream(
                     config.clone(),
                     move |data: &[$t], _| {
@@ -204,7 +205,7 @@ impl MicCapture {
                             data.iter().map(|s| s.to_sample::<f32>()).collect()
                         } else {
                             let samples: Vec<f32> = data.iter().map(|s| s.to_sample::<f32>()).collect();
-                            downmix(&samples, channels)
+                            mixer.process(&samples)
                         };
                         let _ = tx.send(AudioBlock { samples: mono, sample_rate });
                     },
@@ -319,25 +320,70 @@ fn readable(f: SampleFormat) -> bool {
 const SILENT_CHANNEL: f32 = 1e-4;
 
 /// Interleaved frames to mono: the average of the channels that carry
-/// signal in this block. A plain average of every channel would bury a
-/// microphone on input 1 of a 16-channel interface (or a virtual device)
-/// 24 dB down, and one on the left of a two-input interface 6 dB down;
-/// a stereo microphone (both sides alike) comes out as it is either way.
-pub fn downmix(interleaved: &[f32], channels: usize) -> Vec<f32> {
-    let channels = channels.max(1);
-    if channels == 1 {
-        return interleaved.to_vec();
-    }
-    let mut peaks = vec![0.0f32; channels];
-    for frame in interleaved.chunks_exact(channels) {
-        for (p, s) in peaks.iter_mut().zip(frame) {
-            *p = p.max(s.abs());
+/// signal. A plain average of every channel would bury a microphone on input
+/// 1 of a 16-channel interface (or a virtual device) 24 dB down, and one on
+/// the left of a two-input interface 6 dB down; a stereo microphone (both
+/// sides alike) comes out as it is either way.
+///
+/// A channel counts as soon as it carries signal, and stops counting only
+/// after a second without any, so a noisy channel hovering near the
+/// threshold doesn't make the level jump 6 dB from block to block.
+pub struct Downmixer {
+    channels: usize,
+    active: Vec<bool>,
+    /// Frames each channel has been silent for.
+    quiet: Vec<usize>,
+    /// Frames of silence before a channel stops counting (one second).
+    hold: usize,
+}
+
+impl Downmixer {
+    pub fn new(channels: usize, sample_rate: u32) -> Self {
+        let channels = channels.max(1);
+        Self {
+            channels,
+            active: vec![false; channels],
+            quiet: vec![0; channels],
+            hold: sample_rate.max(1) as usize,
         }
     }
-    let active: Vec<usize> = (0..channels).filter(|&c| peaks[c] >= SILENT_CHANNEL).collect();
-    let used: Vec<usize> = if active.is_empty() { (0..channels).collect() } else { active };
-    let n = used.len() as f32;
-    interleaved.chunks_exact(channels).map(|frame| used.iter().map(|&c| frame[c]).sum::<f32>() / n).collect()
+
+    pub fn process(&mut self, interleaved: &[f32]) -> Vec<f32> {
+        let channels = self.channels;
+        if channels == 1 {
+            return interleaved.to_vec();
+        }
+        let frames = interleaved.len() / channels;
+        let mut peaks = vec![0.0f32; channels];
+        for frame in interleaved.chunks_exact(channels) {
+            for (p, s) in peaks.iter_mut().zip(frame) {
+                *p = p.max(s.abs());
+            }
+        }
+        for ((peak, active), quiet) in peaks.iter().zip(self.active.iter_mut()).zip(self.quiet.iter_mut()) {
+            if *peak >= SILENT_CHANNEL {
+                *active = true;
+                *quiet = 0;
+            } else {
+                *quiet = quiet.saturating_add(frames);
+                if *quiet >= self.hold {
+                    *active = false;
+                }
+            }
+        }
+        let active: Vec<usize> = (0..channels).filter(|&c| self.active[c]).collect();
+        let used: Vec<usize> = if active.is_empty() { (0..channels).collect() } else { active };
+        let n = used.len() as f32;
+        interleaved
+            .chunks_exact(channels)
+            .map(|frame| used.iter().map(|&c| frame[c]).sum::<f32>() / n)
+            .collect()
+    }
+}
+
+/// [`Downmixer`] on one block with no history (tests and one-off use).
+pub fn downmix(interleaved: &[f32], channels: usize) -> Vec<f32> {
+    Downmixer::new(channels, 48_000).process(interleaved)
 }
 
 /// One supported range, as [`pick_config`] sees it.
@@ -425,6 +471,34 @@ mod tests {
         assert_eq!(downmix(&[0.0; 8], 4), vec![0.0, 0.0]);
         // A trailing partial frame is dropped.
         assert_eq!(downmix(&[0.5, 0.5, 0.1], 2), vec![0.5]);
+    }
+
+    #[test]
+    fn a_noisy_channel_near_the_threshold_does_not_make_the_level_jump() {
+        // Speech on input 1; input 2 carries noise that dips below the
+        // threshold every other block. Without a hold, the output would
+        // alternate between ch1 and (ch1 + ch2) / 2: a 6 dB jump each block.
+        let mut m = Downmixer::new(2, 48_000);
+        let mut levels = Vec::new();
+        for block in 0..40 {
+            let noise = if block % 2 == 0 { 2e-4 } else { 5e-5 };
+            let frames: Vec<f32> = (0..480).flat_map(|_| [0.5f32, noise]).collect();
+            let out = m.process(&frames);
+            levels.push(out[0]);
+        }
+        let (lo, hi) = levels[2..].iter().fold((f32::MAX, f32::MIN), |(lo, hi), &l| (lo.min(l), hi.max(l)));
+        assert!(hi - lo < 1e-3, "level jumped between {lo} and {hi}");
+    }
+
+    #[test]
+    fn a_channel_that_goes_quiet_stops_counting_after_a_second() {
+        let mut m = Downmixer::new(2, 1_000);
+        // Both inputs live, then input 2 goes silent.
+        assert_eq!(m.process(&[0.4, 0.2]), vec![0.3]);
+        let quiet: Vec<f32> = (0..500).flat_map(|_| [0.4f32, 0.0]).collect();
+        assert!((m.process(&quiet)[0] - 0.2).abs() < 1e-6, "still counted half a second in");
+        let out = m.process(&quiet);
+        assert!((out[out.len() - 1] - 0.4).abs() < 1e-6, "dropped after a second: {}", out[out.len() - 1]);
     }
 
     #[test]

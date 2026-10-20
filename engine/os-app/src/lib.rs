@@ -1883,17 +1883,26 @@ impl App {
         options.consent = consent;
         options.recorded_by = recorded_by;
         // Loaded when the Record screen opened, if they were.
-        let warm = self.take_warm(&options);
-        let recorder = LiveRecorder::start_with(
+        let warm_key = options.clone();
+        let mut warm = self.take_warm(&options);
+        let started = LiveRecorder::start_with(
             &self.store,
             &self.sessions_root,
             source,
             options,
-            warm,
+            &mut warm,
             Box::new(EventsSink(events)),
-        )?;
+        );
+        // Not used (the microphone didn't open): kept for the next try.
+        if let Some(models) = warm.take() {
+            self.keep_warm(&warm_key, models);
+        }
+        let recorder = started?;
         let id = folder_name(&recorder.session_dir);
         *slot = Some(recorder);
+        drop(slot);
+        // A test that finished opening while this recording started gives way too.
+        self.stop_mic_test();
         *self.recording_work.lock().map_err(|_| AppError("recorder lock poisoned".into()))? = Some(work);
         *self.recording_lock.lock().map_err(|_| AppError("recorder lock poisoned".into()))? =
             self.lock_visit(&id, Holder::Recording).ok();

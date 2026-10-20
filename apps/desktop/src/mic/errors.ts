@@ -12,6 +12,7 @@ export const MIC_ERRORS = {
   notFound:
     "No microphone was found. Plug one in or switch it on, then press Record again. A Bluetooth headset must be connected first.",
   busy: "The microphone couldn't be started: another app may be using it (a call in Teams or Zoom, for example), or the system blocked it. Close the other app, then press Record again.",
+  rate: "This browser couldn't connect to the microphone at any sample rate. Choose another microphone and press Record again; if it keeps happening, use Chrome, Edge or the desktop app.",
   worklet:
     "OpenBark couldn't start its audio processing in this browser. Reload the page and press Record again; if that doesn't help, use another browser or the desktop app.",
   engine: "Couldn't reach the OpenBark engine. Check that `openbark serve` is running.",

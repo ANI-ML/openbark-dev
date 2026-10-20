@@ -272,29 +272,24 @@ impl LiveRecorder {
         options: LiveOptions,
         sink: Box<dyn LiveSink>,
     ) -> Result<Self, EngineError> {
-        Self::start_with(store, sessions_root, source, options, None, sink)
+        Self::start_with(store, sessions_root, source, options, &mut None, sink)
     }
 
-    /// [`LiveRecorder::start`] with speech models loaded ahead of time; they
-    /// are used when they suit `options`, otherwise loaded now.
+    /// [`LiveRecorder::start`] with speech models loaded ahead of time. They
+    /// are taken out of `warm` when they suit `options` and the source has
+    /// opened; otherwise they stay there for the caller (a microphone that
+    /// won't open leaves them loaded for the next try), and models are loaded
+    /// now.
     pub fn start_with(
         store: &ModelStore,
         sessions_root: &Path,
         source: LiveSource,
         options: LiveOptions,
-        warm: Option<SpeechModels>,
+        warm: &mut Option<SpeechModels>,
         sink: Box<dyn LiveSink>,
     ) -> Result<Self, EngineError> {
         let is_call = matches!(source, LiveSource::Call { .. });
-        // Load models up front so errors surface before recording starts.
-        let models = match warm {
-            Some(m) if !is_call && m.suits(&options) => m,
-            _ => SpeechModels::load(store, &options, is_call)?,
-        };
-        let SpeechModels { vad, asr, tracker, .. } = models;
-        // Calls: the channel says who is speaking, so no embeddings (ADR-0023 section 7).
-        let tracker = if is_call { None } else { tracker };
-        let label = match &source {
+        let source_label = match &source {
             LiveSource::Microphone(_) => "recording".to_string(),
             LiveSource::File { path, .. } => {
                 path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
@@ -304,6 +299,30 @@ impl LiveRecorder {
                 Path::new(name).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
             }
         };
+        let stop = Arc::new(AtomicBool::new(false));
+        // A microphone opens first, so one that won't open (none connected,
+        // another app holding it) is an error from Record itself, before any
+        // model is used, the second recogniser spawned or a visit made.
+        let feed = match source {
+            LiveSource::Call { blocks, .. } => Feed::Call(blocks),
+            source @ (LiveSource::Microphone(_) | LiveSource::Stream { .. }) => {
+                Feed::Started(StartedSource::start(source, stop.clone())?)
+            }
+            // Files and uploads decode on the worker; an import removes the
+            // visit itself when that fails.
+            source => Feed::Lazy(source),
+        };
+        // From here, an error stops the source again.
+        let mut source_guard = StopOnError { stop: stop.clone(), armed: true };
+        // Load models up front so errors surface before recording starts.
+        let models = match warm.take_if(|m| !is_call && m.suits(&options)) {
+            Some(m) => m,
+            None => SpeechModels::load(store, &options, is_call)?,
+        };
+        let SpeechModels { vad, asr, tracker, .. } = models;
+        // Calls: the channel says who is speaking, so no embeddings (ADR-0023 section 7).
+        let tracker = if is_call { None } else { tracker };
+        let label = source_label;
         let lexicon = crate::vocab::Lexicon::default_with_user();
         // Second recogniser for segments that matter (M1 item 4); optional.
         // It's the larger model, so it loads in the background once recording
@@ -328,26 +347,7 @@ impl LiveRecorder {
             session.set_call(call)?;
         }
         let session_dir = session.dir.clone();
-        let stop = Arc::new(AtomicBool::new(false));
         let discard = Arc::new(AtomicBool::new(false));
-        let feed = match source {
-            LiveSource::Call { blocks, .. } => Feed::Call(blocks),
-            // A microphone is opened now, so one that won't open (none
-            // connected, another app holding it) is an error from start, not
-            // a recording that never hears anything. The empty visit goes.
-            source @ (LiveSource::Microphone(_) | LiveSource::Stream { .. }) => {
-                match StartedSource::start(source, stop.clone()) {
-                    Ok(started) => Feed::Started(started),
-                    Err(e) => {
-                        let _ = std::fs::remove_dir_all(&session_dir);
-                        return Err(e);
-                    }
-                }
-            }
-            // Files and uploads decode on the worker; an import removes the
-            // visit itself when that fails.
-            source => Feed::Lazy(source),
-        };
         let (stop2, discard2) = (stop.clone(), discard.clone());
         let worker = std::thread::Builder::new()
             .name("openbark-live".into())
@@ -359,6 +359,7 @@ impl LiveRecorder {
                 feed => run(session, feed, options, vad, asr, tracker, lexicon, second, sink, stop2),
             })
             .map_err(|e| EngineError::Session(e.to_string()))?;
+        source_guard.armed = false;
         Ok(Self { stop, discard, worker: Some(worker), session_dir })
     }
 
@@ -396,6 +397,20 @@ impl Drop for LiveRecorder {
         self.stop.store(true, Ordering::SeqCst);
         if let Some(w) = self.worker.take() {
             let _ = w.join();
+        }
+    }
+}
+
+/// Stops a source that was opened when starting fails later on.
+struct StopOnError {
+    stop: Arc<AtomicBool>,
+    armed: bool,
+}
+
+impl Drop for StopOnError {
+    fn drop(&mut self) {
+        if self.armed {
+            self.stop.store(true, Ordering::SeqCst);
         }
     }
 }

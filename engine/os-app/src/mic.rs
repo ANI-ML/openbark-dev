@@ -2,13 +2,13 @@
 //! ahead of time so Record starts at once, and a quick microphone test with
 //! a live level meter.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, mpsc};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use os_asr::capture::AudioBlock;
-use os_asr::mic::{CpalBackend, MicEvent, Supervisor, Timing};
+use os_asr::mic::{CpalBackend, MicBackend, MicEvent, Supervisor, Timing};
 use os_engine::EngineError;
 use os_engine::live::{LiveOptions, SpeechModels};
 use os_engine::mic_health::{self, MicQuality};
@@ -48,10 +48,17 @@ pub(crate) enum Warm {
     Empty,
     /// Loading, or loaded: the thread's result holds the models until taken.
     Loading(WarmKey, JoinHandle<std::result::Result<SpeechModels, EngineError>>),
+    /// Loaded and handed back: a recording that couldn't open its microphone.
+    Ready(WarmKey, Box<SpeechModels>),
 }
+
+/// Numbers each microphone test, so the app can ignore a stopped test's
+/// last events once a new one has started.
+static MIC_TESTS: AtomicU64 = AtomicU64::new(0);
 
 /// A running microphone test.
 pub(crate) struct MicTest {
+    number: u64,
     stop: Arc<AtomicBool>,
     handle: JoinHandle<()>,
 }
@@ -59,6 +66,8 @@ pub(crate) struct MicTest {
 /// Sent about 20 times a second while the microphone is tested.
 #[derive(Debug, Clone, Serialize)]
 pub struct MicLevel {
+    /// Which test this is (see [`MicTestStarted::test`]).
+    pub test: u64,
     pub device: String,
     pub sample_rate: u32,
     pub quality: MicQuality,
@@ -73,6 +82,8 @@ pub struct MicLevel {
 /// The microphone a test opened.
 #[derive(Debug, Clone, Serialize)]
 pub struct MicTestStarted {
+    /// This test's number: its events carry it.
+    pub test: u64,
     pub device: String,
     pub sample_rate: u32,
     pub quality: MicQuality,
@@ -116,9 +127,15 @@ impl App {
         }
         let Ok(mut warm) = self.warm.lock() else { return false };
         match &*warm {
-            Warm::Loading(k, _) if *k == key => return true,
+            Warm::Loading(k, _) | Warm::Ready(k, _) if *k == key => return true,
+            // One loader at a time: toggling options while one runs doesn't
+            // start another beside it (the next Record loads what it needs).
+            Warm::Loading(_, h) if !h.is_finished() => return false,
             _ => {}
         }
+        // Free what was loaded for other options before measuring memory.
+        // (On a graphics card the same models load at Record anyway, and
+        // they're freed before a note model loads.)
         *warm = Warm::Empty;
         let free = free_memory();
         if free < PREWARM_MIN_FREE {
@@ -153,6 +170,7 @@ impl App {
         let taken = std::mem::take(&mut *self.warm.lock().ok()?);
         let key = WarmKey::of(options);
         match taken {
+            Warm::Ready(k, m) if k == key => Some(*m),
             Warm::Loading(k, h) if k == key => match h.join() {
                 Ok(Ok(m)) => Some(m),
                 Ok(Err(e)) => {
@@ -165,28 +183,66 @@ impl App {
         }
     }
 
+    /// Speech models a recording didn't use, kept for the next one.
+    pub(crate) fn keep_warm(&self, options: &LiveOptions, models: SpeechModels) {
+        if let Ok(mut warm) = self.warm.lock()
+            && matches!(*warm, Warm::Empty)
+        {
+            *warm = Warm::Ready(WarmKey::of(options), Box::new(models));
+        }
+    }
+
     /// Open a microphone (the one chosen in Settings, or the default) and
     /// send its level through [`Events::mic_test`] until
     /// [`App::stop_mic_test`], a recording starts, or a minute passes.
     pub fn start_mic_test(&self, device: Option<String>, events: Arc<dyn Events>) -> Result<MicTestStarted> {
-        self.stop_mic_test();
+        self.start_mic_test_on(CpalBackend, device, events)
+    }
+
+    /// [`App::start_mic_test`] on any device layer (tests use a fake).
+    pub(crate) fn start_mic_test_on<B>(
+        &self,
+        backend: B,
+        device: Option<String>,
+        events: Arc<dyn Events>,
+    ) -> Result<MicTestStarted>
+    where
+        B: MicBackend + Send + 'static,
+    {
+        // Held until the new test is stored: a second start waits, and so
+        // does a recording's stop_mic_test, which then stops this one.
+        let mut slot = self.mic_test.lock().map_err(|_| AppError("microphone lock poisoned".into()))?;
+        if let Some(old) = slot.take() {
+            old.stop.store(true, Ordering::SeqCst);
+            let _ = old.handle.join();
+        }
         if self.recorder.lock().map(|r| r.is_some()).unwrap_or(false) {
             return Err(AppError("A recording is running; its waveform shows the microphone.".into()));
         }
+        let test = MIC_TESTS.fetch_add(1, Ordering::SeqCst) + 1;
         let stop = Arc::new(AtomicBool::new(false));
         let (ready_tx, ready_rx) = mpsc::channel::<std::result::Result<MicTestStarted, String>>();
         let stop2 = stop.clone();
         let handle = std::thread::Builder::new()
             .name("openbark-mic-test".into())
-            .spawn(move || run_mic_test(device, events, stop2, ready_tx))
+            .spawn(move || run_mic_test(backend, test, device, events, stop2, ready_tx))
             .map_err(|e| AppError(e.to_string()))?;
         let started = ready_rx
             .recv()
             .map_err(|_| AppError("The microphone test couldn't start.".into()))?
             .map_err(AppError)?;
-        *self.mic_test.lock().map_err(|_| AppError("microphone lock poisoned".into()))? =
-            Some(MicTest { stop, handle });
+        *slot = Some(MicTest { number: test, stop, handle });
         Ok(started)
+    }
+
+    /// Stop test number `number` if it's the one running (a newer test the
+    /// app started since is left alone).
+    pub fn stop_mic_test_number(&self, number: u64) {
+        let test = self.mic_test.lock().ok().and_then(|mut t| t.take_if(|t| t.number == number));
+        if let Some(test) = test {
+            test.stop.store(true, Ordering::SeqCst);
+            let _ = test.handle.join();
+        }
     }
 
     /// Stop the microphone test, if one is running.
@@ -199,14 +255,16 @@ impl App {
     }
 }
 
-fn run_mic_test(
+fn run_mic_test<B: MicBackend>(
+    backend: B,
+    test: u64,
     device: Option<String>,
     events: Arc<dyn Events>,
     stop: Arc<AtomicBool>,
     ready: mpsc::Sender<std::result::Result<MicTestStarted, String>>,
 ) {
     let (tx, rx) = mpsc::channel::<AudioBlock>();
-    let (mut mic, first) = match Supervisor::start(CpalBackend, device, tx, Timing::default()) {
+    let (mut mic, first) = match Supervisor::start(backend, device, tx, Timing::default()) {
         Ok(started) => started,
         Err(e) => {
             let _ = ready.send(Err(e.to_string()));
@@ -215,6 +273,7 @@ fn run_mic_test(
     };
     let MicEvent::Opened { device: mut name, mut sample_rate, replaced } = first else { return };
     let _ = ready.send(Ok(MicTestStarted {
+        test,
         quality: mic_health::quality(&name, sample_rate),
         device: name.clone(),
         sample_rate,
@@ -254,6 +313,7 @@ fn run_mic_test(
                 silent_since = None;
             }
             events.mic_test(&MicLevel {
+                test,
                 device: name.clone(),
                 sample_rate,
                 quality: mic_health::quality(&name, sample_rate),
@@ -265,6 +325,7 @@ fn run_mic_test(
         }
     }
     events.mic_test(&MicLevel {
+        test,
         device: name.clone(),
         sample_rate,
         quality: mic_health::quality(&name, sample_rate),
@@ -277,6 +338,142 @@ fn run_mic_test(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use std::sync::Mutex;
+    use std::sync::atomic::AtomicUsize;
+    use std::time::Duration;
+
+    use os_asr::capture::{CaptureError, Fault};
+    use os_asr::mic::MicStream;
+    use os_models::ModelStore;
+
+    use super::super::{Events, Progress, Segment};
+
+    /// A microphone that opens instantly and counts its open streams.
+    #[derive(Clone, Default)]
+    struct FakeMic {
+        open: Arc<AtomicUsize>,
+        opened: Arc<AtomicUsize>,
+    }
+
+    struct FakeStream(Arc<AtomicUsize>);
+
+    impl Drop for FakeStream {
+        fn drop(&mut self) {
+            self.0.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+
+    impl MicStream for FakeStream {
+        fn device_name(&self) -> &str {
+            "Fake mic"
+        }
+        fn sample_rate(&self) -> u32 {
+            48_000
+        }
+        fn fault(&self) -> Option<Fault> {
+            None
+        }
+        fn idle_for(&self) -> Duration {
+            Duration::ZERO
+        }
+    }
+
+    impl MicBackend for FakeMic {
+        type Stream = FakeStream;
+        fn default_name(&self) -> Option<String> {
+            Some("Fake mic".into())
+        }
+        fn has(&self, name: &str) -> bool {
+            name == "Fake mic"
+        }
+        fn open(
+            &self,
+            _name: Option<&str>,
+            _tx: mpsc::Sender<AudioBlock>,
+        ) -> std::result::Result<FakeStream, CaptureError> {
+            self.open.fetch_add(1, Ordering::SeqCst);
+            self.opened.fetch_add(1, Ordering::SeqCst);
+            Ok(FakeStream(self.open.clone()))
+        }
+    }
+
+    #[derive(Default)]
+    struct Seen(Mutex<Vec<(u64, bool)>>);
+
+    impl Events for Seen {
+        fn segment(&self, _: &Segment) {}
+        fn token(&self, _: &str) {}
+        fn level(&self, _: f32, _: f32) {}
+        fn download(&self, _: &str, _: u64, _: u64) {}
+        fn progress(&self, _: &Progress) {}
+        fn mic_test(&self, level: &MicLevel) {
+            self.0.lock().unwrap().push((level.test, level.done));
+        }
+    }
+
+    fn app(tmp: &std::path::Path) -> App {
+        App::new(ModelStore::new(tmp.join("models")), tmp.join("sessions"))
+    }
+
+    #[test]
+    fn starting_a_second_test_stops_the_first() {
+        let tmp = tempfile::tempdir().unwrap();
+        let app = app(tmp.path());
+        let mic = FakeMic::default();
+        let events = Arc::new(Seen::default());
+        let first = app.start_mic_test_on(mic.clone(), None, events.clone()).unwrap();
+        let second = app.start_mic_test_on(mic.clone(), None, events.clone()).unwrap();
+        assert_eq!(mic.opened.load(Ordering::SeqCst), 2);
+        assert_eq!(mic.open.load(Ordering::SeqCst), 1, "the first test's microphone was let go");
+        assert!(second.test > first.test);
+        // The first test's last event says done and carries its own number,
+        // so the app can tell it from the running test's.
+        let seen = events.0.lock().unwrap().clone();
+        assert!(seen.contains(&(first.test, true)));
+        // Stopping the first by number leaves the second running.
+        app.stop_mic_test_number(first.test);
+        assert_eq!(mic.open.load(Ordering::SeqCst), 1);
+        app.stop_mic_test_number(second.test);
+        assert_eq!(mic.open.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn tests_started_from_two_threads_at_once_leave_one_microphone_open() {
+        let tmp = tempfile::tempdir().unwrap();
+        let app = app(tmp.path());
+        let mic = FakeMic::default();
+        let events: Arc<dyn Events> = Arc::new(Seen::default());
+        std::thread::scope(|s| {
+            for _ in 0..4 {
+                s.spawn(|| app.start_mic_test_on(mic.clone(), None, events.clone()).unwrap());
+            }
+        });
+        assert_eq!(mic.open.load(Ordering::SeqCst), 1);
+        app.stop_mic_test();
+        assert_eq!(mic.open.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn a_recording_stops_a_test_that_is_still_opening() {
+        // stop_mic_test waits for a start in progress (one lock across the
+        // start), then stops it: Record never runs beside a test.
+        let tmp = tempfile::tempdir().unwrap();
+        let app = app(tmp.path());
+        let mic = FakeMic::default();
+        let events: Arc<dyn Events> = Arc::new(Seen::default());
+        std::thread::scope(|s| {
+            s.spawn(|| app.start_mic_test_on(mic.clone(), None, events.clone()));
+            s.spawn(|| {
+                std::thread::sleep(Duration::from_millis(1));
+                app.stop_mic_test();
+            });
+        });
+        // Whichever ran first, at most the test that won is left, and a
+        // recording's second stop (after it's stored) ends that too.
+        app.stop_mic_test();
+        assert_eq!(mic.open.load(Ordering::SeqCst), 0);
+    }
 
     #[test]
     fn the_test_meter_uses_the_recorders_scale() {

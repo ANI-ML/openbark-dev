@@ -13,6 +13,9 @@ class MicTap extends AudioWorkletProcessor {
     this.buffer = new Float32Array(this.frames);
     this.filled = 0;
     this.peak = 0;
+    // Per channel: counts once it carries signal, until a second of silence.
+    this.active = [];
+    this.quiet = [];
   }
 
   process(inputs) {
@@ -26,7 +29,14 @@ class MicTap extends AudioWorkletProcessor {
     for (let c = 0; c < input.length; c++) {
       let peak = 0;
       for (let i = 0; i < length; i++) peak = Math.max(peak, Math.abs(input[c][i]));
-      if (peak >= 1e-4) active.push(input[c]);
+      if (peak >= 1e-4) {
+        this.active[c] = true;
+        this.quiet[c] = 0;
+      } else {
+        this.quiet[c] = (this.quiet[c] || 0) + length;
+        if (this.quiet[c] >= sampleRate) this.active[c] = false;
+      }
+      if (this.active[c]) active.push(input[c]);
     }
     if (active.length === 0) active = input;
     const n = active.length;

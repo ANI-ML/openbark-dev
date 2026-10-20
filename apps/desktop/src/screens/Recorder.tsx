@@ -109,7 +109,13 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
   // once; give the memory back when it closes.
   const ready = missing.length === 0 && Boolean(app.status);
   useEffect(() => {
-    if (ready) void engine.prewarmSpeech(app.settings.labelSpeakers, app.settings.phoneOnSpeaker);
+    if (!ready) return;
+    // A moment's wait, so toggling the options doesn't start a load per click.
+    const timer = setTimeout(
+      () => void engine.prewarmSpeech(app.settings.labelSpeakers, app.settings.phoneOnSpeaker),
+      800,
+    );
+    return () => clearTimeout(timer);
   }, [ready, app.settings.labelSpeakers, app.settings.phoneOnSpeaker]);
   useEffect(() => () => void engine.releaseSpeech(), []);
   /** The visit type chosen on this device is one this person can draft with. */

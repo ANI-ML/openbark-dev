@@ -17,7 +17,12 @@ class FakeTrack extends EventTarget {
     super();
   }
   getSettings() {
-    return this.settings;
+    // Firefox doesn't report a microphone's sample rate.
+    return hideRate ? { ...this.settings, sampleRate: undefined } : this.settings;
+  }
+  /** The rate it really runs at, whether or not it's reported. */
+  get realRate() {
+    return this.settings.sampleRate;
   }
   stop() {
     this.stopped = true;
@@ -41,6 +46,9 @@ let tracks: FakeTrack[] = [];
 let taps: FakeTap[] = [];
 let contexts: FakeContext[] = [];
 let workletFails = false;
+let hideRate = false;
+/** Rates a context may be made at (an unusual device: none fit). */
+let contextRates: number[] | null = null;
 /** Firefox: a stream can't feed a context at another rate. */
 let strictRates = false;
 const deviceListeners = new Set<() => void>();
@@ -85,8 +93,8 @@ class FakeContext {
     contexts.push(this);
   }
   createMediaStreamSource(stream: { getAudioTracks(): FakeTrack[] }) {
-    const rate = stream.getAudioTracks()[0]!.getSettings().sampleRate;
-    if (strictRates && rate !== this.sampleRate) {
+    const rate = stream.getAudioTracks()[0]!.realRate;
+    if ((strictRates && rate !== this.sampleRate) || (contextRates && !contextRates.includes(this.sampleRate))) {
       throw Object.assign(new Error("Connecting AudioNodes from AudioContexts with different sample-rate"), {
         name: "NotSupportedError",
       });
@@ -138,6 +146,8 @@ beforeEach(() => {
   contexts = [];
   workletFails = false;
   strictRates = false;
+  hideRate = false;
+  contextRates = null;
   deviceListeners.clear();
   vi.stubGlobal("AudioContext", FakeContext);
   vi.stubGlobal(
@@ -197,6 +207,30 @@ describe("openBrowserMic", () => {
     const mic = await openBrowserMic("usb", noop);
     expect(mic.sampleRate).toBe(44100);
     expect(contexts[0]!.closed).toBe(true);
+  });
+
+  it("finds the microphone's rate when the browser insists on it but won't say it (Firefox)", async () => {
+    strictRates = true;
+    hideRate = true;
+    const mic = await openBrowserMic("usb", noop);
+    expect(mic.sampleRate).toBe(44100);
+    // Tried the default (48 kHz), then each rate down to the one that fits.
+    expect(contexts.map((c) => c.sampleRate)).toEqual([48000, 48000, 44100]);
+    expect(contexts.filter((c) => !c.closed)).toHaveLength(1);
+  });
+
+  it("a 16 kHz headset in Firefox is found too", async () => {
+    strictRates = true;
+    hideRate = true;
+    devices.push({ deviceId: "headset", groupId: "g-h", label: "Headset (AirPods Hands-Free)", rate: 16000 });
+    const mic = await openBrowserMic("headset", noop);
+    expect(mic.sampleRate).toBe(16000);
+  });
+
+  it("explains when no rate works, rather than calling the browser unsupported", async () => {
+    contextRates = [];
+    await expect(openBrowserMic(null, noop)).rejects.toThrow(MIC_ERRORS.rate);
+    expect(contexts.every((c) => c.closed)).toBe(true);
   });
 
   it("explains a worklet that can't load, and lets the microphone go", async () => {

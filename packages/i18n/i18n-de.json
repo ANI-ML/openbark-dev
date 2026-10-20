@@ -1397,6 +1397,7 @@
   "They run with the built-in engine on any computer.": "Sie laufen mit der eingebauten Engine auf jedem Computer.",
   "This browser can't make calls. Use a current version of Chrome, Edge, Firefox or Safari.": "Dieser Browser kann nicht anrufen. Verwenden Sie eine aktuelle Version von Chrome, Edge, Firefox oder Safari.",
   "This browser can't record audio. Use a current version of Chrome, Edge, Firefox or Safari.": "Dieser Browser kann kein Audio aufnehmen. Verwenden Sie eine aktuelle Version von Chrome, Edge, Firefox oder Safari.",
+  "This browser couldn't connect to the microphone at any sample rate. Choose another microphone and press Record again; if it keeps happening, use Chrome, Edge or the desktop app.": "Dieser Browser konnte sich bei keiner Abtastrate mit dem Mikrofon verbinden. Wählen Sie ein anderes Mikrofon und drücken Sie erneut auf Aufnehmen; passiert das weiterhin, verwenden Sie Chrome, Edge oder die Desktop-App.",
   "This browser reported a microphone rate OpenBark can't use. Reload the page and try again, or use another browser.": "Dieser Browser hat eine Mikrofon-Abtastrate gemeldet, die OpenBark nicht verwenden kann. Laden Sie die Seite neu und versuchen Sie es erneut, oder verwenden Sie einen anderen Browser.",
   "This call isn't being recorded.": "Dieser Anruf wird nicht aufgenommen.",
   "This call will be recorded and announced.": "Dieser Anruf wird aufgenommen und angesagt.",

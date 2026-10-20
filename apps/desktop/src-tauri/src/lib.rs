@@ -98,15 +98,26 @@ fn input_devices(app: State<'_, AppState>) -> Vec<String> {
 }
 
 /// The Record screen opened: load the speech models now, if memory allows.
+/// Off the main thread: it takes locks and may free models.
 #[tauri::command]
-fn prewarm_speech(app: State<'_, AppState>, speakers: bool, speakerphone: Option<bool>) -> bool {
-    app.prewarm_speech(speakers, speakerphone.unwrap_or(false))
+async fn prewarm_speech(
+    app: State<'_, AppState>,
+    speakers: bool,
+    speakerphone: Option<bool>,
+) -> Result<bool, String> {
+    let app = app.inner().clone();
+    work(move || Ok(app.prewarm_speech(speakers, speakerphone.unwrap_or(false)))).await
 }
 
-/// The Record screen closed: give the memory back.
+/// The Record screen closed: give the memory back (freeing models takes a moment).
 #[tauri::command]
-fn release_speech(app: State<'_, AppState>) {
-    app.release_speech();
+async fn release_speech(app: State<'_, AppState>) -> Result<(), String> {
+    let app = app.inner().clone();
+    work(move || {
+        app.release_speech();
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -119,11 +130,15 @@ async fn mic_test_start(
     work(move || app.start_mic_test(device, Arc::new(TauriEvents(handle)))).await
 }
 
+/// Stop the test with this number, or whichever is running.
 #[tauri::command]
-async fn mic_test_stop(app: State<'_, AppState>) -> Result<(), String> {
+async fn mic_test_stop(app: State<'_, AppState>, test: Option<u64>) -> Result<(), String> {
     let app = app.inner().clone();
     work(move || {
-        app.stop_mic_test();
+        match test {
+            Some(id) => app.stop_mic_test_number(id),
+            None => app.stop_mic_test(),
+        }
         Ok(())
     })
     .await

@@ -76,7 +76,7 @@ With it ticked, OpenBark listens harder for the quieter voice: speech detection 
 
 ### What to expect
 
-- The client's sentences appear in the live transcript like yours. On test consults with the phone 15 to 25 dB quieter than the vet, OpenBark heard nearly every client sentence; the client's words are still recognised less accurately than yours, mostly because of the phone line and the echo, so check names, numbers and drug names said by the client against the recording.
+- The client's sentences appear in the live transcript like yours. On computer-generated test consults (synthetic voices played through a simulated phone line, loudspeaker and room, the phone 15 to 25 dB quieter than the vet), OpenBark heard nearly every client sentence. Real speakerphone recordings haven't been measured yet, so treat these figures as a guide. The client's words are still recognised less accurately than yours, mostly because of the phone line and the echo, so check names, numbers and drug names said by the client against the recording.
 - **Speaker labels:** the phone voice usually gets its own speaker number, because a phone line has no high frequencies and a voice in the room does. A short reply such as "Okay" can be labelled as the nearest voice. Labels help you read the transcript; they don't change what the note says.
 
 ### When a client's sentence is missing

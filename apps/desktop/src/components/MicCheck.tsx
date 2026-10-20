@@ -7,8 +7,10 @@ import { useT } from "../i18n";
 import { listBrowserMics, testBrowserMic, type BrowserMic } from "../mic/browser";
 import { micNotice, micQuality, type MicQuality } from "../mic/health";
 
-/** A browser test stops by itself after this long (the desktop engine's after a minute). */
-const TEST_LIMIT_MS = 30_000;
+/** A test stops by itself after a minute (the desktop engine's limit too). */
+const TEST_LIMIT_MS = 60_000;
+/** "Hearing you." holds this long after the last speech, so short pauses don't flip it. */
+const HEARD_HOLD_MS = 3_000;
 /** A level above this means someone is speaking (about -45 dBFS). */
 const VOICE_LEVEL = 0.25;
 
@@ -38,7 +40,14 @@ export function MicCheck({ disabled = false, id = "mic-check" }: { disabled?: bo
   const [startedAt, setStartedAt] = useState(0);
   const [now, setNow] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  /** A test is opening: the button waits, so a double click opens one microphone. */
+  const [starting, setStarting] = useState(false);
+  const startingRef = useRef(false);
   const stopRef = useRef<(() => void) | null>(null);
+  /** Bumped by every stop: a start that finishes after it closes what it opened. */
+  const generation = useRef(0);
+  const disabledRef = useRef(disabled);
+  disabledRef.current = disabled;
 
   const refresh = useCallback(() => {
     if (desktop) engine.inputDevices().then(setDevices, () => {});
@@ -53,8 +62,11 @@ export function MicCheck({ disabled = false, id = "mic-check" }: { disabled?: bo
   }, [desktop, refresh]);
 
   const stop = useCallback(() => {
+    generation.current++;
     stopRef.current?.();
     stopRef.current = null;
+    startingRef.current = false;
+    setStarting(false);
     setTesting(null);
     setLevel(0);
     setSilent(false);
@@ -83,6 +95,13 @@ export function MicCheck({ disabled = false, id = "mic-check" }: { disabled?: bo
   };
 
   async function start() {
+    // A ref, not the state: two clicks can land before a re-render.
+    if (startingRef.current || stopRef.current) return;
+    startingRef.current = true;
+    const mine = ++generation.current;
+    // Stopped, disabled (Record was pressed) or closed while opening.
+    const stale = () => generation.current !== mine || disabledRef.current;
+    setStarting(true);
     setError(null);
     setHeardAt(null);
     setSilent(false);
@@ -91,24 +110,32 @@ export function MicCheck({ disabled = false, id = "mic-check" }: { disabled?: bo
     setNow(t0);
     try {
       if (desktop) {
+        let testId: number | null = null;
         const off = await engine.on("micTest", (m) => {
+          // A stopped test's last events can still arrive: only this one counts.
+          if (m.test !== testId) return;
           heard(m.level);
           setSilent(m.silent);
           setTesting((cur) =>
             cur ? { ...cur, device: m.device, sampleRate: m.sample_rate, quality: m.quality } : cur,
           );
-          if (m.done) {
-            stopRef.current?.();
-            stopRef.current = null;
-            setTesting(null);
-            setLevel(0);
-          }
+          if (m.done) stop();
         });
+        if (stale()) {
+          off();
+          return;
+        }
         try {
           const started = await engine.micTestStart(app.settings.device);
+          if (stale()) {
+            off();
+            void engine.micTestStop(started.test).catch(() => {});
+            return;
+          }
+          testId = started.test;
           stopRef.current = () => {
             off();
-            void engine.micTestStop().catch(() => {});
+            void engine.micTestStop(started.test).catch(() => {});
           };
           setTesting({
             device: started.device,
@@ -125,6 +152,10 @@ export function MicCheck({ disabled = false, id = "mic-check" }: { disabled?: bo
           heard(l);
           setSilent(s);
         });
+        if (stale()) {
+          test.stop();
+          return;
+        }
         stopRef.current = test.stop;
         setTesting({
           device: test.label,
@@ -136,8 +167,15 @@ export function MicCheck({ disabled = false, id = "mic-check" }: { disabled?: bo
         refresh();
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      setTesting(null);
+      if (!stale()) {
+        setError(e instanceof Error ? e.message : String(e));
+        setTesting(null);
+      }
+    } finally {
+      if (generation.current === mine) {
+        startingRef.current = false;
+        setStarting(false);
+      }
     }
   }
 
@@ -169,7 +207,7 @@ export function MicCheck({ disabled = false, id = "mic-check" }: { disabled?: bo
           )?.text ?? "",
       };
     }
-    if (heardAt !== null && now - heardAt < 1500) return { tone: "ok" as const, text: t("Hearing you.") };
+    if (heardAt !== null && now - heardAt < HEARD_HOLD_MS) return { tone: "ok" as const, text: t("Hearing you.") };
     if (heardAt === null && now - startedAt > 4000) {
       return { tone: "warn" as const, text: t("No speech heard yet. Speak normally, or check the microphone isn't muted.") };
     }
@@ -197,7 +235,7 @@ export function MicCheck({ disabled = false, id = "mic-check" }: { disabled?: bo
         </select>
       </label>
       <div className="mic-check-row">
-        <Button size="compact" onClick={testing ? stop : () => void start()} disabled={disabled}>
+        <Button size="compact" onClick={testing ? stop : () => void start()} disabled={disabled || starting}>
           {testing ? <Square size={16} aria-hidden /> : <Mic size={16} aria-hidden />}
           {testing ? t("Stop test") : t("Test microphone")}
         </Button>
@@ -225,10 +263,18 @@ export function MicCheck({ disabled = false, id = "mic-check" }: { disabled?: bo
         </p>
       )}
       {verdict && (
-        <p className="small mic-check-verdict" data-tone={verdict.tone} role="status" aria-live="polite">
+        <p className="small mic-check-verdict" data-tone={verdict.tone}>
           {verdict.text}
         </p>
       )}
+      {/* Screen readers hear warnings when they start, and "Hearing you." once, not every pause. */}
+      <span className="sr-only" role="status" aria-live="polite">
+        {verdict && (verdict.tone === "warn" || verdict.tone === "danger")
+          ? verdict.text
+          : testing && heardAt !== null
+            ? t("Hearing you.")
+            : ""}
+      </span>
       {quality && <p className="small muted">{quality.text}</p>}
       {error && (
         <p className="ob-notice" data-tone="danger" role="alert">

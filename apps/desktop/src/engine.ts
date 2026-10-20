@@ -1775,6 +1775,8 @@ export const releaseSpeech = (): Promise<void> =>
 
 /** The microphone a desktop test opened. */
 export interface MicTestStarted {
+  /** This test's number: its "micTest" events carry it. */
+  test: number;
   device: string;
   sample_rate: number;
   quality: MicQuality;
@@ -1784,6 +1786,8 @@ export interface MicTestStarted {
 
 /** The desktop microphone test's level (the "micTest" event), about 20 times a second. */
 export interface MicLevel {
+  /** Which test sent it (a stopped test's last events can still arrive). */
+  test: number;
   device: string;
   sample_rate: number;
   quality: MicQuality;
@@ -1794,7 +1798,8 @@ export interface MicLevel {
 
 /** Desktop: test a microphone (levels arrive as "micTest" events). */
 export const micTestStart = (device: string | null) => invoke<MicTestStarted>("mic_test_start", { device });
-export const micTestStop = () => invoke<void>("mic_test_stop");
+/** Stop the test with this number (or whichever is running). */
+export const micTestStop = (test?: number) => invoke<void>("mic_test_stop", { test: test ?? null });
 
 const METHOD_TEXT: Record<ConsentMethod, string> = {
   verbal: "agreed out loud",

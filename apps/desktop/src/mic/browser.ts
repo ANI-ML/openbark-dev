@@ -92,18 +92,35 @@ async function getStream(deviceId: string | null): Promise<{ stream: MediaStream
   }
 }
 
-/** An AudioContext the stream can feed: the default rate, or the stream's own where the browser insists (Firefox). */
+/** Rates to try for a context when the default one can't take the stream. */
+export const CONTEXT_RATES = [48000, 44100, 32000, 24000, 22050, 16000, 11025, 8000];
+
+/**
+ * An AudioContext the stream can feed: the default rate, or, where the
+ * browser insists on the stream's own rate (Firefox, which doesn't say what
+ * that rate is), each common rate in turn until one connects.
+ */
 function contextFor(stream: MediaStream): { ctx: AudioContext; source: MediaStreamAudioSourceNode } {
-  let ctx = new AudioContext({ latencyHint: "interactive" });
-  try {
-    return { ctx, source: ctx.createMediaStreamSource(stream) };
-  } catch (e) {
-    void ctx.close();
-    const rate = stream.getAudioTracks()[0]?.getSettings().sampleRate;
-    if (!rate) throw micError(e);
-    ctx = new AudioContext({ latencyHint: "interactive", sampleRate: rate });
-    return { ctx, source: ctx.createMediaStreamSource(stream) };
+  let first: unknown = null;
+  const known = stream.getAudioTracks()[0]?.getSettings().sampleRate;
+  const rates: (number | undefined)[] = [undefined, ...(known ? [known] : []), ...CONTEXT_RATES];
+  const tried = new Set<number>();
+  for (const rate of rates) {
+    let ctx: AudioContext | null = null;
+    try {
+      ctx = rate ? new AudioContext({ latencyHint: "interactive", sampleRate: rate }) : new AudioContext({ latencyHint: "interactive" });
+      if (tried.has(ctx.sampleRate)) {
+        void ctx.close();
+        continue;
+      }
+      tried.add(ctx.sampleRate);
+      return { ctx, source: ctx.createMediaStreamSource(stream) };
+    } catch (e) {
+      first ??= e;
+      if (ctx) void ctx.close();
+    }
   }
+  throw new MicError("rate", first);
 }
 
 /** Open a microphone (the chosen one, else the default) and tap it. */
