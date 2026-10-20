@@ -4,3 +4,13 @@ date,tag,file,platform,format,count
 2026-10-19,v0.1.0,OpenBark.dmg,macOS,.dmg,7
 2026-10-19,v0.1.0,openbark.x86_64.rpm,Linux,.rpm,1
 2026-10-19,v0.1.0,openbark_amd64.deb,Linux,.deb,1
+2026-10-20,v0.1.0,OpenBark-Setup.exe,Windows,Setup .exe,5
+2026-10-20,v0.1.0,OpenBark.AppImage,Linux,AppImage,1
+2026-10-20,v0.1.0,OpenBark.dmg,macOS,.dmg,14
+2026-10-20,v0.1.0,openbark.x86_64.rpm,Linux,.rpm,1
+2026-10-20,v0.1.0,openbark_amd64.deb,Linux,.deb,2
+2026-10-20,v0.1.1,OpenBark-Setup.exe,Windows,Setup .exe,8
+2026-10-20,v0.1.1,OpenBark.AppImage,Linux,AppImage,2
+2026-10-20,v0.1.1,OpenBark.dmg,macOS,.dmg,16
+2026-10-20,v0.1.1,openbark.x86_64.rpm,Linux,.rpm,1
+2026-10-20,v0.1.1,openbark_amd64.deb,Linux,.deb,0
