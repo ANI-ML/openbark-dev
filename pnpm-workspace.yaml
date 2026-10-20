@@ -29,6 +29,10 @@ catalog:
   # ADR-0023: Twilio's Voice SDK (Apache-2.0), bundled into the phone window only
   # (phone.html), never loaded from a CDN. Checked live on 2026-10-19 (docs/versions.md).
   "@twilio/voice-sdk": 2.18.5
+  # Motion for React (MIT): exit and layout animations in the app only
+  # (docs/plans/design-motion.md). 14.1.0 is the newest release at least
+  # 7 days old on 2026-10-19; the website ships no JS animation library.
+  motion: 14.1.0
 
 # pnpm 11: dependency build scripts are denied unless allowed here.
 allowBuilds:

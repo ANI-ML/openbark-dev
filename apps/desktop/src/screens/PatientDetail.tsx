@@ -1,4 +1,4 @@
-import { Button, MarkMono, StatusDot } from "@openbark/ui";
+import { Button, MarkMono, Skeleton, StatusDot } from "@openbark/ui";
 import { ArrowLeft, Mic, Pencil, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { fmtTime, useApp } from "../context";
@@ -174,7 +174,7 @@ export function PatientDetail({ id }: { id: string }) {
         </form>
       )}
       {view === null ? (
-        <div className="ob-skeleton" style={{ height: 160 }} />
+        <Skeleton rows={3} label={t("Loading")} />
       ) : view.visits.length === 0 ? (
         <div className="empty-state">
           <MarkMono size={48} className="faint" />

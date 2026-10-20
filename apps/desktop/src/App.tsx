@@ -1,5 +1,6 @@
 import { Lockup, Mark, createLevelSource } from "@openbark/ui";
 import { Box, ChevronRight, CircleHelp, Mic, NotebookText, PawPrint, Settings as SettingsIcon } from "lucide-react";
+import { AnimatePresence, LazyMotion, MotionConfig, m } from "motion/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import * as engine from "./engine";
 import { ConsentNotice } from "./components/ConsentNotice";
@@ -7,6 +8,7 @@ import { Toast } from "./components/Toast";
 import { ROLE_LABEL, UserPicker } from "./components/UserPicker";
 import { AppContext, loadSettings, permissions, saveSettings, type Settings, type ToastAction } from "./context";
 import { translate } from "./i18n";
+import { loadMotionFeatures, SPRING } from "./motion";
 import { PatientDetail } from "./screens/PatientDetail";
 import { Patients } from "./screens/Patients";
 import { Models } from "./screens/Models";
@@ -157,6 +159,12 @@ export function App() {
   );
 
   return (
+    // Motion (docs/plans/design-motion.md): the light `m` components, with
+    // the animation and layout features (domMax) loaded in their own chunk;
+    // reducedMotion="user" stops transform and layout animation when the
+    // system asks for reduced motion.
+    <LazyMotion features={loadMotionFeatures} strict>
+    <MotionConfig reducedMotion="user">
     <AppContext.Provider value={ctx}>
       <div className="frame">
         <nav className="sidebar" aria-label="Main">
@@ -185,6 +193,10 @@ export function App() {
                     data-parent-current={screen === "settings" && (active === "models" || active === "help") ? "" : undefined}
                     onClick={() => setRoute({ screen } as Route)}
                   >
+                    {/* One 2 px ink marker that glides to the new destination. */}
+                    {active === screen && (
+                      <m.span layoutId="nav-marker" className="nav-marker" transition={SPRING} aria-hidden />
+                    )}
                     <Icon size={20} aria-hidden />
                     <span className="nav-label">{label}</span>
                   </button>
@@ -255,10 +267,15 @@ export function App() {
           }}
         />
       )}
-      {toast && <Toast key={toast.n} message={toast.message} action={toast.action} onClose={closeToast} />}
+      {/* The toast arrives and leaves (it used to vanish); a new one waits for the old to go. */}
+      <AnimatePresence mode="wait">
+        {toast && <Toast key={toast.n} message={toast.message} action={toast.action} onClose={closeToast} />}
+      </AnimatePresence>
       <div className="sr-only" aria-live="polite">
         {announce}
       </div>
     </AppContext.Provider>
+    </MotionConfig>
+    </LazyMotion>
   );
 }

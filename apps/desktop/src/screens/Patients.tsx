@@ -1,8 +1,10 @@
-import { Button, MarkMono } from "@openbark/ui";
+import { Button, MarkMono, Skeleton } from "@openbark/ui";
 import { CallButton } from "../components/CallButton";
 import { Mic, Search } from "lucide-react";
+import { AnimatePresence, m } from "motion/react";
 import { useEffect, useState } from "react";
 import { useApp } from "../context";
+import { ENTER_Y, EXIT, FADE_IN, LAYOUT_LIST_LIMIT, SPRING } from "../motion";
 import * as engine from "../engine";
 import { templateName, useT } from "../i18n";
 import { speciesName } from "../species";
@@ -88,7 +90,7 @@ export function Patients() {
       {view === "visits" ? (
         <Encounters embedded />
       ) : rows === null ? (
-        <div className="ob-skeleton" style={{ height: 200 }} />
+        <Skeleton rows={4} label={t("Loading")} />
       ) : rows.length === 0 ? (
         <div className="empty-state">
           <MarkMono size={48} className="faint" />
@@ -101,45 +103,57 @@ export function Patients() {
       ) : shown.length === 0 ? (
         <p className="empty muted">{t("No patient matches that name.")}</p>
       ) : (
+        // Filtering: rows that stay glide into place, rows that go fade out,
+        // rows that come back fade in (Motion layout and presence). Very long
+        // lists skip the layout animation so typing stays instant.
         <ul className="patient-list">
-          {shown.map((r) => (
-            <li key={r.patient.id}>
-              <button
-                type="button"
-                className="patient-row"
-                onClick={() => app.navigate({ screen: "patient", id: r.patient.id })}
+          <AnimatePresence initial={false} mode="popLayout">
+            {shown.map((r) => (
+              <m.li
+                key={r.patient.id}
+                layout={shown.length <= LAYOUT_LIST_LIMIT ? "position" : false}
+                initial={{ opacity: 0, y: ENTER_Y }}
+                animate={{ opacity: 1, y: 0, transition: FADE_IN }}
+                exit={{ opacity: 0, transition: EXIT }}
+                transition={SPRING}
               >
-                <span className="patient-avatar" aria-hidden>
-                  <SpeciesIcon species={r.patient.species} size={22} />
-                </span>
-                <span className="patient-text">
-                  <span className="patient-name">
-                    {r.patient.name}
-                    {r.patient.last_name && <span className="muted"> {r.patient.last_name}</span>}
+                <button
+                  type="button"
+                  className="patient-row"
+                  onClick={() => app.navigate({ screen: "patient", id: r.patient.id })}
+                >
+                  <span className="patient-avatar" aria-hidden>
+                    <SpeciesIcon species={r.patient.species} size={22} />
                   </span>
-                  <span className="small muted">
-                    {[
-                      r.patient.species ? t(speciesName(r.patient.species)) : "",
-                      r.visits === 1 ? t("1 visit") : t("{n} visits", { n: r.visits }),
-                    ]
-                      .filter(Boolean)
-                      .join(", ")}
-                  </span>
-                </span>
-                {r.last_visit && (
-                  <span className="patient-last">
-                    <span className="type-icon small-icon">
-                      <TemplateIcon template={{ icon: r.last_icon }} size={16} />
+                  <span className="patient-text">
+                    <span className="patient-name">
+                      {r.patient.name}
+                      {r.patient.last_name && <span className="muted"> {r.patient.last_name}</span>}
                     </span>
-                    <span className="patient-last-text">
-                      <span className="small">{r.last_type ? templateName(t, r.last_type) : t("No draft")}</span>
-                      <span className="small faint mono">{r.last_visit}</span>
+                    <span className="small muted">
+                      {[
+                        r.patient.species ? t(speciesName(r.patient.species)) : "",
+                        r.visits === 1 ? t("1 visit") : t("{n} visits", { n: r.visits }),
+                      ]
+                        .filter(Boolean)
+                        .join(", ")}
                     </span>
                   </span>
-                )}
-              </button>
-            </li>
-          ))}
+                  {r.last_visit && (
+                    <span className="patient-last">
+                      <span className="type-icon small-icon">
+                        <TemplateIcon template={{ icon: r.last_icon }} size={16} />
+                      </span>
+                      <span className="patient-last-text">
+                        <span className="small">{r.last_type ? templateName(t, r.last_type) : t("No draft")}</span>
+                        <span className="small faint mono">{r.last_visit}</span>
+                      </span>
+                    </span>
+                  )}
+                </button>
+              </m.li>
+            ))}
+          </AnimatePresence>
         </ul>
       )}
     </div>

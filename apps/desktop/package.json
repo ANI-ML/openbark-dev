@@ -20,6 +20,7 @@
     "@tauri-apps/plugin-opener": "catalog:",
     "@twilio/voice-sdk": "catalog:",
     "lucide-react": "catalog:",
+    "motion": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:"
   },

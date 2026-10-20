@@ -45,4 +45,21 @@ describe("Toast", () => {
     act(() => vi.advanceTimersByTime(4100));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  it("carries on from the time left after a hold, and shows it on a bar that holds too", () => {
+    const onClose = vi.fn();
+    render(<Toast message="Visit deleted" action={{ label: "Undo", run: () => {} }} onClose={onClose} />);
+    const toast = screen.getByRole("status");
+    const bar = toast.querySelector(".ob-toast-time") as HTMLElement;
+    expect(bar.style.animationDuration).toBe("4000ms");
+    expect(bar.style.animationPlayState).toBe("running");
+    act(() => vi.advanceTimersByTime(3000));
+    fireEvent.pointerEnter(toast);
+    expect(bar.style.animationPlayState).toBe("paused");
+    act(() => vi.advanceTimersByTime(10_000));
+    fireEvent.pointerLeave(toast);
+    // About a second was left when the pointer arrived; the clock doesn't start over.
+    act(() => vi.advanceTimersByTime(1100));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });

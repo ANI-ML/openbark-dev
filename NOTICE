@@ -57,6 +57,8 @@ each under its own license (full license texts are in the respective projects):
   backoff and loglevel (MIT) inside it, and events (MIT). Their licence texts
   ship with the app in licenses/phone-window.txt
   (apps/desktop/public/licenses/phone-window.txt).
+- Motion for React (MIT; the motion, framer-motion, motion-dom and motion-utils
+  packages), Copyright (c) 2024 Motion B.V. and (c) 2018 Framer B.V. https://motion.dev
 - Other Rust crates and npm packages, under MIT, Apache-2.0, BSD or similar
   permissive licenses, as listed in Cargo.lock and pnpm-lock.yaml.
 

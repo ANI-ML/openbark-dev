@@ -60,7 +60,7 @@
 
 <section class="band band-gray" id="free" aria-labelledby="free-h">
   <div class="wrap pillar">
-    <div class="pillar-copy">
+    <div class="pillar-copy reveal">
       <!--if source-public--><p class="eyebrow">Free and open source</p><!--end--><!--if source-private--><p class="eyebrow">Free to use</p><!--end-->
       <h2 id="free-h">Stop paying for a scribe.</h2>
       <!--if source-public--><p>Free for one vet or a whole hospital. Open source under Apache-2.0, <a href="{{SOURCE}}">on GitHub</a>. No lock-in.</p><!--end-->
@@ -71,7 +71,7 @@
         <li><svg class="lucide" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Notes copy cleanly into the practice software you already use</li>
       </ul>
     </div>
-    <div class="ledger" data-ui aria-label="What OpenBark costs">
+    <div class="ledger reveal" data-ui aria-label="What OpenBark costs">
       <p class="ledger-head">What {{PRODUCT}} costs</p>
       <p class="ledger-total">Free</p>
       <dl>
@@ -88,7 +88,7 @@
 
 <section class="band" id="private" aria-labelledby="private-h">
   <div class="wrap duo">
-    <article class="panel">
+    <article class="panel reveal">
       <div class="panel-copy">
         <p class="eyebrow">Private by design</p>
         <h2 id="private-h">Your data stays yours.</h2>
@@ -105,7 +105,7 @@
       </div>
     </article>
 
-    <article class="panel" id="planet" aria-labelledby="planet-h">
+    <article class="panel reveal" id="planet" aria-labelledby="planet-h">
       <div class="panel-copy">
         <p class="eyebrow">No data centre</p>
         <h2 id="planet-h">Gentle on the planet.</h2>
@@ -123,55 +123,99 @@
 
 <section class="band band-gray" id="careful" aria-labelledby="careful-h">
   <div class="wrap">
-    <div class="band-head">
+    <div class="band-head reveal">
       <p class="eyebrow">Built carefully</p>
       <h2 id="careful-h">Quick to draft, careful enough to sign.</h2>
     </div>
-    <ul class="careful">
-      <li>
+    <ul class="bento">
+      <li class="tile tile-wide reveal">
         <svg class="lucide" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
         <h3>Every line links to what was said</h3>
-        <p>Tap a sentence to see where it came from.</p>
+        <p>Tap a sentence in the note to see the moment it came from, and hear it.</p>
+        <div class="fig fig-evidence" aria-hidden="true">
+          <div class="fig-box fig-note">
+            <p class="fig-label">Draft note, exam</p>
+            <p class="fig-text">Weight 12.6 kg, unchanged</p>
+          </div>
+          <span class="fig-join"></span>
+          <div class="fig-box fig-said">
+            <span class="who">Vet</span>
+            <span class="fig-text">Her weight today is 12.6 kilos, the same as last time.</span>
+            <span class="when">00:21</span>
+          </div>
+        </div>
       </li>
-      <li>
+      <li class="tile tile-side reveal">
         <svg class="lucide" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h16"/><path d="M4 15h16"/><path d="M10 3 8 21"/><path d="M16 3l-2 18"/></svg>
         <h3>Numbers are checked</h3>
-        <p>Weights and doses not in the transcript are flagged.</p>
+        <p>A weight or dose that isn't in the transcript blocks signing until you fix it.</p>
+        <div class="fig fig-row" aria-hidden="true">
+          <span class="status mono" data-s="ok">12.6 kg</span>
+          <span class="status mono" data-s="flag">1.2 mg/kg, not said</span>
+        </div>
       </li>
-      <li>
+      <li class="tile tile-side reveal">
         <svg class="lucide" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.376 3.622a1 1 0 0 1 3.002 3.002L7.368 18.635a2 2 0 0 1-.855.506l-2.872.838a.5.5 0 0 1-.62-.62l.838-2.872a2 2 0 0 1 .506-.854z"/></svg>
         <h3>A vet signs every note</h3>
-        <p>Nothing is final until you sign it.</p>
+        <p>Nothing is final until you sign it, and a signed note is locked.</p>
+        <div class="fig fig-sign" aria-hidden="true">
+          <span class="status" data-s="beta">Draft</span>
+          <svg class="lucide" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+          <span class="status" data-s="signed">Signed</span>
+        </div>
+      </li>
+      <li class="tile tile-side reveal">
+        <svg class="lucide" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 19H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 1.184-1.826"/><path d="m2 2 20 20"/><path d="M8.656 3H20a2 2 0 0 1 2 2v11.344"/></svg>
+        <h3>"Not discussed", never a guess</h3>
+        <p>A heading nobody talked about says so plainly instead of being filled in.</p>
+        <div class="fig" aria-hidden="true">
+          <div class="fig-box">
+            <p class="fig-label">Dental</p>
+            <p class="fig-text faint-text">Not discussed</p>
+          </div>
+        </div>
+      </li>
+      <li class="tile tile-side reveal">
+        <svg class="lucide" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 6h4"/><path d="M2 10h4"/><path d="M2 14h4"/><path d="M2 18h4"/><rect width="16" height="20" x="4" y="2" rx="2"/><path d="M9.5 8h5"/><path d="M9.5 12H16"/><path d="M9.5 16H14"/></svg>
+        <h3>{{TEMPLATES}} templates built in</h3>
+        <p>General practice, specialties, farm, equine and exotics. Or build your own from plain headings.</p>
+        <div class="fig fig-chips" aria-hidden="true">
+          <span class="fig-chip">Wellness</span><span class="fig-chip">Sick visit</span><span class="fig-chip">Recheck</span><span class="fig-chip">Dental</span><span class="fig-chip">Surgery</span><span class="fig-chip">Equine</span><span class="fig-chip">Exotics</span><span class="fig-chip">Callback</span>
+        </div>
       </li>
     </ul>
-    <p class="careful-more"><a class="link-more" href="features.html">See all {{FEATURES}} features</a></p>
+    <p class="careful-more reveal"><a class="link-more" href="features.html">See all {{FEATURES}} features</a></p>
   </div>
 </section>
 
 <section class="band" id="download" aria-labelledby="download-h">
   <div class="wrap">
-    <div class="band-head">
+    <div class="band-head reveal">
       <p class="eyebrow">Download</p>
       <h2 id="download-h">Now in beta. Download it free.</h2>
       <p>Installs like any other app. The first time you open it, your computer may ask you to confirm.</p>
     </div>
     <div class="downloads" id="downloads">
-      <div class="dl" data-os="windows">
+      <div class="dl reveal" data-os="windows">
+        <div class="dl-top"><svg class="lucide" viewBox="0 0 24 24" aria-hidden="true"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg><span class="status dl-mine">This computer</span></div>
         <h3>Windows</h3>
         <p class="req">Windows 10 or 11. 16 GB memory.</p>
         <div class="files" data-files="windows"></div>
       </div>
-      <div class="dl" data-os="mac">
+      <div class="dl reveal" data-os="mac">
+        <div class="dl-top"><svg class="lucide" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 5a2 2 0 0 1 2 2v8.526a2 2 0 0 0 .212.897l1.068 2.127a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45l1.068-2.127A2 2 0 0 0 4 15.526V7a2 2 0 0 1 2-2z"/><path d="M20.054 15.987H3.946"/></svg><span class="status dl-mine">This computer</span></div>
         <h3>macOS</h3>
         <p class="req">macOS 13 or later, Apple silicon. 16 GB memory.</p>
         <div class="files" data-files="mac"></div>
       </div>
-      <div class="dl" data-os="linux">
+      <div class="dl reveal" data-os="linux">
+        <div class="dl-top"><svg class="lucide" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 11 2-2-2-2"/><path d="M11 13h4"/><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/></svg><span class="status dl-mine">This computer</span></div>
         <h3>Linux</h3>
         <p class="req">Ubuntu, Debian, Fedora and more. 16 GB memory.</p>
         <div class="files" data-files="linux"></div>
       </div>
-      <div class="dl" data-os="ios">
+      <div class="dl reveal" data-os="ios">
+        <div class="dl-top"><svg class="lucide" viewBox="0 0 24 24" aria-hidden="true"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></svg><span class="status dl-mine">This computer</span></div>
         <h3>iPhone</h3>
         <p class="req">For recording in the exam room. Coming soon.</p>
         <div class="files" data-files="ios"></div>
@@ -183,7 +227,7 @@
 </section>
 
 <section class="band band-warm" aria-labelledby="who">
-  <div class="wrap maker">
+  <div class="wrap maker reveal">
     <div>
       <p class="eyebrow">Who makes it</p>
       <h2 id="who">Built by the ANI.ML Health team.</h2>
@@ -197,12 +241,12 @@
 
 <section class="band" id="contact" aria-labelledby="contact-h">
   <div class="wrap contact">
-    <div class="contact-main">
+    <div class="contact-main reveal">
       <h2 id="contact-h">Talk to us.</h2>
       <p>Questions, feedback or a bug? Write to the ANI.ML Health team.</p>
       <a class="btn btn-primary btn-lg contact-mail" href="mailto:{{CONTACT}}?subject={{PRODUCT}}"><svg class="lucide" viewBox="0 0 24 24" aria-hidden="true"><path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7"/><rect x="2" y="4" width="20" height="16" rx="2"/></svg>{{CONTACT}}</a>
     </div>
-    <div class="coffee">
+    <div class="coffee reveal">
       <h3>Buy us a coffee</h3>
       <p>{{PRODUCT}} is free. If it gives you back some evenings, a coffee keeps it going.</p>
       <a class="link-more" href="{{COFFEE}}" rel="noopener">buymeacoffee.com/animlhealth</a>
