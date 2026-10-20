@@ -45,6 +45,9 @@ export function micError(e: unknown): MicError {
     case "DevicesNotFoundError":
     case "OverconstrainedError":
       return new MicError("notFound", e);
+    case "NotSupportedError":
+      // A browser (or a headless one) that can't ask for the microphone at all.
+      return new MicError("unsupported", e);
     case "NotReadableError":
     case "TrackStartError":
     case "AbortError":

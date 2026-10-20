@@ -126,6 +126,7 @@ describe("micError", () => {
     expect(micError(err("NotReadableError", "Could not start audio source")).message).toBe(MIC_ERRORS.busy);
     expect(micError(err("AbortError")).message).toBe(MIC_ERRORS.busy);
     expect(micError(err("SecurityError")).message).toBe(MIC_ERRORS.denied);
+    expect(micError(err("NotSupportedError")).message).toBe(MIC_ERRORS.unsupported);
   });
 
   it("every message is translated in every interface language", () => {
