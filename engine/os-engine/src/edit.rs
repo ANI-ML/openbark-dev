@@ -26,6 +26,10 @@ pub struct Edit {
     /// The run that was edited ("runs/002_…").
     #[serde(default)]
     pub from_run: Option<String>,
+    /// That run's id ([`crate::session::RunInfo::id`]): stable across
+    /// devices, where folder names may differ (ADR-0017 section 13).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_run_id: Option<String>,
     /// Paths of items the vet wrote or changed.
     pub changed: Vec<String>,
     /// Items that were in the heading before and are gone now.
@@ -233,6 +237,7 @@ pub fn apply_edit(
             heading: heading.to_string(),
             by: by.to_string(),
             from_run: None,
+            from_run_id: None,
             changed,
             removed,
             before,

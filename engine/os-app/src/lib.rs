@@ -1972,6 +1972,7 @@ impl App {
         }
         if let Some(r) = result.refinement.as_mut() {
             r.from_run = Some(run.dir.clone());
+            r.from_run_id = Some(run.id().to_string());
             r.saved_as_standard = request.save_as_standard;
         }
         result.by = who;
@@ -2023,6 +2024,7 @@ impl App {
         result.by = Some(who);
         if let Some(e) = result.edit.as_mut() {
             e.from_run = Some(run.dir.clone());
+            e.from_run_id = Some(run.id().to_string());
         }
         result.markdown = with_header(&s, &result.markdown);
         s.save_run("edited", &result, &template)?;
