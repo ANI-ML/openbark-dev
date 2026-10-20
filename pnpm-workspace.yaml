@@ -26,6 +26,9 @@ catalog:
   # Manrope and JetBrains Mono (OFL-1.1, fontsource 5.3.0) are vendored in
   # packages/ui/src/fonts, never loaded from a CDN.
   "lucide-react": 1.59.0
+  # ADR-0023: Twilio's Voice SDK (Apache-2.0), bundled into the phone window only
+  # (phone.html), never loaded from a CDN. Checked live on 2026-10-19 (docs/versions.md).
+  "@twilio/voice-sdk": 2.18.5
 
 # pnpm 11: dependency build scripts are denied unless allowed here.
 allowBuilds:

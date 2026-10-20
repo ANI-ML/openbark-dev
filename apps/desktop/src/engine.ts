@@ -131,7 +131,9 @@ export interface Patient {
 }
 
 export type ConsentRule = "all_parties" | "one_party";
-export type ConsentMethod = "verbal" | "written" | "on_file" | "clinician_only";
+export type ConsentMethod = "verbal" | "written" | "on_file" | "clinician_only" | "announced";
+/** A phone call: what the client said after the announcement (ADR-0023 section 7). */
+export type ConsentOutcome = "agreed" | "declined" | "stayed_on_line" | "not_announced";
 
 /** Consent to record one encounter (M1 item 7); the engine stamps the time. */
 export interface RecordingConsent {
@@ -140,6 +142,23 @@ export interface RecordingConsent {
   confirmed_by: string;
   confirmed_at?: string | null;
   script?: string | null;
+  /** Phone calls: the client's answer after the announcement. */
+  outcome?: ConsentOutcome | null;
+  /** Phone calls: when the announcement started, in seconds into the recording. */
+  announced_at_secs?: number | null;
+}
+
+/** A phone call's details (ADR-0023 section 8). Speaker 0 is the clinic, 1 the client. */
+export interface CallInfo {
+  direction: "outgoing" | "incoming";
+  number: string;
+  started_at: string;
+  duration_secs: number;
+  call_sid?: string | null;
+  /** "Vet", "Tech" or "Clinic". */
+  clinic_label: string;
+  /** When the client declined and the recording was deleted, in seconds into the call. */
+  declined_at_secs?: number | null;
 }
 
 const consentQuery = (c: RecordingConsent | null) => ({
@@ -203,6 +222,8 @@ export interface SessionView {
   chart_checks?: ChartCheck[];
   /** Teeth with a drafted chart entry no veterinarian has confirmed; signing waits until it's empty. */
   unconfirmed_teeth?: string[];
+  /** Set for a phone call through the clinic's own Twilio account (ADR-0023). */
+  call?: CallInfo | null;
 }
 
 /** A veterinarian's confirmation of the drafted chart entries on one tooth (ADR-0021 decision 10). */
@@ -931,6 +952,8 @@ export interface PatientRecord {
   species: string;
   created_at: string;
   updated_at?: string | null;
+  /** The owner's phone number in E.164, for Call (ADR-0023). */
+  owner_phone?: string | null;
 }
 
 export interface VisitSummary {
@@ -975,10 +998,14 @@ export const createPatient = (name: string, lastName: string, species: string) =
   isDesktop
     ? invoke<PatientRecord>("create_patient", { name, lastName, species })
     : api<PatientRecord>("/api/patients", post({ name, last_name: lastName, species }));
-export const updatePatientRecord = (id: string, name: string, lastName: string, species: string) =>
+/** Change a patient's details. `ownerPhone`: empty clears it, `undefined` keeps it. */
+export const updatePatientRecord = (id: string, name: string, lastName: string, species: string, ownerPhone?: string) =>
   isDesktop
-    ? invoke<PatientRecord>("update_patient_record", { id, name, lastName, species })
-    : api<PatientRecord>(`/api/patients/${enc(id)}`, post({ name, last_name: lastName, species }));
+    ? invoke<PatientRecord>("update_patient_record", { id, name, lastName, species, ownerPhone })
+    : api<PatientRecord>(
+        `/api/patients/${enc(id)}`,
+        post({ name, last_name: lastName, species, ...(ownerPhone === undefined ? {} : { owner_phone: ownerPhone }) }),
+      );
 
 export const listSessions = () =>
   isDesktop ? invoke<SessionSummary[]>("list_sessions") : api<SessionSummary[]>("/api/sessions");
@@ -1760,6 +1787,7 @@ const METHOD_TEXT: Record<ConsentMethod, string> = {
   written: "signed a consent form",
   on_file: "consent on file",
   clinician_only: "clinician consent only (one-party rule)",
+  announced: "heard the recorded announcement",
 };
 
 /** "Client agreed out loud; confirmed by Dr Patel, 2026-10-17 20:07". */
@@ -1775,6 +1803,145 @@ export function fmtStamp(iso: string | null | undefined): string {
   if (Number.isNaN(d.getTime())) return iso;
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// ---- phone calls (ADR-0023) ------------------------------------------------
+// The clinic's own Twilio account. The main window only connects, sets up and
+// says who to call; the call itself runs in the separate phone window
+// (phone.html), the only page that may reach Twilio.
+
+export interface PhonePrefs {
+  /** "Turn on the phone on this computer". */
+  enabled: boolean;
+  record_calls: boolean;
+  announcement: string;
+}
+
+export interface SecretStatus {
+  location: "keychain" | "sealed_file";
+  /** "****4f2a". */
+  hint: string;
+  warning?: string | null;
+}
+
+export interface TwilioView {
+  account_sid: string;
+  api_key_hint: string;
+  api_key_sid: string;
+  computer_name: string;
+  identity: string;
+  caller_id?: string | null;
+  outgoing_bin_url?: string | null;
+  twiml_app_sid?: string | null;
+}
+
+export interface PhoneView {
+  connected: boolean;
+  twilio: TwilioView | null;
+  secret: SecretStatus | null;
+  prefs: PhonePrefs;
+  /** Calls can be placed now. */
+  ready: boolean;
+  /** The Linux desktop app can't make calls (web mode can). */
+  linux: boolean;
+  outgoing_bin: string | null;
+}
+
+export interface ConnectTwilio {
+  account_sid: string;
+  api_key_sid: string;
+  /** Empty keeps the secret already saved for the same key. */
+  api_key_secret: string;
+  computer_name: string;
+  caller_id: string;
+  outgoing_bin_url: string;
+}
+
+export interface SetupCheck {
+  id: "key" | "caller_id" | "twiml_app" | "phone_on" | "trial";
+  ok: boolean | null;
+  message: string;
+}
+
+export interface CallTarget {
+  patient_id: string | null;
+  patient_name: string;
+  last_name: string;
+  number: string | null;
+  record_calls: boolean;
+  announcement: string;
+  by: string | null;
+  clinic_label: string;
+}
+
+export const phone = () => (isDesktop ? invoke<PhoneView>("phone") : api<PhoneView>("/api/phone"));
+/** The outgoing Bin's text for a caller ID (no network). */
+export const phoneBin = (callerId: string) =>
+  isDesktop
+    ? invoke<string>("phone_bin", { callerId })
+    : api<{ text: string }>(`/api/phone/bin?caller_id=${enc(callerId)}`).then((r) => r.text);
+/** Connect Twilio. The secret goes to the engine, which sends it only to Twilio. */
+export const phoneConnect = (request: ConnectTwilio) =>
+  isDesktop
+    ? invoke<{ phone: PhoneView }>("phone_connect", { request, by: actor })
+    : api<{ phone: PhoneView }>("/api/phone/connect", post({ ...request, by: actor }));
+export const phoneDisconnect = () =>
+  isDesktop
+    ? invoke<{ note: string }>("phone_disconnect", { by: actor })
+    : api<{ note: string }>("/api/phone/disconnect", post({ by: actor }));
+export const phoneSetPrefs = (prefs: PhonePrefs) =>
+  isDesktop
+    ? invoke<PhoneView>("phone_set_prefs", { prefs, by: actor })
+    : api<PhoneView>("/api/phone/prefs", post({ ...prefs, by: actor }));
+export const phoneCheck = () =>
+  isDesktop
+    ? invoke<SetupCheck[]>("phone_check", { by: actor })
+    : api<SetupCheck[]>("/api/phone/check", post({ by: actor }));
+
+/** The phone page's channel to the main window in web mode (same origin). */
+export const PHONE_CHANNEL = "openbark-phone";
+
+/**
+ * **Call**: tells the engine who to call, then opens the phone window. On the
+ * desktop that's a second Tauri window; in web mode, a pop-up of this page.
+ * Returns false when the browser blocked the pop-up.
+ */
+export async function openPhone(call: { patient_id?: string | null; number?: string | null }): Promise<boolean> {
+  if (isDesktop) {
+    await invoke<CallTarget>("phone_open", { call, by: actor });
+    return true;
+  }
+  await api<CallTarget>("/api/phone/prepare", post({ ...call, by: actor }));
+  try {
+    new BroadcastChannel(PHONE_CHANNEL).postMessage({ type: "target" });
+  } catch {
+    // Old browsers: the phone page reads the call when it opens.
+  }
+  const w = window.open("/phone.html", "openbark-phone", "popup,width=420,height=760");
+  if (!w) return false;
+  // The phone page can't reach back into this window: no opener, as with
+  // noopener (which would hide whether the pop-up was blocked).
+  w.opener = null;
+  w.focus();
+  return true;
+}
+
+/** Called with a visit's id when a recorded call is saved (from the phone window). */
+export function onCallSaved(cb: (id: string) => void): () => void {
+  if (isDesktop) {
+    const off = listen<{ id: string }>("phone-call-saved", (e) => cb(e.payload.id));
+    return () => void off.then((f) => f());
+  }
+  let channel: BroadcastChannel | null = null;
+  try {
+    channel = new BroadcastChannel(PHONE_CHANNEL);
+    channel.onmessage = (e: MessageEvent<{ type?: string; id?: string }>) => {
+      if (e.data?.type === "saved" && e.data.id) cb(e.data.id);
+    };
+  } catch {
+    // No BroadcastChannel: the visit still appears under Patients.
+  }
+  return () => channel?.close();
 }
 
 // ---- events -----------------------------------------------------------------

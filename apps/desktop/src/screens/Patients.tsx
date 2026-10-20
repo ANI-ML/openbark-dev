@@ -1,4 +1,5 @@
 import { Button, MarkMono } from "@openbark/ui";
+import { CallButton } from "../components/CallButton";
 import { Mic, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useApp } from "../context";
@@ -36,10 +37,13 @@ export function Patients() {
     <div className="screen patients">
       <header className="screen-head">
         <h1>{t("Patients")}</h1>
-        <Button variant="primary" onClick={() => app.navigate({ screen: "record" })}>
-          <Mic size={20} aria-hidden />
-          {t("New visit")}
-        </Button>
+        <div className="head-actions">
+          <CallButton variant="ghost" label={t("Call a number")} />
+          <Button variant="primary" onClick={() => app.navigate({ screen: "record" })}>
+            <Mic size={20} aria-hidden />
+            {t("New visit")}
+          </Button>
+        </div>
       </header>
       <div className="patients-bar">
         <div className="ob-segmented" role="tablist" aria-label={t("Show")}>

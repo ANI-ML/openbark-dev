@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "phone",
+  "description": "Phone window (ADR-0023): Twilio's Voice SDK for the clinic's own account. It may call only the phone commands (enforced in src/lib.rs), hear phone-target when Call is pressed on another patient, and close itself. No files, no dialogs, no shell.",
+  "windows": [
+    "phone"
+  ],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:window:allow-close"
+  ]
+}

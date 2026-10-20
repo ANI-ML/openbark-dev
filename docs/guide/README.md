@@ -13,6 +13,7 @@ The same walkthroughs are in the app under **Help**, each with a short video.
 | 5 | [Client documents, PDF and copying](documents.md) | Discharge instructions, client summaries, PDFs, pasting into your PIMS |
 | 6 | [Team and security](team-and-security.md) | Team members and roles, encryption, the recovery key, moving computers |
 | 7 | [Models](models.md) | Choosing and downloading models, MLX on a Mac, gated models and tokens, adding and removing models |
+| 8 | [Phone calls](phone-and-email.md) | Calling clients through your clinic's own Twilio account, the announcement, and calls as visits |
 | | [Languages](../languages.md) | The app's language, the note's language, and what to expect |
 | | [Troubleshooting](troubleshooting.md) | Common messages and what to do |
 

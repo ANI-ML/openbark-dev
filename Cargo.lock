@@ -3822,6 +3822,7 @@ version = "0.1.1"
 dependencies = [
  "chrono",
  "os-asr",
+ "os-connect",
  "os-engine",
  "os-llm",
  "os-models",
@@ -3855,6 +3856,7 @@ dependencies = [
  "indicatif",
  "os-app",
  "os-asr",
+ "os-connect",
  "os-diar",
  "os-engine",
  "os-llm",
@@ -3969,6 +3971,7 @@ dependencies = [
  "chrono",
  "dirs",
  "os-app",
+ "os-connect",
  "os-engine",
  "os-models",
  "serde",

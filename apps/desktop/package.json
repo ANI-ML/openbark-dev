@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.json && vite build",
+    "build:e2e": "tsc -p tsconfig.json && vite build --mode e2e",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
     "screenshots": "node e2e/screenshots.mjs",
@@ -14,10 +15,11 @@
   },
   "dependencies": {
     "@openbark/ui": "workspace:*",
-    "lucide-react": "catalog:",
     "@tauri-apps/api": "catalog:",
     "@tauri-apps/plugin-dialog": "catalog:",
     "@tauri-apps/plugin-opener": "catalog:",
+    "@twilio/voice-sdk": "catalog:",
+    "lucide-react": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:"
   },

@@ -25,7 +25,7 @@ When you use OpenBark in a browser on this computer, the browser asks for permis
 
 In the browser version, a file OpenBark can't read itself is decoded by the browser first, so some other kinds work too. Windows Media (WMA), AMR and Olympus or Philips dictation files (DSS, DS2) don't; the message says so, and you can convert them with the recorder's own software.
 
-To chart a **phone call**, record it with your phone's own call recording, export the audio, then import it and draft with the **Callback note** template.
+To chart a **phone call**, record it with your phone's own call recording, export the audio, then import it and draft with the **Phone call** template. Or call the client from OpenBark itself, through your clinic's own Twilio account: the call is recorded on this computer and becomes a visit ([Phone calls](phone-and-email.md)).
 
 ### How long it takes
 

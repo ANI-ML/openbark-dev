@@ -32,6 +32,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r run typecheck
       - run: pnpm -r run test
+      # ADR-0023: only the phone page bundles Twilio's SDK; the main window's CSP allows no remote host.
+      - run: pnpm --filter @openbark/desktop build
+      - run: node scripts/ci/check-phone-bundle.mjs apps/desktop/dist
 
   linux:
     name: Engine (Linux) + offline e2e

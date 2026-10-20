@@ -27,6 +27,15 @@ base64 = "=0.23.1"
 # The API key secret lives in the OS keychain, as the data key does (ADR-0008).
 keyring = "=4.2.0"
 
+[features]
+# The loopback fake Twilio (src/mock.rs) for other crates' tests and the
+# end-to-end demo's `fake-twilio` example. Never enabled in a release build.
+mock = []
+
+[[example]]
+name = "fake-twilio"
+required-features = ["mock"]
+
 [dev-dependencies]
 tempfile.workspace = true
 tracing-subscriber.workspace = true

@@ -204,6 +204,7 @@ The OBS1 parser is fuzzed before release.
 | User templates and standards | Yes, later in M3 | The whole template. Last writer wins, old versions kept | Built-in templates don't sync |
 | Settings | A few: signing name, note language, letterhead | OBS1 | |
 | Models, `locations.json`, keys, the GPU pack, PINs, refresh tokens | Never | | |
+| The clinic's Twilio and SendGrid credentials and phone settings (`connections.json`, `connections.bin`, keychain entries; ADR-0023), and call recordings | Never | | Each computer connects with its own Twilio key. Call recordings are audio, which never syncs |
 
 The receiving device writes what it merges as ordinary visit folders, through `os_engine::vault` and under its own data key. `Session::adopt` keeps the session id from the other device. Every existing screen keeps working on synced visits.
 

@@ -21,7 +21,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' asset: http://asset.localhost; connect-src ipc: http://ipc.localhost",
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' asset: http://asset.localhost mediastream: blob:; connect-src 'self' ipc: http://ipc.localhost wss://voice-js.roaming.twilio.com wss://voice-js.ashburn.twilio.com wss://voice-js.umatilla.twilio.com wss://voice-js.dublin.twilio.com wss://voice-js.frankfurt.twilio.com wss://voice-js.sao-paulo.twilio.com wss://voice-js.sydney.twilio.com wss://voice-js.singapore.twilio.com wss://voice-js.tokyo.twilio.com https://eventgw.twilio.com https://eventgw.us1.twilio.com https://eventgw.ie1.twilio.com https://eventgw.au1.twilio.com",
       "assetProtocol": {
         "enable": true,
         "scope": [

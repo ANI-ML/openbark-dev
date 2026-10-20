@@ -45,9 +45,17 @@ pub use templates::{
     TemplatesMode,
 };
 
+mod phone;
 mod templates;
+pub use os_connect::{ConnectStore, PhonePrefs};
+pub use os_engine::live::CallBlock;
 pub use os_engine::session::PatientInfo as Patient;
+pub use os_engine::session::{CallDirection, CallInfo, ConsentOutcome};
 pub use os_engine::session::{Consent as RecordingConsent, ConsentMethod, ConsentRule};
+pub use phone::{
+    CALL_SAMPLE_RATES, CallEnd, CallRequest, CallStart, CallTarget, ConnectRequest, Connected, Disconnected,
+    PhoneToken, PhoneView, SetupCheck, TwilioView, check_call_sample_rate,
+};
 
 /// Progress notifications for the UI.
 pub trait Events: Send + Sync {
@@ -301,6 +309,15 @@ pub struct App {
     gpu_checked: Arc<std::sync::atomic::AtomicU8>,
     /// Template resets that can still be undone (ADR-0024).
     undo: Mutex<templates::UndoMap>,
+    /// The clinic's own Twilio account and this computer's phone settings
+    /// (ADR-0023). `OPENBARK_CONNECTIONS_DIR` moves it, away from the keychain.
+    pub connect: ConnectStore,
+    /// Tests: the loopback fake Twilio's address. Only loopback is accepted.
+    pub twilio_base: Option<String>,
+    /// The phone call being recorded, if any.
+    call: Mutex<Option<phone::CallState>>,
+    /// Who the main window asked the phone window to call.
+    pending_call: Mutex<Option<phone::Pending>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -563,6 +580,9 @@ pub struct SessionView {
     /// The latest draft's teeth with a drafted chart entry that no
     /// veterinarian has confirmed yet. Signing waits until it is empty.
     pub unconfirmed_teeth: Vec<String>,
+    /// A phone call's details (ADR-0023 section 8): direction, number,
+    /// length, Twilio's call SID, and who was on the clinic's side.
+    pub call: Option<CallInfo>,
 }
 
 /// A visit just moved to Deleted visits.
@@ -1089,6 +1109,10 @@ impl App {
             gpu_at_start: os_models::gpu_pack::loaded_at_start(),
             gpu_checked: Arc::new(std::sync::atomic::AtomicU8::new(0)),
             undo: Mutex::new(HashMap::new()),
+            connect: ConnectStore::default(),
+            twilio_base: None,
+            call: Mutex::new(None),
+            pending_call: Mutex::new(None),
         };
         app.start_gpu_check();
         // Folders of older MLX engine packs and unfinished unpacks (ADR-0025 §4).
@@ -1150,7 +1174,7 @@ impl App {
             Need::Sign | Need::ConfirmChart | Need::DeleteSigned | Need::DeleteSignedRecording => {
                 user.role.can_sign()
             }
-            Need::Team | Need::Models => user.role.can_manage_team(),
+            Need::Team | Need::Models | Need::Phone => user.role.can_manage_team(),
         };
         if !allowed {
             return Err(AppError(match need {
@@ -1180,6 +1204,7 @@ impl App {
                 }
                 Need::Team => "Only a veterinarian can change the team.".into(),
                 Need::Models => "Only a veterinarian can change the models.".into(),
+                Need::Phone => "Only a veterinarian can connect Twilio or change the phone settings.".into(),
                 Need::Any => unreachable!(),
             }));
         }
@@ -1557,8 +1582,18 @@ impl App {
             Some(pet) => pets.iter().filter(|p| !p.eq_ignore_ascii_case(pet)).cloned().collect(),
             None => Vec::new(),
         };
+        // A phone call says who is who (ADR-0023 section 7): entered, not said.
+        let context = [
+            s.meta.patient.as_ref().map(|p| p.prompt_context()),
+            s.meta.call.as_ref().map(|c| c.prompt_context()),
+        ]
+        .into_iter()
+        .flatten()
+        .filter(|c| !c.is_empty())
+        .collect::<Vec<_>>()
+        .join("; ");
         NoteOptions {
-            context: s.meta.patient.as_ref().map(|p| p.prompt_context()),
+            context: Some(context).filter(|c| !c.is_empty()),
             language,
             pet: s.pet.clone(),
             other_pets,
@@ -3337,6 +3372,9 @@ enum Need {
     DeleteSigned,
     /// Delete the recording of a signed visit (veterinarian).
     DeleteSignedRecording,
+    /// Connect or disconnect the clinic's Twilio account, or change the
+    /// phone settings (veterinarian; ADR-0023 section 10).
+    Phone,
 }
 
 /// What to put in a PDF export.
@@ -3584,6 +3622,7 @@ fn view(s: &Session, transcript: Option<Transcript>) -> SessionView {
         audio_deleted: s.meta.audio_deleted.clone(),
         chart_checks: record.map(|r| r.chart_checks.clone()).unwrap_or_default(),
         unconfirmed_teeth,
+        call: s.meta.call.clone(),
     }
 }
 

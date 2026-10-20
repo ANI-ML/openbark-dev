@@ -52,6 +52,11 @@ each under its own license (full license texts are in the respective projects):
 - ONNX Runtime (MIT), by Microsoft Corporation. https://github.com/microsoft/onnxruntime
 - Tauri (Apache-2.0 or MIT), by the Tauri Programme within The Commons Conservancy.
 - React (MIT), by Meta Platforms, Inc. and affiliates.
+- Twilio Voice JavaScript SDK (Apache-2.0, Copyright 2015-2026 Twilio, Inc.),
+  in the phone window only, with rtcpeerconnection-shim (BSD-3-Clause),
+  backoff and loglevel (MIT) inside it, and events (MIT). Their licence texts
+  ship with the app in licenses/phone-window.txt
+  (apps/desktop/public/licenses/phone-window.txt).
 - Other Rust crates and npm packages, under MIT, Apache-2.0, BSD or similar
   permissive licenses, as listed in Cargo.lock and pnpm-lock.yaml.
 
