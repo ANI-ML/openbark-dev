@@ -269,13 +269,12 @@ pub fn split_at_level_dips(samples: &[f32], step_db: f32) -> Vec<(usize, usize)>
     }
     bounds.push(levels.len());
     let stretch = |k: usize| (bounds[2 * k] * FRAME, (bounds[2 * k + 1] * FRAME).min(samples.len()));
-    let count = dips.len() + 1;
     let level = |(a, b): (usize, usize)| crate::level::speech_level_db(&samples[a..b]);
     let mut out = Vec::new();
     let mut from = 0usize;
-    for k in 0..count - 1 {
+    for (k, dip) in dips.iter().enumerate() {
         let (left, right) = (stretch(k), stretch(k + 1));
-        let cut = (dips[k].0 + dips[k].1) / 2 * FRAME;
+        let cut = (dip.0 + dip.1) / 2 * FRAME;
         let long_enough = left.1 - left.0 >= MIN_PIECE && right.1 - right.0 >= MIN_PIECE;
         if long_enough && cut >= from + MIN_PIECE && (level(left) - level(right)).abs() >= step_db {
             out.push((from, cut));

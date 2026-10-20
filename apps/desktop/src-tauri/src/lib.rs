@@ -524,6 +524,7 @@ fn restart_app(handle: AppHandle, app: State<'_, AppState>) -> Result<(), String
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 async fn import_file(
     handle: AppHandle,
     app: State<'_, AppState>,
@@ -550,6 +551,7 @@ async fn import_file(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 async fn start_recording(
     handle: AppHandle,
     app: State<'_, AppState>,
