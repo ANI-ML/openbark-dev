@@ -41,7 +41,7 @@ jobs:
     name: Quit with a model on Metal, and web playback in WebKit (macOS arm64)
     if: github.repository == 'ANI-ML/openbark-dev' && (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[macos-repro]'))
     runs-on: macos-15
-    timeout-minutes: 90
+    timeout-minutes: 120
     # No MACOSX_DEPLOYMENT_TARGET here, as in ci.yml: with 13.0, ggml's
     # @available checks need clang's runtime, which only the desktop app's
     # build.rs links.

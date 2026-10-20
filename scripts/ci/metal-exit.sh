@@ -13,6 +13,9 @@
 #   SIGTERM: exit 0 each time, no abort.
 # Every run is checked for "GGML_ASSERT" and for a new crash report.
 set -uo pipefail
+# Job control: without it, bash starts background commands with SIGINT
+# ignored, so the Ctrl+C checks below would test nothing (and hang).
+set -m
 bin="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 example="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"
 model="$(cd "$(dirname "$3")" && pwd)/$(basename "$3")"
@@ -49,6 +52,16 @@ run_logged() {
   local pid=$! ticks=0
   while kill -0 "$pid" 2>/dev/null; do
     if [ "$ticks" -ge $((limit * 10)) ]; then echo "timed out after ${limit}s" >> "$log"; kill -KILL "$pid" 2>/dev/null; break; fi
+    sleep 0.1; ticks=$((ticks + 1))
+  done
+  wait "$pid"; status=$?
+}
+
+# Wait for $1 for up to $2 seconds, then kill it; sets $status.
+wait_bounded() {
+  local pid="$1" limit="$2" ticks=0
+  while kill -0 "$pid" 2>/dev/null; do
+    if [ "$ticks" -ge $((limit * 10)) ]; then echo "  (still running after ${limit}s: killed)"; kill -KILL "$pid" 2>/dev/null; break; fi
     sleep 0.1; ticks=$((ticks + 1))
   done
   wait "$pid"; status=$?
@@ -95,9 +108,13 @@ pid=$!
 for _ in $(seq 1 600); do grep -q "llm loaded\|load_tensors" "$work/note-int.log" 2>/dev/null && break; sleep 0.1; done
 sleep 1
 kill -INT "$pid" 2>/dev/null
-wait "$pid"; status=$?
+wait_bounded "$pid" 60
 no_abort "$work/note-int.log" "openbark note, Ctrl+C"
-note "- openbark note, Ctrl+C mid-run: status $status (130 = ended by the signal)"
+if [ "$status" = 130 ]; then
+  note "- openbark note, Ctrl+C mid-run: ended by the signal (status 130), no abort"
+else
+  bad "openbark note, Ctrl+C mid-run: status $status (expected 130)"; tail -5 "$work/note-int.log"
+fi
 
 # 4. Web mode: a model loaded through the API, then Ctrl+C; then SIGTERM.
 mkdir -p "$work/ui"
@@ -112,7 +129,7 @@ for sig in INT TERM; do
   curl -s --max-time 60 -o "$work/from-example-$sig.json" -w "%{http_code}\n" -H "x-openbark: 1" -H "content-type: application/json" \
     -d "$body" http://127.0.0.1:4338/api/templates/from-example > "$work/from-example-$sig.code" || true
   kill "-$sig" "$pid" 2>/dev/null
-  wait "$pid"; status=$?
+  wait_bounded "$pid" 60
   no_abort "$work/serve-$sig.log" "openbark serve, SIG$sig"
   if [ "$status" = 0 ] && grep -q "OpenBark is stopping." "$work/serve-$sig.log"; then
     note "- openbark serve, SIG$sig after loading the model (HTTP $(cat "$work/from-example-$sig.code")): exit 0"
