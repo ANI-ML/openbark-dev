@@ -4,6 +4,7 @@
 //! ONNX Runtime and no second copy of ggml (ADR-0001, spike S2).
 
 mod audio;
+pub mod level;
 pub mod capture;
 mod recognizer;
 mod vad;

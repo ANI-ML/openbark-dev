@@ -456,8 +456,13 @@ fn run(
                 continue;
             }
             let t = Instant::now();
-            let text = asr.transcribe(&u.samples)?;
-            let speaker = tracker.as_mut().and_then(|tr| tr.assign(&u.samples));
+            let asr_norm = std::env::var("OPENBARK_X_ASR_NORM").is_ok_and(|v| v == "1");
+            let emb_norm = std::env::var("OPENBARK_X_EMB_NORM").is_ok_and(|v| v == "1");
+            let levelled = (asr_norm || emb_norm).then(|| os_asr::level::normalise(&u.samples));
+            let for_asr = if asr_norm { levelled.as_deref().unwrap_or(&u.samples) } else { &u.samples };
+            let for_emb = if emb_norm { levelled.as_deref().unwrap_or(&u.samples) } else { &u.samples };
+            let text = asr.transcribe(for_asr)?;
+            let speaker = tracker.as_mut().and_then(|tr| tr.assign(for_emb));
             *asr_ms += t.elapsed().as_millis() as u64;
             if text.is_empty() {
                 continue;
@@ -474,7 +479,7 @@ fn run(
             sink.segment(&segment);
             if let Some(tx) = &job_tx
                 && crate::crosscheck::worth_checking(&segment)
-                && tx.send((transcript.segments.len(), u.samples.clone(), segment.text.clone())).is_ok()
+                && tx.send((transcript.segments.len(), for_asr.to_vec(), segment.text.clone())).is_ok()
             {
                 checks_queued += 1;
             }
