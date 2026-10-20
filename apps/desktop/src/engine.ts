@@ -1614,6 +1614,7 @@ export interface ProcessingProgress {
 
 export async function importRecording(
   speakers: boolean,
+  speakerphone: boolean,
   patient: Patient | null,
   consent: RecordingConsent | null,
   onPicked: () => void,
@@ -1624,7 +1625,7 @@ export async function importRecording(
     const picked = await open({ multiple: false, filters: [{ name: "Recording", extensions: AUDIO_EXTENSIONS }] });
     if (typeof picked !== "string") return null;
     onPicked();
-    return invoke<SessionView>("import_file", { path: picked, speakers, patient: p, consent, by: actor });
+    return invoke<SessionView>("import_file", { path: picked, speakers, speakerphone, patient: p, consent, by: actor });
   }
   const file = await pickBrowserFile();
   if (!file) return null;
@@ -1632,6 +1633,7 @@ export async function importRecording(
   const upload = (body: Blob, name: string) => {
     const q = new URLSearchParams({
       diarize: String(speakers),
+      speakerphone: String(speakerphone),
       name,
       patient_name: p?.name ?? "",
       others: (p?.others ?? [])
@@ -1673,11 +1675,12 @@ export interface Recording {
 /** Desktop: the engine records the microphone natively (levels arrive as events). */
 async function startDesktopRecording(
   speakers: boolean,
+  speakerphone: boolean,
   device: string | null,
   patient: Patient | null,
   consent: RecordingConsent | null,
 ): Promise<Recording> {
-  await invoke<string>("start_recording", { device, speakers, patient, consent, by: actor });
+  await invoke<string>("start_recording", { device, speakers, speakerphone, patient, consent, by: actor });
   return { stop: () => invoke<SessionView>("stop_recording") };
 }
 
@@ -1688,6 +1691,7 @@ async function startDesktopRecording(
  */
 async function startBrowserRecording(
   speakers: boolean,
+  speakerphone: boolean,
   deviceId: string | null,
   patient: Patient | null,
   consent: RecordingConsent | null,
@@ -1697,6 +1701,7 @@ async function startBrowserRecording(
   const connect = (sampleRate: number) => {
     const q = new URLSearchParams({
       speakers: String(speakers),
+      speakerphone: String(speakerphone),
       sample_rate: String(sampleRate),
       patient_name: patient?.name ?? "",
       others: (patient?.others ?? [])
@@ -1739,6 +1744,7 @@ export type { MicHealth, MicQuality };
 
 export function startRecording(
   speakers: boolean,
+  speakerphone: boolean,
   device: string | null,
   patient: Patient | null,
   consent: RecordingConsent | null,
@@ -1747,18 +1753,18 @@ export function startRecording(
   const p = hasPatient(patient) ? patient : null;
   const h = typeof hooks === "function" ? { onLevel: hooks } : hooks;
   return isDesktop
-    ? startDesktopRecording(speakers, device, p, consent)
-    : startBrowserRecording(speakers, device, p, consent, h);
+    ? startDesktopRecording(speakers, speakerphone, device, p, consent)
+    : startBrowserRecording(speakers, speakerphone, device, p, consent, h);
 }
 
 /**
  * The Record screen opened: load the speech models now (if memory allows),
  * so Record starts at once. Best effort: false when it didn't.
  */
-export const prewarmSpeech = (speakers: boolean): Promise<boolean> =>
+export const prewarmSpeech = (speakers: boolean, speakerphone = false): Promise<boolean> =>
   (isDesktop
-    ? invoke<boolean>("prewarm_speech", { speakers })
-    : api<{ loading: boolean }>("/api/record/prewarm", post({ speakers })).then((r) => r.loading)
+    ? invoke<boolean>("prewarm_speech", { speakers, speakerphone })
+    : api<{ loading: boolean }>("/api/record/prewarm", post({ speakers, speakerphone })).then((r) => r.loading)
   ).catch(() => false);
 
 /** The Record screen closed: give the memory back. */

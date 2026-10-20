@@ -54,6 +54,9 @@ pub struct RecordArgs {
     /// Print each segment as JSON instead of text.
     #[arg(long)]
     pub jsonl: bool,
+    /// A client on a phone on speaker in the room: pick up the quieter voice.
+    #[arg(long)]
+    pub speakerphone: bool,
     #[command(flatten)]
     pub llm: LlmArgs,
 }
@@ -159,6 +162,7 @@ pub fn record(store: &ModelStore, args: RecordArgs) -> Result<()> {
         );
     }
     options.label_speakers = !args.no_speakers;
+    options.speakerphone = args.speakerphone;
     if let Some(t) = args.speaker_threshold {
         options.speaker_threshold = t;
     }

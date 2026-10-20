@@ -112,8 +112,13 @@ pub fn transcriber(
     num_speakers: Option<u32>,
     cluster_threshold: Option<f32>,
     window_shift: Option<f32>,
+    speakerphone: bool,
 ) -> Result<Transcriber, EngineError> {
-    let vad = os_asr::SileroVad::new(os_asr::VadOptions::new(single_file(store, VAD)?))?;
+    let mut vad_options = os_asr::VadOptions::new(single_file(store, VAD)?);
+    if speakerphone {
+        vad_options = vad_options.speakerphone();
+    }
+    let vad = os_asr::SileroVad::new(vad_options)?;
     let asr = os_asr::OfflineAsr::new(asr_model(store, stt)?)?;
     let diarizer = if diarize {
         let mut options =
@@ -129,7 +134,7 @@ pub fn transcriber(
     } else {
         None
     };
-    Ok(Transcriber { vad, asr: Box::new(asr), diarizer })
+    Ok(Transcriber { vad, asr: Box::new(asr), diarizer, speakerphone })
 }
 
 /// Models the default pipeline needs, with install status (for onboarding).

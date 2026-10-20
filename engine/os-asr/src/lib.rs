@@ -5,6 +5,7 @@
 
 mod audio;
 pub mod capture;
+pub mod level;
 pub mod mic;
 mod recognizer;
 pub mod resample;

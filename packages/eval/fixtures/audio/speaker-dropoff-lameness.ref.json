@@ -1,0 +1,158 @@
+[
+  {
+    "speaker": "dvm",
+    "start": 0.0,
+    "end": 7.16575,
+    "text": "Hello, this is Doctor Brennan. I've got Duke in the exam room with me now. I have you on speaker so I can examine him while we talk."
+  },
+  {
+    "speaker": "client",
+    "start": 7.86575,
+    "end": 12.926375,
+    "text": "Great, thanks for calling. He's been limping on his back left leg since last Tuesday."
+  },
+  {
+    "speaker": "dvm",
+    "start": 13.626375,
+    "end": 16.932875,
+    "text": "Did anything happen that day? A fall, or rough play?"
+  },
+  {
+    "speaker": "client",
+    "start": 17.632875,
+    "end": 24.300562,
+    "text": "He was chasing a squirrel at the park and he yelped when he turned. He held the leg up for a few minutes, then walked on it."
+  },
+  {
+    "speaker": "dvm",
+    "start": 25.000563,
+    "end": 27.760813,
+    "text": "Has it been getting better, worse, or staying the same?"
+  },
+  {
+    "speaker": "client",
+    "start": 28.460812,
+    "end": 35.16594,
+    "text": "It was better over the weekend, but after our hike on Sunday it got worse again. He's toe touching in the mornings."
+  },
+  {
+    "speaker": "dvm",
+    "start": 35.865936,
+    "end": 37.835938,
+    "text": "Have you given him anything for pain?"
+  },
+  {
+    "speaker": "client",
+    "start": 38.53594,
+    "end": 45.735188,
+    "text": "I gave him one of his old carprofen tablets, the seventy five milligram ones, on Monday morning. Just the one."
+  },
+  {
+    "speaker": "dvm",
+    "start": 46.43519,
+    "end": 51.168312,
+    "text": "Okay, good to know. Nothing else? No aspirin or ibuprofen?"
+  },
+  {
+    "speaker": "client",
+    "start": 51.868313,
+    "end": 56.342937,
+    "text": "No, nothing else. He also gets a glucosamine chew every day."
+  },
+  {
+    "speaker": "dvm",
+    "start": 57.04294,
+    "end": 59.11481,
+    "text": "Is he eating and drinking normally?"
+  },
+  {
+    "speaker": "client",
+    "start": 59.81481,
+    "end": 64.57244,
+    "text": "Yes, totally normal. He's still trying to jump on the couch, which I've been stopping."
+  },
+  {
+    "speaker": "dvm",
+    "start": 65.27244,
+    "end": 71.69819,
+    "text": "Alright. He weighs thirty two kilos today. Temperature is thirty eight point six, heart rate ninety six."
+  },
+  {
+    "speaker": "dvm",
+    "start": 72.398186,
+    "end": 78.93613,
+    "text": "Walking him in the hallway, he's a grade three out of five lame on the left hind. Standing, he shifts his weight off that leg."
+  },
+  {
+    "speaker": "dvm",
+    "start": 79.63612,
+    "end": 86.30688,
+    "text": "On the left knee, there's some swelling on the inside, and I can feel a positive drawer and tibial thrust. The right knee feels stable."
+  },
+  {
+    "speaker": "dvm",
+    "start": 87.006874,
+    "end": 90.89,
+    "text": "His hips move freely without pain, and his toes and pads look fine."
+  },
+  {
+    "speaker": "client",
+    "start": 91.59,
+    "end": 92.97838,
+    "text": "What does the drawer mean?"
+  },
+  {
+    "speaker": "dvm",
+    "start": 93.678375,
+    "end": 100.6915,
+    "text": "It means the knee joint is loose. I'm most suspicious of a torn cranial cruciate ligament, which is like an ACL tear in people."
+  },
+  {
+    "speaker": "client",
+    "start": 101.3915,
+    "end": 105.607,
+    "text": "Oh no. My last dog had that. She had the TPLO surgery."
+  },
+  {
+    "speaker": "dvm",
+    "start": 106.307,
+    "end": 112.346375,
+    "text": "That's one of the options. I'd like to take x-rays of both knees today, under sedation, to confirm and plan."
+  },
+  {
+    "speaker": "client",
+    "start": 113.04637,
+    "end": 120.13406,
+    "text": "Yes, go ahead with the x-rays. But please call me before doing anything else, I need to talk to my wife about surgery."
+  },
+  {
+    "speaker": "dvm",
+    "start": 120.83406,
+    "end": 126.722565,
+    "text": "Of course. For now, no running, jumping, or stairs. Leash walks only, ten minutes at a time."
+  },
+  {
+    "speaker": "dvm",
+    "start": 127.42256,
+    "end": 133.83707,
+    "text": "Since he had carprofen on Monday, I'll start meloxicam tomorrow morning instead, once a day with food, for fourteen days."
+  },
+  {
+    "speaker": "client",
+    "start": 134.53706,
+    "end": 141.30731,
+    "text": "Okay. Strict rest, and the new anti-inflammatory starting tomorrow. Should I stop the glucosamine?"
+  },
+  {
+    "speaker": "dvm",
+    "start": 142.00731,
+    "end": 146.99744,
+    "text": "No, the glucosamine is fine to continue. I'll call you this afternoon after the x-rays."
+  },
+  {
+    "speaker": "client",
+    "start": 147.69743,
+    "end": 151.91338,
+    "text": "Thank you. My number is the cell on file. I'll keep my phone on."
+  }
+]

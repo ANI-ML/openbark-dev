@@ -55,6 +55,9 @@ pub struct EvalArgs {
     pub llm: LlmArgs,
 }
 
+/// The category of scripts that declare none.
+const MAIN: &str = "main";
+
 #[derive(Deserialize, Default)]
 struct Expected {
     #[serde(default)]
@@ -279,6 +282,14 @@ fn score_chart(
 #[derive(Deserialize)]
 struct Script {
     id: String,
+    /// A group reported with its own subtotal ("speakerphone"); the rest are
+    /// the main fixtures.
+    #[serde(default)]
+    category: Option<String>,
+    /// A speakerphone consult (tools/fixture-tts renders the phone voice):
+    /// transcribed with "Phone on speaker" on, as the app would be.
+    #[serde(default)]
+    phone: Option<serde_yaml_ng::Value>,
     /// The consult's species ("feline"): headings for other species are left
     /// out, as in the app (M2 item 4).
     #[serde(default)]
@@ -328,6 +339,7 @@ fn script_options(args: &EvalArgs, script: &Script) -> os_engine::NoteOptions {
 #[derive(Serialize, Default)]
 struct Score {
     fixture: String,
+    category: String,
     checks: u32,
     passed: u32,
     misses: Vec<String>,
@@ -365,14 +377,20 @@ impl LiveSink for Quiet {
     fn segment(&mut self, _: &Segment) {}
 }
 
-fn transcript_for(store: &ModelStore, wav: &Path, cache: &Path, refresh: bool) -> Result<Transcript> {
+fn transcript_for(
+    store: &ModelStore,
+    wav: &Path,
+    cache: &Path,
+    refresh: bool,
+    speakerphone: bool,
+) -> Result<Transcript> {
     if !refresh && let Ok(text) = std::fs::read_to_string(cache) {
         return Ok(Transcript::from_jsonl(&text)?);
     }
     let tmp = tempfile::tempdir()?;
     let source = LiveSource::File { path: wav.to_path_buf(), realtime: false };
-    let result =
-        LiveRecorder::start(store, tmp.path(), source, LiveOptions::microphone(), Box::new(Quiet))?.wait()?;
+    let options = LiveOptions { speakerphone, ..LiveOptions::microphone() };
+    let result = LiveRecorder::start(store, tmp.path(), source, options, Box::new(Quiet))?.wait()?;
     std::fs::create_dir_all(cache.parent().expect("cache has a parent"))?;
     std::fs::write(cache, result.transcript.to_jsonl())?;
     Ok(result.transcript)
@@ -654,7 +672,7 @@ pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
     );
     for (script, wav) in scripts {
         let cache = PathBuf::from("target/eval-cache").join(format!("{}.jsonl", script.id));
-        let transcript = transcript_for(store, &wav, &cache, args.retranscribe)?;
+        let transcript = transcript_for(store, &wav, &cache, args.retranscribe, script.phone.is_some())?;
         std::fs::create_dir_all("target/eval")?;
         let template = match &script.template {
             Some(id) if !args.force_template => LoadedTemplate::resolve(id)?,
@@ -684,6 +702,7 @@ pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
             score_pets(&*llm, &template, &transcript, &script, &args.llm)?
         };
         let mut s = s;
+        s.category = script.category.clone().unwrap_or_else(|| MAIN.into());
         s.context = options.context.clone();
         s.template = template.label();
         s.fingerprint = os_engine::template::fingerprint(&template.template);
@@ -740,6 +759,19 @@ pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
     let (p, c): (u32, u32) = report.iter().fold((0, 0), |a, s| (a.0 + s.passed, a.1 + s.checks));
     let invented: usize = report.iter().map(|s| s.invented_numbers).sum();
     println!("TOTAL facts {p}/{c} ({:.0}%), invented numbers {invented}", 100.0 * p as f64 / c.max(1) as f64);
+    let categories: std::collections::BTreeSet<&str> = report.iter().map(|s| s.category.as_str()).collect();
+    if categories.len() > 1 {
+        for cat in categories {
+            let of: Vec<&Score> = report.iter().filter(|s| s.category == cat).collect();
+            let (p, c) = of.iter().fold((0, 0), |a, s| (a.0 + s.passed, a.1 + s.checks));
+            let invented: usize = of.iter().map(|s| s.invented_numbers).sum();
+            println!(
+                "TOTAL {cat} ({} fixtures): facts {p}/{c} ({:.0}%), invented numbers {invented}",
+                of.len(),
+                100.0 * p as f64 / c.max(1) as f64
+            );
+        }
+    }
     let species: Vec<&SpeciesScore> = report.iter().filter_map(|s| s.species.as_ref()).collect();
     if !species.is_empty() {
         println!(

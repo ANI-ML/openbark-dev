@@ -1,0 +1,53 @@
+# Synthetic consult: written for OpenBark's test suite; not a real patient.
+# Speakerphone: the client is on a phone on speaker beside the computer. The
+# client's lines are rendered through a simulated phone line (300-3400 Hz, 8 kHz,
+# G.711-style companding, light distortion), played into a reverberant room
+# 18 dB below the vet, with background noise (tools/fixture-tts, `phone:`).
+id: speaker-diabetic-callback
+title: Speakerphone, diabetic cat during a glucose curve, owner on the phone
+category: speakerphone
+species: feline
+speakers:
+  dvm: am_adam
+  client: af_sarah
+phone:
+  speaker: client
+  level_db: -18
+  seed: 11
+pause_secs: 0.7
+lines:
+  - [dvm, "Hi, it's Doctor Okafor calling from the clinic. I have Pepper here for her glucose curve. Do you have a few minutes?"]
+  - [client, "Yes, of course. How is she doing?"]
+  - [dvm, "She's doing well. Before I go through the numbers, can you tell me how much insulin you've been giving her at home?"]
+  - [client, "Two units of the glargine, twice a day. Morning at seven and evening at seven, right after she eats."]
+  - [dvm, "And is she still drinking a lot of water?"]
+  - [client, "Less than before. I used to fill her bowl three times a day, and now it's about once a day."]
+  - [dvm, "That's a good sign. How about her appetite and the litter box?"]
+  - [client, "She's eating well. The clumps in the litter are smaller now. But she threw up once on Saturday, just a hairball I think."]
+  - [dvm, "Any wobbliness, weakness, or times she seemed sleepy or out of it, especially in the afternoon?"]
+  - [client, "No, nothing like that. She's been jumping up on the counter again, which she hadn't done in months."]
+  - [dvm, "Great. Has she missed any doses?"]
+  - [client, "One on Thursday night. She didn't finish her dinner, so I skipped it like you told me."]
+  - [dvm, "That was the right thing to do. Okay, here are her numbers today. She weighs four point eight kilos, up from four point five last month."]
+  - [dvm, "Her glucose this morning before insulin was three hundred and ten. The lowest point was one hundred and sixty, at about six hours. That's called the nadir."]
+  - [dvm, "Her fructosamine came back at four hundred and eighty, which is still a little high."]
+  - [client, "So is that good or bad?"]
+  - [dvm, "It's better, but she's not fully regulated yet. I'd like to increase her insulin to two and a half units twice a day."]
+  - [client, "Okay, two and a half units. Can I measure a half unit with the syringes I have?"]
+  - [client, "They're the one hundred unit syringes, the half milliliter ones."]
+  - [dvm, "Those have half unit markings, so yes. We'll show you at pickup."]
+  - [dvm, "If she ever seems weak, wobbly, or has a seizure, rub some corn syrup on her gums and call us right away, or the emergency hospital if we're closed."]
+  - [client, "Corn syrup on the gums. Got it."]
+  - [dvm, "I'd like to repeat the glucose curve in two weeks. Keep her on the same diabetic food."]
+  - [client, "She's on the dry diabetic food, and I give her a spoon of the canned one at night. Is that okay?"]
+  - [dvm, "Yes, as long as it's the same amount every night. She can go home at four o'clock."]
+  - [client, "Perfect. I'll be there at four. Thank you, Doctor."]
+
+expected:
+  vitals:
+    weight: "4.8"
+  medications:
+    - { drug: glargine }
+  # Said only by the client: glargine, hairball, missed (a dose), canned.
+  must_mention: [glargine, hairball, missed, canned, fructosamine, corn syrup, "2.5", "two weeks"]
+  must_not_mention: [seizure observed, hypoglycemia confirmed]

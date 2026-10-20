@@ -6,6 +6,8 @@ import type { Role, Status, User } from "./engine";
 /** Per-device preferences (conveniences only; safe to lose). */
 export interface Settings {
   labelSpeakers: boolean;
+  /** A client on a phone on speaker in the room: pick up the quieter voice (ADR-0026). */
+  phoneOnSpeaker: boolean;
   llm: string;
   /** The desktop microphone, by name; null is the system default. */
   device: string | null;
@@ -52,6 +54,7 @@ export const DEFAULT_CONSENT_SCRIPT =
 
 const DEFAULTS: Settings = {
   labelSpeakers: true,
+  phoneOnSpeaker: false,
   llm: "gemma-4-e4b-it-q4_0",
   device: null,
   browserMic: null,

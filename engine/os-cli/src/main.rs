@@ -128,6 +128,9 @@ pub struct TranscribeArgs {
     /// Speech-to-text model (catalog id).
     #[arg(long, default_value = os_engine::models::DEFAULT_STT)]
     pub stt: String,
+    /// A client on a phone on speaker in the room: pick up the quieter voice.
+    #[arg(long)]
+    pub speakerphone: bool,
 }
 
 #[derive(clap::Args, Clone)]
@@ -320,6 +323,7 @@ pub(crate) fn build_transcriber(
         args.speakers,
         args.diar_threshold,
         args.diar_window_shift,
+        args.speakerphone,
     )?)
 }
 

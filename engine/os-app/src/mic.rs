@@ -28,11 +28,16 @@ const MIC_TEST_LIMIT: Duration = Duration::from_secs(60);
 pub(crate) struct WarmKey {
     stt: String,
     label_speakers: bool,
+    speakerphone: bool,
 }
 
 impl WarmKey {
     fn of(options: &LiveOptions) -> Self {
-        Self { stt: options.stt.clone(), label_speakers: options.label_speakers }
+        Self {
+            stt: options.stt.clone(),
+            label_speakers: options.label_speakers,
+            speakerphone: options.speakerphone,
+        }
     }
 }
 
@@ -89,9 +94,10 @@ fn free_memory() -> u64 {
 }
 
 impl App {
-    fn live_options(&self, label_speakers: bool) -> LiveOptions {
+    fn live_options(&self, label_speakers: bool, speakerphone: bool) -> LiveOptions {
         let mut options = LiveOptions::microphone();
         options.label_speakers = label_speakers;
+        options.speakerphone = speakerphone;
         options
     }
 
@@ -99,8 +105,8 @@ impl App {
     /// starts recording at once. Skipped while recording, while a note model
     /// is loaded, or when memory is short. True when the models are loaded
     /// or loading.
-    pub fn prewarm_speech(&self, label_speakers: bool) -> bool {
-        let options = self.live_options(label_speakers);
+    pub fn prewarm_speech(&self, label_speakers: bool, speakerphone: bool) -> bool {
+        let options = self.live_options(label_speakers, speakerphone);
         let key = WarmKey::of(&options);
         // Checked before taking the warm lock: start_recording takes them the
         // other way round.
@@ -122,7 +128,7 @@ impl App {
         let store = self.store.clone();
         let handle = std::thread::Builder::new()
             .name("openbark-prewarm".into())
-            .spawn(move || SpeechModels::load(&store, &options));
+            .spawn(move || SpeechModels::load(&store, &options, false));
         match handle {
             Ok(h) => {
                 *warm = Warm::Loading(key, h);

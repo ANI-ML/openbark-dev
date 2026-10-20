@@ -99,8 +99,8 @@ fn input_devices(app: State<'_, AppState>) -> Vec<String> {
 
 /// The Record screen opened: load the speech models now, if memory allows.
 #[tauri::command]
-fn prewarm_speech(app: State<'_, AppState>, speakers: bool) -> bool {
-    app.prewarm_speech(speakers)
+fn prewarm_speech(app: State<'_, AppState>, speakers: bool, speakerphone: Option<bool>) -> bool {
+    app.prewarm_speech(speakers, speakerphone.unwrap_or(false))
 }
 
 /// The Record screen closed: give the memory back.
@@ -563,28 +563,40 @@ fn restart_app(handle: AppHandle, app: State<'_, AppState>) -> Result<(), String
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 async fn import_file(
     handle: AppHandle,
     app: State<'_, AppState>,
     path: String,
     speakers: bool,
+    speakerphone: Option<bool>,
     patient: Option<Patient>,
     consent: Option<RecordingConsent>,
     by: Option<String>,
 ) -> Result<os_app::SessionView, String> {
     let app = app.inner().clone();
     work(move || {
-        app.import_file(Path::new(&path), speakers, patient, consent, by.as_deref(), &TauriEvents(handle))
+        app.import_file(
+            Path::new(&path),
+            speakers,
+            speakerphone.unwrap_or(false),
+            patient,
+            consent,
+            by.as_deref(),
+            &TauriEvents(handle),
+        )
     })
     .await
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 async fn start_recording(
     handle: AppHandle,
     app: State<'_, AppState>,
     device: Option<String>,
     speakers: bool,
+    speakerphone: Option<bool>,
     patient: Option<Patient>,
     consent: Option<RecordingConsent>,
     by: Option<String>,
@@ -594,6 +606,7 @@ async fn start_recording(
         app.start_recording(
             RecordingSource::Microphone(device),
             speakers,
+            speakerphone.unwrap_or(false),
             patient,
             consent,
             by.as_deref(),

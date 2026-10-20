@@ -1,0 +1,140 @@
+[
+  {
+    "speaker": "dvm",
+    "start": 0.0,
+    "end": 9.430375,
+    "text": "Hi, this is Doctor Lindqvist from the clinic. Bella is under anesthesia for her dental cleaning, and she's doing well. Is now a good time?"
+  },
+  {
+    "speaker": "client",
+    "start": 10.030375,
+    "end": 13.940375,
+    "text": "Yes, I've been waiting for your call. Is everything alright?"
+  },
+  {
+    "speaker": "dvm",
+    "start": 14.540375,
+    "end": 23.451374,
+    "text": "Her heart rate is ninety and her oxygen is ninety nine percent, so she's stable. We've finished the cleaning and the dental x-rays."
+  },
+  {
+    "speaker": "dvm",
+    "start": 24.051374,
+    "end": 37.644875,
+    "text": "We found two teeth that need to come out. The upper right fourth premolar has a slab fracture with the pulp exposed, and the lower left first molar has lost a lot of bone around its roots."
+  },
+  {
+    "speaker": "client",
+    "start": 38.244877,
+    "end": 44.10406,
+    "text": "Oh. She did break a tooth on an antler chew about a month ago. I wondered about that."
+  },
+  {
+    "speaker": "dvm",
+    "start": 44.704063,
+    "end": 49.40631,
+    "text": "That fits. Have you noticed her chewing on one side, or dropping food?"
+  },
+  {
+    "speaker": "client",
+    "start": 50.006313,
+    "end": 56.62425,
+    "text": "Yes, now that you mention it, she chews on the left and she drops kibble sometimes. And her breath has been really bad."
+  },
+  {
+    "speaker": "dvm",
+    "start": 57.22425,
+    "end": 64.77875,
+    "text": "Those teeth are almost certainly painful. I'd recommend extracting both today, while she's already asleep."
+  },
+  {
+    "speaker": "client",
+    "start": 65.37875,
+    "end": 67.64306,
+    "text": "How much will that add to the bill?"
+  },
+  {
+    "speaker": "dvm",
+    "start": 68.243065,
+    "end": 76.89538,
+    "text": "The two surgical extractions, with nerve blocks and the extra anesthesia time, add about six hundred and forty dollars."
+  },
+  {
+    "speaker": "client",
+    "start": 77.49538,
+    "end": 83.190186,
+    "text": "Okay. We set a budget of one thousand two hundred dollars total. Will we stay under that?"
+  },
+  {
+    "speaker": "dvm",
+    "start": 83.790184,
+    "end": 88.277435,
+    "text": "Yes, with the cleaning that comes to about one thousand and fifty."
+  },
+  {
+    "speaker": "client",
+    "start": 88.87743,
+    "end": 91.73506,
+    "text": "Then please go ahead with both extractions."
+  },
+  {
+    "speaker": "dvm",
+    "start": 92.33506,
+    "end": 99.16025,
+    "text": "Thank you. I'll note that you approved both extractions by phone. She'll go home with pain medication."
+  },
+  {
+    "speaker": "client",
+    "start": 99.76025,
+    "end": 106.48312,
+    "text": "She can't have the chicken flavored ones. She had a bad reaction to chicken, she gets itchy and her ears flare up."
+  },
+  {
+    "speaker": "dvm",
+    "start": 107.08312,
+    "end": 116.11919,
+    "text": "Good to know. I'll record a chicken allergy. We'll send gabapentin capsules and meloxicam liquid, which isn't chicken flavored."
+  },
+  {
+    "speaker": "client",
+    "start": 116.719185,
+    "end": 120.86075,
+    "text": "And what about food? She's on a hydrolyzed diet for the allergy."
+  },
+  {
+    "speaker": "dvm",
+    "start": 121.46075,
+    "end": 129.42838,
+    "text": "Keep her on that, but soak the kibble in water for ten days so it's soft. No chew toys or antlers for two weeks."
+  },
+  {
+    "speaker": "client",
+    "start": 130.02838,
+    "end": 133.439,
+    "text": "No antlers at all, honestly. I'm throwing them out."
+  },
+  {
+    "speaker": "dvm",
+    "start": 134.039,
+    "end": 140.98506,
+    "text": "That's probably wise. We'll recheck her mouth in ten to fourteen days to make sure the gums have healed."
+  },
+  {
+    "speaker": "client",
+    "start": 141.58507,
+    "end": 144.18881,
+    "text": "Okay. What time can I pick her up?"
+  },
+  {
+    "speaker": "dvm",
+    "start": 144.78882,
+    "end": 148.03113,
+    "text": "Around four thirty. We'll call you when she's awake."
+  },
+  {
+    "speaker": "client",
+    "start": 148.63112,
+    "end": 150.47362,
+    "text": "Thank you so much for calling."
+  }
+]

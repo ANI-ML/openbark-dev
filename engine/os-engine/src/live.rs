@@ -104,6 +104,12 @@ pub struct LiveOptions {
     pub recorded_by: Option<crate::users::Who>,
     /// A phone call's details, saved with the visit at the start (ADR-0023).
     pub call: Option<crate::session::CallInfo>,
+    /// A client on a phone on speaker in the room (the Record screen's
+    /// "Phone on speaker", ADR-0026): voice detection hears a levelled copy
+    /// of the audio and cuts where a louder voice starts or stops, and each
+    /// utterance reaches the recogniser and the speaker model at a normal
+    /// level. The saved recording is untouched.
+    pub speakerphone: bool,
 }
 
 impl LiveOptions {
@@ -116,6 +122,7 @@ impl LiveOptions {
             consent: None,
             recorded_by: None,
             call: None,
+            speakerphone: false,
         }
     }
 }
@@ -199,16 +206,26 @@ pub struct SpeechModels {
     tracker: Option<os_diar::SpeakerTracker>,
     stt: String,
     speaker_threshold: f32,
+    /// The voice detector was built for Phone on speaker (ADR-0026).
+    speakerphone: bool,
 }
 
 impl SpeechModels {
     /// Voice detection, the recogniser chosen by `options`, and the speaker
     /// tracker when speakers are labelled.
-    pub fn load(store: &ModelStore, options: &LiveOptions) -> Result<Self, EngineError> {
+    pub fn load(store: &ModelStore, options: &LiveOptions, is_call: bool) -> Result<Self, EngineError> {
         let started = Instant::now();
-        let vad = os_asr::SileroVad::new(os_asr::VadOptions::new(models::single_file(store, models::VAD)?))?;
+        let mut vad_options = os_asr::VadOptions::new(models::single_file(store, models::VAD)?);
+        // Phone on speaker (ADR-0026). A call has each side on its own
+        // channel at a good level, so it never needs it.
+        let speakerphone = options.speakerphone && !is_call;
+        if speakerphone {
+            vad_options = vad_options.speakerphone();
+        }
+        let vad = os_asr::SileroVad::new(vad_options)?;
         let asr = os_asr::OfflineAsr::new(models::asr_model(store, &models::best_stt(store, &options.stt))?)?;
-        let tracker = if options.label_speakers {
+        // Calls: the channel says who is speaking, so no embeddings (ADR-0023 section 7).
+        let tracker = if options.label_speakers && !is_call {
             Some(os_diar::SpeakerTracker::new(
                 &models::single_file(store, models::EMBEDDING)?,
                 options.speaker_threshold,
@@ -217,17 +234,23 @@ impl SpeechModels {
             None
         };
         tracing::info!(ms = started.elapsed().as_millis() as u64, "speech models loaded");
-        Ok(Self { vad, asr, tracker, stt: options.stt.clone(), speaker_threshold: options.speaker_threshold })
+        Ok(Self {
+            vad,
+            asr,
+            tracker,
+            stt: options.stt.clone(),
+            speaker_threshold: options.speaker_threshold,
+            speakerphone,
+        })
     }
 
-    /// Loaded for the same recogniser and speaker settings as `options`.
-    /// TODO(speakerphone merge): if `LiveOptions::speakerphone` changes how
-    /// the voice detector or tracker are built, load them from it here and
-    /// compare it in `suits` (and in os-app's WarmKey).
+    /// Loaded for the same recogniser, speaker and Phone on speaker settings
+    /// as `options` (a recording, not a call).
     pub fn suits(&self, options: &LiveOptions) -> bool {
         self.stt == options.stt
             && self.tracker.is_some() == options.label_speakers
             && self.speaker_threshold == options.speaker_threshold
+            && self.speakerphone == options.speakerphone
     }
 }
 
@@ -265,8 +288,8 @@ impl LiveRecorder {
         let is_call = matches!(source, LiveSource::Call { .. });
         // Load models up front so errors surface before recording starts.
         let models = match warm {
-            Some(m) if m.suits(&options) => m,
-            _ => SpeechModels::load(store, &options)?,
+            Some(m) if !is_call && m.suits(&options) => m,
+            _ => SpeechModels::load(store, &options, is_call)?,
         };
         let SpeechModels { vad, asr, tracker, .. } = models;
         // Calls: the channel says who is speaking, so no embeddings (ADR-0023 section 7).
@@ -534,12 +557,26 @@ fn run(
     mut sink: Box<dyn LiveSink>,
     stop: Arc<AtomicBool>,
 ) -> Result<LiveResult, EngineError> {
+    // Speakerphone: the second recogniser (Whisper) hears speech through a
+    // phone line better than the main one (speakerphone fixtures: client words
+    // captured 86% against 76%), so it transcribes the phone voice's
+    // utterances itself. Both threads share the one instance, so with
+    // Phone on speaker it's waited for here (on the worker: Record has
+    // already returned, and blocks queue meanwhile); otherwise it finishes
+    // loading in the checker thread.
+    let (second_ready, second_loading) = if options.speakerphone {
+        (second.and_then(SecondAsr::get).map(std::sync::Arc::new), None)
+    } else {
+        (None, second)
+    };
+    let phone_asr = second_ready.clone();
     // Background second opinions: (segment index, audio, primary text) in,
     // (index, opinion, hints) out. Runs alongside capture so stop isn't delayed.
     type Job = (usize, Vec<f32>, String);
     type Done = (usize, crate::crosscheck::SecondOpinion, Vec<crate::vocab::Hint>);
-    let (job_tx, done_rx, checker) = match second {
-        Some(second) => {
+    let (job_tx, done_rx, checker) = match (second_ready, second_loading) {
+        (None, None) => (None, None, None),
+        (ready, loading) => {
             let (job_tx, job_rx) = mpsc::channel::<Job>();
             let (done_tx, done_rx) = mpsc::channel::<Done>();
             let lex = lexicon.clone();
@@ -547,7 +584,8 @@ fn run(
                 .name("openbark-second-opinion".into())
                 .spawn(move || {
                     // Jobs queue while the model loads.
-                    let Some(second) = second.get() else { return };
+                    let second = ready.or_else(|| loading.and_then(SecondAsr::get).map(std::sync::Arc::new));
+                    let Some(second) = second else { return };
                     for (i, samples, primary) in job_rx {
                         if let Ok(text) = second.transcribe(&samples) {
                             let opinion = crate::crosscheck::compare(&primary, &text);
@@ -561,7 +599,6 @@ fn run(
                 .map_err(|e| EngineError::Session(e.to_string()))?;
             (Some(job_tx), Some(done_rx), Some(handle))
         }
-        None => (None, None, None),
     };
     let _awake = AwakeGuard::acquire(AwakeReason::Recording);
     let started = Instant::now();
@@ -602,6 +639,7 @@ fn run(
     let mut asr_ms = 0u64;
 
     let mut checks_queued = 0usize;
+    let speakerphone = options.speakerphone;
     let mut handle_utterances = |utterances: Vec<os_asr::Utterance>,
                                  transcript: &mut Transcript,
                                  sink: &mut Box<dyn LiveSink>,
@@ -612,8 +650,16 @@ fn run(
                 continue;
             }
             let t = Instant::now();
-            let text = asr.transcribe(&u.samples)?;
-            let speaker = tracker.as_mut().and_then(|tr| tr.assign(&u.samples));
+            // Speakerphone: a quiet utterance reaches the models at a normal level.
+            let levelled = speakerphone.then(|| os_asr::level::normalise(&u.samples));
+            let heard = levelled.as_deref().unwrap_or(&u.samples);
+            let phone_voice =
+                phone_asr.as_ref().filter(|_| os_diar::high_band_db(&u.samples) < os_diar::PHONE_BAND_DB);
+            let text = match phone_voice {
+                Some(whisper) => whisper.transcribe(heard)?,
+                None => asr.transcribe(heard)?,
+            };
+            let speaker = tracker.as_mut().and_then(|tr| tr.assign(heard));
             *asr_ms += t.elapsed().as_millis() as u64;
             if text.is_empty() {
                 continue;
@@ -628,9 +674,11 @@ fn run(
                 text,
             };
             sink.segment(&segment);
+            // A phone voice's utterance was heard by the second recogniser already.
             if let Some(tx) = &job_tx
+                && phone_voice.is_none()
                 && crate::crosscheck::worth_checking(&segment)
-                && tx.send((transcript.segments.len(), u.samples.clone(), segment.text.clone())).is_ok()
+                && tx.send((transcript.segments.len(), heard.to_vec(), segment.text.clone())).is_ok()
             {
                 checks_queued += 1;
             }

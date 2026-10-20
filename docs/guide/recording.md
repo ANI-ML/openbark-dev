@@ -52,6 +52,41 @@ On Windows with an NVIDIA graphics card, **Models > Faster transcription on the 
 
 On a patient's page, the circular-arrows button beside a visit is **Reprocess**: draft the note again from the same recording, either as the same type of visit (when a draft went wrong) or as another type, such as a recheck drafted as a new consult. Earlier drafts are kept. Signed notes are final: add an addendum in Review instead.
 
+## A client on a phone on speaker
+
+Sometimes the client joins by phone: you've called them from the exam room, or they're on speaker while you examine their pet. Their voice reaches the computer's microphone much quieter than yours (often a hundred times weaker in sound energy), squeezed into the narrow sound of a phone line, and with the echo of the room. OpenBark can still pick it up, with some help.
+
+### Better: call from OpenBark
+
+If your clinic has set up [phone calls](phone-and-email.md) (your own Twilio account), call the client from OpenBark instead. The call is recorded on this computer with you and the client on separate channels, so the client's words are transcribed from the phone line itself, not from a loudspeaker across the room, and every line is labelled **Vet** or **Client** without guessing. It's the clearest way to chart a phone conversation.
+
+### Phone on speaker
+
+When the client is on a phone on speaker in the room, tick **Phone on speaker** on **Record** (in the right-hand column) before you press Record. It's remembered on this computer until you untick it. The same option applies when you import a recording of such a visit.
+
+With it ticked, OpenBark listens harder for the quieter voice: speech detection hears a copy of the sound with quiet passages lifted, it separates a quiet voice from a louder one that answers it, and each quiet sentence is brought up to a normal level before it's transcribed. Sentences that sound like a phone line go to the second speech recogniser (the one that checks numbers), which hears phone audio better. The recording itself is kept exactly as the microphone heard it. Leave the option off for ordinary consults in the room: lifting quiet sound can also pick up voices from the corridor.
+
+### Setting up
+
+- **Phone volume high.** Turn the phone's call volume up most of the way.
+- **Phone between you and the computer.** Lay the phone face up on the desk between you and the computer's microphone, about an arm's length from the computer, not behind a monitor or in your hand while you walk around. The closer the phone is to the microphone, the less room echo comes with the voice.
+- **A quiet room.** Close the door; fans, clippers and barking all compete with a quiet voice.
+- **No Bluetooth headset or earbuds.** If earbuds are connected to the phone, the client's voice goes into them and the computer never hears it. Don't use a Bluetooth headset as the computer's microphone either: it records everyone in narrow phone quality.
+- **On a Mac,** if Control Center shows **Mic Mode** while you record, choose **Standard**. **Voice Isolation** removes every voice except the one nearest the microphone, which is yours.
+
+### What to expect
+
+- The client's sentences appear in the live transcript like yours. On test consults with the phone 15 to 25 dB quieter than the vet, OpenBark heard nearly every client sentence; the client's words are still recognised less accurately than yours, mostly because of the phone line and the echo, so check names, numbers and drug names said by the client against the recording.
+- **Speaker labels:** the phone voice usually gets its own speaker number, because a phone line has no high frequencies and a voice in the room does. A short reply such as "Okay" can be labelled as the nearest voice. Labels help you read the transcript; they don't change what the note says.
+
+### When a client's sentence is missing
+
+The recording keeps everything the microphone heard, even when a sentence didn't make it into the transcript.
+
+1. In Review, click the transcript line just before the gap to play that moment of the recording and listen to what the client said.
+2. Choose **Edit** on the heading where it belongs and type it in. Your addition is marked "Edited by" with your name.
+3. Check the rest of the note before you sign, as always.
+
 ## Tips for good transcripts
 
 - Put the computer or microphone between the people talking, not behind a monitor.
