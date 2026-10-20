@@ -65,7 +65,7 @@ SwitchAudioSource -t input -s "BlackHole 16ch" > /dev/null
 SwitchAudioSource -t output -s "BlackHole 16ch" > /dev/null
 sleep 4
 afplay "$out/part2.aiff"
-sleep 2
+sleep 3
 echo >&3
 exec 3>&-
 wait "$pid"

@@ -18,13 +18,22 @@ class MicTap extends AudioWorkletProcessor {
   process(inputs) {
     const input = inputs[0];
     if (!input || input.length === 0) return true;
-    const channels = input.length;
     const length = input[0].length;
+    // Mix down to mono: the average of the channels that carry signal, so a
+    // microphone on one input of a multi-input interface keeps its level
+    // (the engine's capture does the same; most microphones are mono anyway).
+    let active = [];
+    for (let c = 0; c < input.length; c++) {
+      let peak = 0;
+      for (let i = 0; i < length; i++) peak = Math.max(peak, Math.abs(input[c][i]));
+      if (peak >= 1e-4) active.push(input[c]);
+    }
+    if (active.length === 0) active = input;
+    const n = active.length;
     for (let i = 0; i < length; i++) {
-      // Mix every channel down to mono (most microphones are already mono).
       let v = 0;
-      for (let c = 0; c < channels; c++) v += input[c][i];
-      v /= channels;
+      for (let c = 0; c < n; c++) v += active[c][i];
+      v /= n;
       this.buffer[this.filled++] = v;
       const a = v < 0 ? -v : v;
       if (a > this.peak) this.peak = a;

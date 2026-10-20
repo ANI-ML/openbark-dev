@@ -200,12 +200,12 @@ impl MicCapture {
                     config.clone(),
                     move |data: &[$t], _| {
                         data_flags.touch();
-                        let mono: Vec<f32> = data
-                            .chunks(channels)
-                            .map(|frame| {
-                                frame.iter().map(|s| s.to_sample::<f32>()).sum::<f32>() / channels as f32
-                            })
-                            .collect();
+                        let mono = if channels == 1 {
+                            data.iter().map(|s| s.to_sample::<f32>()).collect()
+                        } else {
+                            let samples: Vec<f32> = data.iter().map(|s| s.to_sample::<f32>()).collect();
+                            downmix(&samples, channels)
+                        };
                         let _ = tx.send(AudioBlock { samples: mono, sample_rate });
                     },
                     move |e: cpal::Error| match Fault::from_cpal(e.kind()) {
@@ -314,6 +314,32 @@ fn readable(f: SampleFormat) -> bool {
     )
 }
 
+/// A channel whose block never goes above this (about -80 dBFS) carries
+/// nothing: an unused input of an audio interface, or a dead side.
+const SILENT_CHANNEL: f32 = 1e-4;
+
+/// Interleaved frames to mono: the average of the channels that carry
+/// signal in this block. A plain average of every channel would bury a
+/// microphone on input 1 of a 16-channel interface (or a virtual device)
+/// 24 dB down, and one on the left of a two-input interface 6 dB down;
+/// a stereo microphone (both sides alike) comes out as it is either way.
+pub fn downmix(interleaved: &[f32], channels: usize) -> Vec<f32> {
+    let channels = channels.max(1);
+    if channels == 1 {
+        return interleaved.to_vec();
+    }
+    let mut peaks = vec![0.0f32; channels];
+    for frame in interleaved.chunks_exact(channels) {
+        for (p, s) in peaks.iter_mut().zip(frame) {
+            *p = p.max(s.abs());
+        }
+    }
+    let active: Vec<usize> = (0..channels).filter(|&c| peaks[c] >= SILENT_CHANNEL).collect();
+    let used: Vec<usize> = if active.is_empty() { (0..channels).collect() } else { active };
+    let n = used.len() as f32;
+    interleaved.chunks_exact(channels).map(|frame| used.iter().map(|&c| frame[c]).sum::<f32>() / n).collect()
+}
+
 /// One supported range, as [`pick_config`] sees it.
 #[derive(Debug, Clone, Copy)]
 pub struct ConfigOption {
@@ -379,6 +405,26 @@ mod tests {
     fn nothing_usable_is_none() {
         assert_eq!(pick_config(&[]), None);
         assert_eq!(pick_config(&[opt(SampleFormat::F32, 0, 48_000, 48_000)]), None);
+    }
+
+    #[test]
+    fn downmix_keeps_a_microphone_on_one_input_at_its_level() {
+        // Stereo microphone, both sides alike: unchanged.
+        assert_eq!(downmix(&[0.5, 0.5, -0.25, -0.25], 2), vec![0.5, -0.25]);
+        // Microphone on input 1 of a two-input interface, input 2 unused.
+        assert_eq!(downmix(&[0.5, 0.0, -0.25, 0.0], 2), vec![0.5, -0.25]);
+        // A 16-channel virtual device with speech on the first two.
+        let mut frame = vec![0.0f32; 16];
+        frame[0] = 0.4;
+        frame[1] = 0.2;
+        let out = downmix(&frame, 16);
+        assert!(out.len() == 1 && (out[0] - 0.3).abs() < 1e-6, "{out:?}");
+        // Two different voices on two inputs: both kept, averaged.
+        assert_eq!(downmix(&[0.4, -0.2], 2), vec![0.1]);
+        // Silence everywhere stays silence.
+        assert_eq!(downmix(&[0.0; 8], 4), vec![0.0, 0.0]);
+        // A trailing partial frame is dropped.
+        assert_eq!(downmix(&[0.5, 0.5, 0.1], 2), vec![0.5]);
     }
 
     #[test]
