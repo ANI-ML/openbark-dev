@@ -101,17 +101,17 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # Windows: build in a short folder. llama.cpp's Vulkan shader generator is an
       # ExternalProject whose nested MSBuild paths pass Windows' 260-character limit
-      # under D:\openbark-dev\openbark-dev	arget (its install step then fails with
-      # "Not a file: ...cmake_install.cmake"). `target` becomes a junction to D:	,
+      # under D:/a/openbark-dev/openbark-dev/target (its install step then fails with
+      # "Not a file: ...cmake_install.cmake"). `target` becomes a junction to D:/t,
       # so every later step still finds target/release/bundle.
       - name: Short build folder (Windows)
         if: matrix.name == 'windows'
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force D:	 | Out-Null
+          New-Item -ItemType Directory -Force D:/t | Out-Null
           if (Test-Path target) { Remove-Item -Recurse -Force target }
-          New-Item -ItemType Junction -Path target -Target D:	 | Out-Null
-          "CARGO_TARGET_DIR=D:	" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          New-Item -ItemType Junction -Path target -Target D:/t | Out-Null
+          "CARGO_TARGET_DIR=D:/t" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       # Keyed on the repository too, as in ci.yml: target/ holds absolute paths.
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         if: matrix.name != 'windows'
