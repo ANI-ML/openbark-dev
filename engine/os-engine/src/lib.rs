@@ -9,6 +9,7 @@
 pub mod align;
 pub mod audit;
 pub mod awake;
+pub mod breeds;
 pub mod crosscheck;
 pub mod dental;
 pub mod edit;

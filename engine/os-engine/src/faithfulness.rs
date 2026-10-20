@@ -303,6 +303,24 @@ const SPECIES: &[(&str, &[&str])] = &[
     ("rabbit", &["rabbit", "bunny"]),
 ];
 
+/// Is the species said in the cited lines? A species word counts, and so
+/// does a dog or cat breed for "dog", "canine", "cat" or "feline"
+/// ([`crate::breeds`]: "a seven month old Yorkshire terrier" says dog). A
+/// breed written as the species ("Yorkshire terrier") isn't a species, even
+/// when it was said, so it is flagged for the vet.
+fn species_supported(value: &str, cited_text: &str) -> bool {
+    if crate::breeds::breed_species(value).is_some() {
+        return false;
+    }
+    let implied = crate::breeds::species_named_by_breed(cited_text);
+    let kind = match value.trim().to_lowercase().as_str() {
+        "dog" | "canine" => Some("dog"),
+        "cat" | "feline" => Some("cat"),
+        _ => None,
+    };
+    kind.is_some_and(|k| implied.contains(&k)) || value_supported(value, cited_text)
+}
+
 /// Is a short patient detail actually said in the cited lines?
 fn value_supported(value: &str, cited_text: &str) -> bool {
     let said: Vec<String> = cited_text
@@ -399,7 +417,12 @@ fn check_statement(
             .map(|s| s.text.as_str())
             .collect::<Vec<_>>()
             .join(" ");
-        if !value_supported(value, &cited_text) {
+        let supported = if path == "/patient/species" {
+            species_supported(value, &cited_text)
+        } else {
+            value_supported(value, &cited_text)
+        };
+        if !supported {
             report.unverified_values.push(path.to_string());
         }
     }
@@ -584,6 +607,39 @@ mod tests {
         assert!(r.passed, "a guessed word is flagged for review, not a hard fail");
         assert!(value_supported("Feline", "Her cat has been vomiting"));
         assert!(value_supported("Golden Retriever", "Maple is a golden retriever"));
+    }
+
+    /// A dog or cat breed says the species (`crate::breeds`); a breed written
+    /// as the species, or a species no breed or word in the line implies, is
+    /// flagged for the vet.
+    #[test]
+    fn a_breed_says_dog_or_cat_and_a_breed_is_no_species() {
+        let line = |text: &str| Transcript {
+            segments: vec![Segment {
+                id: 0,
+                start: 0.0,
+                end: 1.0,
+                speaker: Some(0),
+                text: text.into(),
+                hints: Vec::new(),
+                check: None,
+            }],
+        };
+        let species = |value: &str, text: &str| {
+            let note = json!({"patient": {"species": {"value": value, "unit": null, "evidence": [0]}}});
+            check(&note, &line(text)).unverified_values
+        };
+        let coco = "Coco is a seven-month old female Yorkshire terrier in for her spay.";
+        assert!(species("Dog", coco).is_empty());
+        assert!(species("canine", coco).is_empty());
+        assert_eq!(species("Cat", coco), vec!["/patient/species"]);
+        assert_eq!(species("Yorkshire terrier", coco), vec!["/patient/species"]);
+        assert!(species("Feline", "This is Mochi, a nine year old spayed female Siamese.").is_empty());
+        assert!(species("cat", "Pepper, a twelve year old neutered male cat.").is_empty());
+        // No breed of a dog or a cat: nothing implies the species.
+        assert_eq!(species("Horse", "Bella, an eight year old Arabian mare."), Vec::<String>::new());
+        assert_eq!(species("Dog", "Bella, an eight year old Arabian mare."), vec!["/patient/species"]);
+        assert_eq!(species("Dog", "This is Pepper's recheck."), vec!["/patient/species"]);
     }
 
     #[test]

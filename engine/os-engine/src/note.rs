@@ -736,6 +736,8 @@ pub fn generate_note(
     crate::dental::rename_for_drafting(&mut note, false);
     // A runaway repeat ("404 normal" seventeen times) becomes one item.
     crate::dental::merge_repeats(&mut note);
+    // "Species: Yorkshire terrier" becomes Dog, from the breed table.
+    crate::breeds::species_from_breed(&mut note, &scoped);
     validate(template, &note)?;
     let vet_numbers = options.reference.as_ref().map(|r| r.vet_numbers.clone()).unwrap_or_default();
     // Word-level alignment only when the note is in the consultation's language
@@ -823,6 +825,9 @@ pub fn refine_note(
     match part {
         Some(key) => note[sec][key] = redrafted,
         None => note[sec] = redrafted,
+    }
+    if sec == "patient" {
+        crate::breeds::species_from_breed(&mut note, transcript);
     }
     // The rest of the note may hold the vet's own edits.
     crate::edit::validate_edited(template, &note)?;

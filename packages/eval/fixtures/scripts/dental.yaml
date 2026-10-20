@@ -24,6 +24,8 @@ lines:
   - [dvm, "Recheck in two weeks, and start brushing daily once the gums have healed."]
 
 expected:
+  # Only a breed was said: the species is the dog or cat it implies.
+  patient_species: dog
   vitals:
     weight: "7.2"
   medications:

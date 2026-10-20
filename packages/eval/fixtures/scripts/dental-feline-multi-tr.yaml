@@ -31,6 +31,8 @@ lines:
   - [dvm, "Recheck in ten days."]
 
 expected:
+  # Only a breed was said: the species is the dog or cat it implies.
+  patient_species: cat
   vitals:
     weight: "3.9"
   must_mention: ["309", "409", "ten days"]
