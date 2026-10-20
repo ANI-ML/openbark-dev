@@ -19,18 +19,19 @@ import type { MicHealth } from "./health";
 import { MicWatchdog } from "./watchdog";
 
 /**
- * Raw capture: no echo cancellation, noise suppression or automatic gain.
- * Speech recognition does better on the microphone's own signal, and this
- * matches the desktop app, which records the device as it is.
- * TODO(speakerphone): decide jointly with the speakerphone work (branch
- * feat/speakerphone) whether a phone on speaker needs autoGainControl here,
- * or whether the engine's leveller covers both desktop and web. Keep the
- * desktop and web choices the same.
+ * No echo cancellation or noise suppression: speech recognition does better
+ * on the microphone's own signal, and both can eat a quiet second voice.
+ * Automatic gain stays on, as before and as the speakerphone work decided
+ * (ADR-0026: "automatic gain is left on (unmeasured either way)").
+ * TODO(speakerphone, joint decision): the desktop app records with no gain
+ * control and the engine's Phone on speaker leveller does the lifting; once
+ * real speakerphone recordings are measured, decide whether web mode should
+ * turn autoGainControl off to match the desktop, and keep the two the same.
  */
 export const CAPTURE_CONSTRAINTS: MediaTrackConstraints = {
   echoCancellation: false,
   noiseSuppression: false,
-  autoGainControl: false,
+  autoGainControl: true,
   channelCount: { ideal: 1 },
 };
 
