@@ -194,12 +194,10 @@ pub fn params_from_name(name: &str) -> Option<f64> {
         // Gemma's E-models: "e2b" is 2B effective.
         let token =
             token.strip_prefix('e').filter(|t| t.starts_with(|c: char| c.is_ascii_digit())).unwrap_or(token);
-        let (number, scale) = if let Some(n) = token.strip_suffix('b') {
-            (n, 1.0)
-        } else if let Some(n) = token.strip_suffix('m') {
-            (n, 0.001)
-        } else {
-            return None;
+        let (number, scale) = match (token.strip_suffix('b'), token.strip_suffix('m')) {
+            (Some(n), _) => (n, 1.0),
+            (None, Some(n)) => (n, 0.001),
+            (None, None) => return None,
         };
         if number.is_empty() || !number.starts_with(|c: char| c.is_ascii_digit()) {
             return None;
