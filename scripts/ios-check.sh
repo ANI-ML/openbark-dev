@@ -31,6 +31,7 @@ CHECKS=(
   "os-asr|capture"
   "os-diar|"
   "os-engine|recorder"
+  "os-sync|"
   "os-app|recorder,sync"
 )
 

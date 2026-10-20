@@ -648,3 +648,46 @@ fn stopping_a_visit_removes_the_cloud_copy_and_keeps_local_ones() {
     a.sync();
     assert_eq!(a.svc.status().pending_uploads, 0);
 }
+
+#[test]
+fn the_portal_removes_a_device_and_deleting_the_account_removes_every_row() {
+    let Some(env) = env() else { return };
+    let used = Mutex::new(BTreeSet::new());
+    let email = email();
+    let (a, _) = first_computer(&env, &email, &used);
+    make_visit(a.root(), "Maple", "Okonkwo");
+    a.sync();
+    let b = join(&env, &a, &email, "Tablet", &used);
+    let a_token = a.rec.last_token().unwrap();
+    let user = raw_rows(&env, "devices").into_iter().find(|d| d["id"] == a.svc.device_id()).unwrap()["user_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // The portal's Edge Function, with the person's own token.
+    let r = reqwest::blocking::Client::new()
+        .post(format!("{}/functions/v1/revoke-device", env.url))
+        .header("apikey", &env.key)
+        .header("Authorization", format!("Bearer {a_token}"))
+        .header("Content-Type", "application/json")
+        .body(json!({"device_id": b.svc.device_id()}).to_string())
+        .send()
+        .unwrap();
+    assert_eq!(r.status().as_u16(), 200, "{}", r.text().unwrap_or_default());
+    assert!(matches!(b.svc.sync_once(&NoHost), Err(SyncError::Revoked)));
+    // A's next run rotates the keys, as the portal can't.
+    a.sync();
+    let acct = raw_rows(&env, "accounts").into_iter().find(|x| x["user_id"] == user.as_str()).unwrap();
+    assert_eq!(acct["rotate_needed"], json!(false));
+    assert_eq!(acct["amk_version"], json!(2));
+
+    // Delete my account: every row goes, local visits stay.
+    a.svc.delete_account(&email).unwrap();
+    for t in ["accounts", "devices", "key_envelopes", "spaces"] {
+        let rows = raw_rows(&env, t);
+        let mine = rows.iter().filter(|x| x["user_id"] == user.as_str() || x["owner"] == user.as_str()).count();
+        assert_eq!(mine, 0, "sync.{t} still has rows for the deleted account");
+    }
+    assert_eq!(a.visits().len(), 1);
+    assert_eq!(a.svc.status().phase, Phase::Off);
+}

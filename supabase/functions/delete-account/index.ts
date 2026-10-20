@@ -7,10 +7,12 @@
 // the repository and never reaches a browser.
 //
 // What goes: the auth user, and through `on delete cascade` their row in
-// public.profiles. When the sync schema arrives (ADR-0017 section 11), its
-// tables must also reference auth.users with `on delete cascade`, or be
-// deleted here before the user, so this one call still removes every row and
-// key envelope. Data on the person's own computers is never touched.
+// public.profiles and every row of the encrypted sync schema (accounts,
+// devices, key envelopes, spaces and through them every object and blob part;
+// supabase/migrations/20261020120000_sync.sql). One call removes every row
+// and key envelope; any ciphertext left in backups can't be opened without
+// the envelopes. Data on the person's own computers is never touched. The
+// OpenBark app calls this too ("Delete my sync account"), without an Origin.
 //
 // Request:  POST, `Authorization: Bearer <the user's access token>`,
 //           body {"confirm": "<the account's email address>"}.

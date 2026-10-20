@@ -3,11 +3,12 @@
 # `allowed` may have an HTTP client. Fails if any other workspace crate pulls
 # in reqwest, ureq, hyper-based clients or similar.
 #   os-models:  model downloads (R1, R2, R4, R5)
+#   os-sync:    encrypted sync, Supabase Auth and REST only (R7, R8; ADR-0017)
 #   os-connect: the clinic's own Twilio account, REST to api.twilio.com only
 #               (R9; ADR-0023, docs/adr/0023-bring-your-own-telephony.md)
 set -euo pipefail
 
-allowed="os-models os-connect"
+allowed="os-models os-connect os-sync"
 violations=0
 for client in reqwest ureq isahc attohttpc surf; do
   # Workspace crates that depend on the client directly (normal deps only).
