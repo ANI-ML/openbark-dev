@@ -1763,7 +1763,8 @@ struct Prewarm {
 
 /// The Record screen opened: load the speech models now, if memory allows.
 async fn record_prewarm(State(s): State<St>, Json(req): Json<Prewarm>) -> impl IntoResponse {
-    let ready = tokio::task::spawn_blocking(move || s.app().prewarm_speech(req.speakers)).await.unwrap_or(false);
+    let ready =
+        tokio::task::spawn_blocking(move || s.app().prewarm_speech(req.speakers)).await.unwrap_or(false);
     Json(serde_json::json!({ "loading": ready }))
 }
 

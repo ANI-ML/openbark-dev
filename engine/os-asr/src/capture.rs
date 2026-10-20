@@ -27,7 +27,9 @@ pub enum CaptureError {
         "No microphone was found. Plug one in or switch it on, then press Record again. On a Mac, also check System Settings, Privacy & Security, Microphone."
     )]
     NoDevice,
-    #[error("The microphone chosen in Settings isn't connected. Plug it in, or choose another microphone in Settings.")]
+    #[error(
+        "The microphone chosen in Settings isn't connected. Plug it in, or choose another microphone in Settings."
+    )]
     DeviceNotFound(String),
     #[error(
         "Another app is using the microphone and won't share it. Close the other app (a call in Teams or Zoom, for example), or turn off its exclusive control of the microphone in the Windows sound settings, then press Record again."
@@ -41,7 +43,9 @@ pub enum CaptureError {
         "The microphone couldn't be started. Unplug it and plug it back in, or choose another microphone in Settings, then press Record again."
     )]
     Device(String),
-    #[error("This microphone sends audio in a format OpenBark can't read. Choose another microphone in Settings.")]
+    #[error(
+        "This microphone sends audio in a format OpenBark can't read. Choose another microphone in Settings."
+    )]
     Format(SampleFormat),
 }
 
@@ -272,7 +276,9 @@ impl MicCapture {
 fn choose_config(dev: &cpal::Device) -> Result<(cpal::StreamConfig, SampleFormat), CaptureError> {
     match dev.default_input_config() {
         Ok(c) if readable(c.sample_format()) => return Ok((c.config(), c.sample_format())),
-        Ok(c) => tracing::info!(format = ?c.sample_format(), "default microphone format unreadable; looking further"),
+        Ok(c) => {
+            tracing::info!(format = ?c.sample_format(), "default microphone format unreadable; looking further")
+        }
         Err(e) => tracing::info!(error = %e, "no default microphone format; looking further"),
     }
     let ranges: Vec<_> = dev.supported_input_configs().map_err(|e| CaptureError::from_cpal(&e))?.collect();

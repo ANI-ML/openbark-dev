@@ -94,10 +94,14 @@ impl LiveSink for TerminalSink {
             MicState::Ok => match (&h.switched_from, h.quality) {
                 (Some(from), _) => Some(format!("now recording from {} (was {from})", h.device)),
                 (None, MicQuality::Narrowband) => Some(format!("{} sends telephone-quality audio", h.device)),
-                (None, MicQuality::HandsFree) => Some(format!("{} is in Bluetooth hands-free mode", h.device)),
+                (None, MicQuality::HandsFree) => {
+                    Some(format!("{} is in Bluetooth hands-free mode", h.device))
+                }
                 (None, MicQuality::Good) => None,
             },
-            MicState::Silent => Some("no sound from the microphone: is it muted, or blocked in privacy settings?".into()),
+            MicState::Silent => {
+                Some("no sound from the microphone: is it muted, or blocked in privacy settings?".into())
+            }
             MicState::Stalled => Some("no audio is arriving from the microphone".into()),
             MicState::Lost => Some("microphone disconnected: paused until one is back".into()),
         };

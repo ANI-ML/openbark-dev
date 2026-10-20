@@ -255,7 +255,9 @@ impl<B: MicBackend> Supervisor<B> {
                         self.stream = None;
                         events.push(self.adopt(stream, Some(current), now));
                     }
-                    Err(e) => tracing::info!(error = %e, "couldn't switch microphone; staying on the current one"),
+                    Err(e) => {
+                        tracing::info!(error = %e, "couldn't switch microphone; staying on the current one")
+                    }
                 }
             }
         }
@@ -477,9 +479,15 @@ mod tests {
         let fake = Fake::with(&[("USB mic", 48_000), ("Built-in", 44_100)], Some("Built-in"));
         let (mut s, _, t0) = start(&fake, Some("USB mic"));
         fake.unplug("USB mic");
-        assert_eq!(s.poll(t0 + Duration::from_millis(1_100)), vec![opened("Built-in", 44_100, Some("USB mic"))]);
+        assert_eq!(
+            s.poll(t0 + Duration::from_millis(1_100)),
+            vec![opened("Built-in", 44_100, Some("USB mic"))]
+        );
         fake.plug("USB mic", 48_000, false);
-        assert_eq!(s.poll(t0 + Duration::from_millis(2_200)), vec![opened("USB mic", 48_000, Some("Built-in"))]);
+        assert_eq!(
+            s.poll(t0 + Duration::from_millis(2_200)),
+            vec![opened("USB mic", 48_000, Some("Built-in"))]
+        );
     }
 
     #[test]

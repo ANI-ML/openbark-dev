@@ -165,7 +165,8 @@ impl HealthTracker {
             switched_from: self.switched_from.clone(),
             seconds,
         };
-        let same = self.last_sent.as_ref().is_some_and(|h| MicHealth { seconds: h.seconds, ..health.clone() } == *h);
+        let same =
+            self.last_sent.as_ref().is_some_and(|h| MicHealth { seconds: h.seconds, ..health.clone() } == *h);
         if same {
             return None;
         }

@@ -37,7 +37,8 @@ impl StreamResampler {
             return Err(RateError(rate));
         }
         if self.current.as_ref().map(|(r, _)| *r) != Some(rate) {
-            let r = sherpa_onnx::LinearResampler::create(rate as i32, SAMPLE_RATE as i32).ok_or(RateError(rate))?;
+            let r = sherpa_onnx::LinearResampler::create(rate as i32, SAMPLE_RATE as i32)
+                .ok_or(RateError(rate))?;
             self.current = Some((rate, r));
         }
         Ok(self.current.as_ref().expect("set above").1.resample(&samples, false))

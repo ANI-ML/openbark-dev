@@ -365,7 +365,9 @@ impl SecondAsr {
             let started = Instant::now();
             let asr = os_asr::OfflineAsr::with_threads(model, os_asr::second_threads()).ok();
             match &asr {
-                Some(_) => tracing::info!(ms = started.elapsed().as_millis() as u64, "second recogniser loaded"),
+                Some(_) => {
+                    tracing::info!(ms = started.elapsed().as_millis() as u64, "second recogniser loaded")
+                }
                 None => tracing::warn!("second recogniser didn't load; number cross-check off"),
             }
             asr
@@ -518,7 +520,12 @@ fn run(
     let (source, mut device, total_secs) = spawn_source(source, tx, stop.clone(), mic_tx)?;
     // Live sources (not files or uploads) are watched for trouble.
     let watched = total_secs.is_none();
-    let mut health = HealthTracker::new(if from_browser { "" } else { &device }, 0, Instant::now(), HealthTiming::default());
+    let mut health = HealthTracker::new(
+        if from_browser { "" } else { &device },
+        0,
+        Instant::now(),
+        HealthTiming::default(),
+    );
     let mut health_at = Instant::now();
     let mut devices_used: Vec<String> = Vec::new();
     // Imports report seconds transcribed, at most every 1% (or 2 s of audio).
@@ -625,8 +632,9 @@ fn run(
         if stop.load(Ordering::SeqCst) {
             stopped_at.get_or_insert_with(Instant::now);
         }
-        let samples =
-            resampler.process(block.samples, block.sample_rate).map_err(|e| EngineError::Session(e.to_string()))?;
+        let samples = resampler
+            .process(block.samples, block.sample_rate)
+            .map_err(|e| EngineError::Session(e.to_string()))?;
         wav.write(&samples).map_err(|e| EngineError::Session(e.to_string()))?;
 
         for s in &samples {
