@@ -1,6 +1,6 @@
 {
   "_about": "Version history shown on history.html and written to CHANGELOG.md by scripts/website-build.py. Major changes only, newest first: a handful of items per milestone, each one a change a clinic would notice. Items marked 'testing' are built but not yet proven on real devices.",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "stage": "Beta",
   "next": [
     {"text": "An iPhone app that records and transcribes in the exam room, with encrypted sync of transcripts and notes to your computers."},
@@ -17,11 +17,14 @@
       "entries": [
         {
           "date": "2026-10-20",
-          "title": "Phone calls, a fuller dental chart, a calmer design",
-          "summary": "Call clients from OpenBark and get the call drafted as a visit, chart more of each dental, and a smoother app and website.",
+          "title": "Phone calls, a fuller dental chart, better microphones",
+          "summary": "Call clients from OpenBark and get the call drafted as a visit, hear a client on a speakerphone, chart more of each dental, and a smoother app and website.",
           "items": [
             {"text": "Phone calls through your clinic's own Twilio account: call out from OpenBark, record after an announcement the client can decline, and get the call drafted as a visit.", "status": "testing"},
-            {"text": "The dental chart captures more of what's said (about 92% of findings in our testing), and Species is filled in from the breed.", "status": "shipped"},
+            {"text": "The dental chart captures more of what's said, and Species is filled in from the breed.", "status": "shipped"},
+            {"text": "A \"Phone on speaker\" option for recording a client on a speakerphone: OpenBark now hears the far side of the call and labels who said what.", "status": "shipped"},
+            {"text": "Microphone checks and recovery: pick and test your microphone, clear messages when it's blocked or busy, and recording carries on if you switch microphones.", "status": "shipped"},
+            {"text": "Recording in a browser works again.", "status": "shipped"},
             {"text": "A calmer, more responsive design across the app and the website.", "status": "shipped"},
             {"text": "OpenBark no longer reports a crash when you quit it on a Mac after drafting a note.", "status": "shipped"},
             {"text": "Recordings play again in the desktop app, and long ones start and seek without loading the whole file.", "status": "shipped"}
