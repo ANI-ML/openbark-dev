@@ -1,12 +1,12 @@
 //! Calls through the clinic's own Twilio account (ADR-0023, docs/plans/telephony.md).
 //!
-//! Outgoing calls only, in this first release (owner decision 2). The clinic
+//! Outgoing calls only, in this first release (ADR-0023 decision 2). The clinic
 //! connects its own account in Settings; the engine keeps the key secret in
 //! the keychain ([`os_connect::ConnectStore`]) and mints one-hour access
 //! tokens for the phone window, which runs Twilio's Voice SDK. When the client
 //! answers, the phone window streams both sides of the call here, and the call
 //! is recorded on this computer as a two-channel visit
-//! ([`os_engine::live::LiveSource::Call`]), announced first (owner decision 1):
+//! ([`os_engine::live::LiveSource::Call`]), announced first (ADR-0023 decision 1):
 //! the caller reads the announcement, then says whether the client agreed.
 //! "No" deletes what was recorded and the call goes on unrecorded.
 //!
@@ -148,7 +148,7 @@ pub(crate) struct CallState {
     started: Instant,
     outcome: Option<ConsentOutcome>,
     /// Set only when the caller confirms the announcement was read ("I've
-    /// read it"). Without it the recording isn't kept (owner decision 1).
+    /// read it"). Without it the recording isn't kept (ADR-0023 decision 1).
     announced_at: Option<f32>,
     who: Option<Who>,
     /// Set once the recording is deleted (declined, or never announced): the
@@ -581,7 +581,7 @@ impl App {
             }),
             None => None,
         };
-        // The caller reads the announcement (owner decision 1): verbal, under
+        // The caller reads the announcement (ADR-0023 decision 1): verbal, under
         // either rule. The client's answer is added when it's known.
         let consent = Consent {
             rule: ConsentRule::AllParties,
@@ -645,7 +645,7 @@ impl App {
     }
 
     /// "I've read it": the caller read the announcement to the client. Until
-    /// this arrives the recording isn't kept (owner decision 1). `at` is when
+    /// this arrives the recording isn't kept (ADR-0023 decision 1). `at` is when
     /// the announcement started, in seconds into the recording (0: it is
     /// shown when the client answers).
     pub fn call_announced(&self, at: Option<f32>) -> Result<()> {
@@ -776,7 +776,7 @@ impl App {
             return Ok(Some(crate::view(&s, None)));
         }
         // Never announced ("I've read it" wasn't confirmed): the recording
-        // isn't kept (owner decision 1), whether the caller hung up, the
+        // isn't kept (ADR-0023 decision 1), whether the caller hung up, the
         // client did, or the window closed.
         if state.announced_at.is_none() {
             let elapsed = state.started.elapsed().as_secs_f32();

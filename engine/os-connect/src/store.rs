@@ -90,7 +90,7 @@ impl Default for PhonePrefs {
 
 impl PhonePrefs {
     /// Tidies and checks: the announcement can't be empty while calls are
-    /// recorded, because recording without it isn't possible (owner decision 1).
+    /// recorded, because recording without it isn't possible (ADR-0023 decision 1).
     pub fn normalised(mut self) -> Result<Self, ConnectError> {
         self.announcement = self.announcement.split_whitespace().collect::<Vec<_>>().join(" ");
         if self.announcement.is_empty() {

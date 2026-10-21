@@ -6,7 +6,7 @@
 // When the client answers a recorded call: the caller reads the announcement
 // ("read"), then says whether the client agreed ("ask"): yes keeps recording,
 // no deletes what was recorded and the call goes on unrecorded. Recording
-// without the announcement isn't possible (owner decision 1).
+// without the announcement isn't possible (ADR-0023 decision 1).
 
 export type Phase = "idle" | "calling" | "ringing" | "connected" | "ended";
 export type ConsentStep = "none" | "read" | "ask" | "agreed" | "declined";

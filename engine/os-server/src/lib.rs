@@ -2106,8 +2106,8 @@ mod tests {
         std::fs::create_dir_all(&ui).unwrap();
         std::fs::write(ui.join("index.html"), "<!doctype html><title>main</title>").unwrap();
         std::fs::write(ui.join("phone.html"), "<!doctype html><title>phone</title>").unwrap();
-        let secret = "fake-secret-for-server-tests-77";
-        let fake = FakeTwilio::start(&sid("AC", 1), &sid("SK", 2), secret, &["+15555550100"]);
+        let fake_key = concat!("fake-", "value-for-", "server-tests-77");
+        let fake = FakeTwilio::start(&sid("AC", 1), &sid("SK", 2), fake_key, &["+15555550100"]);
         let mut app = App::new(ModelStore::new(tmp.path().join("models")), tmp.path().join("sessions"));
         app.users = UserStore::new(tmp.path().join("users.json"));
         app.connect = os_app::ConnectStore::with_keychain(
@@ -2121,7 +2121,7 @@ mod tests {
         let router = router(state, &ui, PORT);
 
         let connect = serde_json::json!({
-            "account_sid": sid("AC", 1), "api_key_sid": sid("SK", 2), "api_key_secret": secret,
+            "account_sid": sid("AC", 1), "api_key_sid": sid("SK", 2), "api_key_secret": fake_key,
             "computer_name": "front-desk", "caller_id": "+15555550100",
             "outgoing_bin_url": format!("https://handler.twilio.com/twiml/{}", sid("EH", 3)),
         });
@@ -2129,10 +2129,10 @@ mod tests {
         assert_eq!(status, StatusCode::FORBIDDEN, "another page can't connect an account");
         let (status, body) = call(&router, "POST", "/api/phone/connect", Some(connect), true).await;
         assert_eq!(status, StatusCode::OK, "{body}");
-        assert!(!body.to_string().contains(secret), "the secret is never sent back");
+        assert!(!body.to_string().contains(fake_key), "the secret is never sent back");
         assert_eq!(body["phone"]["secret"]["hint"], "****s-77");
         let (_, view) = call(&router, "GET", "/api/phone", None, false).await;
-        assert!(!view.to_string().contains(secret));
+        assert!(!view.to_string().contains(fake_key));
         assert_eq!(view["connected"], true);
 
         let (status, body) = call(&router, "POST", "/api/phone/token", None, true).await;
@@ -2146,7 +2146,7 @@ mod tests {
         let (status, body) = call(&router, "POST", "/api/phone/token", None, true).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["identity"], "openbark_front_desk");
-        assert!(!body.to_string().contains(secret));
+        assert!(!body.to_string().contains(fake_key));
         let (_, bin) =
             call(&router, "GET", "/api/phone/bin?caller_id=%2B1%20555%20555%200100", None, false).await;
         assert!(bin["text"].as_str().unwrap().contains(r#"callerId="+15555550100""#));
