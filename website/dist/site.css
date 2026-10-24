@@ -704,6 +704,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .cl-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px 24px; margin-bottom: 20px; }
 .cl-head-copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .portal .cl-head h2 { font-size: 26px; line-height: 32px; font-weight: 800; letter-spacing: -0.02em; overflow-wrap: anywhere; }
+.cl-head h2:focus { outline: none; }
 .cl-sub { font-size: 15px; line-height: 24px; color: var(--ink-2); }
 .cl-switch { width: min(100%, 320px); }
 .cl-dash > .pt-msg { margin-bottom: 16px; }
@@ -765,7 +766,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .cl-code .help { flex: 1 1 220px; }
 .cl-panel > .pt-actions + .cl-scroll, .cl-panel > .cl-code + .cl-scroll { margin-top: 16px; }
 .cl-narrow { max-width: 480px; }
-.cl-admin + .cl-mine { margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--line); }
+.cl-admin:not([hidden]) + .cl-mine { margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--line); }
 .cl-mine-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 24px; }
 @media (max-width: 860px) { .cl-mine-grid { grid-template-columns: minmax(0, 1fr); } }
 .cl-block { min-width: 0; }

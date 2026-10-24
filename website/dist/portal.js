@@ -691,7 +691,7 @@
     });
     var admin = c.role === "admin";
     $("clinic-h").textContent = c.name;
-    $("clinic-eyebrow").textContent = admin ? "Your clinic: admin" : "Your clinic";
+    $("clinic-eyebrow").textContent = "Your clinic";
     $("clinic-sub").textContent = admin
       ? "You're an admin. " + plural(c.members, "member", "members") + "."
       : "You're a member. The clinic's admins see your name, your role and, if you share them, your daily usage counts.";
