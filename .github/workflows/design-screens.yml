@@ -2,9 +2,10 @@ name: Design screens
 
 # Screenshots of every main screen as it is today, for design review: phone
 # (WebKit, 390 x 844, as the iPhone profile shows it) and desktop, light and
-# dark. The visits are the synthetic consults in packages/eval/fixtures/audio
-# (invented, text-to-speech), transcribed and one drafted on the runner, so
-# no clinic data is involved.
+# dark. The visits are the committed synthetic smoke consult
+# (packages/eval/fixtures/audio/smoke.wav: invented, text-to-speech) under
+# three invented patients, transcribed and one drafted on the runner, so no
+# clinic data is involved.
 #
 # Manual: run it from the Actions tab, or push a commit whose message
 # contains [design-screens] to a feat/, fix/, design/ or chore/ branch.
@@ -91,10 +92,11 @@ jobs:
             echo "server didn't start"; tail -50 "$demo/serve.log"; exit 1
           }
           serve
-          # Three invented consults, each with an invented patient.
+          # The committed smoke consult under three invented patients (the other
+          # fixtures are generated with tools/fixture-tts, not committed).
           q="consent_rule=all_parties&consent_method=verbal&consent_by=Dr%20Rivera&diarize=true"
           import() {
-            curl -fsS -X POST --data-binary @"packages/eval/fixtures/audio/$1.wav" \
+            curl -fsS -X POST --data-binary @packages/eval/fixtures/audio/smoke.wav \
               "http://127.0.0.1:$port/api/sessions?name=$1.wav&patient_name=$2&last_name=$3&species=$4&reason=$5&$q" \
               | jq -r '.id // .session.id // empty'
           }
