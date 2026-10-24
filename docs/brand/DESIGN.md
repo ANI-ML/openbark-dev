@@ -245,6 +245,8 @@ The single most important control. It is the only accent-filled button in the pr
 - Processing: ink fill, indeterminate thin ring in accent, label "Writing note…".
 - Minimum tap target 56 × 56 on touch.
 
+> **Amended by [ADR-0027](../adr/0027-redesign-2026-10.md) (2026-10-24).** On the Record screen, phone and desktop, the Record button is a **96 px circle**: accent fill, white mono mark, label "Record" beneath, centred in the main area. Flat: no raised tile, no shadow. Recording keeps the ink fill and accent pulse ring. Record buttons elsewhere keep the sizes above.
+
 ### 7.2 Buttons
 
 | Variant | Fill | Text | Border |
@@ -316,6 +318,8 @@ Example strings:
 - **Breakpoints**: 480 / 768 / 1024 / 1280.
 - Content never touches the viewport edge. Minimum 16 px side gutter on phones.
 - Tables scroll horizontally inside a bordered box; never let the page scroll sideways.
+
+> **Amended by [ADR-0027](../adr/0027-redesign-2026-10.md) (2026-10-24).** Record is centred in the main area (on phones, in thumb reach above the options), not fixed above the tab bar. The phone tab bar is **Record · Visits · Patients · Settings**; Templates, Models and Help are rows in Settings. The desktop left rail adds **Visits** (with a count of visits that need you): Record, Visits, Patients, Templates, then Models, Settings and Help as a quieter group at the bottom.
 
 ---
 
