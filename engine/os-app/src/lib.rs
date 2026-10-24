@@ -344,6 +344,16 @@ pub struct Hardware {
     pub summary: String,
 }
 
+/// A phone (ADR-0018 section 10) says how much memory it has, which decides
+/// the models that fit, instead of the computer's graphics-card line.
+fn on_this_device(mut hardware: Hardware) -> Hardware {
+    if os_models::platform::Profile::current().is_mobile() {
+        let ram = os_models::platform::device_ram(hardware.ram_bytes);
+        hardware.summary = format!("This iPhone, {:.0} GB memory", ram as f64 / 1e9);
+    }
+    hardware
+}
+
 fn probe_hardware() -> Hardware {
     let mut sys = sysinfo::System::new();
     sys.refresh_memory();
@@ -1282,7 +1292,7 @@ impl App {
             models_dir: self.store.root().display().to_string(),
             sessions_dir: self.sessions_root.display().to_string(),
             models,
-            hardware: self.hardware.clone(),
+            hardware: on_this_device(self.hardware.clone()),
             recording: self.recorder.lock().map(|r| r.is_some()).unwrap_or(false),
             encryption: os_engine::vault::status(),
             plain_encounters: self.plain_encounters(),

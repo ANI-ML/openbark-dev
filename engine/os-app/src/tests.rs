@@ -1503,6 +1503,7 @@ fn a_phone_lists_mobile_models_and_picks_its_tier_default() {
     let status = app.status();
     assert_eq!(status.profile, Profile::Ios);
     assert_eq!(status.mobile_tier, Some(8));
+    assert_eq!(status.hardware.summary, "This iPhone, 8 GB memory", "no graphics-card line on a phone");
     assert_eq!(status.default_llm, "gemma-4-e2b-it-q4_0");
     // Drafting is opt-in on a phone: only the speech models are needed to start.
     let needed: Vec<&str> = status.models.iter().map(|m| m.id.as_str()).collect();
