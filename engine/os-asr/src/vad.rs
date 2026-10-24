@@ -1,4 +1,5 @@
 use serde::Serialize;
+#[cfg(feature = "stt")]
 use sherpa_onnx::{SileroVadModelConfig, VadModelConfig, VoiceActivityDetector};
 
 use crate::{AsrError, Audio, SAMPLE_RATE, require_file};
@@ -63,9 +64,11 @@ pub struct SileroVad {
 }
 
 /// Silero's window: the detector consumes audio in blocks of this many samples.
+#[cfg(feature = "stt")]
 const WINDOW: usize = 512;
 
 /// No piece shorter than this is cut off a levelled utterance (samples).
+#[cfg(feature = "stt")]
 const MIN_PIECE: usize = SAMPLE_RATE as usize * 3 / 10;
 
 impl SileroVad {
@@ -73,7 +76,24 @@ impl SileroVad {
         require_file(&options.model)?;
         Ok(Self { options })
     }
+}
 
+#[cfg(not(feature = "stt"))]
+impl SileroVad {
+    /// Find speech spans in a whole clip: not without speech recognition in the build.
+    pub fn segments(&self, audio: &Audio) -> Result<Vec<SpeechSpan>, AsrError> {
+        let _ = (audio, &self.options);
+        Err(AsrError::NotInThisBuild)
+    }
+
+    /// No live detector without speech recognition in the build.
+    pub fn streaming(&self) -> Result<StreamingVad, AsrError> {
+        Err(AsrError::NotInThisBuild)
+    }
+}
+
+#[cfg(feature = "stt")]
+impl SileroVad {
     fn config(&self) -> VadModelConfig {
         VadModelConfig {
             silero_vad: SileroVadModelConfig {
@@ -181,6 +201,7 @@ impl SileroVad {
     }
 }
 
+#[cfg(feature = "stt")]
 fn secs_to_samples(secs: f32) -> usize {
     (secs.max(0.0) * SAMPLE_RATE as f32) as usize
 }
@@ -190,6 +211,7 @@ fn secs_to_samples(secs: f32) -> usize {
 /// speech starting there), or such a voice stops and quieter speech goes on.
 /// `level(a, b)` is the speech level of samples `a..b` in dB. Pieces are at
 /// least [`MIN_PIECE`] long. All positions are sample indices.
+#[cfg(feature = "stt")]
 pub fn split_at_level_steps(
     span: (usize, usize),
     raw: &[(usize, usize)],
@@ -232,6 +254,7 @@ pub fn split_at_level_steps(
 /// vet a phone voice is loud enough for it, and the room echo bridges the
 /// pause). A pause is at least 160 ms within 6 dB of the quietest part.
 /// Returns sample ranges within `samples`, each at least [`MIN_PIECE`] long.
+#[cfg(feature = "stt")]
 pub fn split_at_level_dips(samples: &[f32], step_db: f32) -> Vec<(usize, usize)> {
     const FRAME: usize = SAMPLE_RATE as usize / 50; // 20 ms
     const MIN_DIP: usize = 8; // frames
@@ -298,6 +321,7 @@ impl Utterance {
     }
 }
 
+#[cfg(feature = "stt")]
 pub struct StreamingVad {
     /// The detector deciding utterances: on the levelled copy when levelling.
     vad: VoiceActivityDetector,
@@ -327,6 +351,24 @@ pub struct StreamingVad {
     held: std::collections::VecDeque<(usize, usize)>,
 }
 
+/// The live detector in a build without speech recognition: never created.
+#[cfg(not(feature = "stt"))]
+pub struct StreamingVad {
+    _never: std::convert::Infallible,
+}
+
+#[cfg(not(feature = "stt"))]
+impl StreamingVad {
+    pub fn accept(&mut self, _samples: &[f32]) -> Vec<Utterance> {
+        match self._never {}
+    }
+
+    pub fn finish(&mut self) -> Vec<Utterance> {
+        match self._never {}
+    }
+}
+
+#[cfg(feature = "stt")]
 impl StreamingVad {
     /// Feed 16 kHz mono samples; returns utterances that have ended.
     pub fn accept(&mut self, samples: &[f32]) -> Vec<Utterance> {
@@ -470,7 +512,7 @@ impl StreamingVad {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "stt"))]
 mod tests {
     use super::*;
 

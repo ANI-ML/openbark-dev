@@ -8,8 +8,8 @@ rust-version.workspace = true
 
 [dependencies]
 dirs.workspace = true
-os-app.workspace = true
-os-engine.workspace = true
+os-app = { workspace = true, features = ["default"] }
+os-engine = { workspace = true, features = ["default"] }
 os-models.workspace = true
 axum.workspace = true
 tokio.workspace = true

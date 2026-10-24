@@ -93,8 +93,10 @@ fn end_without_teardown(code: i32) -> ! {
 /// Counts a live model for as long as it exists. Kept as the last field of
 /// [`LlamaCppBackend`](crate::LlamaCppBackend), so the count drops only
 /// after the model and the backend have been freed.
+#[cfg(feature = "llama")]
 pub(crate) struct LiveModel(());
 
+#[cfg(feature = "llama")]
 impl LiveModel {
     pub(crate) fn new() -> Self {
         LIVE.fetch_add(1, Ordering::SeqCst);
@@ -102,6 +104,7 @@ impl LiveModel {
     }
 }
 
+#[cfg(feature = "llama")]
 impl Drop for LiveModel {
     fn drop(&mut self) {
         LIVE.fetch_sub(1, Ordering::SeqCst);

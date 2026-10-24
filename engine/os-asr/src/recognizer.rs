@@ -1,9 +1,12 @@
+#[cfg(feature = "stt")]
 use sherpa_onnx::{
     OfflineModelConfig, OfflineRecognizer, OfflineRecognizerConfig, OfflineTransducerModelConfig,
     OfflineWhisperModelConfig,
 };
 
-use crate::{AsrBackend, AsrCapabilities, AsrError, SAMPLE_RATE, default_threads, require_file};
+#[cfg(feature = "stt")]
+use crate::{AsrBackend, AsrCapabilities, SAMPLE_RATE, require_file};
+use crate::{AsrError, default_threads};
 
 /// Offline (non-streaming) ASR model families wired up in M0.
 #[derive(Debug, Clone)]
@@ -15,6 +18,7 @@ pub enum AsrModel {
 }
 
 impl AsrModel {
+    #[cfg_attr(not(feature = "stt"), allow(dead_code))]
     pub(crate) fn files(&self) -> Vec<&str> {
         match self {
             Self::NemoTransducer { encoder, decoder, joiner, tokens } => {
@@ -24,6 +28,7 @@ impl AsrModel {
         }
     }
 
+    #[cfg_attr(not(feature = "stt"), allow(dead_code))]
     fn label(&self) -> &'static str {
         match self {
             Self::NemoTransducer { .. } => "nemo-transducer",
@@ -32,11 +37,43 @@ impl AsrModel {
     }
 }
 
+#[cfg(feature = "stt")]
 pub struct OfflineAsr {
     recognizer: OfflineRecognizer,
     model: AsrModel,
 }
 
+/// A recogniser in a build without speech recognition (`stt` off): it can't
+/// be created, so a visit stays "Not transcribed yet" (ADR-0018 section 3).
+#[cfg(not(feature = "stt"))]
+pub struct OfflineAsr {
+    _never: std::convert::Infallible,
+}
+
+#[cfg(not(feature = "stt"))]
+impl OfflineAsr {
+    pub fn new(model: AsrModel) -> Result<Self, AsrError> {
+        Self::with_threads(model, default_threads())
+    }
+
+    pub fn with_threads(model: AsrModel, threads: i32) -> Result<Self, AsrError> {
+        let _ = (model, threads);
+        Err(AsrError::NotInThisBuild)
+    }
+}
+
+#[cfg(not(feature = "stt"))]
+impl crate::AsrBackend for OfflineAsr {
+    fn capabilities(&self) -> crate::AsrCapabilities {
+        match self._never {}
+    }
+
+    fn transcribe(&self, _samples: &[f32]) -> Result<String, AsrError> {
+        match self._never {}
+    }
+}
+
+#[cfg(feature = "stt")]
 impl OfflineAsr {
     pub fn new(model: AsrModel) -> Result<Self, AsrError> {
         Self::with_threads(model, default_threads())
@@ -104,6 +141,7 @@ impl OfflineAsr {
     }
 }
 
+#[cfg(feature = "stt")]
 impl AsrBackend for OfflineAsr {
     fn capabilities(&self) -> AsrCapabilities {
         let languages = match &self.model {

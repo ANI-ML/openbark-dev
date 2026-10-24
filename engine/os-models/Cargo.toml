@@ -7,7 +7,6 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-bzip2.workspace = true
 dirs.workspace = true
 flate2.workspace = true
 hex.workspace = true
@@ -16,11 +15,19 @@ serde.workspace = true
 serde_json.workspace = true
 sha1.workspace = true
 sha2.workspace = true
-sysinfo.workspace = true
 tar.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 zip.workspace = true
+
+# Desktop only: bzip2 unpacks the GPU speech pack (ADR-0014, Windows), and its C
+# library has no iOS build here. sysinfo's network module doesn't build for iOS.
+[target.'cfg(not(target_os = "ios"))'.dependencies]
+bzip2.workspace = true
+sysinfo = { workspace = true, features = ["default"] }
+
+[target.'cfg(target_os = "ios")'.dependencies]
+sysinfo = { workspace = true, features = ["system", "disk"] }
 
 [features]
 # MLX "test mode" (ADR-0025 §1): OPENBARK_MLX_DEV=1 runs MLX on Linux's CPU.

@@ -19,7 +19,8 @@ OpenBark is a local-first, open-source (Apache-2.0) veterinary AI scribe. The pr
   - `hf-hub`: no resumable downloads.
 
   Reasons are in `docs/spikes/S2-native-linking.md`.
-- **Encrypted store:** `rusqlite` with `bundled-sqlcipher-vendored-openssl`.
+- **Encryption at rest:** the vault (`os_engine::vault`, ADR-0008), not a database. Every file in a visit folder is XChaCha20-Poly1305 (`OBK1` small files, `OBA1` chunked audio) under one data key in the OS keychain; on iOS the protected data store, "after first unlock, this device only", with no key-file fallback (ADR-0018 section 5). Explicit-key calls (`*_with`, `AudioWriter::with_key`) are for sync (ADR-0017). There is no SQLCipher or `rusqlite` store.
+- **Phone builds (ADR-0018):** the engine crates have features (`stt`, `inference`, `recorder`, `sync`); desktop members take the defaults. Run `bash scripts/ios-check.sh` before spending macOS CI minutes. `OPENBARK_PLATFORM=ios` (with `OPENBARK_DEVICE_RAM_GB`) shows the phone's model policy on a computer (ADR-0018 section 10).
 - **The product name lives in one constant.** It may still change after a trademark search.
 - **MedGemma** is a user-accepted download (HAI-DEF terms), never preloaded. Preloaded models must have licenses that allow redistribution, with attribution in `NOTICE` where required (Parakeet: CC-BY-4.0).
 
@@ -34,4 +35,4 @@ OpenBark is a local-first, open-source (Apache-2.0) veterinary AI scribe. The pr
 
 - Main dev box: Windows 11, RTX 4080 16 GB, CUDA 12.9, VS 2022 Build Tools. It is the CUDA performance reference.
 - macOS and iOS builds run on GitHub Actions macOS runners (ADR-0018 section 8); the product owner installs iOS builds from TestFlight on their iPhone. There is no Mac in the day-to-day loop. Anything Mac-side is a scripted CI job with a written runbook.
-- Repo: `ANI-ML/openbark` (private).
+- Repo: `ANI-ML/openbark-dev` (private, development); `ANI-ML/openbark` is the public copy, updated each release.

@@ -24,7 +24,8 @@ repository = "https://github.com/ANI-ML/openbark"
 # Versions verified live on 2026-10-17 (see docs/versions.md).
 # Native/inference crates are exact-pinned; bump only with a spike note.
 [workspace.dependencies]
-llama-cpp-2 = { version = "=0.1.160", default-features = false, features = ["common", "openmp"] }
+# OpenMP is added by os-llm on every target but iOS (ADR-0018 section 7).
+llama-cpp-2 = { version = "=0.1.160", default-features = false, features = ["common"] }
 sherpa-onnx = { version = "=1.13.8", default-features = false }
 
 anyhow = "1.0.104"
@@ -45,7 +46,9 @@ hex = "0.4.3"
 # Git blob SHA-1 for Hub files not in LFS (ADR-0025).
 sha1 = "=0.11.0"
 dirs = "7.0.0"
-sysinfo = "0.39.6"
+# Desktop crates add the default features; iOS only "system" and "disk"
+# (the "network" module doesn't build for iOS in 0.39.6). ADR-0018 section 7.
+sysinfo = { version = "0.39.6", default-features = false }
 # GPU speech pack archives (ADR-0014); the versions already in Cargo.lock.
 bzip2 = "=0.5.2"
 tar = "=0.4.46"
@@ -74,14 +77,16 @@ tauri-build = { version = "~2.7.3", features = [] }
 tauri-plugin-dialog = "~2.8.3"
 tauri-plugin-opener = "~2.7.2"
 
-os-llm = { path = "engine/os-llm" }
-os-asr = { path = "engine/os-asr" }
-os-diar = { path = "engine/os-diar" }
+# The engine crates with native libraries behind features (ADR-0018 section 1):
+# each member names the features it needs; desktop members take "default".
+os-llm = { path = "engine/os-llm", default-features = false }
+os-asr = { path = "engine/os-asr", default-features = false }
+os-diar = { path = "engine/os-diar", default-features = false }
 os-models = { path = "engine/os-models" }
-os-engine = { path = "engine/os-engine" }
+os-engine = { path = "engine/os-engine", default-features = false }
 os-connect = { path = "engine/os-connect" }
 os-server = { path = "engine/os-server" }
-os-app = { path = "engine/os-app" }
+os-app = { path = "engine/os-app", default-features = false }
 
 [profile.release]
 lto = "thin"
