@@ -26,7 +26,13 @@ STATE = os.environ.get("OPENBARK_SYNC_E2E_STATE", os.path.join(os.getcwd(), "tar
 SB = os.environ.get("OPENBARK_SYNC_TEST_URL", "http://127.0.0.1:54321")
 SECRET = os.environ["OPENBARK_SYNC_TEST_SECRET"]
 MAIL = os.environ.get("OPENBARK_SYNC_TEST_MAIL", "http://127.0.0.1:54324")
-LLM = "gemma-4-e4b-it-q4_0"
+# CI drafts with the small E2B model on both sides (an 8 GB iPhone fits it).
+LLM = os.environ.get("OPENBARK_SYNC_E2E_LLM", "gemma-4-e4b-it-q4_0")
+# The device names: A records, B drafts and signs. CI runs A as an iPhone.
+A_NAME = os.environ.get("OPENBARK_SYNC_E2E_A_NAME", "Front desk PC")
+B_NAME = os.environ.get("OPENBARK_SYNC_E2E_B_NAME", "Exam room laptop")
+# The local API gateway container, stopped to take both servers offline.
+KONG = "supabase_kong_openbark-sync-dev"
 NAMES = ["Biscuit", "Fairweather"]
 
 
@@ -107,18 +113,18 @@ def setup():
     st = {"email": f"e2e-{uuid.uuid4().hex[:10]}@example.org"}
     used = set()
     assert call(A, "/api/sync")["phase"] == "off", "sync is off by default"
-    nxt = sign_in(A, st["email"], "Front desk PC", used)
+    nxt = sign_in(A, st["email"], A_NAME, used)
     assert nxt["next"] == "kit", nxt
     st["kit"] = nxt["words"]
     a, b = nxt["check"]
     call(A, "/api/sync/kit/confirm", {"answers": [[a, nxt["words"][a - 1]], [b, nxt["words"][b - 1]]]})
     assert call(A, "/api/sync")["phase"] == "active"
     log("A: account created, kit checked")
-    nxt = sign_in(B, st["email"], "Exam room laptop", used)
+    nxt = sign_in(B, st["email"], B_NAME, used)
     assert nxt["next"] == "pair", nxt
     words = " ".join(nxt["words"])
     found = call(A, "/api/sync/pair", {"words": words, "approve": False})
-    assert found["name"] == "Exam room laptop", found
+    assert found["name"] == B_NAME, found
     call(A, "/api/sync/pair", {"words": words, "approve": True})
     wait("B joined", lambda: call(B, "/api/sync")["phase"] == "active", 60)
     st["used"] = sorted(used)
@@ -151,8 +157,8 @@ def basic():
     b_visits = os.environ.get("OPENBARK_SYNC_E2E_B_VISITS")
     if b_visits:
         assert not os.path.exists(os.path.join(b_visits, got["id"], "audio.wav")), "no audio file on B"
-    assert vb["audio_on"]["device_name"] == "Front desk PC", vb["audio_on"]
-    log("B: transcribed visit, no audio, 'audio is on Front desk PC'")
+    assert vb["audio_on"]["device_name"] == A_NAME, vb["audio_on"]
+    log(f"B: transcribed visit, no audio, 'audio is on {A_NAME}'")
     t0 = time.time()
     run = call(B, f"/api/sessions/{urllib.parse.quote(got['id'])}/notes", {"llm": LLM, "template": "soap"})
     log(f"B: drafted in {time.time() - t0:.1f} s, faithfulness passed:", run.get("run", run).get("faithfulness", {}).get("passed") if isinstance(run, dict) else None)
@@ -175,7 +181,7 @@ def basic():
 
 
 def ciphertext_only():
-    words = NAMES + ["Front desk PC", "Exam room laptop", "Dr. B. Imani", "dental check"]
+    words = NAMES + [A_NAME, B_NAME, "Dr. B. Imani", "dental check"]
     for t in ["accounts", "devices", "key_envelopes", "spaces", "space_keys", "objects", "blobs"]:
         rows = raw(t)
         text = json.dumps(rows)
@@ -193,8 +199,9 @@ def ciphertext_only():
 
 
 def kong(action):
-    subprocess.run(["wsl", "-d", "Ubuntu-24.04", "--", "docker", action, "supabase_kong_openbark-sync-dev"], check=True,
-                   stdout=subprocess.DEVNULL)
+    # Docker runs inside WSL on the Windows dev box, directly on Linux and macOS (CI).
+    docker = ["wsl", "-d", os.environ.get("OPENBARK_WSL_DISTRO", "Ubuntu-24.04"), "--", "docker"] if os.name == "nt" else ["docker"]
+    subprocess.run(docker + [action, KONG], check=True, stdout=subprocess.DEVNULL)
 
 
 def offline():
@@ -275,7 +282,7 @@ def offline2():
 def remove():
     st = load()
     devices = call(A, "/api/sync")["devices"]
-    b = next(d for d in devices if d["name"] == "Exam room laptop")
+    b = next(d for d in devices if d["name"] == B_NAME)
     call(A, f"/api/sync/devices/{b['id']}/remove", {})
     log("A removed B; keys rotated:", [r["amk_version"] for r in raw("accounts")])
     # B is told at its next request.
