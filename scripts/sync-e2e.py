@@ -77,7 +77,13 @@ def raw(table):
 def wait(what, f, secs=90):
     t0 = time.time()
     while time.time() - t0 < secs:
-        v = f()
+        try:
+            v = f()
+        except RuntimeError as e:
+            # The gateway is still coming back after `kong("start")`: try again.
+            if "Network error" not in str(e):
+                raise
+            v = None
         if v:
             log(f"ok: {what} after {time.time() - t0:.1f} s")
             return v, time.time() - t0
