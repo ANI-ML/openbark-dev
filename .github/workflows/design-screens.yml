@@ -96,7 +96,7 @@ jobs:
           # fixtures are generated with tools/fixture-tts, not committed).
           q="consent_rule=all_parties&consent_method=verbal&consent_by=Dr%20Rivera&diarize=true"
           import() {
-            curl -fsS -X POST -H 'x-openbark: 1' --data-binary @packages/eval/fixtures/audio/smoke.wav \
+            curl -fsS --max-time 600 -X POST -H 'x-openbark: 1' --data-binary @packages/eval/fixtures/audio/smoke.wav \
               "http://127.0.0.1:$port/api/sessions?name=$1.wav&patient_name=$2&last_name=$3&species=$4&reason=$5&$q" \
               | jq -r '.id // .session.id // empty'
           }
@@ -106,7 +106,7 @@ jobs:
           echo "wellness visit: $wellness"
           # One drafted note, so Review shows a finished note (CPU, a few minutes).
           if [ -n "$wellness" ]; then
-            curl -fsS -X POST -H 'x-openbark: 1' -H 'content-type: application/json' \
+            curl -fsS --max-time 900 -X POST -H 'x-openbark: 1' -H 'content-type: application/json' \
               -d '{"llm":"gemma-4-e2b-it-q4_0"}' "http://127.0.0.1:$port/api/sessions/$wellness/notes" > "$demo/note.json" \
               || echo "::warning::drafting failed; Review will show the transcript only"
           fi

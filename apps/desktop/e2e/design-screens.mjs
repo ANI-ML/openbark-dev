@@ -49,6 +49,19 @@ const PHONE_ROW = { templates: "Templates", models: "Models and storage", help: 
 const missed = [];
 const taken = [];
 
+/** Write the index and exit, whatever is still open (a browser, a stuck page). */
+function finish() {
+  writeFileSync(`${out}/index.json`, JSON.stringify({ taken, missed }, null, 2));
+  console.log(`${taken.length} screenshots in ${out}`);
+  if (missed.length) console.log(`Not reached:\n${missed.join("\n")}`);
+  process.exit(0);
+}
+// A watchdog: never hold the runner past 20 minutes per pass.
+setTimeout(() => {
+  missed.push("stopped by the 20-minute watchdog");
+  finish();
+}, 20 * 60 * 1000).unref();
+
 async function context(v, extra = {}) {
   const browser = await v.engine.launch(extra.launch ?? {});
   const ctx = await browser.newContext({
@@ -203,11 +216,14 @@ if (process.env.RECORDING === "1") {
     { ...all[2], name: "desktop-light" },
   ].filter((v) => want.some((w) => v.name.startsWith(w)));
   for (const v of recs) {
+    let browser = null;
     try {
-      const { browser, ctx, page } = await context(v, {
+      const opened = await context(v, {
         launch: { args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] },
         permissions: ["microphone"],
       });
+      browser = opened.browser;
+      const page = opened.page;
       await page.goto(base);
       await page.locator(".recorder").waitFor({ timeout: 20000 });
       await page.getByRole("button", { name: "Start recording" }).click();
@@ -220,14 +236,12 @@ if (process.env.RECORDING === "1") {
       const stop = page.getByRole("button", { name: /Stop and save|Stop recording/ }).first();
       await stop.click().catch(() => {});
       await page.waitForTimeout(3000);
-      await ctx.close();
-      await browser.close();
     } catch (e) {
       missed.push(`${v.name} recording: ${String(e).split("\n")[0]}`);
+    } finally {
+      await browser?.close().catch(() => {});
     }
   }
 }
 
-writeFileSync(`${out}/index.json`, JSON.stringify({ taken, missed }, null, 2));
-console.log(`${taken.length} screenshots in ${out}`);
-if (missed.length) console.log(`Not reached:\n${missed.join("\n")}`);
+finish();
