@@ -349,6 +349,8 @@ def join_code():
           "an expired code is refused")
     refused("bad_code", lambda: rpc("join_with_code", {"code": "hello", "display_name": NAMES["outsider"]}, tok("outsider")),
             "a malformed code is refused")
+    check(psql("select clinic.norm_code(' il0o-ab cd ')") == "1100ABCD" and psql("select clinic.norm_code('UUUU-1234') is null") == "t",
+          "typing is forgiving (case, spaces, hyphens; I and L read as 1, O as 0) and U is never a code letter")
     live = rpc("create_join_code", {"clinic_id": a}, tok("admin"))
     left = None
     for i in range(8):

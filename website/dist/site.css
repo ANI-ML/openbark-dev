@@ -687,3 +687,90 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .pt-dl-files .btn { white-space: normal; }
 .status.pt-mine::before { background: var(--ink); }
 .pt-dl-note { padding: 12px 20px; border-top: 1px solid var(--line); font-size: 13px; line-height: 18px; color: var(--ink-2); }
+
+/* Clinics on the portal (ADR-0028): invites, the admin dashboard and a
+   member's own counts. Same surfaces as the rest of the portal: white cards,
+   1 px borders, ink text and ink bars. No colour carries meaning that a word
+   doesn't also give. */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.cl { display: flex; flex-direction: column; gap: 24px; margin-bottom: 24px; min-width: 0; }
+.cl-invites { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.cl-invite { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px 24px; padding: 16px 20px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--bg-2); }
+.cl-invite-what { min-width: 0; flex: 1 1 240px; }
+.cl-invite-what h3 { font-size: 16px; line-height: 24px; font-weight: 600; overflow-wrap: anywhere; }
+.cl-invite-what p { font-size: 14px; line-height: 20px; color: var(--ink-2); }
+.cl-invite .field { flex: 1 1 220px; }
+.cl-invite .pt-actions { flex: none; }
+.cl-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px 24px; margin-bottom: 20px; }
+.cl-head-copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.portal .cl-head h2 { font-size: 26px; line-height: 32px; font-weight: 800; letter-spacing: -0.02em; overflow-wrap: anywhere; }
+.cl-sub { font-size: 15px; line-height: 24px; color: var(--ink-2); }
+.cl-switch { width: min(100%, 320px); }
+.cl-dash > .pt-msg { margin-bottom: 16px; }
+.cl-tabs { display: flex; gap: 4px; overflow-x: auto; margin-bottom: 24px; border-bottom: 1px solid var(--line); scrollbar-width: none; }
+.cl-tab { appearance: none; flex: none; min-height: 44px; padding: 10px 14px; border: 0; background: none; font: 600 15px/22px var(--font); color: var(--ink-2); cursor: pointer; box-shadow: inset 0 -2px 0 transparent; }
+.cl-tab:hover { color: var(--ink); }
+.cl-tab[aria-selected="true"] { color: var(--ink); box-shadow: inset 0 -2px 0 var(--ink); }
+.cl-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: var(--r-sm); }
+.cl-panel:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: var(--r-sm); }
+.cl-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; margin-bottom: 16px; }
+.cl-range { margin: 0; padding: 0; border: 0; min-width: 0; }
+.cl-summary { font-size: 16px; line-height: 26px; color: var(--ink); max-width: 46em; margin-bottom: 20px; }
+.cl-summary:empty { display: none; }
+.cl-stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin: 0 0 24px; }
+.cl-stats > div { display: flex; flex-direction: column-reverse; justify-content: flex-end; gap: 2px; min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: var(--r-md); }
+.cl-stats dt { font-size: 13px; line-height: 18px; color: var(--ink-2); }
+.cl-stats dd { margin: 0; font-size: 28px; line-height: 34px; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--ink); overflow-wrap: anywhere; }
+.cl-stats-sm dd { font-size: 22px; line-height: 28px; }
+@media (max-width: 900px) { .cl-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .cl-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.cl-chart { margin: 0 0 12px; }
+.cl-chart figcaption { font-size: 15px; line-height: 24px; font-weight: 600; margin-bottom: 8px; }
+.cl-chart-plot { position: relative; height: 160px; padding-top: 20px; border-bottom: 1px solid var(--ink-3); }
+.cl-chart-plot svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.cl-chart-plot rect { fill: var(--ink); }
+.cl-chart-plot rect.cl-zero { fill: var(--line); }
+.cl-chart-max { position: absolute; top: 0; left: 0; font-size: 12px; line-height: 16px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.cl-chart-axis { display: flex; justify-content: space-between; gap: 16px; margin-top: 6px; font-size: 12px; line-height: 16px; color: var(--ink-2); }
+.cl-alt { margin-bottom: 24px; }
+.cl-alt .cl-scroll { margin-top: 12px; max-height: 320px; overflow-y: auto; }
+.cl-h3 { font-size: 16px; line-height: 24px; font-weight: 600; margin: 24px 0 8px; }
+.cl-panel > .cl-h3:first-child, .cl-block > .cl-h3:first-child { margin-top: 0; }
+.cl-note { font-size: 14px; line-height: 20px; color: var(--ink-2); margin-bottom: 12px; max-width: 46em; }
+.cl-note:empty { display: none; }
+.cl-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r-md); min-width: 0; }
+.cl-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cl-table { width: 100%; border-collapse: collapse; font-size: 14px; line-height: 20px; }
+.cl-table th, .cl-table td { padding: 10px 16px; text-align: left; vertical-align: middle; white-space: nowrap; }
+.cl-table thead th { font-size: 13px; line-height: 18px; font-weight: 600; color: var(--ink-2); background: var(--bg-2); border-bottom: 1px solid var(--line); }
+.cl-table tbody tr + tr > * { border-top: 1px solid var(--line); }
+.cl-table tbody th { font-weight: 600; color: var(--ink); }
+.cl-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.cl-table td.cl-empty { color: var(--ink-2); white-space: normal; }
+.cl-table .cl-muted { color: var(--ink-3); font-weight: 500; }
+.cl-table .cl-actions { display: flex; flex-wrap: nowrap; gap: 8px; justify-content: flex-end; }
+.cl-table .btn { min-height: 32px; padding: 4px 12px; font-size: 14px; line-height: 20px; }
+.cl-table tfoot th, .cl-table tfoot td { border-top: 1px solid var(--line); font-weight: 600; }
+.cl-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 24px; }
+@media (max-width: 760px) { .cl-two { grid-template-columns: minmax(0, 1fr); } }
+.cl-textarea { min-height: 112px; resize: vertical; font-family: var(--font-mono); font-size: 14px; line-height: 22px; }
+.cl-invite-form { max-width: 640px; }
+.cl-results { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--r-md); }
+.cl-results li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px; padding: 10px 16px; font-size: 14px; line-height: 20px; }
+.cl-results li + li { border-top: 1px solid var(--line); }
+.cl-results .cl-addr { font-family: var(--font-mono); overflow-wrap: anywhere; color: var(--ink); }
+.cl-results .cl-what { color: var(--ink-2); }
+.cl-code { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; margin: 16px 0; padding: 16px 20px; border: 1px solid var(--ink); border-radius: var(--r-md); }
+.cl-code-value { font-size: 28px; line-height: 36px; font-weight: 500; letter-spacing: 0.12em; color: var(--ink); }
+.cl-code .help { flex: 1 1 220px; }
+.cl-panel > .pt-actions + .cl-scroll, .cl-panel > .cl-code + .cl-scroll { margin-top: 16px; }
+.cl-narrow { max-width: 480px; }
+.cl-admin + .cl-mine { margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--line); }
+.cl-mine-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 24px; }
+@media (max-width: 860px) { .cl-mine-grid { grid-template-columns: minmax(0, 1fr); } }
+.cl-block { min-width: 0; }
+.cl-leave { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; margin-top: 24px; }
+.cl-leave .pt-confirm { align-self: stretch; max-width: 640px; }
+.cl-warn { padding: 12px 16px; border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent); border-radius: var(--r-md); font-size: 14px; line-height: 20px; color: var(--ink); }
+#clinics-card .pt-actions { gap: 8px 16px; }
+#clinics-card .pt-confirm { margin-top: 16px; }

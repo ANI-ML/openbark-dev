@@ -9,7 +9,11 @@ name: Clinic end to end
 # reporting usage (accepted for one's own row, refused otherwise), what each
 # person can read, the admin dashboard's sums, the last-admin rule, removing
 # a member, deleting accounts, the purge, and a check that the only text
-# stored is clinic names, display names and invite addresses.
+# stored is clinic names, display names and invite addresses. Then the
+# website's portal checks (apps/desktop/e2e/website.mjs, every Supabase call
+# mocked) and the portal's clinic pages driven in Chromium against the local
+# Supabase (apps/desktop/e2e/portal-clinic.mjs: the page's calls to the hosted
+# address are answered from the local stack, never sent there).
 #
 # No app build and no models: the app doesn't take part in phase 1. Run it
 # from the Actions tab, or push a commit whose message contains [clinic-e2e].
@@ -28,6 +32,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  NODE_VERSION: "24.22.0"
   SUPABASE_CLI_VERSION: "2.121.0"
   SUPABASE_CLI_SHA256: "4b481189efbdc57cf2d37bdee5f1a0d29574314398564b32a6dfb76c0fcf275f"
 
@@ -36,7 +41,7 @@ jobs:
     name: Clinics, invites and usage through a local Supabase
     if: github.repository == 'ANI-ML/openbark-dev' && (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[clinic-e2e]'))
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Supabase CLI (pinned, hash-checked; docs/versions.md)
@@ -66,11 +71,41 @@ jobs:
           eval "$(bash scripts/sync-local-supabase.sh env)"
           mkdir -p target/clinic-e2e
           python3 -I scripts/clinic-e2e.py | tee target/clinic-e2e/steps.log
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        if: success() || failure()
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Website checks (the portal with its clinic pages; Supabase mocked)
+        if: success() || failure()
+        shell: bash
+        run: |
+          set -o pipefail
+          corepack enable
+          pnpm install --frozen-lockfile
+          (cd apps/desktop && npx playwright install --with-deps chromium)
+          mkdir -p target/clinic-e2e
+          python3 -m http.server -d website/dist 8099 > target/clinic-e2e/http.log 2>&1 &
+          for _ in $(seq 1 50); do curl -fs http://localhost:8099/portal.html > /dev/null && break; sleep 0.2; done
+          cd apps/desktop
+          OUT_DIR=../../target/clinic-e2e/website node e2e/website.mjs | tee ../../target/clinic-e2e/website.log
+      - name: The portal's clinic pages against the local Supabase
+        if: success() || failure()
+        shell: bash
+        run: |
+          set -o pipefail
+          eval "$(bash scripts/sync-local-supabase.sh env)"
+          curl -fs http://localhost:8099/portal.html > /dev/null || { python3 -m http.server -d website/dist 8099 > target/clinic-e2e/http.log 2>&1 & sleep 1; }
+          cd apps/desktop
+          OUT_DIR=../../target/clinic-e2e/portal node e2e/portal-clinic.mjs | tee ../../target/clinic-e2e/portal.log
       - name: Step summary
         if: always()
         run: |
           [ -f target/clinic-e2e/steps.log ] || exit 0
           { echo '### Clinic end to end'; echo '```'; cat target/clinic-e2e/steps.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          for f in website portal; do
+            [ -f "target/clinic-e2e/$f.log" ] && { echo "### $f"; echo '```'; cat "target/clinic-e2e/$f.log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          done
+          true
       - name: Service logs
         if: failure()
         run: |
