@@ -103,7 +103,7 @@ for (const v of variants) {
     await shot("visits");
   });
   await attempt("review", async () => {
-    await page.locator("tr.row-link, .row-link").first().click();
+    await page.locator(".row-link:visible").first().click();
     await page.locator(".note, .transcript").first().waitFor({ timeout: 20000 });
     await shot("review");
     await shot("review-full", { fullPage: true });
@@ -111,7 +111,7 @@ for (const v of variants) {
   await attempt("patient-detail", async () => {
     await nav("Patients");
     await page.locator(".patients-bar .ob-segment").nth(0).click();
-    await page.locator("tr.row-link, .row-link").first().click();
+    await page.locator(".row-link:visible").first().click();
     await page.waitForTimeout(1000);
     await shot("patient-detail");
   });
