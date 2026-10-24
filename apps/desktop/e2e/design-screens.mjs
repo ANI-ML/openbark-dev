@@ -1,6 +1,6 @@
-// Every main screen as it looks today, for design review: phone (390 x 844,
-// light and dark) and desktop (1440 x 900, light and dark). It records, it
-// doesn't assert: a screen it can't reach is listed, not fatal.
+// Every main screen, for design review: phone (390 x 844, light and dark)
+// and desktop (1440 x 900, light and dark), laid out as ADR-0027 describes.
+// It records, it doesn't assert: a screen it can't reach is listed, not fatal.
 //
 // Run ONLY against a demo server holding invented visits (the Design screens
 // workflow imports the synthetic smoke consult under invented patients):
@@ -8,6 +8,10 @@
 //
 // It refuses unless the URL is this computer (never port 4317) and the demo
 // folder holds an OPENBARK-DEMO marker.
+//
+// RECORDING=1 adds a last pass in Chromium with a fake microphone, for the
+// recording screen (WebKit can't fake one). It starts a recording, so it runs
+// after every other screen.
 
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -40,18 +44,20 @@ const all = [
 const want = (process.env.VARIANTS ?? "phone,desktop").split(",");
 const variants = all.filter((v) => want.some((w) => v.name.startsWith(w)));
 
-const NAV = { Record: 0, Patients: 1, Templates: 2, Models: 3, Settings: 4, Help: 5 };
+/** On phones these open from Settings rows (ADR-0027); the rest are tabs. */
+const PHONE_ROW = { templates: "Templates", models: "Models and storage", help: "Guides and videos" };
 const missed = [];
 const taken = [];
 
-for (const v of variants) {
-  const browser = await v.engine.launch();
+async function context(v, extra = {}) {
+  const browser = await v.engine.launch(extra.launch ?? {});
   const ctx = await browser.newContext({
     viewport: v.viewport,
     colorScheme: v.colorScheme,
     isMobile: v.isMobile,
     hasTouch: v.hasTouch,
     deviceScaleFactor: v.deviceScaleFactor,
+    permissions: extra.permissions,
   });
   await ctx.addInitScript(() => {
     const key = "openbark.settings";
@@ -61,7 +67,12 @@ for (const v of variants) {
       JSON.stringify({ ...current, consentAcknowledgedAt: "2026-10-17T20:00:00Z", uiLanguage: "en" }),
     );
   });
-  const page = await ctx.newPage();
+  return { browser, ctx, page: await ctx.newPage() };
+}
+
+for (const v of variants) {
+  const { browser, ctx, page } = await context(v);
+  const narrow = v.viewport.width <= 640;
   const shot = async (screen, opts = {}) => {
     await page.waitForTimeout(600);
     const file = `${v.name}-${screen}.png`;
@@ -69,13 +80,11 @@ for (const v of variants) {
     taken.push(file);
   };
   const nav = async (screen) => {
-    // Phones show four tabs (DESIGN.md §9); Models and Help are rows under Settings.
-    const more = { Models: 0, Help: 1 };
-    if (v.viewport.width <= 640 && screen in more) {
-      await page.locator(".nav-item").nth(NAV.Settings).click();
-      await page.locator(".phone-more-row").nth(more[screen]).click();
+    if (narrow && screen in PHONE_ROW) {
+      await page.locator('.nav-item[data-nav="settings"]').click();
+      await page.locator(".settings-row", { hasText: PHONE_ROW[screen] }).first().click();
     } else {
-      await page.locator(".nav-item").nth(NAV[screen]).click();
+      await page.locator(`.nav-item[data-nav="${screen}"]`).click();
     }
     await page.locator(".screen h1").first().waitFor({ timeout: 10000 });
   };
@@ -91,15 +100,25 @@ for (const v of variants) {
   await page.locator(".recorder").waitFor({ timeout: 20000 });
   await attempt("record", () => shot("record"));
   await attempt("record-full", () => shot("record-full", { fullPage: true }));
-  await attempt("patients", async () => {
-    await nav("Patients");
-    await page.waitForTimeout(800);
-    await shot("patients");
-  });
+  if (narrow) {
+    await attempt("record-patient", async () => {
+      await page.locator(".patient-row-button").click();
+      await page.locator(".ob-sheet").first().waitFor({ timeout: 5000 });
+      await shot("record-patient");
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(500);
+    });
+    await attempt("record-template", async () => {
+      await page.locator("button.opt-row", { hasText: "Template" }).click();
+      await page.locator(".ob-sheet").first().waitFor({ timeout: 5000 });
+      await shot("record-template");
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(500);
+    });
+  }
   await attempt("visits", async () => {
-    // The visit list: the second segment of the Patients bar.
-    await page.locator(".patients-bar .ob-segment").nth(1).click();
-    await page.waitForTimeout(800);
+    await nav("visits");
+    await page.locator(".row-link:visible").first().waitFor({ timeout: 10000 });
     await shot("visits");
   });
   await attempt("review", async () => {
@@ -108,23 +127,102 @@ for (const v of variants) {
     await shot("review");
     await shot("review-full", { fullPage: true });
   });
+  await attempt("review-more", async () => {
+    await page.getByRole("button", { name: "More actions" }).first().click();
+    await page.locator(".more-panel").waitFor({ timeout: 5000 });
+    await shot("review-more");
+    await page.keyboard.press("Escape");
+  });
+  if (narrow) {
+    await attempt("review-evidence", async () => {
+      await page.locator(".stmt").first().click();
+      await page.locator(".quote-card").waitFor({ timeout: 5000 });
+      await shot("review-evidence");
+    });
+    await attempt("review-transcript", async () => {
+      await page.locator(".review-tabs .ob-segment").nth(1).click();
+      await shot("review-transcript");
+    });
+    await attempt("review-back", async () => {
+      await page.locator(".back-top").first().click();
+      await page.locator(".screen.visits").waitFor({ timeout: 5000 });
+    });
+  }
+  await attempt("patients", async () => {
+    await nav("patients");
+    await page.waitForTimeout(800);
+    await shot("patients");
+  });
   await attempt("patient-detail", async () => {
-    await nav("Patients");
-    await page.locator(".patients-bar .ob-segment").nth(0).click();
-    await page.locator(".row-link:visible").first().click();
+    await page.locator(".patient-row:visible").first().click();
     await page.waitForTimeout(1000);
     await shot("patient-detail");
   });
-  for (const screen of ["Templates", "Models", "Settings", "Help"]) {
-    await attempt(screen.toLowerCase(), async () => {
+  for (const screen of ["templates", "models", "help"]) {
+    await attempt(screen, async () => {
       await nav(screen);
       await page.waitForTimeout(800);
-      await shot(screen.toLowerCase());
-      await shot(`${screen.toLowerCase()}-full`, { fullPage: true });
+      await shot(screen);
+      await shot(`${screen}-full`, { fullPage: true });
+    });
+  }
+  await attempt("settings", async () => {
+    await nav("settings");
+    await page.waitForTimeout(800);
+    await shot("settings");
+    await shot("settings-full", { fullPage: true });
+  });
+  // One section at a time: open a few, by their rows (phones) or the section list.
+  const sections = narrow
+    ? { recording: "Microphone and consent", sync: "Encrypted sync", privacy: "Privacy and storage", you: "You and your team" }
+    : { recording: "Recording and consent", sync: "Encrypted sync", privacy: "Privacy and storage", phone: "Phone calls" };
+  for (const [id, label] of Object.entries(sections)) {
+    await attempt(`settings-${id}`, async () => {
+      if (narrow) {
+        await nav("settings");
+        await page.locator(".settings-row", { hasText: label }).first().click();
+      } else {
+        await page.locator(".settings-nav-item", { hasText: label }).first().click();
+      }
+      await page.waitForTimeout(800);
+      await shot(`settings-${id}`, { fullPage: true });
     });
   }
   await ctx.close();
   await browser.close();
+}
+
+// The recording screen, with a fake microphone (Chromium only).
+if (process.env.RECORDING === "1") {
+  const recs = [
+    { ...all[0], name: "phone-light-chromium", engine: chromium },
+    { ...all[1], name: "phone-dark-chromium", engine: chromium },
+    { ...all[2], name: "desktop-light" },
+  ].filter((v) => want.some((w) => v.name.startsWith(w)));
+  for (const v of recs) {
+    try {
+      const { browser, ctx, page } = await context(v, {
+        launch: { args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] },
+        permissions: ["microphone"],
+      });
+      await page.goto(base);
+      await page.locator(".recorder").waitFor({ timeout: 20000 });
+      await page.getByRole("button", { name: "Start recording" }).click();
+      await page.getByRole("timer").first().waitFor({ timeout: 20000 });
+      await page.waitForTimeout(6000);
+      const file = `${v.name}-recording.png`;
+      await page.screenshot({ path: `${out}/${file}` });
+      taken.push(file);
+      // Stop and save, so the server isn't left recording.
+      const stop = page.getByRole("button", { name: /Stop and save|Stop recording/ }).first();
+      await stop.click().catch(() => {});
+      await page.waitForTimeout(3000);
+      await ctx.close();
+      await browser.close();
+    } catch (e) {
+      missed.push(`${v.name} recording: ${String(e).split("\n")[0]}`);
+    }
+  }
 }
 
 writeFileSync(`${out}/index.json`, JSON.stringify({ taken, missed }, null, 2));

@@ -111,13 +111,13 @@ jobs:
               || echo "::warning::drafting failed; Review will show the transcript only"
           fi
           cd apps/desktop
-          OPENBARK_URL=http://localhost:$port OUT_DIR="$demo/out" VARIANTS=desktop node e2e/design-screens.mjs "$demo"
+          OPENBARK_URL=http://localhost:$port OUT_DIR="$demo/out" VARIANTS=desktop RECORDING=1 node e2e/design-screens.mjs "$demo"
           cd ../..
           # The same visits as an 8 GB iPhone shows them (ADR-0018 section 10).
           kill "$(cat "$demo/serve.pid")"; sleep 1
           OPENBARK_PLATFORM=ios OPENBARK_DEVICE_RAM_GB=8 serve
           cd apps/desktop
-          OPENBARK_URL=http://localhost:$port OUT_DIR="$demo/out" VARIANTS=phone node e2e/design-screens.mjs "$demo" \
+          OPENBARK_URL=http://localhost:$port OUT_DIR="$demo/out" VARIANTS=phone RECORDING=1 node e2e/design-screens.mjs "$demo" \
             | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
