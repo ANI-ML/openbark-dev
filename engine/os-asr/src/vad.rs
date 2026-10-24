@@ -68,6 +68,7 @@ pub struct SileroVad {
 const WINDOW: usize = 512;
 
 /// No piece shorter than this is cut off a levelled utterance (samples).
+#[cfg(feature = "stt")]
 const MIN_PIECE: usize = SAMPLE_RATE as usize * 3 / 10;
 
 impl SileroVad {
@@ -210,6 +211,7 @@ fn secs_to_samples(secs: f32) -> usize {
 /// speech starting there), or such a voice stops and quieter speech goes on.
 /// `level(a, b)` is the speech level of samples `a..b` in dB. Pieces are at
 /// least [`MIN_PIECE`] long. All positions are sample indices.
+#[cfg(feature = "stt")]
 pub fn split_at_level_steps(
     span: (usize, usize),
     raw: &[(usize, usize)],
@@ -252,6 +254,7 @@ pub fn split_at_level_steps(
 /// vet a phone voice is loud enough for it, and the room echo bridges the
 /// pause). A pause is at least 160 ms within 6 dB of the quietest part.
 /// Returns sample ranges within `samples`, each at least [`MIN_PIECE`] long.
+#[cfg(feature = "stt")]
 pub fn split_at_level_dips(samples: &[f32], step_db: f32) -> Vec<(usize, usize)> {
     const FRAME: usize = SAMPLE_RATE as usize / 50; // 20 ms
     const MIN_DIP: usize = 8; // frames
@@ -509,7 +512,7 @@ impl StreamingVad {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "stt"))]
 mod tests {
     use super::*;
 

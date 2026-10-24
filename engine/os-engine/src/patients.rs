@@ -126,7 +126,8 @@ fn merge_group(mut group: Vec<PatientRecord>) -> PatientRecord {
         latest.species.clone()
     };
     // The owner's number (ADR-0023 section 8): the latest copy's, else any copy's.
-    keep.owner_phone = latest.owner_phone.clone().or_else(|| group.iter().find_map(|r| r.owner_phone.clone()));
+    keep.owner_phone =
+        latest.owner_phone.clone().or_else(|| group.iter().find_map(|r| r.owner_phone.clone()));
     keep.created_at = group.iter().map(|r| r.created_at).min().expect("a group has a record");
     keep.updated_at = group.iter().filter_map(|r| r.updated_at).max();
     let mut aliases: Vec<String> = group

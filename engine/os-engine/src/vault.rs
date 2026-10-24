@@ -824,7 +824,8 @@ impl AudioReader {
         let state = STATE.read().expect("vault lock");
         let s = state.as_ref().ok_or_else(|| locked(&self.path))?;
         let nonce = XNonce::try_from(&sealed[..NONCE]).expect("24-byte nonce");
-        s.cipher
+        s.key
+            .cipher
             .decrypt(&nonce, Payload { msg: &sealed[NONCE..], aad: &audio_aad(index) })
             .map_err(|_| err(format!("{} can't be decrypted with this computer's key.", self.path.display())))
     }
