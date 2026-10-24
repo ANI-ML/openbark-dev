@@ -108,7 +108,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: cargo-ios-${{ hashFiles('Cargo.lock') }}
+          key: cargo-ios/${{ github.repository }}/${{ hashFiles('Cargo.lock') }}
           restore-keys: cargo-ios-
       - name: The engine type-checks for iOS (as on Windows)
         run: bash scripts/ios-check.sh

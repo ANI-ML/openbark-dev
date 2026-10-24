@@ -1,0 +1,59 @@
+# Synthetic consult: written for OpenBark's test suite; not a real patient.
+# Generalisation fixture for the dental chart (ADR-0021): a cat with several
+# resorptive lesions, stages and types said on different lines and together,
+# a stage 4 sub-stage said in words, a tooth said only by name, a probing
+# depth, a whole-mouth periodontal stage that stays off the teeth, and a
+# treatment line covering two teeth. Held out from the prompt work on the
+# four original dental fixtures, to check that it generalises.
+#
+# expected.chart: one fact per item; see dental-chart.yaml for how items match.
+id: dental-feline-multi-tr
+title: Feline dental with several resorptive lesions, charted
+species: feline
+template: dental
+# As the clinic enters it before the visit; the app sends it with every draft.
+patient: { name: Mochi, reason: Dental, species: Cat }
+speakers:
+  dvm: af_sarah
+  tech: am_adam
+pause_secs: 0.6
+lines:
+  - [dvm, "This is Mochi, a nine year old spayed female Siamese, in for her dental under anaesthesia."]
+  - [tech, "She's three point nine kilos. Premed was butorphanol and dexmedetomidine, induced with alfaxalone, and she's on isoflurane."]
+  - [dvm, "Three oh nine has a stage three resorptive lesion."]
+  - [dvm, "Four oh nine has tooth resorption, stage four a, the crown and root about equally affected."]
+  - [dvm, "Two oh seven has a small stage one resorptive lesion, type one."]
+  - [dvm, "On the radiographs, three oh nine is type one and four oh nine is type two."]
+  - [dvm, "The lower left canine looks healthy."]
+  - [dvm, "Two oh eight has a four millimetre pocket."]
+  - [dvm, "Overall stage one periodontal disease, with mild calculus."]
+  - [dvm, "Three oh nine is extracted surgically with a flap, and four oh nine gets a crown amputation."]
+  - [dvm, "Recheck in ten days."]
+
+expected:
+  # Only a breed was said: the species is the dog or cat it implies.
+  patient_species: cat
+  vitals:
+    weight: "3.9"
+  must_mention: ["309", "409", "ten days"]
+  chart:
+    - { tooth: "309", finding: resorption, grade: 3 }
+    - { tooth: "309", finding: resorption_type, grade: 1 }
+    - { tooth: "409", finding: resorption, grade: 4, detail: crown_and_root_equal }
+    - { tooth: "409", finding: resorption_type, grade: 2 }
+    - { tooth: "207", finding: resorption, grade: 1 }
+    - { tooth: "207", finding: resorption_type, grade: 1 }
+    # Said only by name: "the lower left canine".
+    - { tooth: "304", finding: normal }
+    - { tooth: "208", finding: probing_depth, mm: 4 }
+    - { tooth: "309", finding: extraction, detail: open, planned: false }
+    - { tooth: "409", finding: crown_amputation, planned: false }
+  chart_flags: []
+  chart_not_allowed:
+    # "Overall stage one periodontal disease" is a whole-mouth finding.
+    - { finding: periodontal_stage }
+    - { finding: resorption, except: ["309", "409", "207"] }
+    - { finding: resorption_type, except: ["309", "409", "207"] }
+    - { finding: normal, except: ["304"] }
+    - { finding: extraction, except: ["309"] }
+    - { finding: missing }

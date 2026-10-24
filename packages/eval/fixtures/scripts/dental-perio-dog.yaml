@@ -1,0 +1,67 @@
+# Synthetic consult: written for OpenBark's test suite; not a real patient.
+# Generalisation fixture for the dental chart (ADR-0021): a dog with mixed
+# periodontal stages (a range, single teeth with pockets, mobility and
+# furcation), a tooth said only by name, a sectioned extraction, a surgical
+# extraction, a tooth kept for monitoring (no plan to chart) and a
+# whole-mouth stage that stays off the teeth. Held out from the prompt work
+# on the four original dental fixtures, to check that it generalises.
+#
+# expected.chart: one fact per item; see dental-chart.yaml for how items match.
+id: dental-perio-dog
+title: Canine dental with mixed periodontal stages, charted
+species: canine
+template: dental
+# As the clinic enters it before the visit; the app sends it with every draft.
+patient: { name: Rufus, reason: Dental, species: Dog }
+speakers:
+  dvm: am_michael
+  tech: af_nicole
+pause_secs: 0.6
+lines:
+  - [dvm, "This is Rufus, an eleven year old neutered male Border Collie, in for his dental under anaesthesia."]
+  - [tech, "He weighs twenty-two kilos. Premed was methadone and medetomidine, propofol to induce, and he's on isoflurane."]
+  - [dvm, "One oh six through one oh eight have stage two periodontal disease."]
+  - [dvm, "Two oh eight has stage four periodontal disease, a nine millimetre pocket and grade three mobility."]
+  - [dvm, "Two oh nine is stage three, with a class two furcation."]
+  - [dvm, "Four oh nine has a five millimetre pocket, stage two."]
+  - [dvm, "The upper right canine has two millimetres of gingival recession."]
+  - [dvm, "Three oh one is missing."]
+  - [dvm, "The rest of the mouth is stage one, with moderate calculus."]
+  - [dvm, "Two oh eight is sectioned and extracted, closed."]
+  - [dvm, "Two oh nine comes out surgically, with a flap."]
+  - [dvm, "Four oh nine stays for now. We'll keep an eye on it at home."]
+  - [tech, "Scaling and polishing done."]
+  - [dvm, "Recheck in two weeks."]
+
+expected:
+  # Only a breed was said: the species is the dog or cat it implies.
+  patient_species: dog
+  vitals:
+    weight: "22"
+  must_mention: ["208", "209", "two weeks"]
+  chart:
+    # 106 to 108: a range.
+    - { tooth: "106", finding: periodontal_stage, grade: 2 }
+    - { tooth: "107", finding: periodontal_stage, grade: 2 }
+    - { tooth: "108", finding: periodontal_stage, grade: 2 }
+    - { tooth: "208", finding: periodontal_stage, grade: 4 }
+    - { tooth: "208", finding: probing_depth, mm: 9 }
+    - { tooth: "208", finding: mobility, grade: 3 }
+    - { tooth: "209", finding: periodontal_stage, grade: 3 }
+    - { tooth: "209", finding: furcation, grade: 2 }
+    - { tooth: "409", finding: probing_depth, mm: 5 }
+    - { tooth: "409", finding: periodontal_stage, grade: 2 }
+    # Said only by name: "the upper right canine".
+    - { tooth: "104", finding: gingival_recession, mm: 2 }
+    - { tooth: "301", finding: missing }
+    - { tooth: "208", finding: extraction, detail: closed_sectioned, planned: false }
+    - { tooth: "209", finding: extraction, detail: open, planned: false }
+  chart_flags: []
+  chart_not_allowed:
+    # "The rest of the mouth is stage one" is a whole-mouth finding.
+    - { finding: periodontal_stage, except: ["106", "107", "108", "208", "209", "409"] }
+    # 409 stays: no extraction, done or planned.
+    - { finding: extraction, except: ["208", "209"] }
+    - { finding: missing, except: ["301"] }
+    - { finding: normal }
+    - { finding: resorption }

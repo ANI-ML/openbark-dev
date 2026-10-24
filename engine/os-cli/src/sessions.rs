@@ -111,6 +111,13 @@ pub fn rerun(store: &ModelStore, args: RerunArgs) -> Result<()> {
     let _awake = AwakeGuard::acquire(AwakeReason::Processing);
     let mut session = Session::open(&args.session).context("opening session")?;
     let transcript = if args.retranscribe || !session.transcript_path().is_file() {
+        // A phone call's two channels would be mixed down here and lose their
+        // exact speaker labels (ADR-0023 section 7).
+        if session.meta.call.is_some() {
+            bail!(
+                "This visit is a phone call, transcribed by channel when it was recorded. It can't be transcribed again from the mixed recording; drafting from its transcript still works."
+            );
+        }
         if !session.has_audio() && session.meta.audio_deleted.is_some() {
             bail!(
                 "This visit's recording was deleted, so it can't be transcribed again. Drafting from the transcript still works."
@@ -118,7 +125,8 @@ pub fn rerun(store: &ModelStore, args: RerunArgs) -> Result<()> {
         }
         let wav = os_engine::vault::read(&session.audio_path())?;
         let audio = Audio::decode_bytes(wav, "audio.wav")?;
-        let transcriber = os_engine::models::transcriber(store, &args.stt, args.diarize, None, None, None)?;
+        let transcriber =
+            os_engine::models::transcriber(store, &args.stt, args.diarize, None, None, None, false)?;
         let (transcript, stats) = transcriber.run(&audio, &mut |_| {})?;
         session.save_transcript(&transcript, &args.stt, args.diarize, &stats)?;
         transcript

@@ -2,10 +2,12 @@
 // - desktop (Tauri): commands in src-tauri/src/lib.rs, events via Tauri
 // - web (`openbark serve`): HTTP API in engine/os-server, events via SSE,
 //   and the browser's microphone streamed over a WebSocket
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { recordInBrowser } from "./mic/browser";
+import type { MicHealth, MicQuality } from "./mic/health";
 
 export interface Hint {
   heard: string;
@@ -131,7 +133,9 @@ export interface Patient {
 }
 
 export type ConsentRule = "all_parties" | "one_party";
-export type ConsentMethod = "verbal" | "written" | "on_file" | "clinician_only";
+export type ConsentMethod = "verbal" | "written" | "on_file" | "clinician_only" | "announced";
+/** A phone call: what the client said after the announcement (ADR-0023 section 7). */
+export type ConsentOutcome = "agreed" | "declined" | "stayed_on_line" | "not_announced";
 
 /** Consent to record one encounter (M1 item 7); the engine stamps the time. */
 export interface RecordingConsent {
@@ -140,6 +144,23 @@ export interface RecordingConsent {
   confirmed_by: string;
   confirmed_at?: string | null;
   script?: string | null;
+  /** Phone calls: the client's answer after the announcement. */
+  outcome?: ConsentOutcome | null;
+  /** Phone calls: when the announcement started, in seconds into the recording. */
+  announced_at_secs?: number | null;
+}
+
+/** A phone call's details (ADR-0023 section 8). Speaker 0 is the clinic, 1 the client. */
+export interface CallInfo {
+  direction: "outgoing" | "incoming";
+  number: string;
+  started_at: string;
+  duration_secs: number;
+  call_sid?: string | null;
+  /** "Vet", "Tech" or "Clinic". */
+  clinic_label: string;
+  /** When the client declined and the recording was deleted, in seconds into the call. */
+  declined_at_secs?: number | null;
 }
 
 const consentQuery = (c: RecordingConsent | null) => ({
@@ -209,6 +230,8 @@ export interface SessionView {
   chart_checks?: ChartCheck[];
   /** Teeth with a drafted chart entry no veterinarian has confirmed; signing waits until it's empty. */
   unconfirmed_teeth?: string[];
+  /** Set for a phone call through the clinic's own Twilio account (ADR-0023). */
+  call?: CallInfo | null;
   /** A visit from another device (ADR-0017 section 7): the device that holds the audio. */
   audio_on?: { device_id: string; device_name: string } | null;
   /** Drafts set aside when this visit met a signature from another device, offered as addenda. */
@@ -980,6 +1003,8 @@ export interface PatientRecord {
   species: string;
   created_at: string;
   updated_at?: string | null;
+  /** The owner's phone number in E.164, for Call (ADR-0023). */
+  owner_phone?: string | null;
 }
 
 export interface VisitSummary {
@@ -1024,10 +1049,14 @@ export const createPatient = (name: string, lastName: string, species: string) =
   isDesktop
     ? invoke<PatientRecord>("create_patient", { name, lastName, species })
     : api<PatientRecord>("/api/patients", post({ name, last_name: lastName, species }));
-export const updatePatientRecord = (id: string, name: string, lastName: string, species: string) =>
+/** Change a patient's details. `ownerPhone`: empty clears it, `undefined` keeps it. */
+export const updatePatientRecord = (id: string, name: string, lastName: string, species: string, ownerPhone?: string) =>
   isDesktop
-    ? invoke<PatientRecord>("update_patient_record", { id, name, lastName, species })
-    : api<PatientRecord>(`/api/patients/${enc(id)}`, post({ name, last_name: lastName, species }));
+    ? invoke<PatientRecord>("update_patient_record", { id, name, lastName, species, ownerPhone })
+    : api<PatientRecord>(
+        `/api/patients/${enc(id)}`,
+        post({ name, last_name: lastName, species, ...(ownerPhone === undefined ? {} : { owner_phone: ownerPhone }) }),
+      );
 
 export const listSessions = () =>
   isDesktop ? invoke<SessionSummary[]>("list_sessions") : api<SessionSummary[]>("/api/sessions");
@@ -1464,12 +1493,33 @@ export const hubAdd = (repo: string, file: string, acceptLicense: boolean) =>
     : api<ModelRow>("/api/hub/add", post({ repo, file, accept_license: acceptLicense }));
 
 /**
+ * WebKitGTK (the Linux desktop app) won't play media from an app-defined
+ * scheme at all (media error 4 before any request), so there the player
+ * starts from the fallback.
+ */
+const linuxWebview = () => typeof navigator !== "undefined" && /Linux/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent);
+
+/**
  * A URL the player can use for the recording. Audio is encrypted on disk
- * (ADR-0008): web mode decrypts it on the server; the desktop app fetches the
- * decrypted bytes and plays them from memory. Revoke desktop URLs when done.
+ * (ADR-0008), so it's decrypted as it's played, in byte ranges: by the
+ * server in web mode, and by the desktop app's `obaudio` scheme
+ * (`obaudio://localhost/<id>` on macOS, `http://obaudio.localhost/<id>` on
+ * Windows). On the Linux desktop it's a blob: URL from
+ * {@link audioFallbackUrl}; revoke blob: URLs when done.
  */
 export async function audioUrl(s: SessionView): Promise<string> {
   if (!isDesktop) return `/api/sessions/${enc(s.id)}/audio`;
+  if (linuxWebview()) return (await audioFallbackUrl(s)) ?? convertFileSrc(s.id, "obaudio");
+  return convertFileSrc(s.id, "obaudio");
+}
+
+/**
+ * The desktop player's fallback when its URL won't play: the whole decrypted
+ * recording, from memory (a blob: URL). Revoke it when done. Null in web mode,
+ * where there's nothing else to try.
+ */
+export async function audioFallbackUrl(s: SessionView): Promise<string | null> {
+  if (!isDesktop) return null;
   const bytes = await invoke<ArrayBuffer>("session_audio", { id: s.id });
   return URL.createObjectURL(new Blob([bytes], { type: "audio/wav" }));
 }
@@ -1730,6 +1780,7 @@ export interface ProcessingProgress {
 
 export async function importRecording(
   speakers: boolean,
+  speakerphone: boolean,
   patient: Patient | null,
   consent: RecordingConsent | null,
   onPicked: () => void,
@@ -1740,7 +1791,7 @@ export async function importRecording(
     const picked = await open({ multiple: false, filters: [{ name: "Recording", extensions: AUDIO_EXTENSIONS }] });
     if (typeof picked !== "string") return null;
     onPicked();
-    return invoke<SessionView>("import_file", { path: picked, speakers, patient: p, consent, by: actor });
+    return invoke<SessionView>("import_file", { path: picked, speakers, speakerphone, patient: p, consent, by: actor });
   }
   const file = await pickBrowserFile();
   if (!file) return null;
@@ -1748,6 +1799,7 @@ export async function importRecording(
   const upload = (body: Blob, name: string) => {
     const q = new URLSearchParams({
       diarize: String(speakers),
+      speakerphone: String(speakerphone),
       name,
       patient_name: p?.name ?? "",
       others: (p?.others ?? [])
@@ -1782,150 +1834,145 @@ export async function importRecording(
 export interface Recording {
   /** Resolves to the saved encounter once the transcript is complete. */
   stop(): Promise<SessionView>;
+  /** Web mode: the microphone the browser opened. */
+  mic?: { label: string; sampleRate: number; fellBack: boolean };
 }
 
 /** Desktop: the engine records the microphone natively (levels arrive as events). */
 async function startDesktopRecording(
   speakers: boolean,
+  speakerphone: boolean,
   device: string | null,
   patient: Patient | null,
   consent: RecordingConsent | null,
 ): Promise<Recording> {
-  await invoke<string>("start_recording", { device, speakers, patient, consent, by: actor });
+  await invoke<string>("start_recording", { device, speakers, speakerphone, patient, consent, by: actor });
   return { stop: () => invoke<SessionView>("stop_recording") };
 }
 
-const WORKLET = `
-class Tap extends AudioWorkletProcessor {
-  process(inputs) {
-    const ch = inputs[0] && inputs[0][0];
-    if (ch) this.port.postMessage(ch.slice(0));
-    return true;
-  }
-}
-registerProcessor("openbark-tap", Tap);`;
-
 /**
  * Web: the browser captures the user's own microphone and streams PCM to the
- * engine over a WebSocket. Levels are measured here so the meter reacts to
- * the real input with no round trip.
+ * engine over a WebSocket (mic/browser.ts). Levels are measured there so the
+ * meter reacts to the real input with no round trip.
  */
 async function startBrowserRecording(
   speakers: boolean,
+  speakerphone: boolean,
+  deviceId: string | null,
   patient: Patient | null,
   consent: RecordingConsent | null,
-  onLevel: (l: number, s: number) => void,
+  hooks: RecordingHooks,
 ): Promise<Recording> {
-  if (!navigator.mediaDevices?.getUserMedia) {
-    throw new Error("This browser can't record audio. Use a current version of Chrome, Edge, Firefox or Safari.");
-  }
-  let stream: MediaStream;
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio: { channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: true },
-    });
-  } catch {
-    throw new Error(
-      "Microphone access was blocked. Allow the microphone for this page in the browser's address bar, then try again.",
-    );
-  }
-  const ctx = new AudioContext();
-  const url = URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" }));
-  await ctx.audioWorklet.addModule(url);
-  URL.revokeObjectURL(url);
-  const source = ctx.createMediaStreamSource(stream);
-  const tap = new AudioWorkletNode(ctx, "openbark-tap");
-  source.connect(tap);
-
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  const q = new URLSearchParams({
-    speakers: String(speakers),
-    sample_rate: String(ctx.sampleRate),
-    patient_name: patient?.name ?? "",
-    others: (patient?.others ?? [])
-      .map((o) => o.trim())
-      .filter(Boolean)
-      .join("\n"),
-    species: patient?.species ?? "",
-    patient_id: patient?.patient_id ?? "",
-    last_name: patient?.last_name ?? "",
-    reason: patient?.reason ?? "",
-    ...consentQuery(consent),
-    by: actor ?? "",
-  });
-  const ws = new WebSocket(`${proto}://${location.host}/api/live?${q}`);
-  ws.binaryType = "arraybuffer";
-  const opened = new Promise<void>((resolve, reject) => {
-    ws.onmessage = (e) => {
-      const msg = JSON.parse(String(e.data)) as { started?: string; error?: string };
-      if (msg.error) reject(new Error(msg.error));
-      else resolve();
-    };
-    ws.onerror = () => reject(new Error("Couldn't reach the OpenBark engine. Check that `openbark serve` is running."));
-  });
-
-  let samples = 0;
-  let acc = 0;
-  let n = 0;
-  const every = Math.round(ctx.sampleRate / 20);
-  // The worklet posts a copied (non-shared) buffer.
-  tap.port.onmessage = (e: MessageEvent<Float32Array<ArrayBuffer>>) => {
-    const block = e.data;
-    if (ws.readyState === WebSocket.OPEN) ws.send(block);
-    samples += block.length;
-    for (const v of block) {
-      acc += v * v;
-      if (++n >= every) {
-        const db = 20 * Math.log10(Math.max(1e-6, Math.sqrt(acc / n)));
-        onLevel(Math.min(1, Math.max(0, (db + 60) / 60)), samples / ctx.sampleRate);
-        acc = 0;
-        n = 0;
-      }
-    }
+  const connect = (sampleRate: number) => {
+    const q = new URLSearchParams({
+      speakers: String(speakers),
+      speakerphone: String(speakerphone),
+      sample_rate: String(sampleRate),
+      patient_name: patient?.name ?? "",
+      others: (patient?.others ?? [])
+        .map((o) => o.trim())
+        .filter(Boolean)
+        .join("\n"),
+      species: patient?.species ?? "",
+      patient_id: patient?.patient_id ?? "",
+      last_name: patient?.last_name ?? "",
+      reason: patient?.reason ?? "",
+      ...consentQuery(consent),
+      by: actor ?? "",
+    });
+    return new WebSocket(`${proto}://${location.host}/api/live?${q}`);
   };
-  try {
-    await opened;
-  } catch (e) {
-    stream.getTracks().forEach((t) => t.stop());
-    await ctx.close();
-    throw e;
-  }
-
-  return {
-    stop: () =>
-      new Promise<SessionView>((resolve, reject) => {
-        tap.port.onmessage = null;
-        stream.getTracks().forEach((t) => t.stop());
-        void ctx.close();
-        ws.onmessage = (e) => {
-          const msg = JSON.parse(String(e.data)) as { session?: SessionView; error?: string };
-          if (msg.session) resolve(msg.session);
-          else reject(new Error(msg.error ?? "The recording couldn't be saved."));
-        };
-        ws.send("stop");
-      }),
-  };
+  const rec = await recordInBrowser({
+    deviceId,
+    connect,
+    onLevel: hooks.onLevel,
+    onHealth: (h) => hooks.onHealth?.(h),
+    onEnded: (m) => hooks.onEnded?.(m),
+  });
+  return { stop: () => rec.stop() as Promise<SessionView>, mic: rec.mic };
 }
 
-/** Start recording; `consent` is saved with the encounter when the consent step was used. */
+export interface RecordingHooks {
+  onLevel(level: number, seconds: number): void;
+  /** Web mode: the browser's own view of its microphone (desktop: the "mic" event). */
+  onHealth?(health: MicHealth): void;
+  /** Web mode: the recording ended by itself (the engine went away). */
+  onEnded?(message: string): void;
+}
+
+/**
+ * Start recording; `consent` is saved with the encounter when the consent
+ * step was used. `device` is the desktop microphone's name, or in web mode
+ * the browser's device id; null is the system default.
+ */
+export type { MicHealth, MicQuality };
+
 export function startRecording(
   speakers: boolean,
+  speakerphone: boolean,
   device: string | null,
   patient: Patient | null,
   consent: RecordingConsent | null,
-  onLevel: (level: number, seconds: number) => void,
+  hooks: RecordingHooks | ((level: number, seconds: number) => void),
 ): Promise<Recording> {
   const p = hasPatient(patient) ? patient : null;
+  const h = typeof hooks === "function" ? { onLevel: hooks } : hooks;
   return isDesktop
-    ? startDesktopRecording(speakers, device, p, consent)
-    : startBrowserRecording(speakers, p, consent, onLevel);
+    ? startDesktopRecording(speakers, speakerphone, device, p, consent)
+    : startBrowserRecording(speakers, speakerphone, device, p, consent, h);
 }
+
+/**
+ * The Record screen opened: load the speech models now (if memory allows),
+ * so Record starts at once. Best effort: false when it didn't.
+ */
+export const prewarmSpeech = (speakers: boolean, speakerphone = false): Promise<boolean> =>
+  (isDesktop
+    ? invoke<boolean>("prewarm_speech", { speakers, speakerphone })
+    : api<{ loading: boolean }>("/api/record/prewarm", post({ speakers, speakerphone })).then((r) => r.loading)
+  ).catch(() => false);
+
+/** The Record screen closed: give the memory back. */
+export const releaseSpeech = (): Promise<void> =>
+  (isDesktop ? invoke<void>("release_speech") : api<unknown>("/api/record/release", post({})).then(() => undefined)).catch(
+    () => undefined,
+  );
+
+/** The microphone a desktop test opened. */
+export interface MicTestStarted {
+  /** This test's number: its "micTest" events carry it. */
+  test: number;
+  device: string;
+  sample_rate: number;
+  quality: MicQuality;
+  /** The chosen microphone wasn't connected; this is the default. */
+  replaced: string | null;
+}
+
+/** The desktop microphone test's level (the "micTest" event), about 20 times a second. */
+export interface MicLevel {
+  /** Which test sent it (a stopped test's last events can still arrive). */
+  test: number;
+  device: string;
+  sample_rate: number;
+  quality: MicQuality;
+  level: number;
+  silent: boolean;
+  done: boolean;
+}
+
+/** Desktop: test a microphone (levels arrive as "micTest" events). */
+export const micTestStart = (device: string | null) => invoke<MicTestStarted>("mic_test_start", { device });
+/** Stop the test with this number (or whichever is running). */
+export const micTestStop = (test?: number) => invoke<void>("mic_test_stop", { test: test ?? null });
 
 const METHOD_TEXT: Record<ConsentMethod, string> = {
   verbal: "agreed out loud",
   written: "signed a consent form",
   on_file: "consent on file",
   clinician_only: "clinician consent only (one-party rule)",
+  announced: "heard the recorded announcement",
 };
 
 /** "Client agreed out loud; confirmed by Dr Patel, 2026-10-17 20:07". */
@@ -1943,10 +1990,153 @@ export function fmtStamp(iso: string | null | undefined): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+// ---- phone calls (ADR-0023) ------------------------------------------------
+// The clinic's own Twilio account. The main window only connects, sets up and
+// says who to call; the call itself runs in the separate phone window
+// (phone.html), the only page that may reach Twilio.
+
+export interface PhonePrefs {
+  /** "Turn on the phone on this computer". */
+  enabled: boolean;
+  record_calls: boolean;
+  announcement: string;
+}
+
+export interface SecretStatus {
+  location: "keychain" | "sealed_file";
+  /** "****4f2a". */
+  hint: string;
+  warning?: string | null;
+}
+
+export interface TwilioView {
+  account_sid: string;
+  api_key_hint: string;
+  api_key_sid: string;
+  computer_name: string;
+  identity: string;
+  caller_id?: string | null;
+  outgoing_bin_url?: string | null;
+  twiml_app_sid?: string | null;
+}
+
+export interface PhoneView {
+  connected: boolean;
+  twilio: TwilioView | null;
+  secret: SecretStatus | null;
+  prefs: PhonePrefs;
+  /** Calls can be placed now. */
+  ready: boolean;
+  /** The Linux desktop app can't make calls (web mode can). */
+  linux: boolean;
+  outgoing_bin: string | null;
+}
+
+export interface ConnectTwilio {
+  account_sid: string;
+  api_key_sid: string;
+  /** Empty keeps the secret already saved for the same key. */
+  api_key_secret: string;
+  computer_name: string;
+  caller_id: string;
+  outgoing_bin_url: string;
+}
+
+export interface SetupCheck {
+  id: "key" | "caller_id" | "twiml_app" | "phone_on" | "trial";
+  ok: boolean | null;
+  message: string;
+}
+
+export interface CallTarget {
+  patient_id: string | null;
+  patient_name: string;
+  last_name: string;
+  number: string | null;
+  record_calls: boolean;
+  announcement: string;
+  by: string | null;
+  clinic_label: string;
+}
+
+export const phone = () => (isDesktop ? invoke<PhoneView>("phone") : api<PhoneView>("/api/phone"));
+/** The outgoing Bin's text for a caller ID (no network). */
+export const phoneBin = (callerId: string) =>
+  isDesktop
+    ? invoke<string>("phone_bin", { callerId })
+    : api<{ text: string }>(`/api/phone/bin?caller_id=${enc(callerId)}`).then((r) => r.text);
+/** Connect Twilio. The secret goes to the engine, which sends it only to Twilio. */
+export const phoneConnect = (request: ConnectTwilio) =>
+  isDesktop
+    ? invoke<{ phone: PhoneView }>("phone_connect", { request, by: actor })
+    : api<{ phone: PhoneView }>("/api/phone/connect", post({ ...request, by: actor }));
+export const phoneDisconnect = () =>
+  isDesktop
+    ? invoke<{ note: string }>("phone_disconnect", { by: actor })
+    : api<{ note: string }>("/api/phone/disconnect", post({ by: actor }));
+export const phoneSetPrefs = (prefs: PhonePrefs) =>
+  isDesktop
+    ? invoke<PhoneView>("phone_set_prefs", { prefs, by: actor })
+    : api<PhoneView>("/api/phone/prefs", post({ ...prefs, by: actor }));
+export const phoneCheck = () =>
+  isDesktop
+    ? invoke<SetupCheck[]>("phone_check", { by: actor })
+    : api<SetupCheck[]>("/api/phone/check", post({ by: actor }));
+
+/** The phone page's channel to the main window in web mode (same origin). */
+export const PHONE_CHANNEL = "openbark-phone";
+
+/**
+ * **Call**: tells the engine who to call, then opens the phone window. On the
+ * desktop that's a second Tauri window; in web mode, a pop-up of this page.
+ * Returns false when the browser blocked the pop-up.
+ */
+export async function openPhone(call: { patient_id?: string | null; number?: string | null }): Promise<boolean> {
+  if (isDesktop) {
+    await invoke<CallTarget>("phone_open", { call, by: actor });
+    return true;
+  }
+  await api<CallTarget>("/api/phone/prepare", post({ ...call, by: actor }));
+  try {
+    new BroadcastChannel(PHONE_CHANNEL).postMessage({ type: "target" });
+  } catch {
+    // Old browsers: the phone page reads the call when it opens.
+  }
+  const w = window.open("/phone.html", "openbark-phone", "popup,width=420,height=760");
+  if (!w) return false;
+  // The phone page can't reach back into this window: no opener, as with
+  // noopener (which would hide whether the pop-up was blocked).
+  w.opener = null;
+  w.focus();
+  return true;
+}
+
+/** Called with a visit's id when a recorded call is saved (from the phone window). */
+export function onCallSaved(cb: (id: string) => void): () => void {
+  if (isDesktop) {
+    const off = listen<{ id: string }>("phone-call-saved", (e) => cb(e.payload.id));
+    return () => void off.then((f) => f());
+  }
+  let channel: BroadcastChannel | null = null;
+  try {
+    channel = new BroadcastChannel(PHONE_CHANNEL);
+    channel.onmessage = (e: MessageEvent<{ type?: string; id?: string }>) => {
+      if (e.data?.type === "saved" && e.data.id) cb(e.data.id);
+    };
+  } catch {
+    // No BroadcastChannel: the visit still appears under Patients.
+  }
+  return () => channel?.close();
+}
+
 // ---- events -----------------------------------------------------------------
 
 type Unlisten = () => void;
 type Handlers = {
+  /** The recording's microphone health (desktop; web mode reports its own). */
+  mic: Set<(h: MicHealth) => void>;
+  /** The desktop microphone test's level. */
+  micTest: Set<(l: MicLevel) => void>;
   segment: Set<(s: Segment) => void>;
   token: Set<(t: string) => void>;
   level: Set<(l: { level: number; seconds: number }) => void>;
@@ -1955,6 +2145,8 @@ type Handlers = {
   moving: Set<(m: { done: number; total: number }) => void>;
 };
 const handlers: Handlers = {
+  mic: new Set(),
+  micTest: new Set(),
   segment: new Set(),
   token: new Set(),
   level: new Set(),
@@ -1974,6 +2166,8 @@ function sse() {
 }
 
 const TAURI_EVENT: Record<keyof Handlers, string> = {
+  mic: "mic-status",
+  micTest: "mic-test",
   segment: "transcript-segment",
   token: "note-token",
   level: "audio-level",

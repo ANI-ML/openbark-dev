@@ -2,15 +2,22 @@
 //!
 //! Web mode (`openbark serve`) exposes the same operations over HTTP, so the
 //! UI behaves identically in both. Events: `transcript-segment`, `note-token`,
-//! `audio-level`, `download-progress`.
+//! `audio-level`, `download-progress`, `phone-call-saved`, `mic-status` (the
+//! recording's microphone health) and `mic-test` (the microphone test's level).
+//!
+//! Phone calls (ADR-0023 section 4) run in a second window, `phone`, the only
+//! window allowed to reach Twilio and the only one granted the microphone. It
+//! may call only the phone commands ([`PHONE_COMMANDS`]): no visits, patients
+//! or settings. The main window can't call those.
 
 use std::path::Path;
 use std::sync::Arc;
 
 use os_app::{
-    App, AppError, Approver, Events, Patient, PdfRequest, ProfileSummary, RecordingConsent, RecordingSource,
-    RefineRequest, ResetView, SaveTemplateRequest, ShareMode, TeamSettingsView, TemplateMode,
-    TemplateSummary, TemplateView,
+    App, AppError, Approver, CallBlock, CallEnd, CallRequest, CallStart, CallTarget, ConnectRequest,
+    Connected, ConsentOutcome, Disconnected, Events, Patient, PdfRequest, PhonePrefs, PhoneToken, PhoneView,
+    ProfileSummary, RecordingConsent, RecordingSource, RefineRequest, ResetView, SaveTemplateRequest,
+    SetupCheck, ShareMode, TeamSettingsView, TemplateMode, TemplateSummary, TemplateView,
 };
 use os_engine::Segment;
 use os_engine::template::{Scope, Standard, Template};
@@ -18,7 +25,10 @@ use os_engine::template_diff::TemplateDiff;
 use os_engine::users::{Role, User};
 use os_models::ModelStore;
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
+
+#[cfg(feature = "selftest")]
+mod selftest;
 
 struct TauriEvents(AppHandle);
 
@@ -53,6 +63,12 @@ impl Events for TauriEvents {
     }
     fn moving(&self, done: u64, total: u64) {
         let _ = self.0.emit("move-progress", Moving { done, total });
+    }
+    fn mic(&self, health: &os_app::MicHealth) {
+        let _ = self.0.emit("mic-status", health);
+    }
+    fn mic_test(&self, level: &os_app::MicLevel) {
+        let _ = self.0.emit("mic-test", level);
     }
 }
 
@@ -93,6 +109,53 @@ fn input_devices(app: State<'_, AppState>) -> Vec<String> {
     app.input_devices()
 }
 
+/// The Record screen opened: load the speech models now, if memory allows.
+/// Off the main thread: it takes locks and may free models.
+#[tauri::command]
+async fn prewarm_speech(
+    app: State<'_, AppState>,
+    speakers: bool,
+    speakerphone: Option<bool>,
+) -> Result<bool, String> {
+    let app = app.inner().clone();
+    work(move || Ok(app.prewarm_speech(speakers, speakerphone.unwrap_or(false)))).await
+}
+
+/// The Record screen closed: give the memory back (freeing models takes a moment).
+#[tauri::command]
+async fn release_speech(app: State<'_, AppState>) -> Result<(), String> {
+    let app = app.inner().clone();
+    work(move || {
+        app.release_speech();
+        Ok(())
+    })
+    .await
+}
+
+#[tauri::command]
+async fn mic_test_start(
+    handle: AppHandle,
+    app: State<'_, AppState>,
+    device: Option<String>,
+) -> Result<os_app::MicTestStarted, String> {
+    let app = app.inner().clone();
+    work(move || app.start_mic_test(device, Arc::new(TauriEvents(handle)))).await
+}
+
+/// Stop the test with this number, or whichever is running.
+#[tauri::command]
+async fn mic_test_stop(app: State<'_, AppState>, test: Option<u64>) -> Result<(), String> {
+    let app = app.inner().clone();
+    work(move || {
+        match test {
+            Some(id) => app.stop_mic_test_number(id),
+            None => app.stop_mic_test(),
+        }
+        Ok(())
+    })
+    .await
+}
+
 #[tauri::command]
 async fn list_patients(app: State<'_, AppState>) -> Result<Vec<os_app::PatientSummary>, String> {
     let app = app.inner().clone();
@@ -122,8 +185,226 @@ fn update_patient_record(
     name: String,
     last_name: String,
     species: String,
+    owner_phone: Option<String>,
 ) -> Result<os_engine::patients::PatientRecord, String> {
-    app.update_patient_record(&id, &name, &last_name, &species).map_err(|e| e.0)
+    let record = app.update_patient_record(&id, &name, &last_name, &species).map_err(|e| e.0)?;
+    match owner_phone {
+        Some(phone) => app.set_owner_phone(&id, &phone).map_err(|e| e.0),
+        None => Ok(record),
+    }
+}
+
+// ---- phone calls (ADR-0023) ---------------------------------------------------
+
+/// The only commands the phone window may call. Everything else is refused
+/// there, and these are refused in every other window (see `run`).
+const PHONE_COMMANDS: &[&str] = &[
+    "phone_pending",
+    "phone_token",
+    "phone_call_start",
+    "phone_audio",
+    "phone_call_announced",
+    "phone_call_consent",
+    "phone_call_end",
+];
+
+/// Whether a window may call a command: the phone window only the phone
+/// commands, every other window everything else.
+fn command_allowed(window_label: &str, command: &str) -> bool {
+    (window_label == PHONE_WINDOW) == PHONE_COMMANDS.contains(&command)
+}
+
+/// The phone window's label.
+const PHONE_WINDOW: &str = "phone";
+
+/// The call being recorded: where the phone window's audio goes.
+#[derive(Default)]
+struct CallAudio {
+    tx: std::sync::Mutex<Option<(std::sync::mpsc::Sender<CallBlock>, u32)>>,
+}
+
+#[tauri::command]
+async fn phone(app: State<'_, AppState>) -> Result<PhoneView, String> {
+    let app = app.inner().clone();
+    work(move || app.phone()).await
+}
+
+#[tauri::command]
+fn phone_bin(app: State<'_, AppState>, caller_id: String) -> Result<String, String> {
+    app.phone_bin_text(&caller_id).map_err(|e| e.0)
+}
+
+/// No `Debug` on the request: it carries the API key secret, which goes to
+/// the engine and on to `api.twilio.com` only.
+#[tauri::command]
+async fn phone_connect(
+    app: State<'_, AppState>,
+    request: ConnectRequest,
+    by: Option<String>,
+) -> Result<Connected, String> {
+    let app = app.inner().clone();
+    work(move || app.phone_connect(request, by.as_deref())).await
+}
+
+#[tauri::command]
+async fn phone_disconnect(app: State<'_, AppState>, by: Option<String>) -> Result<Disconnected, String> {
+    let app = app.inner().clone();
+    work(move || app.phone_disconnect(by.as_deref())).await
+}
+
+#[tauri::command]
+async fn phone_set_prefs(
+    app: State<'_, AppState>,
+    prefs: PhonePrefs,
+    by: Option<String>,
+) -> Result<PhoneView, String> {
+    let app = app.inner().clone();
+    work(move || app.phone_set_prefs(prefs, by.as_deref())).await
+}
+
+#[tauri::command]
+async fn phone_check(app: State<'_, AppState>, by: Option<String>) -> Result<Vec<SetupCheck>, String> {
+    let app = app.inner().clone();
+    work(move || app.phone_check(by.as_deref())).await
+}
+
+/// **Call** in the main window: remembers who to call, then opens (or
+/// brings forward) the phone window. Async: creating a window from a
+/// synchronous command deadlocks on Windows.
+#[tauri::command]
+async fn phone_open(
+    handle: AppHandle,
+    app: State<'_, AppState>,
+    call: CallRequest,
+    by: Option<String>,
+) -> Result<CallTarget, String> {
+    if cfg!(target_os = "linux") {
+        return Err(
+            "Calls work in web mode on Linux. Run `openbark serve`, then open OpenBark in Chrome or Firefox."
+                .into(),
+        );
+    }
+    let app = app.inner().clone();
+    let target = work(move || app.phone_prepare(call, by.as_deref())).await?;
+    if let Some(window) = handle.get_webview_window(PHONE_WINDOW) {
+        // A call is already on screen: show it, don't replace it.
+        let _ = window.set_focus();
+        let _ = window.emit("phone-target", &target);
+        return Ok(target);
+    }
+    tauri::WebviewWindowBuilder::new(&handle, PHONE_WINDOW, tauri::WebviewUrl::App("phone.html".into()))
+        .title("OpenBark phone")
+        .inner_size(420.0, 720.0)
+        .min_inner_size(360.0, 560.0)
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(target)
+}
+
+#[tauri::command]
+fn phone_pending(app: State<'_, AppState>) -> Result<Option<CallTarget>, String> {
+    app.phone_pending().map_err(|e| e.0)
+}
+
+/// A one-hour access token for the phone window's `Device`. The API key
+/// secret never leaves the engine.
+#[tauri::command]
+fn phone_token(app: State<'_, AppState>) -> Result<PhoneToken, String> {
+    app.phone_token().map_err(|e| e.0)
+}
+
+/// The client answered: start recording both sides.
+#[tauri::command]
+async fn phone_call_start(
+    handle: AppHandle,
+    app: State<'_, AppState>,
+    audio: State<'_, CallAudio>,
+    mut start: CallStart,
+    sample_rate: u32,
+) -> Result<String, String> {
+    // A rate the recorder can't use is refused before anything starts.
+    os_app::check_call_sample_rate(sample_rate).map_err(|e| e.0)?;
+    start.sample_rate = Some(sample_rate);
+    let (tx, rx) = std::sync::mpsc::channel();
+    let app = app.inner().clone();
+    let events: Arc<dyn Events> = Arc::new(TauriEvents(handle));
+    let id = work(move || app.start_call(start, rx, events)).await?;
+    *audio.tx.lock().map_err(|_| "call lock poisoned".to_string())? = Some((tx, sample_rate));
+    Ok(id)
+}
+
+/// Interleaved two-channel f32 PCM (clinic, client), little-endian, as the
+/// raw body of the call.
+#[tauri::command]
+fn phone_audio(request: tauri::ipc::Request<'_>, audio: State<'_, CallAudio>) -> Result<(), String> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("expected raw audio".into());
+    };
+    let mut slot = audio.tx.lock().map_err(|_| "call lock poisoned".to_string())?;
+    if let Some((tx, rate)) = slot.as_ref() {
+        let samples: Vec<f32> =
+            bytes.as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect();
+        if tx.send(CallBlock::from_interleaved(&samples, *rate)).is_err() {
+            *slot = None; // the recording stopped (declined): the call goes on unrecorded
+        }
+    }
+    Ok(())
+}
+
+/// "I've read it": the announcement was read; until then nothing is kept.
+#[tauri::command]
+async fn phone_call_announced(app: State<'_, AppState>, at: Option<f32>) -> Result<(), String> {
+    let app = app.inner().clone();
+    work(move || app.call_announced(at)).await
+}
+
+/// The phone window closed or crashed: stop feeding the recorder and end the
+/// call in the engine, so the next call isn't refused. A recording that was
+/// never announced is deleted there.
+fn phone_window_gone(app: &App, audio: &CallAudio) -> Option<os_app::SessionView> {
+    if let Ok(mut tx) = audio.tx.lock() {
+        *tx = None;
+    }
+    match app.phone_window_closed() {
+        Ok(view) => view,
+        Err(e) => {
+            tracing::warn!(error = %e.0, "couldn't end the call after the phone window closed");
+            None
+        }
+    }
+}
+
+#[tauri::command]
+async fn phone_call_consent(
+    app: State<'_, AppState>,
+    audio: State<'_, CallAudio>,
+    outcome: ConsentOutcome,
+    announced_at: Option<f32>,
+) -> Result<Option<os_app::SessionView>, String> {
+    let app = app.inner().clone();
+    let declined = work(move || app.call_consent(outcome, announced_at)).await?;
+    if declined.is_some() {
+        *audio.tx.lock().map_err(|_| "call lock poisoned".to_string())? = None;
+    }
+    Ok(declined)
+}
+
+/// Hang up: saves the visit and tells the main window, which opens it.
+#[tauri::command]
+async fn phone_call_end(
+    handle: AppHandle,
+    app: State<'_, AppState>,
+    audio: State<'_, CallAudio>,
+    end: CallEnd,
+) -> Result<Option<os_app::SessionView>, String> {
+    // Ends the recording's source before stopping it.
+    *audio.tx.lock().map_err(|_| "call lock poisoned".to_string())? = None;
+    let app = app.inner().clone();
+    let view = work(move || app.end_call(end)).await?;
+    if let Some(v) = &view {
+        let _ = handle.emit_to("main", "phone-call-saved", serde_json::json!({ "id": v.id }));
+    }
+    Ok(view)
 }
 
 #[tauri::command]
@@ -309,28 +590,40 @@ fn restart_app(handle: AppHandle, app: State<'_, AppState>) -> Result<(), String
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 async fn import_file(
     handle: AppHandle,
     app: State<'_, AppState>,
     path: String,
     speakers: bool,
+    speakerphone: Option<bool>,
     patient: Option<Patient>,
     consent: Option<RecordingConsent>,
     by: Option<String>,
 ) -> Result<os_app::SessionView, String> {
     let app = app.inner().clone();
     work(move || {
-        app.import_file(Path::new(&path), speakers, patient, consent, by.as_deref(), &TauriEvents(handle))
+        app.import_file(
+            Path::new(&path),
+            speakers,
+            speakerphone.unwrap_or(false),
+            patient,
+            consent,
+            by.as_deref(),
+            &TauriEvents(handle),
+        )
     })
     .await
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 async fn start_recording(
     handle: AppHandle,
     app: State<'_, AppState>,
     device: Option<String>,
     speakers: bool,
+    speakerphone: Option<bool>,
     patient: Option<Patient>,
     consent: Option<RecordingConsent>,
     by: Option<String>,
@@ -340,6 +633,7 @@ async fn start_recording(
         app.start_recording(
             RecordingSource::Microphone(device),
             speakers,
+            speakerphone.unwrap_or(false),
             patient,
             consent,
             by.as_deref(),
@@ -455,8 +749,72 @@ async fn add_addendum(
     work(move || app.add_addendum(&id, &text, &by, pet.as_deref())).await
 }
 
+/// The scheme the player loads recordings from: `obaudio://localhost/<visit
+/// id>`, or `http://obaudio.localhost/<visit id>` on Windows (engine.ts
+/// builds it with `convertFileSrc`). It answers byte ranges, decrypting only
+/// what is asked. WebKit's player (macOS, Linux) needs ranges over a custom
+/// scheme, and a long recording never has to sit whole in memory.
+const AUDIO_SCHEME: &str = "obaudio";
+
+fn audio_protocol(
+    ctx: tauri::UriSchemeContext<'_, tauri::Wry>,
+    request: tauri::http::Request<Vec<u8>>,
+    responder: tauri::UriSchemeResponder,
+) {
+    if !audio_allowed(ctx.webview_label()) {
+        let refused = tauri::http::Response::builder()
+            .status(403)
+            .header("Cache-Control", "no-store")
+            .body(Vec::new())
+            .unwrap_or_else(|_| tauri::http::Response::new(Vec::new()));
+        responder.respond(refused);
+        return;
+    }
+    let app = ctx.app_handle().state::<AppState>().inner().clone();
+    tauri::async_runtime::spawn_blocking(move || responder.respond(audio_response(&app, &request)));
+}
+
+/// Whether a window may load recordings through [`AUDIO_SCHEME`]: every window
+/// but the phone window, which reaches only the phone commands (ADR-0023
+/// section 4) and so never a visit's recording.
+fn audio_allowed(window_label: &str) -> bool {
+    window_label != PHONE_WINDOW
+}
+
+fn audio_response(app: &App, request: &tauri::http::Request<Vec<u8>>) -> tauri::http::Response<Vec<u8>> {
+    // Visit ids are letters, digits, '-', '_' and '.', so nothing is encoded;
+    // session_dir refuses anything else.
+    let id = request.uri().path().trim_start_matches('/');
+    let range = request.headers().get("range").and_then(|v| v.to_str().ok());
+    let head = request.method() == tauri::http::Method::HEAD;
+    let mut response = tauri::http::Response::builder();
+    // The page's origin (tauri://localhost, http://tauri.localhost) differs
+    // from the scheme's.
+    if let Some(origin) = request.headers().get("origin") {
+        response = response
+            .header("Access-Control-Allow-Origin", origin.clone())
+            .header("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges");
+    }
+    let built = match app.session_audio_part(id, range, head) {
+        Ok(part) => {
+            response = response.status(part.status);
+            for (name, value) in part.headers() {
+                response = response.header(name, value);
+            }
+            response.body(part.body)
+        }
+        Err(e) => response
+            .status(404)
+            .header("Content-Type", "text/plain; charset=utf-8")
+            .header("Cache-Control", "no-store")
+            .body(e.0.into_bytes()),
+    };
+    built.unwrap_or_else(|_| tauri::http::Response::new(Vec::new()))
+}
+
 /// An encounter's recording, decrypted, for the player (ADR-0008: audio is
 /// encrypted on disk, so the file can't be handed to the webview directly).
+/// The player uses [`AUDIO_SCHEME`]; this whole-file copy is its fallback.
 #[tauri::command]
 async fn session_audio(app: State<'_, AppState>, id: String) -> Result<tauri::ipc::Response, String> {
     let app = app.inner().clone();
@@ -941,6 +1299,11 @@ async fn sync_stop_visit(
     work(move || app.sync_stop_visit(&id, by.as_deref())).await
 }
 
+/// Pins the command handler to the desktop runtime, so it can be wrapped.
+fn for_wry<F: Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool>(f: F) -> F {
+    f
+}
+
 /// The app's entry point. Desktop builds call it from `main.rs`; on iOS and
 /// Android Tauri calls it as the mobile entry point (ADR-0018 section 7).
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -951,102 +1314,260 @@ pub fn run() {
     app.start_housekeeping();
     // Encrypted sync polls every 30 s once turned on (ADR-0017).
     app.start_sync();
-    tauri::Builder::default()
+    let handler = for_wry(tauri::generate_handler![
+        status,
+        input_devices,
+        prewarm_speech,
+        release_speech,
+        mic_test_start,
+        mic_test_stop,
+        storage,
+        check_folder,
+        change_folder,
+        restart_app,
+        gpu_status,
+        install_gpu,
+        remove_gpu,
+        list_patients,
+        patient,
+        create_patient,
+        update_patient_record,
+        list_sessions,
+        open_session,
+        import_file,
+        start_recording,
+        stop_recording,
+        generate_note,
+        sign_note,
+        confirm_chart,
+        update_patient,
+        refine_note,
+        edit_note,
+        add_addendum,
+        export_pdf,
+        pdf_name,
+        session_audio,
+        delete_visit,
+        delete_recording,
+        list_deleted,
+        restore_visit,
+        purge_deleted,
+        list_users,
+        add_user,
+        remove_user,
+        set_user_pin,
+        verify_user,
+        encrypt_existing,
+        recovery_key,
+        sync_status,
+        sync_set_server,
+        sync_send_code,
+        sync_verify,
+        sync_confirm_kit,
+        sync_pair,
+        sync_new_code,
+        sync_recover,
+        sync_now,
+        sync_remove_device,
+        sync_off,
+        sync_delete_account,
+        sync_stop_visit,
+        list_templates,
+        template,
+        preview_template,
+        template_from_example,
+        save_template,
+        compare_template,
+        reset_template,
+        undo_reset_template,
+        keep_template,
+        share_template,
+        reset_team_template,
+        delete_template,
+        add_standard,
+        remove_standard,
+        mute_standard,
+        run_template_view,
+        team_settings,
+        set_team_settings,
+        dismiss_setup_notice,
+        set_user_admin,
+        profile_summary,
+        models,
+        download_model,
+        remove_model,
+        inspect_import,
+        import_model,
+        mlx_status,
+        install_mlx,
+        check_mlx,
+        remove_mlx,
+        hf_token_status,
+        set_hf_token,
+        clear_hf_token,
+        hub_search,
+        hub_repo,
+        hub_add,
+        hub_alternatives,
+        phone,
+        phone_bin,
+        phone_connect,
+        phone_disconnect,
+        phone_set_prefs,
+        phone_check,
+        phone_open,
+        phone_pending,
+        phone_token,
+        phone_call_start,
+        phone_audio,
+        phone_call_announced,
+        phone_call_consent,
+        phone_call_end
+    ]);
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(app)
-        .invoke_handler(tauri::generate_handler![
-            status,
-            input_devices,
-            storage,
-            check_folder,
-            change_folder,
-            restart_app,
-            gpu_status,
-            install_gpu,
-            remove_gpu,
-            list_patients,
-            patient,
-            create_patient,
-            update_patient_record,
-            list_sessions,
-            open_session,
-            import_file,
-            start_recording,
-            stop_recording,
-            generate_note,
-            sign_note,
-            confirm_chart,
-            update_patient,
-            refine_note,
-            edit_note,
-            add_addendum,
-            export_pdf,
-            pdf_name,
-            session_audio,
-            delete_visit,
-            delete_recording,
-            list_deleted,
-            restore_visit,
-            purge_deleted,
-            list_users,
-            add_user,
-            remove_user,
-            set_user_pin,
-            verify_user,
-            encrypt_existing,
-            recovery_key,
-            sync_status,
-            sync_set_server,
-            sync_send_code,
-            sync_verify,
-            sync_confirm_kit,
-            sync_pair,
-            sync_new_code,
-            sync_recover,
-            sync_now,
-            sync_remove_device,
-            sync_off,
-            sync_delete_account,
-            sync_stop_visit,
-            list_templates,
-            template,
-            preview_template,
-            template_from_example,
-            save_template,
-            compare_template,
-            reset_template,
-            undo_reset_template,
-            keep_template,
-            share_template,
-            reset_team_template,
-            delete_template,
-            add_standard,
-            remove_standard,
-            mute_standard,
-            run_template_view,
-            team_settings,
-            set_team_settings,
-            dismiss_setup_notice,
-            set_user_admin,
-            profile_summary,
-            models,
-            download_model,
-            remove_model,
-            inspect_import,
-            import_model,
-            mlx_status,
-            install_mlx,
-            check_mlx,
-            remove_mlx,
-            hf_token_status,
-            set_hf_token,
-            clear_hf_token,
-            hub_search,
-            hub_repo,
-            hub_add,
-            hub_alternatives
-        ])
-        .run(tauri::generate_context!())
-        .expect("error while running OpenBark");
+        .manage(CallAudio::default())
+        .register_asynchronous_uri_scheme_protocol(AUDIO_SCHEME, audio_protocol)
+        // The microphone goes to the phone window only (ADR-0023 section 4);
+        // the main window records through the engine, never the WebView.
+        .on_permission_request(|webview, kind| {
+            use tauri::webview::{PermissionKind, PermissionResponse};
+            match kind {
+                PermissionKind::Microphone if webview.label() == PHONE_WINDOW => PermissionResponse::Allow,
+                PermissionKind::Microphone | PermissionKind::Camera => PermissionResponse::Deny,
+                _ => PermissionResponse::Default,
+            }
+        })
+        // The phone window may call the phone commands and nothing else; the
+        // other windows can't call the commands meant for it.
+        .invoke_handler(move |invoke| {
+            if !command_allowed(invoke.message.webview().label(), invoke.message.command()) {
+                invoke.resolver.reject("This window can't do that.");
+                return true;
+            }
+            handler(invoke)
+        })
+        // The phone window closed mid-call (closed, or its WebView crashed):
+        // end the call in the engine.
+        .on_window_event(|window, event| {
+            if window.label() == PHONE_WINDOW && matches!(event, tauri::WindowEvent::Destroyed) {
+                let handle = window.app_handle().clone();
+                std::thread::spawn(move || {
+                    let app = handle.state::<AppState>().inner().clone();
+                    let audio = handle.state::<CallAudio>();
+                    if let Some(view) = phone_window_gone(&app, &audio) {
+                        let _ =
+                            handle.emit_to("main", "phone-call-saved", serde_json::json!({ "id": view.id }));
+                    }
+                });
+            }
+        });
+    #[cfg(feature = "selftest")]
+    let builder = builder.on_page_load(|webview, payload| {
+        if payload.event() == tauri::webview::PageLoadEvent::Finished {
+            selftest::page_loaded(webview);
+        }
+    });
+    builder.build(tauri::generate_context!()).expect("error while running OpenBark").run(|handle, event| {
+        if let tauri::RunEvent::Exit = event {
+            quitting(handle);
+        }
+    });
+}
+
+/// The app is about to exit: Cmd-Q or the Quit menu item on macOS (AppKit
+/// calls `exit()` right after this returns), the last window closing, or a
+/// restart. Free the note model first: with a model still on the GPU when
+/// the C++ static destructors run, ggml's Metal teardown aborts and macOS
+/// reports a crash (os_llm::shutdown). If it can't be freed in time (a model
+/// load is still running), end the process without that teardown.
+fn quitting(handle: &AppHandle) {
+    #[cfg(feature = "selftest")]
+    if selftest::skip_shutdown() {
+        eprintln!("selftest: quitting without freeing the note model");
+        return;
+    }
+    let app = handle.state::<AppState>().inner().clone();
+    let freed = app.shutdown(os_app::SHUTDOWN_WAIT);
+    #[cfg(feature = "selftest")]
+    eprintln!("selftest: note models freed before exit: {freed}");
+    if !freed {
+        os_app::exit_process(0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// ADR-0023 section 4: the phone window may call only the phone commands,
+    /// and no other window may call them.
+    #[test]
+    fn the_phone_window_calls_only_the_phone_commands() {
+        for c in PHONE_COMMANDS {
+            assert!(command_allowed("phone", c), "{c}");
+            assert!(!command_allowed("main", c), "{c} from the main window");
+        }
+        for c in ["open_session", "list_patients", "phone_connect", "phone_open", "export_pdf", "status"] {
+            assert!(!command_allowed("phone", c), "{c} from the phone window");
+            assert!(command_allowed("main", c), "{c}");
+        }
+    }
+
+    /// The phone window can't load recordings through the audio scheme either.
+    #[test]
+    fn the_phone_window_cant_play_recordings() {
+        assert!(audio_allowed("main"));
+        assert!(!audio_allowed(PHONE_WINDOW));
+    }
+
+    /// Finding 4 of the 2026-10-19 review: the phone window must hear
+    /// `phone-target` (a Call pressed on another patient), so its capability
+    /// allows listening for events. It grants nothing that reaches visits,
+    /// files or the shell, and the main window's capability doesn't name it.
+    #[test]
+    fn the_phone_windows_capability_allows_events_and_nothing_more() {
+        let phone: serde_json::Value =
+            serde_json::from_str(include_str!("../capabilities/phone.json")).unwrap();
+        assert_eq!(phone["windows"], serde_json::json!(["phone"]));
+        let perms: Vec<&str> =
+            phone["permissions"].as_array().unwrap().iter().map(|p| p.as_str().unwrap()).collect();
+        for needed in ["core:event:allow-listen", "core:event:allow-unlisten", "core:window:allow-close"] {
+            assert!(perms.contains(&needed), "{needed} in {perms:?}");
+        }
+        assert!(
+            perms.iter().all(|p| p.starts_with("core:event:") || p.starts_with("core:window:")),
+            "{perms:?}"
+        );
+        let main: serde_json::Value =
+            serde_json::from_str(include_str!("../capabilities/default.json")).unwrap();
+        assert_eq!(main["windows"], serde_json::json!(["main"]));
+    }
+
+    /// Finding 5: a closed phone window stops the audio and ends the call;
+    /// with no call it does nothing.
+    #[test]
+    fn a_closed_phone_window_stops_the_audio() {
+        let tmp = std::env::temp_dir().join(format!("openbark-desktop-test-{}", std::process::id()));
+        // SAFETY: this test alone sets these, before the App exists.
+        unsafe {
+            std::env::set_var("OPENBARK_DATA_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=");
+            std::env::set_var("OPENBARK_CONNECTIONS_DIR", tmp.join("connections"));
+            std::env::set_var("OPENBARK_USERS_FILE", tmp.join("users.json"));
+            std::env::set_var("OPENBARK_TEMPLATES_DIR", tmp.join("templates"));
+            std::env::set_var("OPENBARK_LOCATIONS_FILE", tmp.join("locations.json"));
+            std::env::set_var("OPENBARK_KEY_FILE", tmp.join("data.key"));
+            std::env::set_var("OPENBARK_ENGINES_DIR", tmp.join("engines"));
+        }
+        let app = App::new(ModelStore::new(tmp.join("models")), tmp.join("sessions"));
+        let audio = CallAudio::default();
+        let (tx, _rx) = std::sync::mpsc::channel();
+        *audio.tx.lock().unwrap() = Some((tx, 48_000));
+        assert!(phone_window_gone(&app, &audio).is_none(), "no call: nothing saved");
+        assert!(audio.tx.lock().unwrap().is_none(), "the audio channel is closed");
+        assert!(!app.call_active());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 }

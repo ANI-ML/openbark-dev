@@ -1,4 +1,4 @@
-import { Button, MarkMono, StatusDot } from "@openbark/ui";
+import { Button, MarkMono, Skeleton, StatusDot } from "@openbark/ui";
 import { useEffect, useState } from "react";
 import { fmtTime, useApp } from "../context";
 import * as engine from "../engine";
@@ -47,7 +47,7 @@ export function Encounters({ embedded = false }: { embedded?: boolean } = {}) {
   const body = (
     <>
       {rows === null ? (
-        <div className="ob-skeleton" style={{ height: 160 }} />
+        <Skeleton rows={3} label={t("Loading")} />
       ) : rows.length === 0 ? (
         <div className="empty-state">
           <MarkMono size={48} className="faint" />

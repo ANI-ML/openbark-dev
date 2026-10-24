@@ -19,6 +19,8 @@ use os_asr::sherpa_onnx::{
 };
 use serde::{Deserialize, Serialize};
 
+mod phone;
+
 const OUT_RATE: i32 = 16_000;
 
 /// Speaker ids of kokoro-en-v0_19.
@@ -53,6 +55,20 @@ struct Args {
     /// Appended to the output file names, e.g. "-paced".
     #[arg(long, default_value = "")]
     suffix: String,
+    /// Keep each voiced line here and reuse it (Kokoro is the slow part).
+    #[arg(long)]
+    cache: Option<PathBuf>,
+    /// Speakerphone scripts: render without the phone (everyone in the room,
+    /// dry), as a control.
+    #[arg(long)]
+    no_phone: bool,
+    /// Speakerphone scripts: the phone's direct-to-reverberant ratio in dB
+    /// (default -3: mostly room echo; higher is a phone nearer the mic).
+    #[arg(long, default_value_t = -3.0)]
+    phone_drr: f32,
+    /// Speakerphone scripts: override the phone voice's level (dB re the vet).
+    #[arg(long)]
+    phone_level: Option<f32>,
     scripts: Vec<PathBuf>,
 }
 
@@ -63,6 +79,10 @@ struct Script {
     #[serde(default = "default_pause")]
     pause_secs: f32,
     lines: Vec<(String, String)>,
+    /// A speakerphone consult: one speaker heard through a phone on speaker
+    /// in the room (see `phone.rs`).
+    #[serde(default)]
+    phone: Option<phone::PhoneSpec>,
 }
 
 fn default_pause() -> f32 {
@@ -114,23 +134,107 @@ fn render(tts: &OfflineTts, resampler: &LinearResampler, path: &Path, args: &Arg
     let out_dir = args.out.as_path();
     let script: Script = serde_yaml_ng::from_str(&std::fs::read_to_string(path)?)
         .with_context(|| format!("parsing {}", path.display()))?;
-    let mut samples: Vec<f32> = Vec::new();
-    let mut reference = Vec::new();
-    let pause = vec![0.0f32; (args.pause.unwrap_or(script.pause_secs) * OUT_RATE as f32) as usize];
+    // Voice every line first: a speakerphone mix needs the vet's level.
+    let mut voiced: Vec<Vec<f32>> = Vec::new();
     for (speaker, text) in &script.lines {
         let voice = script.speakers.get(speaker).ok_or_else(|| anyhow!("unknown speaker {speaker}"))?;
         let sid = VOICES.iter().position(|v| v == voice).ok_or_else(|| anyhow!("unknown voice {voice}"))?;
+        let cached = args.cache.as_ref().map(|dir| {
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            std::hash::Hash::hash(&(voice, text, args.speed.to_bits()), &mut h);
+            dir.join(format!("{:016x}.wav", std::hash::Hasher::finish(&h)))
+        });
+        if let Some(wave) = cached.as_ref().and_then(|p| os_asr::sherpa_onnx::Wave::read(p.to_str()?)) {
+            voiced.push(wave.samples().to_vec());
+            continue;
+        }
         let config = GenerationConfig { sid: sid as i32, speed: args.speed, ..Default::default() };
         let audio = tts
             .generate_with_config::<fn(&[f32], f32) -> bool>(text, &config, None)
             .ok_or_else(|| anyhow!("TTS failed on: {text}"))?;
         resampler.reset();
         let line = resampler.resample(audio.samples(), true);
-        let start = samples.len() as f32 / OUT_RATE as f32;
-        samples.extend_from_slice(&line);
-        let end = samples.len() as f32 / OUT_RATE as f32;
+        if let Some(path) = &cached {
+            std::fs::create_dir_all(path.parent().context("cache dir")?)?;
+            os_asr::sherpa_onnx::write(path.to_str().context("path")?, &line, OUT_RATE);
+        }
+        voiced.push(line);
+    }
+    // What the room mic hears of each line (the dry line without `phone:`),
+    // which may ring on past the line's end (reverb).
+    let phone = if args.no_phone { None } else { script.phone.clone() };
+    let heard: Vec<Vec<f32>> = match &phone {
+        None => voiced.clone(),
+        Some(spec) => {
+            let level_db = args.phone_level.unwrap_or(spec.level_db);
+            if !script.speakers.contains_key(&spec.speaker) {
+                bail!("phone speaker {} isn't one of the script's speakers", spec.speaker);
+            }
+            let on_phone = |i: usize| script.lines[i].0 == spec.speaker;
+            let mut heard: Vec<Vec<f32>> = voiced
+                .iter()
+                .enumerate()
+                .map(|(i, line)| {
+                    let seed = spec.seed.wrapping_add(i as u64);
+                    if on_phone(i) {
+                        // Mostly reverberant: the phone is a metre or more away.
+                        phone::in_room(&phone::phone_line(line), args.phone_drr, seed)
+                    } else {
+                        // The vet is close to the mic: a light touch of the room.
+                        phone::in_room(line, 12.0, seed)
+                    }
+                })
+                .collect();
+            let level = |want: bool| {
+                let lines: Vec<&[f32]> = (0..heard.len())
+                    .filter(|i| on_phone(*i) == want)
+                    .map(|i| &heard[i][..voiced[i].len()])
+                    .collect();
+                phone::rms_of(&lines)
+            };
+            let (room, far) = (level(false), level(true));
+            let gain = room * 10f32.powf(level_db / 20.0) / far.max(1e-9);
+            for (i, line) in heard.iter_mut().enumerate() {
+                if on_phone(i) {
+                    line.iter_mut().for_each(|s| *s *= gain);
+                }
+            }
+            heard
+        }
+    };
+    let mut samples: Vec<f32> = Vec::new();
+    let mut reference = Vec::new();
+    let pause = (args.pause.unwrap_or(script.pause_secs) * OUT_RATE as f32) as usize;
+    for (((speaker, text), line), dry) in script.lines.iter().zip(&heard).zip(&voiced) {
+        let at = samples.len();
+        let start = at as f32 / OUT_RATE as f32;
+        let end = (at + dry.len()) as f32 / OUT_RATE as f32;
         reference.push(RefLine { speaker, start, end, text });
-        samples.extend_from_slice(&pause);
+        samples.resize(samples.len().max(at + line.len()), 0.0);
+        for (s, x) in samples[at..].iter_mut().zip(line) {
+            *s += x;
+        }
+        // The next line starts a pause after this one's dry end.
+        samples.resize(samples.len().max(at + dry.len() + pause), 0.0);
+        samples.truncate(at + dry.len() + pause.max(line.len().saturating_sub(dry.len())));
+    }
+    if let Some(spec) = &phone {
+        let vet: Vec<&[f32]> = voiced
+            .iter()
+            .zip(&script.lines)
+            .filter(|(_, (s, _))| *s != spec.speaker)
+            .map(|(l, _)| l.as_slice())
+            .collect();
+        let noise = phone::room_noise(
+            samples.len(),
+            phone::rms_of(&vet) * 10f32.powf(spec.noise_db / 20.0),
+            spec.seed,
+        );
+        samples.iter_mut().zip(noise).for_each(|(s, n)| *s += n);
+        let peak = samples.iter().fold(0.0f32, |m, x| m.max(x.abs()));
+        if peak > 0.98 {
+            samples.iter_mut().for_each(|s| *s *= 0.98 / peak);
+        }
     }
     let name = format!("{}{}", script.id, args.suffix);
     let wav = out_dir.join(format!("{name}.wav"));
@@ -139,7 +243,7 @@ fn render(tts: &OfflineTts, resampler: &LinearResampler, path: &Path, args: &Arg
     }
     std::fs::write(out_dir.join(format!("{name}.ref.json")), serde_json::to_string_pretty(&reference)?)?;
     eprintln!(
-        "{}: {:.1} s, {} lines → {}",
+        "{}: {:.1} s, {} lines \u{2192} {}",
         script.id,
         samples.len() as f32 / OUT_RATE as f32,
         reference.len(),

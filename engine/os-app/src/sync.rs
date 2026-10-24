@@ -18,9 +18,22 @@ use serde_json::{Value, json};
 use crate::Need;
 use crate::{App, AppError, Result};
 
+/// Encrypted sync is a preview until ANI.ML's hosted project is set up and
+/// the independent security review is done (ADR-0017): only builds made with
+/// `OPENBARK_SYNC_PREVIEW` set (development and TestFlight builds) offer it,
+/// or any build pointed at a server with `OPENBARK_SYNC_URL` (the end-to-end
+/// tests, a clinic's own Supabase). Release installers don't set either.
+#[cfg(feature = "sync")]
+pub(crate) fn preview_enabled() -> bool {
+    option_env!("OPENBARK_SYNC_PREVIEW").is_some() || std::env::var_os("OPENBARK_SYNC_URL").is_some()
+}
+
 /// The sync service for a visits folder, or why there is none.
 #[cfg(feature = "sync")]
 pub(crate) fn open_service(root: &std::path::Path) -> Option<Arc<os_sync::SyncService>> {
+    if !preview_enabled() {
+        return None;
+    }
     match os_sync::SyncService::for_root(root) {
         Ok(s) => Some(Arc::new(s)),
         Err(e) => {

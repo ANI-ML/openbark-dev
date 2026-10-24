@@ -14,9 +14,9 @@ To keep track of who did what, add your team in **Settings → Team**:
 
 | Role | Can |
 |---|---|
-| Veterinarian | Everything: record, draft, ask, edit, sign, add addenda, delete and restore visits, delete recordings, manage the team, change templates (as their own version) |
-| Technician | Record, draft, ask, edit, enter patient details, delete and restore unsigned visits, delete the recording of an unsigned visit, change templates (as their own version) |
-| Reception | Record, import, enter patient details, read and copy notes, read templates |
+| Veterinarian | Everything: record, draft, ask, edit, sign, add addenda, delete and restore visits, delete recordings, manage the team, change templates (as their own version), connect or disconnect Twilio and change the phone settings, make calls |
+| Technician | Record, draft, ask, edit, enter patient details, delete and restore unsigned visits, delete the recording of an unsigned visit, change templates (as their own version), make calls |
+| Reception | Record, import, enter patient details, read and copy notes, read templates, make calls |
 
 ### Admins and templates
 

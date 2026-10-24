@@ -2,7 +2,7 @@
 //!
 //! Twilio has no documented API for Bins, so OpenBark shows this text with a
 //! copy button, and the clinic pastes each into a Bin in its console and
-//! copies the Bin's URL back (owner decision 3: Bins, no code deployed into
+//! copies the Bin's URL back (ADR-0023 decision 3: Bins, no code deployed into
 //! the clinic's account).
 //!
 //! Neither text asks Twilio to record: `<Dial>` records nothing unless told

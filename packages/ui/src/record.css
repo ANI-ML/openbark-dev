@@ -25,9 +25,10 @@
   color: var(--on-record);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
+  transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), transform var(--dur-spring-fast) var(--ease-spring-fast);
 }
-.ob-record:active:not(:disabled) { transform: scale(0.96); }
+/* Press: sinks over 120 ms, springs back on release. */
+.ob-record:active:not(:disabled) { transform: scale(0.94); transition-duration: var(--dur-fast), var(--dur-fast), var(--dur-micro); }
 .ob-record:disabled { opacity: 0.45; cursor: not-allowed; }
 /* Recording and processing: ink fill (it inverts with the theme, like primary buttons). */
 .ob-record[data-state="recording"],
@@ -36,6 +37,17 @@
 .ob-record[data-state="processing"]:disabled { opacity: 1; cursor: progress; }
 .ob-record[data-state="paused"] { background: var(--fill-strong); color: var(--ink); }
 .ob-record-glyph { width: 24px; height: 24px; }
+/* Recording feedback (design-motion): the glyph swaps between the mark and
+   the stop square by scaling up from 0.6 as it fades in, and the label fades
+   up between states. Transform and opacity only; zero with reduced motion. */
+.ob-record-icon {
+  display: grid;
+  place-items: center;
+  transition: transform var(--dur-spring-fast) var(--ease-spring-fast), opacity var(--dur-standard) var(--ease-enter);
+}
+@starting-style { .ob-record-icon { transform: scale(0.6); opacity: 0; } }
+.ob-record-label { transition: opacity var(--dur-standard) var(--ease-enter), transform var(--dur-standard) var(--ease-enter); }
+@starting-style { .ob-record-label { opacity: 0; transform: translateY(2px); } }
 
 /* The recording pulse, the one expressive animation (§5.4): an accent disc
    behind the button, scale 1 to 1.35, opacity 1 to 0, 1.6 s, ease-out. */

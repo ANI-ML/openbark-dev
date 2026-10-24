@@ -23,6 +23,8 @@ lines:
   - [dvm, "Recheck in four weeks."]
 
 expected:
+  # Only a breed was said: the species is the dog or cat it implies.
+  patient_species: dog
   must_mention: ["504", "604", "704", "four weeks"]
   chart:
     - { tooth: "504", finding: persistent_deciduous }

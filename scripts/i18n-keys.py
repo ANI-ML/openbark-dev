@@ -93,6 +93,37 @@ INDIRECT = [
     # Tooth chart confirmation (ADR-0021 decision 10): engine messages shown through t(error).
     "Add your name in Settings, then confirm the chart.",
     "This note is signed, so its chart can't change. Add an addendum instead.",
+    # Phone calls (ADR-0023): the phone window's errors and outcomes
+    # (src/phone/errors.ts, callState.ts), Review's call line, and engine
+    # messages (os-app phone.rs, os-connect) shown through t(error) or t(message).
+    "Outgoing", "Incoming", "Vet", "Tech", "Clinic", "Call saved",
+    "No answer.", "The call dropped. What was recorded is saved.",
+    "Your Twilio account is a trial, and trials can't connect calls through OpenBark. Upgrade it in your Twilio console.",
+    "The call connected but no sound is getting through. Your network may be blocking Twilio's call audio. Ask your IT provider to allow UDP to Twilio (see the setup guide).",
+    "Twilio blocked a call to this country. Turn it on in your Twilio console under Voice > Settings > Geo permissions.",
+    "OpenBark can't use the microphone. Allow it in your computer's privacy settings, then try again.",
+    "Can't reach Twilio. Check this computer's internet connection.",
+    "Twilio refused the call: your account needs attention. Check billing in your Twilio console.",
+    "This browser can't make calls. Use a current version of Chrome, Edge, Firefox or Safari.",
+    "Twilio didn't accept this key. Check the SID and secret, or make a new key in your Twilio console.",
+    "Twilio refused the request: your account needs attention. Check billing in your Twilio console.",
+    "Twilio accepts this computer's key.", "The OpenBark TwiML App uses your outgoing Bin.",
+    "The phone is on on this computer.", "The phone is off on this computer. Turn it on to make calls.",
+    "Real calls need an upgraded Twilio account. Trials can't connect calls through OpenBark.",
+    "Also delete this key in your Twilio console, so it can't be used anywhere else.",
+    "Only a veterinarian can connect Twilio or change the phone settings.",
+    "Connect Twilio before turning the phone on.",
+    "The phone is off on this computer. Turn it on in Settings > Phone calls.",
+    "Twilio isn't connected on this computer. A veterinarian can connect it in Settings > Phone calls.",
+    "Write the announcement. Recorded calls always start with it.", "Paste the API key secret.",
+    "The OpenBark TwiML App was deleted in your Twilio console. Choose Connect again to make it.",
+    "The OpenBark TwiML App no longer uses your outgoing Bin. Choose Connect again to fix it.",
+    "The phone's sign-in with Twilio ran out. Close this window and call again.",
+    "Twilio didn't allow this call. In Settings > Phone calls, choose Check setup to see why.",
+    "Twilio couldn't find OpenBark's TwiML App. In Settings > Phone calls, choose Change, then Connect.",
+    "Twilio is getting too many requests from this account. Wait a minute and try again.",
+    "The line is busy.", "The call was declined.", "That number couldn't be reached. Check it and try again.",
+    "Read the announcement to the client first.", "The recording of this call was already deleted.",
 ]
 
 
@@ -162,8 +193,31 @@ def dental_chart() -> set[str]:
     return out
 
 
+ENGINE = os.path.join(os.path.dirname(__file__), "..", "engine")
+RUST_ERROR = re.compile(r'#\[error\(\s*"((?:[^"\\]|\\.)*)"\s*\)\]')
+APP_ERROR = re.compile(r'AppError\(\s*"((?:[^"\\]|\\.)*)"\.into\(\)\s*\)')
+
+
+def microphone() -> set[str]:
+    """Microphone errors shown through t(error) on the Record screen: the
+    browser's (MIC_ERRORS in src/mic/errors.ts), the desktop capture's
+    (os-asr capture.rs) and the microphone test's (os-app mic.rs)."""
+    out = set()
+    with io.open(os.path.join(ROOT, "mic", "errors.ts"), encoding="utf-8") as f:
+        src = f.read()
+    block = src[src.index("export const MIC_ERRORS"):src.index("} as const;")]
+    for m in STRING.finditer(block):
+        out.add(json.loads(f'"{m.group(1)}"'))
+    with io.open(os.path.join(ENGINE, "os-asr", "src", "capture.rs"), encoding="utf-8") as f:
+        out |= {json.loads(f'"{m.group(1)}"') for m in RUST_ERROR.finditer(f.read())}
+    with io.open(os.path.join(ENGINE, "os-app", "src", "mic.rs"), encoding="utf-8") as f:
+        out |= {json.loads(f'"{m.group(1)}"') for m in APP_ERROR.finditer(f.read()) if "poisoned" not in m.group(1)}
+    out.add("This browser reported a microphone rate OpenBark can't use. Reload the page and try again, or use another browser.")
+    return out
+
+
 def main() -> None:
-    keys = set(INDIRECT) | help_topics() | model_guide() | dental_chart()
+    keys = set(INDIRECT) | help_topics() | model_guide() | dental_chart() | microphone()
     for folder, _, files in os.walk(ROOT):
         for name in files:
             if not name.endswith((".ts", ".tsx")) or ".test." in name:

@@ -18,6 +18,15 @@ pub enum AudioError {
     Resample(i32),
 }
 
+/// The channel count in a WAV file's header, if it reads as a plain RIFF
+/// WAV with the `fmt ` chunk first (what OpenBark and most tools write).
+fn wav_channels(path: &Path) -> Option<u16> {
+    use std::io::Read;
+    let mut head = [0u8; 24];
+    std::fs::File::open(path).ok()?.read_exact(&mut head).ok()?;
+    (&head[0..4] == b"RIFF" && &head[8..16] == b"WAVEfmt ").then(|| u16::from_le_bytes([head[22], head[23]]))
+}
+
 /// Mono 16 kHz PCM in [-1, 1].
 #[derive(Debug, Clone)]
 pub struct Audio {
@@ -60,7 +69,13 @@ impl Audio {
     /// call apps produce. Video files work too; their audio track is used.
     pub fn load(path: &Path) -> Result<Self, AudioError> {
         let is_wav = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("wav"));
-        if is_wav && let Ok(audio) = Self::load_wav(path) {
+        // sherpa-onnx's reader keeps only the first channel of a stereo WAV,
+        // which for a phone call is the clinic's side alone (ADR-0023): mix
+        // those down through the general decoder instead.
+        if is_wav
+            && wav_channels(path) == Some(1)
+            && let Ok(audio) = Self::load_wav(path)
+        {
             return Ok(audio);
         }
         Self::decode(path)

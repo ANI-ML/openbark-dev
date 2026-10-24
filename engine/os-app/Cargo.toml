@@ -16,9 +16,14 @@ inference = ["os-engine/inference"]
 # Encrypted sync (ADR-0017, M3 phase 2): the os-sync crate. Off at run time
 # until the person turns it on in Settings > Sync.
 sync = ["dep:os-sync"]
+# The end-to-end demo only (ADR-0023): a fault hook for calls (see phone.rs,
+# `fault`) and the fake Twilio. Never in builds clinics get.
+mock-twilio = ["os-connect/mock"]
 
 [dependencies]
 os-asr.workspace = true
+# The clinic's own Twilio account (ADR-0023). Its HTTP client stays in os-connect.
+os-connect.workspace = true
 os-engine.workspace = true
 os-llm.workspace = true
 os-models.workspace = true
@@ -34,3 +39,7 @@ sysinfo = { workspace = true, features = ["default"] }
 
 [target.'cfg(target_os = "ios")'.dependencies]
 sysinfo = { workspace = true, features = ["system", "disk"] }
+
+[dev-dependencies]
+# The loopback fake Twilio for the phone tests (ADR-0023).
+os-connect = { workspace = true, features = ["mock"] }

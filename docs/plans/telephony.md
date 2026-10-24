@@ -1,6 +1,8 @@
 # Plan: calls and email through the clinic's own Twilio and SendGrid
 
-Status: **proposed**, with [ADR-0023](../adr/0023-bring-your-own-telephony.md). Date: 2026-10-18.
+Status: **in progress**, with [ADR-0023](../adr/0023-bring-your-own-telephony.md). Date: 2026-10-18.
+
+Progress (2026-10-19, branch `feat/telephony`): outgoing calls are built and tested on Windows against a local fake Twilio account (steps 3 to 5, 7, 8, 10 for the owner's phone, 12 for Twilio, 13). Waiting on the owner's Twilio account: step 1 (the spike questions), step 2 (platforms), step 6 (phone-band accuracy), and every TRIAL and UPGRADED check. Incoming calls (step 9) and email (steps 11 and 12 for SendGrid) come later, as decided. The clinic guide is [docs/guide/phone-and-email.md](../guide/phone-and-email.md); the end-to-end test is `apps/desktop/e2e/phone-calls.mjs`.
 
 ## Goal
 

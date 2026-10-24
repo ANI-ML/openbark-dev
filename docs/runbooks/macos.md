@@ -65,6 +65,15 @@ Check, in this order:
 
 Note anything that looks wrong (dialog wording, icon positions, a second password prompt) in the chat.
 
+## 6. Quit and replay (the two 0.1.1 bugs)
+
+0.1.1 crashed on Cmd-Q after a note had been drafted (a "quit unexpectedly" report naming `ggml_abort` and `ggml_metal_rsets_free`), and recordings showed an error instead of playing in Review. Both are checked on GitHub's Macs by the **Quit and replay checks** workflow (`.github/workflows/macos-repro.yml`). On your Mac, with a build that has the fix:
+
+1. Open OpenBark and draft a note for any visit, so the note model is loaded.
+2. Press Cmd-Q while the model is loaded, and once more in the middle of a draft. Expect OpenBark to close within a few seconds with no "quit unexpectedly" dialog.
+3. Open the visit again. In Review, play the recording, drag the slider near the end, and let it play out. Try a long visit (over 30 minutes) and an imported file too.
+4. If either fails, send the crash report from **Console > Crash Reports** (or `~/Library/Logs/DiagnosticReports/OpenBark-*.ips`) and say which visit and how long its recording is.
+
 ## If something fails
 
 - **`cmake not found`**: run `brew install cmake` and open a new terminal.

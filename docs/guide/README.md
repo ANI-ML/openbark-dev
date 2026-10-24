@@ -7,13 +7,14 @@ The same walkthroughs are in the app under **Help**, each with a short video.
 | | Guide | What it covers |
 |---|---|---|
 | 1 | [Getting started](getting-started.md) | The consent notice, downloading the models, your name and languages |
-| 2 | [Recording a consult](recording.md) | Patient details, recording, importing a recording (such as a phone call) |
+| 2 | [Recording a consult](recording.md) | Patient details, recording, importing a recording (such as a phone call), a client on a phone on speaker |
 | 3 | [Reviewing and signing](review.md) | Checking the draft against the recording, Ask, Edit, signing, addenda |
 | 4 | [Templates](templates.md) | Your clinic's own note headings, and standards |
 | 5 | [Client documents, PDF and copying](documents.md) | Discharge instructions, client summaries, PDFs, pasting into your PIMS |
 | 6 | [Team and security](team-and-security.md) | Team members and roles, encryption, the recovery key, moving computers |
 | 7 | [Models](models.md) | Choosing and downloading models, MLX on a Mac, gated models and tokens, adding and removing models |
-| 8 | [Encrypted sync](sync.md) | Preview: transcripts and notes between your computers, end-to-end encrypted; recordings never leave the device that made them |
+| 8 | [Phone calls](phone-and-email.md) | Calling clients through your clinic's own Twilio account, the announcement, and calls as visits |
+| 9 | [Encrypted sync](sync.md) | Preview: transcripts and notes between your computers, end-to-end encrypted; recordings never leave the device that made them |
 | | [Languages](../languages.md) | The app's language, the note's language, and what to expect |
 | | [Troubleshooting](troubleshooting.md) | Common messages and what to do |
 

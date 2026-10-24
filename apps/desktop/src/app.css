@@ -53,8 +53,9 @@
 .nav-item:hover { background: var(--surface-2); color: var(--ink); }
 /* Active: ink text, weight 600, on surface-2 with a 2 px ink marker (no accent fill). */
 .nav-item[aria-current="page"] { background: var(--surface-2); color: var(--ink); font-weight: 600; }
-.nav-item[aria-current="page"]::before {
-  content: "";
+/* The marker is one element that glides between destinations (Motion
+   layoutId in App.tsx; transform only). */
+.nav-marker {
   position: absolute;
   left: 0;
   top: 8px;
@@ -72,7 +73,7 @@
   .brand-full, .nav-label { display: none; }
   .brand-compact { display: flex; }
   .nav-item { justify-content: center; padding: 0; width: 40px; height: 40px; }
-  .nav-item[aria-current="page"]::before { left: -8px; }
+  .nav-marker { left: -8px; }
 }
 @media (max-width: 640px) {
   .frame { grid-template-columns: 1fr; padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
@@ -120,7 +121,7 @@
   .nav-item[aria-current="page"] { background: transparent; color: var(--ink); }
   .nav-item[aria-current="page"] .nav-label { font-weight: 600; }
   /* The tab bar's marker sits on the top edge. */
-  .nav-item[aria-current="page"]::before { left: 30%; right: 30%; top: -4px; bottom: auto; width: auto; height: 2px; }
+  .nav-marker { left: 30%; right: 30%; top: -4px; bottom: auto; width: auto; height: 2px; }
   /* Models and Help are reached from Settings on a phone, so Settings stays marked there. */
   .nav-item[data-parent-current] { color: var(--ink); }
   .nav-item[data-parent-current] .nav-label { font-weight: 600; }
@@ -281,6 +282,21 @@
   background: var(--surface);
 }
 .recorder-meta { display: flex; flex-direction: column; gap: 4px; }
+/* Microphone picker and test (Record rail, Settings): an ink level bar on a
+   hairline track, and a one-line verdict with a tone dot. */
+.mic-check { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.mic-check-row { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.mic-meter { flex: 1 1 auto; min-width: 60px; height: 8px; border-radius: var(--r-full); background: var(--surface-3, var(--border)); overflow: hidden; }
+.mic-meter > span { display: block; height: 100%; width: 100%; border-radius: inherit; background: var(--ink); transform-origin: left; transform: scaleX(0); transition: transform 60ms linear; }
+.mic-meter:not([data-active]) > span { background: var(--border-strong); }
+.mic-check-device { overflow-wrap: anywhere; }
+.mic-check-verdict { display: flex; gap: 8px; align-items: baseline; color: var(--ink-2); }
+.mic-check-verdict::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: var(--r-full); background: var(--ink-3); transform: translateY(-1px); }
+.mic-check-verdict[data-tone="ok"]::before { background: var(--ok); }
+.mic-check-verdict[data-tone="warn"]::before { background: var(--warn); }
+.mic-check-verdict[data-tone="danger"]::before { background: var(--danger); }
+.mic-check-verdict[data-tone="danger"] { color: var(--ink); }
+@media (prefers-reduced-motion: reduce) { .mic-meter > span { transition: none; } }
 .stage-wave { flex: 1 1 200px; min-width: 0; height: 40px; }
 /* Import and finishing progress: full width under the stage's controls. */
 .processing { flex: 1 0 100%; display: flex; flex-direction: column; gap: 8px; }
@@ -341,7 +357,8 @@
   padding: 4px 12px;
   border-left: 2px solid transparent;
   border-radius: 0 var(--r-sm) var(--r-sm) 0;
-  transition: background-color var(--dur-fast) var(--ease);
+  /* The evidence link lights a line: the tint and the 2 px mark fade in. */
+  transition: background-color var(--dur-standard) var(--ease), border-left-color var(--dur-standard) var(--ease);
 }
 .turn-speaker { color: var(--ink); font-family: var(--font-sans); font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.01em; }
 .turn-text {
@@ -860,7 +877,7 @@ p > .ob-dot { display: inline-block; vertical-align: middle; }
 .patient-filter { position: relative; display: flex; align-items: center; flex: 0 1 320px; min-width: 0; color: var(--ink-3); }
 .patient-filter svg { position: absolute; left: 12px; pointer-events: none; }
 .patient-filter .ob-input { width: 100%; padding-left: 36px; }
-.patient-list, .visit-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); overflow: hidden; }
+.patient-list, .visit-list { position: relative; list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); overflow: hidden; }
 .patient-list li + li .patient-row, .visit-list li + li .visit-row { border-top: 1px solid var(--border); }
 .patient-row, .visit-row, .patient-match {
   width: 100%;
@@ -1060,7 +1077,7 @@ p > .ob-dot { display: inline-block; vertical-align: middle; }
 .player-actions { flex: none; display: flex; justify-content: flex-end; padding: 4px 8px; border-bottom: 1px solid var(--border); }
 .recording-gone { flex: none; margin: 0; padding: 10px 16px; border-bottom: 1px solid var(--border); }
 .ob-toast[data-action] { display: flex; align-items: center; gap: 12px; padding: 6px 6px 6px 18px; }
-.deleted-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.deleted-list { position: relative; list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .deleted-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 12px 0; }
 .deleted-row + .deleted-row { border-top: 1px solid var(--border); }
 .deleted-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
@@ -1161,3 +1178,37 @@ p > .ob-dot { display: inline-block; vertical-align: middle; }
   .print-kit, .print-kit * { visibility: visible; }
   .print-kit { position: absolute; inset: 0; padding: 24px; color: var(--qr-dark); background: var(--qr-light); }
 }
+/* Settings > Phone calls (ADR-0023). */
+.phone-card { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.phone-facts { display: flex; flex-wrap: wrap; gap: 8px 32px; }
+.phone-facts dd { overflow-wrap: anywhere; }
+.phone-helper { margin-top: -8px; padding-left: 24px; }
+.phone-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.phone-notes { display: flex; flex-direction: column; gap: 4px; padding-left: 20px; }
+.phone-checks { display: flex; flex-direction: column; gap: 6px; list-style: none; padding: 0; }
+.phone-checks .ob-chip, .phone-checks li > span { white-space: normal; height: auto; min-height: 24px; }
+.sheet-form { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.phone-steps { display: flex; flex-direction: column; gap: 6px; padding-left: 20px; color: var(--ink-2); }
+.phone-bin { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-2); }
+.phone-bin-text { margin: 0; padding: 12px; border-radius: var(--r-sm); background: var(--surface); border: 1px solid var(--border); font-size: 12px; line-height: 18px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.owner-phone { display: inline-flex; align-items: center; gap: 6px; }
+
+/* ---- Micro-interactions (docs/plans/design-motion.md) ----
+   Things that open in answer to an action arrive with a short fade-up
+   (@starting-style: no JS, plays only when the element appears). Opacity and
+   transform only; the motion tokens are zero with reduced motion. */
+.ask, .edit-heading, .refined {
+  transition: opacity var(--dur-standard) var(--ease-enter), transform var(--dur-standard) var(--ease-enter);
+}
+@starting-style { .ask, .edit-heading, .refined { opacity: 0; transform: translateY(calc(-1 * var(--enter-y) / 2)); } }
+/* New Hugging Face search results fade in; rows already shown stay put. */
+.hub-list > li { transition: opacity var(--dur-standard) var(--ease-enter); }
+@starting-style { .hub-list > li { opacity: 0; } }
+/* Phones: switching between the transcript and note tabs fades the pane in. */
+@media (max-width: 1023px) {
+  .review-split .pane-note, .review-split .pane-transcript { transition: opacity var(--dur-standard) var(--ease-enter); }
+  @starting-style { .review-split .pane-note, .review-split .pane-transcript { opacity: 0; } }
+}
+/* Press feedback on the row buttons: a slight sink, sprung back. */
+.hub-row, .tpl-row, .who { transition: background-color var(--dur-fast) var(--ease), transform var(--dur-spring-fast) var(--ease-spring-fast); }
+.hub-row:active, .tpl-row:active, .who:active { transform: scale(0.99); transition-duration: var(--dur-fast), var(--dur-micro); }

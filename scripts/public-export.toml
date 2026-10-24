@@ -1938,15 +1938,6 @@ expect = 1
 # ---- engine/os-connect/src/twiml.rs
 
 [[scrub]]
-id = "twiml-owner-decision"
-files = ["engine/os-connect/src/twiml.rs"]
-find = "(owner decision 3: Bins, no code deployed into"
-replace = "(ADR-0023 section 15, decision 3: Bins, no code deployed into"
-reason = "Owner-personal phrasing in a doc comment; the decision is ADR-0023's."
-
-# ---- engine/os-app/src/templates.rs, engine/os-app/src/tests/templates.rs
-
-[[scrub]]
 id = "templates-rs-owner"
 files = ["engine/os-app/src/templates.rs"]
 find = "(ADR-0024, with the owner's decisions in section 17)."
