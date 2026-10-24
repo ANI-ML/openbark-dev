@@ -3,7 +3,7 @@
 // doesn't assert: a screen it can't reach is listed, not fatal.
 //
 // Run ONLY against a demo server holding invented visits (the Design screens
-// workflow imports the synthetic consults in packages/eval/fixtures/audio):
+// workflow imports the synthetic smoke consult under invented patients):
 //   OPENBARK_URL=http://localhost:4339 VARIANTS=phone node e2e/design-screens.mjs <demo folder>
 //
 // It refuses unless the URL is this computer (never port 4317) and the demo
