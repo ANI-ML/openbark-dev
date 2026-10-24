@@ -1,0 +1,86 @@
+name: Clinic end to end
+
+# Clinics, invites and usage counts (ADR-0028, the hospital dashboard, phase
+# 1) through a LOCAL Supabase in Docker on the runner: never the hosted
+# project. scripts/clinic-e2e.py drives the REST API and the Edge Functions
+# the website portal uses, with five accounts signing in by emailed codes
+# (Mailpit): creating a clinic, inviting by email (an existing account and a
+# new one), accepting, joining with a code, expired and revoked invites,
+# reporting usage (accepted for one's own row, refused otherwise), what each
+# person can read, the admin dashboard's sums, the last-admin rule, removing
+# a member, deleting accounts, the purge, and a check that the only text
+# stored is clinic names, display names and invite addresses.
+#
+# No app build and no models: the app doesn't take part in phase 1. Run it
+# from the Actions tab, or push a commit whose message contains [clinic-e2e].
+# It never runs in the public copy of the source.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["feat/**", "fix/**", "release/**", "chore/**", "design/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: clinic-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SUPABASE_CLI_VERSION: "2.121.0"
+  SUPABASE_CLI_SHA256: "4b481189efbdc57cf2d37bdee5f1a0d29574314398564b32a6dfb76c0fcf275f"
+
+jobs:
+  clinic:
+    name: Clinics, invites and usage through a local Supabase
+    if: github.repository == 'ANI-ML/openbark-dev' && (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[clinic-e2e]'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Supabase CLI (pinned, hash-checked; docs/versions.md)
+        run: |
+          f="supabase_${SUPABASE_CLI_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL -o "$RUNNER_TEMP/$f" "https://github.com/supabase/cli/releases/download/v${SUPABASE_CLI_VERSION}/$f"
+          echo "${SUPABASE_CLI_SHA256}  $RUNNER_TEMP/$f" | sha256sum -c -
+          mkdir -p ~/.local/bin
+          tar -xzf "$RUNNER_TEMP/$f" -C ~/.local/bin supabase
+          ~/.local/bin/supabase --version
+      - name: psql (for the checks that need the database itself)
+        run: command -v psql || { sudo apt-get update && sudo apt-get install -y postgresql-client; }
+      - name: Local Supabase
+        run: bash scripts/sync-local-supabase.sh start
+      - name: The Edge Functions answer
+        run: |
+          for _ in $(seq 1 90); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -X OPTIONS http://127.0.0.1:54321/functions/v1/clinic-invite || true)
+            [ "$code" = "204" ] && { echo "clinic-invite answers"; exit 0; }
+            sleep 1
+          done
+          echo "clinic-invite isn't served (last status $code)"; exit 1
+      - name: Clinic end-to-end steps
+        shell: bash
+        run: |
+          set -o pipefail
+          eval "$(bash scripts/sync-local-supabase.sh env)"
+          mkdir -p target/clinic-e2e
+          python3 -I scripts/clinic-e2e.py | tee target/clinic-e2e/steps.log
+      - name: Step summary
+        if: always()
+        run: |
+          [ -f target/clinic-e2e/steps.log ] || exit 0
+          { echo '### Clinic end to end'; echo '```'; cat target/clinic-e2e/steps.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Service logs
+        if: failure()
+        run: |
+          mkdir -p target/clinic-e2e
+          for c in edge_runtime auth rest db kong; do
+            docker logs "supabase_${c}_openbark-sync-dev" > "target/clinic-e2e/${c}.log" 2>&1 || true
+          done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          # Synthetic accounts and logs only.
+          name: clinic-e2e
+          path: target/clinic-e2e/
