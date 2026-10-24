@@ -1,5 +1,13 @@
 import { Lockup, Mark, createLevelSource } from "@openbark/ui";
-import { Box, ChevronRight, CircleHelp, Mic, NotebookText, PawPrint, Settings as SettingsIcon } from "lucide-react";
+import {
+  Box,
+  CircleHelp,
+  ClipboardList,
+  Mic,
+  NotebookText,
+  PawPrint,
+  Settings as SettingsIcon,
+} from "lucide-react";
 import { AnimatePresence, LazyMotion, MotionConfig, m } from "motion/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import * as engine from "./engine";
@@ -9,6 +17,7 @@ import { ROLE_LABEL, UserPicker } from "./components/UserPicker";
 import { AppContext, loadSettings, permissions, saveSettings, type Settings, type ToastAction } from "./context";
 import { translate } from "./i18n";
 import { loadMotionFeatures, SPRING } from "./motion";
+import { hashToRoute, routeToHash, type Route } from "./routes";
 import { PatientDetail } from "./screens/PatientDetail";
 import { Patients } from "./screens/Patients";
 import { Models } from "./screens/Models";
@@ -17,38 +26,40 @@ import { Review } from "./screens/Review";
 import { SettingsScreen } from "./screens/Settings";
 import { Templates } from "./screens/Templates";
 import { Help } from "./screens/Help";
+import { Visits } from "./screens/Visits";
+import { isIos, needsYou } from "./visits";
 
-export type Route =
-  | { screen: "record"; patient?: string }
-  | { screen: "patients" }
-  | { screen: "patient"; id: string }
-  | { screen: "review"; id: string; draft?: boolean; template?: string; pet?: string }
-  | { screen: "templates"; open?: string; heading?: string }
-  | { screen: "help" }
-  | { screen: "models" }
-  | { screen: "settings" };
+export type { Route } from "./routes";
 
 /**
- * The left rail (DESIGN.md §9: 240 px) and, on phones, the 64 px tab bar.
- * The tab bar shows the four primary destinations (Record, Patients,
- * Templates, Settings); Models and Help stay in the rail and are reached
- * from Settings on a phone (`phone` false hides them from the tab bar).
- * The order is fixed: the e2e scripts address items by position.
+ * The left rail (DESIGN.md §9: 240 px) and, on phones, the tab bar
+ * (ADR-0027). The rail lists Record, Visits, Patients and Templates, then
+ * Models, Settings and Help as a quieter group at the bottom. The phone tab
+ * bar shows Record, Visits, Patients and Settings (`phone`); Templates,
+ * Models and Help are rows in Settings there. e2e scripts address items by
+ * their `data-nav` name.
  */
 const NAV = [
-  { screen: "record", label: "Record", icon: Mic, phone: true },
-  { screen: "patients", label: "Patients", icon: PawPrint, phone: true },
-  { screen: "templates", label: "Templates", icon: NotebookText, phone: true },
-  { screen: "models", label: "Models", icon: Box, phone: false },
-  { screen: "settings", label: "Settings", icon: SettingsIcon, phone: true },
-  { screen: "help", label: "Help", icon: CircleHelp, phone: false },
+  { screen: "record", label: "Record", icon: Mic, phone: true, group: "primary" },
+  { screen: "visits", label: "Visits", icon: ClipboardList, phone: true, group: "primary" },
+  { screen: "patients", label: "Patients", icon: PawPrint, phone: true, group: "primary" },
+  { screen: "templates", label: "Templates", icon: NotebookText, phone: false, group: "primary" },
+  { screen: "models", label: "Models", icon: Box, phone: false, group: "secondary" },
+  { screen: "settings", label: "Settings", icon: SettingsIcon, phone: true, group: "secondary" },
+  { screen: "help", label: "Help", icon: CircleHelp, phone: false, group: "secondary" },
 ] as const;
 
-/** Destinations left out of the phone tab bar, listed under Settings there. */
-const PHONE_MORE = NAV.filter((n) => !n.phone);
+/** The destination a screen belongs to, for the rail's marker. */
+function activeOf(route: Route): string {
+  if (route.screen === "review") return "visits";
+  if (route.screen === "patient") return "patients";
+  return route.screen;
+}
 
 export function App() {
-  const [route, setRoute] = useState<Route>({ screen: "record" });
+  const [route, setRoute] = useState<Route>(() =>
+    typeof window === "undefined" ? { screen: "record" } : hashToRoute(window.location.hash),
+  );
   const [status, setStatus] = useState<engine.Status | null>(null);
   const [settings, setSettingsState] = useState<Settings>(loadSettings);
   const [toast, setToastState] = useState<{ n: number; message: string; action?: ToastAction } | null>(null);
@@ -59,10 +70,38 @@ export function App() {
   const closeToast = useCallback(() => setToastState(null), []);
   const [announce, setAnnounce] = useState("");
   const levels = useMemo(() => createLevelSource(), []);
+  /** Visits nobody has signed yet: the count beside Visits. */
+  const [waiting, setWaiting] = useState(0);
+
+  /** Go somewhere, with a history entry so Back returns here. */
+  const navigate = useCallback((next: Route) => {
+    setRoute(next);
+    const hash = routeToHash(next);
+    try {
+      if (window.location.hash !== hash) window.history.pushState(null, "", hash);
+    } catch {
+      // History can be unavailable (sandboxed frames); the screen still changes.
+    }
+  }, []);
+
+  // Back and Forward: the hash names the screen.
+  useEffect(() => {
+    const onPop = () => setRoute(hashToRoute(window.location.hash));
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
 
   // Each destination opens at its top, not at the previous screen's scroll position.
   useEffect(() => {
     window.scrollTo(0, 0);
+  }, [route]);
+
+  // The count beside Visits, fresh whenever the screen changes.
+  useEffect(() => {
+    engine.listSessions().then(
+      (rows) => setWaiting(rows.filter(needsYou).length),
+      () => {},
+    );
   }, [route]);
 
   const refreshStatus = useCallback(() => {
@@ -140,7 +179,7 @@ export function App() {
     actorName,
     can: permissions(team ? (user?.role ?? "reception") : null, Boolean(team && user?.admin)),
     route,
-    navigate: setRoute,
+    navigate,
     status,
     refreshStatus,
     settings,
@@ -149,8 +188,10 @@ export function App() {
     announce: setAnnounce,
     levels,
   };
-  const active = route.screen === "review" || route.screen === "patient" ? "patients" : route.screen;
-  const t = (text: string) => translate(settings.uiLanguage, text);
+  const active = activeOf(route);
+  const t = (text: string, vars?: Record<string, string | number>) => translate(settings.uiLanguage, text, vars);
+  /** On a phone, Templates, Models and Help open from Settings, so its tab stays marked. */
+  const underSettings = active === "templates" || active === "models" || active === "help";
 
   useEffect(() => {
     document.documentElement.lang = settings.uiLanguage;
@@ -163,10 +204,10 @@ export function App() {
     () =>
       engine.onCallSaved((id) => {
         // Review picks the Phone call template for a call by itself.
-        setRoute({ screen: "review", id, draft: draftOnStop });
+        navigate({ screen: "review", id, draft: draftOnStop });
         setAnnounce(translate(settings.uiLanguage, "Call saved"));
       }),
-    [draftOnStop, settings.uiLanguage],
+    [draftOnStop, settings.uiLanguage, navigate],
   );
 
   return (
@@ -177,7 +218,7 @@ export function App() {
     <LazyMotion features={loadMotionFeatures} strict>
     <MotionConfig reducedMotion="user">
     <AppContext.Provider value={ctx}>
-      <div className="frame">
+      <div className="frame" data-profile={isIos(status) ? "ios" : undefined}>
         <nav className="sidebar" aria-label="Main">
           {/* The horizontal lockup in the full rail; the mark alone in the narrow rail (§2.3).
               Wrapped so app.css's .brand-full / .brand-compact switch hides the whole element. */}
@@ -190,19 +231,28 @@ export function App() {
             </span>
           </div>
           <ul>
-            {NAV.map(({ screen, label: english, icon: Icon, phone }) => {
+            {NAV.map(({ screen, label: english, icon: Icon, phone, group }, i) => {
               const label = t(english);
+              const count = screen === "visits" && waiting > 0 ? waiting : 0;
+              const name = count ? `${label}, ${t("{n} need you", { n: count })}` : label;
+              const first = group === "secondary" && NAV[i - 1]?.group === "primary";
               return (
-                <li key={screen} className={phone ? undefined : "nav-secondary"}>
+                <li
+                  key={screen}
+                  data-phone={phone ? undefined : "no"}
+                  className={[group === "secondary" ? "nav-secondary" : "", first ? "nav-group-start" : ""]
+                    .filter(Boolean)
+                    .join(" ") || undefined}
+                >
                   <button
                     type="button"
                     className="nav-item"
-                    aria-label={label}
-                    title={label}
+                    data-nav={screen}
+                    aria-label={name}
+                    title={name}
                     aria-current={active === screen ? "page" : undefined}
-                    // Phones: Models and Help open from Settings, so its tab stays marked (§9).
-                    data-parent-current={screen === "settings" && (active === "models" || active === "help") ? "" : undefined}
-                    onClick={() => setRoute({ screen } as Route)}
+                    data-parent-current={screen === "settings" && underSettings ? "" : undefined}
+                    onClick={() => navigate({ screen } as Route)}
                   >
                     {/* One 2 px ink marker that glides to the new destination. */}
                     {active === screen && (
@@ -210,6 +260,11 @@ export function App() {
                     )}
                     <Icon size={20} aria-hidden />
                     <span className="nav-label">{label}</span>
+                    {count > 0 && (
+                      <span className="nav-badge mono" aria-hidden>
+                        {count}
+                      </span>
+                    )}
                   </button>
                 </li>
               );
@@ -228,11 +283,15 @@ export function App() {
                 </span>
               </button>
             )}
-            <span className="nav-label">{t(engine.isDesktop ? "This device" : "Web, this computer only")}</span>
+            <span className="nav-label running-on">
+              <span className="ob-dot" data-tone="ok" aria-hidden />
+              {t(engine.isDesktop ? "This device" : "Web, this computer only")}
+            </span>
           </div>
         </nav>
         <main className="content">
           {route.screen === "record" && <Recorder key={route.patient ?? ""} patientId={route.patient} />}
+          {route.screen === "visits" && <Visits />}
           {route.screen === "patients" && <Patients />}
           {route.screen === "patient" && <PatientDetail key={route.id} id={route.id} />}
           {route.screen === "review" && (
@@ -249,22 +308,7 @@ export function App() {
           )}
           {route.screen === "help" && <Help />}
           {route.screen === "models" && <Models />}
-          {route.screen === "settings" && <SettingsScreen />}
-          {route.screen === "settings" && (
-            <nav className="phone-more" aria-label={t("More")}>
-              <ul>
-                {PHONE_MORE.map(({ screen, label: english, icon: Icon }) => (
-                  <li key={screen}>
-                    <button type="button" className="phone-more-row" onClick={() => setRoute({ screen } as Route)}>
-                      <Icon size={20} aria-hidden />
-                      <span>{t(english)}</span>
-                      <ChevronRight size={18} aria-hidden className="phone-more-chevron" />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </nav>
-          )}
+          {route.screen === "settings" && <SettingsScreen key={route.section ?? ""} section={route.section} />}
         </main>
       </div>
       {!settings.consentAcknowledgedAt && (
