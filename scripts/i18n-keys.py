@@ -27,6 +27,9 @@ INDIRECT = [
     "Visits", "Help", "Today", "This week", "Earlier",
     "You and your team", "Recording and consent", "Language and appearance", "Phone calls", "PDFs and copying",
     "Encrypted sync", "Privacy and storage", "Deleted visits", "About",
+    # Help IPHONE_STEP (the iPhone profile's wording of two steps)
+    "If the models aren't on this iPhone yet, choose Download everything on the Record screen. It's a one-time download; after that OpenBark works offline.",
+    "Recordings, transcripts and notes are encrypted on this iPhone. Show the recovery key once and keep it somewhere safe.",
     # @openbark/ui ThemeToggle (translated through its `translate` prop)
     "Theme", "System", "Light", "Dark",
     # UserPicker ROLE_LABEL

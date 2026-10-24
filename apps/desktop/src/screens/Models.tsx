@@ -199,7 +199,16 @@ export function Models() {
           )}
         </p>
       )}
-      <p className="small muted">{hardwareLine(t, app.status?.hardware)}</p>
+      <p className="small muted">
+        {app.status?.profile === "ios" && app.status.hardware
+          ? // The engine says the phone's own memory in its summary (ADR-0018 section 10), not a graphics card.
+            t("This iPhone, {gb} GB memory", {
+              gb:
+                app.status.hardware.summary.match(/(\d+)\s*GB/)?.[1] ??
+                String(Math.round(app.status.hardware.ram_bytes / 1e9)),
+            })
+          : hardwareLine(t, app.status?.hardware)}
+      </p>
       {error && (
         <p className="ob-notice" data-tone="danger" role="alert">
           {error}

@@ -165,6 +165,11 @@ async function shot(page, v, name) {
 const nav = async (page, i) => {
   await page.locator(`.nav-item[data-nav="${OLD_NAV[i]}"]`).click();
   await page.locator(".screen h1").first().waitFor();
+  // Settings shows one section at a time (ADR-0027): open Deleted visits when it's offered.
+  if (OLD_NAV[i] === "settings") {
+    const section = page.locator(".settings-nav-item, .settings-row", { hasText: "Deleted visits" }).first();
+    if (await section.count()) await section.click();
+  }
 };
 async function openPatient(page, name) {
   await nav(page, 1);

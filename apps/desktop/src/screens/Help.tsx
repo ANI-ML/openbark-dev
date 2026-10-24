@@ -143,6 +143,14 @@ function HelpVideo({ id, title }: { id: string; title: string }) {
  * e2e/help-videos.mjs) with the same steps written out. Videos ship with
  * the app (public/help), so help works offline.
  */
+/** Steps that name the device, as the iPhone profile says them (ADR-0027). */
+const IPHONE_STEP: Record<string, string> = {
+  "If the models aren't on this computer yet, choose Download everything on the Record screen. It's a one-time download; after that OpenBark works offline.":
+    "If the models aren't on this iPhone yet, choose Download everything on the Record screen. It's a one-time download; after that OpenBark works offline.",
+  "Recordings, transcripts and notes are encrypted on this computer. Show the recovery key once and keep it somewhere safe.":
+    "Recordings, transcripts and notes are encrypted on this iPhone. Show the recovery key once and keep it somewhere safe.",
+};
+
 export const HELP_TOPICS = [
   {
     id: "getting-started",
@@ -280,7 +288,7 @@ export function Help() {
           )}
           <ol className="help-steps">
             {topic.steps.map((s) => (
-              <li key={s}>{t(s)}</li>
+              <li key={s}>{t((app.status?.profile === "ios" && IPHONE_STEP[s]) || s)}</li>
             ))}
           </ol>
         </article>

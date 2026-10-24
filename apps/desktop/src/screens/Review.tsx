@@ -944,6 +944,8 @@ export function Review({
                   <div className="draft-origin">
                     <span className="draft-origin-text">
                       {!phone && modelChip}
+                      {/* An iPhone wider than the phone layout (landscape) still says where to sign. */}
+                      {!phone && ios && !signed && <span className="small muted">{t("Sign it on your computer.")}</span>}
                       {label && <span className="small muted">{t("Drafted with {label}", { label })}</span>}
                     </span>
                   </div>
@@ -1380,9 +1382,9 @@ function inferenceHost(t: ReturnType<typeof useT>): string {
 
 type Translate = (text: string, vars?: Record<string, string | number>) => string;
 
-/** "Outgoing · 4:12 · +1 555 555 0142" (ADR-0023 section 8). */
+/** "Outgoing, 4:12, +1 555 555 0142" (ADR-0023 section 8). */
 function callLine(t: Translate, call: engine.CallInfo): string {
-  return [t(call.direction === "outgoing" ? "Outgoing" : "Incoming"), callLength(call.duration_secs), formatPhone(call.number)].join(" · ");
+  return [t(call.direction === "outgoing" ? "Outgoing" : "Incoming"), callLength(call.duration_secs), formatPhone(call.number)].join(", ");
 }
 
 /** The announcement and the client's answer, as Review shows them. */

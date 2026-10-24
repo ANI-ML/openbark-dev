@@ -31,6 +31,8 @@ for (const v of variants) {
   };
   await page.goto(`${base}/`);
   await page.locator('.nav-item[data-nav="settings"]').click();
+  // Encrypted sync is its own section (ADR-0027).
+  await page.locator(".settings-nav-item, .settings-row", { hasText: "Encrypted sync" }).first().click();
   const section = page.locator(".sync-section");
   await section.waitFor();
   await section.scrollIntoViewIfNeeded();

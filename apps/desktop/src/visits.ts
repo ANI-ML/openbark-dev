@@ -84,11 +84,20 @@ export function thisDevice(status: Status | null | undefined, t: Translate): str
   return isIos(status) ? t("this iPhone") : t("this computer");
 }
 
-/** One status per visit: a dot and its words (colour never alone). */
-export function visitStatus(r: SessionSummary, status: Status | null | undefined, t: Translate): { tone: Tone; text: string } {
+/**
+ * One status per visit: a dot and its words (colour never alone).
+ * `draftsHere` false: this iPhone leaves drafting to a computer, so an
+ * undrafted visit is simply "Transcribed" here.
+ */
+export function visitStatus(
+  r: SessionSummary,
+  status: Status | null | undefined,
+  t: Translate,
+  draftsHere = true,
+): { tone: Tone; text: string } {
   if (r.signed) return { tone: "ok", text: r.signed_by ? t("Signed by {name}", { name: r.signed_by }) : t("Signed") };
   if (r.runs > 0) return { tone: "warn", text: isIos(status) ? t("Check note") : t("Check and sign") };
-  return { tone: "neutral", text: t("Ready to draft") };
+  return { tone: "neutral", text: draftsHere ? t("Ready to draft") : t("Transcribed") };
 }
 
 /** "Maple · Okonkwo" (the one place a middle dot belongs), or the combined name from older engines. */

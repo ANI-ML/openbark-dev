@@ -27,6 +27,8 @@ const page = await ctx.newPage();
 page.on("pageerror", (e) => problems.push(`${e}`));
 const settings = async () => {
   await page.locator('.nav-item[data-nav="settings"]').click();
+  // Storage lives in Privacy and storage (ADR-0027).
+  await page.locator(".settings-nav-item, .settings-row", { hasText: "Privacy and storage" }).first().click();
   await page.locator(".storage-row").first().waitFor();
   await page.locator(".storage-row").first().scrollIntoViewIfNeeded();
 };

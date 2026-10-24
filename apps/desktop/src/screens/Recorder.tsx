@@ -66,6 +66,9 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
   /** Visits waiting for someone today (desktop side column). */
   const [waiting, setWaiting] = useState<engine.SessionSummary[]>([]);
   const setupRef = useRef<HTMLDivElement>(null);
+  /** Phones: the recording screen replaces the Record button, so focus moves with it. */
+  const recScreen = useRef<HTMLDivElement>(null);
+  const stopButton = useRef<HTMLButtonElement>(null);
 
   // Opened from a patient's page: start with that patient (ADR-0011).
   useEffect(() => {
@@ -140,6 +143,14 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
       () => {},
     );
   }, [phone]);
+
+  // The phone's recording screen: Stop and save takes focus once it can be
+  // used; while the transcript is finished, the screen itself holds it.
+  useEffect(() => {
+    if (!phone) return;
+    if (state === "recording") stopButton.current?.focus();
+    else if (state === "starting" || state === "stopping") recScreen.current?.focus();
+  }, [phone, state]);
 
   const missing = app.status?.models.filter((m) => !m.installed) ?? [];
 
@@ -533,7 +544,14 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
   if (phone && (state === "starting" || state === "recording" || state === "stopping")) {
     const tail = segments.slice(-3);
     return (
-      <div className="recording-screen" tabIndex={-1} onKeyDown={onKeyDown}>
+      <div
+        className="recording-screen"
+        ref={recScreen}
+        tabIndex={-1}
+        onKeyDown={onKeyDown}
+        role="region"
+        aria-label={t("Recording")}
+      >
         <header className="rec-head">
           <span className="rec-who">
             <span className="small muted">{patientName || t("No patient")}</span>
@@ -568,16 +586,19 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
           {state === "stopping" ? (
             <ProcessingBar progress={progress} mode="finish" />
           ) : (
-            <Button
-              variant="primary"
-              size="prominent"
-              className="rec-stop"
+            // The Button's own markup, with a ref so focus can move here.
+            <button
+              ref={stopButton}
+              type="button"
+              className="ob-button rec-stop"
+              data-variant="primary"
+              data-size="prominent"
               onClick={() => void toggle()}
               disabled={state !== "recording"}
             >
               <Square size={20} aria-hidden />
               {t("Stop and save")}
-            </Button>
+            </button>
           )}
         </footer>
       </div>

@@ -9,6 +9,7 @@ import {
   animalFamily,
   firstWhen,
   inWhen,
+  isIos,
   needsYou,
   recordedOn,
   visitStatus,
@@ -68,7 +69,7 @@ export function Visits() {
     stopped: t("Not syncing"),
   };
   const pill = (r: engine.SessionSummary) => {
-    const s = visitStatus(r, app.status, t);
+    const s = visitStatus(r, app.status, t, !(isIos(app.status) && !app.settings.writeNotesHere));
     return <StatusDot tone={s.tone}>{s.text}</StatusDot>;
   };
 

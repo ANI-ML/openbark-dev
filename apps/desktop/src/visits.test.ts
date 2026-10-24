@@ -60,6 +60,8 @@ describe("one status per visit", () => {
     // No signing on the phone during the pilot.
     expect(visitStatus(visit({ runs: 1 }), ios, t).text).toBe("Check note");
     expect(visitStatus(visit(), desktop, t).text).toBe("Ready to draft");
+    // An iPhone that leaves drafting to a computer.
+    expect(visitStatus(visit(), ios, t, false).text).toBe("Transcribed");
   });
 
   it("puts the middle dot only between animal and family", () => {
