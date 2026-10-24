@@ -39,6 +39,52 @@ for (const f of ["portal.html", "portal.js"]) {
 
 // A made-up account for the mocked sign-in.
 const USER = { id: "0b7e2f4a-5c1d-4e8f-9a3b-6d2c1f0e9a87", email: "jordan.lee@example.com" };
+
+// A made-up clinic (ADR-0028) the account is the only admin of, with three
+// colleagues, a pending invite to another clinic, and daily counts: the
+// mocked clinic functions below answer with these.
+const CLINIC = { id: "6a1d0c3e-9b2f-4e7a-8c5d-2f1e0d9c8b7a", name: "Riverside Animal Hospital" };
+const iso = (d) => d.toISOString().slice(0, 10);
+const clinicRpc = (name, args) => {
+  const members = [
+    { user_id: USER.id, name: "Jordan Lee", role: "admin", joined_at: "2026-10-01T15:00:00Z", share_usage: true, last_active: iso(new Date()), devices: 2, platforms: ["macos", "ios"], app_versions: ["0.2.0"] },
+    { user_id: "1c2d3e4f-0000-4000-8000-000000000001", name: "Dr Samira Okafor", role: "member", joined_at: "2026-10-02T15:00:00Z", share_usage: true, last_active: iso(new Date()), devices: 1, platforms: ["windows"], app_versions: ["0.2.1-beta.1"] },
+    { user_id: "1c2d3e4f-0000-4000-8000-000000000002", name: "Casey Tran", role: "member", joined_at: "2026-10-03T15:00:00Z", share_usage: false, last_active: null, devices: 0, platforms: [], app_versions: [] },
+    { user_id: "1c2d3e4f-0000-4000-8000-000000000003", name: "Alex Rivera", role: "admin", joined_at: "2026-10-04T15:00:00Z", share_usage: true, last_active: null, devices: 0, platforms: [], app_versions: [] },
+  ];
+  if (name === "my_clinics") return [{ id: CLINIC.id, name: CLINIC.name, role: "admin", display_name: "Jordan Lee", share_usage: true, joined_at: "2026-10-01T15:00:00Z", members: 4, sole_admin: true }];
+  if (name === "my_invites") return [{ id: "9e8d7c6b-0000-4000-8000-0000000000aa", clinic_id: "9e8d7c6b-0000-4000-8000-0000000000bb", clinic_name: "Hillside Vets", role: "member", expires_at: "2026-11-07T15:00:00Z", invited_by: "Dr Pat Kim", member: false }];
+  if (name === "my_usage") return [{ day: iso(new Date()), visits: 6, minutes: 75.5, drafted: 7, signed: 6, calls: 1 }];
+  if (name === "clinic_admin") return {
+    clinic: { id: CLINIC.id, name: CLINIC.name, created_at: "2026-10-01T15:00:00Z" }, me: USER.id, invites_left_today: 47, members,
+    invites: [{ id: "5b4a3c2d-0000-4000-8000-0000000000cc", email: "a.very.long.address.for.layout@riverside-animal-hospital.example.com", role: "member", created_at: "2026-10-20T15:00:00Z", last_sent_at: "2026-10-20T15:00:00Z", expires_at: "2026-11-03T15:00:00Z", expired: false, sent_count: 1 }],
+    codes: [{ id: "7f6e5d4c-0000-4000-8000-0000000000dd", created_at: "2026-10-22T15:00:00Z", expires_at: "2026-11-05T15:00:00Z" }],
+  };
+  if (name === "clinic_dashboard") {
+    const days = [];
+    for (let d = new Date(`${args.from_day}T12:00:00Z`); iso(d) <= args.to_day; d.setUTCDate(d.getUTCDate() + 1)) {
+      const n = d.getUTCDate() % 7;
+      if (n) days.push({ day: iso(d), visits: n * 3, minutes: n * 31.5, drafted: n * 3 + 1, signed: n * 3, calls: n % 2 });
+    }
+    const sum = (k) => days.reduce((s, x) => s + x[k], 0);
+    const visits = sum("visits");
+    return {
+      clinic: CLINIC, from_day: args.from_day, to_day: args.to_day, members_total: 4, members_sharing: 3,
+      totals: { visits, minutes: sum("minutes"), drafted: sum("drafted"), signed: sum("signed"), calls: sum("calls"), devices: 3, reporting: 2 },
+      days,
+      members: [
+        { user_id: USER.id, name: "Jordan Lee", role: "admin", former: false, share_usage: true, visits: Math.round(visits / 2), minutes: 300.5, drafted: 40, signed: 38, calls: 3, days_active: 12, last_active: args.to_day },
+        { user_id: members[1].user_id, name: "Dr Samira Okafor", role: "member", former: false, share_usage: true, visits: visits - Math.round(visits / 2) - 4, minutes: 250, drafted: 30, signed: 29, calls: 1, days_active: 10, last_active: args.to_day },
+        { user_id: members[2].user_id, name: "Casey Tran", role: "member", former: false, share_usage: false, visits: 0, minutes: 0, drafted: 0, signed: 0, calls: 0, days_active: 0, last_active: null },
+        { user_id: members[3].user_id, name: "Alex Rivera", role: "admin", former: false, share_usage: true, visits: 0, minutes: 0, drafted: 0, signed: 0, calls: 0, days_active: 0, last_active: null },
+        { user_id: null, name: null, role: null, former: true, share_usage: null, people: 1, visits: 4, minutes: 20, drafted: 4, signed: 4, calls: 0, days_active: 2, last_active: args.from_day },
+      ],
+      platforms: [{ platform: "macos", devices: 1, visits: 40, minutes: 400 }, { platform: "windows", devices: 1, visits: 30, minutes: 300 }, { platform: "ios", devices: 1, visits: 10, minutes: 100 }],
+      versions: [{ app_version: "0.2.1-beta.1", devices: 2 }, { app_version: "0.2.0", devices: 1 }],
+    };
+  }
+  return undefined;
+};
 const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
 const session = () => {
   const now = Math.floor(Date.now() / 1000);
@@ -87,6 +133,11 @@ for (const v of [
     if (url.pathname === "/rest/v1/profiles" && req.method() === "GET") return reply(200, mock.profile ? [mock.profile] : []);
     if (url.pathname === "/rest/v1/profiles" && req.method() === "POST") { mock.profile = JSON.parse(req.postData() || "{}"); return reply(201); }
     if (url.pathname === "/rest/v1/profiles" && req.method() === "PATCH") { mock.profile = { ...mock.profile, ...JSON.parse(req.postData() || "{}") }; return reply(204); }
+    // Clinics: only the read functions the signed-in page calls on its own.
+    if (url.pathname.startsWith("/rest/v1/rpc/") && req.method() === "POST" && req.headers()["content-profile"] === "clinic") {
+      const answer = clinicRpc(url.pathname.slice("/rest/v1/rpc/".length), JSON.parse(req.postData() || "{}"));
+      if (answer !== undefined) return reply(200, answer);
+    }
     if (url.pathname === "/functions/v1/delete-account" && req.method() === "POST") { mock.deleted = JSON.parse(req.postData() || "{}"); return reply(200, { deleted: true }); }
     if (url.pathname === "/auth/v1/logout") return reply(204);
     problems.push(`${v.name}: Supabase call the mock doesn't answer: ${req.method()} ${url.pathname}`);
@@ -275,7 +326,34 @@ for (const v of [
   await page.locator('#code-form button[type="submit"]').click();
   await page.locator("#view-signed-in").waitFor({ state: "visible" });
   await page.waitForFunction(() => document.querySelectorAll("#downloads .pt-dl-row").length === 3 && !/Checking/.test(document.getElementById("downloads-line").textContent));
+  // The clinic dashboard (ADR-0028): the mocked clinic, 30 days of bars, the members.
+  await page.waitForFunction(() => document.querySelectorAll("#usage-svg rect").length === 30 && document.querySelectorAll("#members-table tbody tr").length === 4, null, { timeout: 10000 }).catch(() => {});
   await page.waitForTimeout(300);
+  const clinic = await page.evaluate((name) => {
+    const issues = [];
+    const shown = (id) => !!document.getElementById(id)?.getClientRects().length;
+    if (!shown("clinic-dash")) issues.push("clinic dashboard not shown");
+    if (document.getElementById("clinic-h")?.textContent !== name) issues.push("clinic name not shown");
+    if (document.querySelectorAll("#usage-svg rect").length !== 30) issues.push(`chart has ${document.querySelectorAll("#usage-svg rect").length} bars, not 30`);
+    if (!/visits recorded per day/i.test(document.getElementById("usage-svg-label")?.textContent ?? "")) issues.push("chart has no text alternative");
+    if (document.querySelectorAll("#usage-days tbody tr").length !== 30) issues.push("the per-day table doesn't have 30 rows");
+    if (document.querySelectorAll("#usage-stats dd").length !== 5) issues.push("usage tiles missing");
+    if (!/Former members/.test(document.getElementById("usage-members")?.textContent ?? "")) issues.push("no former members row");
+    if (!/Not sharing/.test(document.getElementById("usage-members")?.textContent ?? "")) issues.push("a member who isn't sharing isn't marked");
+    if (!shown("clinic-invited") || !/Hillside Vets/.test(document.getElementById("clinic-invite-list")?.textContent ?? "")) issues.push("the pending invite isn't shown");
+    if (document.querySelectorAll("#members-table tbody tr").length !== 4) issues.push("members table doesn't list four members");
+    if (/@/.test(document.getElementById("members-table")?.textContent ?? "")) issues.push("members table shows an email address");
+    if (/\u00b7/.test(document.getElementById("clinic-area")?.innerText ?? "")) issues.push("a middle dot in the clinic area");
+    return issues;
+  }, CLINIC.name);
+  for (const b of clinic) problems.push(`${v.name} portal clinic: ${b}`);
+  await page.locator("#clinic-dash").screenshot({ path: `${out}/${v.name}-portal-clinic-usage.png` });
+  for (const tab of ["members", "invite", "settings"]) {
+    await page.locator(`#tab-${tab}`).click();
+    if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)) problems.push(`${v.name} portal clinic: horizontal scroll on the ${tab} tab`);
+    await page.locator("#clinic-dash").screenshot({ path: `${out}/${v.name}-portal-clinic-${tab}.png` });
+  }
+  await page.locator("#tab-usage").click();
   const account = await page.evaluate((email) => {
     const issues = [];
     if (document.getElementById("account-email")?.textContent !== email) issues.push("account email not shown");
@@ -305,6 +383,8 @@ for (const v of [
   if (JSON.stringify(mock.profile) !== JSON.stringify(want)) problems.push(`${v.name} portal: profile saved as ${JSON.stringify(mock.profile)}`);
   // Delete: the button stays off until the email is typed; then the account goes and the page signs out.
   await page.locator("#delete-open").click();
+  if (!/only admin of Riverside Animal Hospital/.test((await page.locator("#delete-clinic-warn").textContent()) ?? "") || !(await page.locator("#delete-clinic-warn").isVisible()))
+    problems.push(`${v.name} portal: no warning that deleting the account deletes the clinic it is the only admin of`);
   if (!(await page.locator("#delete-submit").isDisabled())) problems.push(`${v.name} portal: delete enabled before confirming`);
   await page.locator("#delete-email").fill(USER.email.toUpperCase());
   if (await page.locator("#delete-submit").isDisabled()) problems.push(`${v.name} portal: delete still off after typing the email`);
@@ -327,3 +407,4 @@ for (const v of [
 }
 await browser.close();
 console.log(problems.length ? `PROBLEMS:\n${problems.join("\n")}` : "all checks passed");
+process.exitCode = problems.length ? 1 : 0;

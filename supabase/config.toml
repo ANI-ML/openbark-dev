@@ -1,5 +1,5 @@
-# A local Supabase for developing and testing OpenBark's account portal and
-# encrypted sync (ADR-0017). `supabase start` runs it in Docker; nothing here
+# A local Supabase for developing and testing OpenBark's account portal,
+# encrypted sync (ADR-0017) and clinics (ADR-0028). `supabase start` runs it in Docker; nothing here
 # configures the hosted project, whose settings are made in its dashboard
 # (supabase/README.md). Tests and scripts read the local keys from
 # `supabase status -o env` at run time; none are written down here.
@@ -13,9 +13,10 @@ project_id = "openbark-sync-dev"
 [api]
 enabled = true
 port = 54321
-# `sync` is OpenBark's encrypted sync schema. On a hosted project, add it
-# under Project Settings > Data API > Exposed schemas.
-schemas = ["public", "graphql_public", "sync"]
+# `sync` is OpenBark's encrypted sync schema and `clinic` its clinics,
+# invites and usage counts. On a hosted project, add both under Project
+# Settings > Data API > Exposed schemas.
+schemas = ["public", "graphql_public", "sync", "clinic"]
 extra_search_path = ["public", "extensions"]
 max_rows = 1000
 
@@ -76,6 +77,12 @@ content_path = "./supabase/templates/sign-in-code.html"
 subject = "Your OpenBark sign-in code"
 content_path = "./supabase/templates/sign-in-code.html"
 
+# Sent by the clinic-invite Edge Function to people without an account yet.
+# No link that signs anyone in: it points at the account page.
+[auth.email.template.invite]
+subject = "You're invited to a clinic on OpenBark"
+content_path = "./supabase/templates/clinic-invite.html"
+
 [auth.mfa.totp]
 enroll_enabled = true
 verify_enabled = true
@@ -84,6 +91,18 @@ verify_enabled = true
 enabled = true
 policy = "per_worker"
 deno_version = 2
+
+# The hosted project deploys every function with --no-verify-jwt (each one
+# checks the caller's token itself with Supabase Auth), so the local stack
+# runs the same code path.
+[functions.delete-account]
+verify_jwt = false
+
+[functions.revoke-device]
+verify_jwt = false
+
+[functions.clinic-invite]
+verify_jwt = false
 
 [analytics]
 enabled = false

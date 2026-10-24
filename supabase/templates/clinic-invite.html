@@ -1,0 +1,18 @@
+<!-- OpenBark clinic invite email (ADR-0028). Paste this into Supabase >
+     Authentication > Emails > "Invite user". Subject: You're invited to a clinic on OpenBark
+     The clinic-invite Edge Function sends it to people who don't have an
+     OpenBark account yet. It carries no sign-in link and no token: the person
+     opens the account page, signs in with this address (a 6-digit code is
+     emailed then), and accepts the invite there. It names no clinic, so the
+     clinic's name is never stored with the new account. See supabase/README.md. -->
+<div style="margin:0;padding:32px 16px;background:#F2F4F7;font-family:Manrope,system-ui,-apple-system,'Segoe UI',Arial,sans-serif;color:#182230;">
+  <div style="max-width:480px;margin:0 auto;padding:32px;background:#FFFFFF;border:1px solid #E5E8EE;border-radius:14px;">
+    <p style="margin:0 0 24px;font-size:22px;line-height:28px;letter-spacing:-0.03em;color:#182230;"><span style="font-weight:500;">open</span><span style="font-weight:800;">bark</span></p>
+    <h1 style="margin:0 0 8px;font-size:24px;line-height:30px;font-weight:800;letter-spacing:-0.02em;color:#182230;">You're invited to a clinic</h1>
+    <p style="margin:0 0 16px;font-size:15px;line-height:24px;color:#4B5563;">An administrator at your clinic or hospital invited this email address to join their clinic on OpenBark, the veterinary scribe.</p>
+    <p style="margin:0 0 24px;font-size:15px;line-height:24px;color:#4B5563;">To accept, open the account page and sign in with this email address. We'll email you a 6-digit code; there's no password. The invite is waiting there for 14 days.</p>
+    <p style="margin:0 0 24px;"><a href="{{ .SiteURL }}/portal" style="display:inline-block;padding:12px 20px;background:#182230;border-radius:10px;font-size:15px;line-height:20px;font-weight:600;color:#FFFFFF;text-decoration:none;">Open the account page</a></p>
+    <p style="margin:0 0 8px;font-size:15px;line-height:24px;color:#4B5563;">Not expecting this? Ignore this email. Nothing happens unless you sign in and accept.</p>
+    <p style="margin:24px 0 0;padding-top:16px;border-top:1px solid #E5E8EE;font-size:13px;line-height:18px;color:#6B7280;">OpenBark, the free veterinary scribe. Built by the ANI.ML Health team. Your recordings and notes stay on your computer; a clinic sees only daily counts you choose to share.</p>
+  </div>
+</div>
