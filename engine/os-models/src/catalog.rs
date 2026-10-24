@@ -127,6 +127,10 @@ pub struct CatalogEntry {
     /// The Hub repo is gated: downloads send the saved token (and only these).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub gated: bool,
+    /// Suited to a phone (ADR-0018 section 10): the iPhone app lists only
+    /// these, and only those within its memory tier can be downloaded there.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub mobile: bool,
 }
 
 impl CatalogEntry {
@@ -308,6 +312,7 @@ mod tests {
             ],
             layout: Layout::LlmMlx { config: "config.json".into() },
             gated: true,
+            mobile: false,
         }
     }
 

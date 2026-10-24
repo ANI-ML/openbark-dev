@@ -323,6 +323,22 @@ Tests:
 - **`users.rs`:** Argon2id PINs with a lockout.
 - **New dependencies:** `x25519-dalek`, `ed25519-dalek`, `hkdf`, `sha2` and `argon2`, then `tokio-tungstenite` later for Realtime. Each is checked live and pinned in `docs/versions.md` before it is added.
 
+## Implementation notes (M3 phase 2, 2026-10-20)
+
+Built on `feat/m3-sync`. Where the build departs from the text above, and why; the threat model for the external review is [docs/security/sync-threat-model.md](../security/sync-threat-model.md).
+
+| Topic | ADR text | As built | Why |
+|---|---|---|---|
+| Pairing fallback (section 3) | Compare a 6-word safety code on both screens | The new device shows 6 words; the person **types** them on the approving device. The words key an Argon2id pairing key: the approver checks the new device's keys against it (HMAC), and the AMK envelope binds it, so the new device knows the approver saw its screen | Comparing can't protect the new device from a server that sends it an envelope of an AMK the server chose |
+| Blob format (section 5) | Blobs use OBA1 | **OBB1**: the OBA1 chunk layout under its own magic | OBA1 is an encrypted recording on disk; the guard and the database refuse it, so no recording can pass as a blob |
+| Signatures (section 5) | The device signs the header | The signature covers the header **and** the ciphertext | Otherwise any holder of the DEK could pair a signed header with other ciphertext |
+| Blob keys | DEK per blob | Blob part keys derive from the parent object's DEK | Rotation re-wraps object DEKs only; deleting the object's DEK shreds its parts |
+| Roster | A device list under the AMK | Also carries the Recovery Kit's public key; removed devices stay listed with their last counter | Rotation wraps the new AMK to the kit key from the signed roster, never the server's; old objects from a removed device stay valid, newer ones are refused |
+| Network rows (section 12) | R6, R7, R8 | **R12** (Auth), **R13** (REST and `delete-account`), R14 kept for Realtime | R6 went to the MLX engine pack (ADR-0025) and R9 to R11 to ADR-0023 |
+| Revocation | `revoke-device` Edge Function | The app calls `sync.revoke_device` over REST from an approved device; the Edge Function serves the portal, which has no device session | The function needs the service role only because the portal isn't a device |
+| Re-joining | (not covered) | A removed device id never comes back; a removed device that asks again does so under a new id, with new keys and a new approval | Keeps "the cloud can lock a device out but never let one in" simple to check |
+| Not yet built | Gap detection, TOTP, device lease, kit rotation, Realtime | | Phase 3, 5 and 6; listed in the threat model |
+
 ## Consequences
 
 - **Brand promise.** The public wording, accepted by default, is: "Recordings and notes stay on your devices unless you turn on encrypted sync. Even then, only encrypted copies leave, and our servers can't read them." It stays true, and recordings in fact never leave at all. The sync settings screen and the guide say plainly that sync carries transcripts and notes only. Four texts change before sync ships: the README, the website, the bundle `longDescription` ("never leave this computer") and the iPhone microphone text.

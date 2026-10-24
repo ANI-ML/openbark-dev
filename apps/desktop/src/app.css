@@ -1157,6 +1157,27 @@ p > .ob-dot { display: inline-block; vertical-align: middle; }
 .import-path { overflow-wrap: anywhere; }
 .import-files { list-style: none; margin: 4px 0 0; padding: 0; overflow-wrap: anywhere; }
 
+/* Encrypted sync (ADR-0017) */
+.ob-tag { display: inline-block; padding: 0 6px; margin-left: 6px; border: 1px solid var(--border); border-radius: var(--r-sm); font-size: 12px; line-height: 18px; font-weight: 500; color: var(--muted); vertical-align: middle; }
+.sync-section h3.label { margin-top: 16px; }
+.sync-devices { list-style: none; margin: 0; padding: 0; }
+.sync-conflicts { margin: 4px 0 0; padding-left: 18px; }
+.sync-server { display: grid; gap: 8px; margin-top: 8px; }
+.sync-sheet form { display: grid; gap: 12px; }
+.sync-code { font-size: 24px; letter-spacing: 0.3em; max-width: 12ch; }
+.kit-words { columns: 3; column-gap: 24px; margin: 8px 0; padding-left: 28px; font-size: 15px; line-height: 26px; }
+@media (max-width: 640px) { .kit-words { columns: 2; } }
+.kit-qr { width: 180px; max-width: 100%; margin: 8px 0; background: var(--qr-light); padding: 4px; border-radius: var(--r-sm); }
+.kit-qr svg { width: 100%; height: auto; display: block; }
+.kit-computer { overflow-wrap: anywhere; user-select: all; }
+.pair-words { font-size: 22px; line-height: 32px; letter-spacing: 0.02em; margin: 8px 0; overflow-wrap: anywhere; }
+.visit-status { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.set-aside { display: grid; gap: 8px; margin-top: 16px; }
+@media print {
+  body * { visibility: hidden; }
+  .print-kit, .print-kit * { visibility: visible; }
+  .print-kit { position: absolute; inset: 0; padding: 24px; color: var(--qr-dark); background: var(--qr-light); }
+}
 /* Settings > Phone calls (ADR-0023). */
 .phone-card { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
 .phone-facts { display: flex; flex-wrap: wrap; gap: 8px 32px; }

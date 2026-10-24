@@ -779,6 +779,13 @@ export function Review({
               )}
             </>
           )}
+          {view?.audio_on && !view.has_audio && (
+            <p className="recording-gone small muted">
+              {view.audio_on.device_name
+                ? t("Recorded on {device}. The audio is on that device.", { device: view.audio_on.device_name })
+                : t("Recorded on another device. The audio is on that device.")}
+            </p>
+          )}
           {view?.audio_deleted && (
             <p className="recording-gone small muted">
               {t("Recording deleted {date} by {name}. The transcript and notes are kept.", {
@@ -1002,6 +1009,30 @@ export function Review({
                     ` ${t("Drafted in {s} s.", { s: (run.stats.total_ms / 1000).toFixed(1) })}`}
                 </span>
               </footer>
+              {signed && (view?.set_aside ?? []).length > 0 && (
+                <section className="set-aside" aria-label={t("Drafts from another device")}>
+                  {(view?.set_aside ?? []).map((r) => (
+                    <div key={r.run_id} className="ob-notice" data-tone="warn">
+                      <p>
+                        {r.reason === "signed_later"
+                          ? t("This visit was also signed on another device, later. The first signature is the record.")
+                          : t("A draft was made on another device after this note was signed.")}{" "}
+                        {r.signed_on
+                          ? t("Signed on {device} at {time}. Add this as an addendum?", {
+                              device: r.signed_on,
+                              time: r.signed_at,
+                            })
+                          : t("Signed at {time}. Add this as an addendum?", { time: r.signed_at })}
+                      </p>
+                      {app.can.sign && r.markdown && (
+                        <Button variant="ghost" onClick={() => setAddendum(r.markdown ?? "")}>
+                          {t("Add as an addendum")}
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </section>
+              )}
               {signed && (
                 <section className="addenda" aria-label={t("Addenda")}>
                   {(view?.addenda ?? []).map((a) => (

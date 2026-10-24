@@ -32,6 +32,7 @@ pub use os_models::local::{ImportMode, ImportPreview};
 use os_models::locations::{self, Contents};
 pub use os_models::locations::{FolderKind, Moved, Source as FolderSource};
 use os_models::mlx_pack::{self, Support};
+use os_models::platform::{Profile, Tier};
 pub use os_models::remove::Removal;
 use os_models::remove::{self as removal, RemoveRule};
 use os_models::{CatalogEntry, Layout, LlmEngine, ModelStore, Slot, Source, Verify};
@@ -50,6 +51,7 @@ pub use templates::{
 pub mod demo;
 mod mic;
 mod phone;
+mod sync;
 mod templates;
 pub use mic::{MicLevel, MicTestStarted};
 pub use os_connect::{ConnectStore, PhonePrefs};
@@ -324,6 +326,13 @@ pub struct App {
     gpu_checked: Arc<std::sync::atomic::AtomicU8>,
     /// Template resets that can still be undone (ADR-0024).
     undo: Mutex<templates::UndoMap>,
+    /// Encrypted sync for this visits folder (ADR-0017). Off until the
+    /// person turns it on in Settings > Sync.
+    #[cfg(feature = "sync")]
+    sync: Option<Arc<os_sync::SyncService>>,
+    /// Run a sync now rather than at the next 30-second poll.
+    #[cfg_attr(not(feature = "sync"), allow(dead_code))]
+    sync_wake: std::sync::atomic::AtomicBool,
     /// The clinic's own Twilio account and this computer's phone settings
     /// (ADR-0023). `OPENBARK_CONNECTIONS_DIR` moves it, away from the keychain.
     pub connect: ConnectStore,
@@ -341,6 +350,16 @@ pub struct Hardware {
     pub gpu_memory_bytes: Option<u64>,
     pub ram_bytes: u64,
     pub summary: String,
+}
+
+/// A phone (ADR-0018 section 10) says how much memory it has, which decides
+/// the models that fit, instead of the computer's graphics-card line.
+fn on_this_device(mut hardware: Hardware) -> Hardware {
+    if os_models::platform::Profile::current().is_mobile() {
+        let ram = os_models::platform::device_ram(hardware.ram_bytes);
+        hardware.summary = format!("This iPhone, {:.0} GB memory", ram as f64 / 1e9);
+    }
+    hardware
 }
 
 fn probe_hardware() -> Hardware {
@@ -497,6 +516,11 @@ pub fn gpu_check_main() -> i32 {
 /// Whether the GPU passed its self-test: the saved result, or run the test
 /// now in a child process and save it (ADR-0014).
 fn verify_gpu(store: &ModelStore) -> bool {
+    // Phones can't start a child process (iOS forbids it) and have no GPU
+    // speech pack (ADR-0014, ADR-0018 section 7).
+    if cfg!(any(target_os = "ios", target_os = "android")) {
+        return false;
+    }
     let Some(file) = os_models::gpu_pack::check_file() else { return false };
     if let Ok(saved) = std::fs::read_to_string(&file) {
         return saved.trim() == "ok";
@@ -584,10 +608,19 @@ pub struct Status {
     pub plain_encounters: usize,
     /// Whether team members are set up (otherwise single-user).
     pub team: bool,
-    /// "macos", "windows" or "linux": the Mac shows MLX-optimized models.
+    /// "macos", "windows", "linux" or "ios": the Mac shows MLX-optimized
+    /// models, a phone only mobile ones.
     pub platform: String,
     /// Working alone, each person's own templates, or the hospital's (ADR-0024).
     pub templates: TemplatesMode,
+    /// Which models this build offers (ADR-0018 section 10).
+    pub profile: Profile,
+    /// A phone's memory tier (6, 8 or 12 GB); `None` on a computer, or on a
+    /// phone too small to draft.
+    pub mobile_tier: Option<u32>,
+    /// The model that writes notes unless the person picks another: Gemma 4
+    /// E4B on a computer, the tier's small model on a phone.
+    pub default_llm: String,
 }
 
 /// A visit as listed under a patient.
@@ -642,6 +675,11 @@ pub struct SessionSummary {
     pub reason: String,
     /// Name of the template the latest draft used.
     pub template: String,
+    /// Encrypted sync: synced, pending or stopped; none while sync is off
+    /// or the visit doesn't sync (ADR-0017).
+    pub sync: Option<String>,
+    /// For a visit from another device: the device that holds its audio.
+    pub audio_on: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -687,9 +725,30 @@ pub struct SessionView {
     /// The latest draft's teeth with a drafted chart entry that no
     /// veterinarian has confirmed yet. Signing waits until it is empty.
     pub unconfirmed_teeth: Vec<String>,
+    /// For a visit from another device: the device that holds its audio
+    /// (ADR-0017 section 7). Audio never syncs.
+    pub audio_on: Option<session::AudioOn>,
+    /// Drafts set aside when this visit met a signature from another device
+    /// (ADR-0017 section 9), each offered as an addendum.
+    pub set_aside: Vec<SetAsideView>,
+    /// Encrypted sync: synced, pending or stopped.
+    pub sync: Option<String>,
     /// A phone call's details (ADR-0023 section 8): direction, number,
     /// length, Twilio's call SID, and who was on the clinic's side.
     pub call: Option<CallInfo>,
+}
+
+/// A draft set aside by sync, for Review.
+#[derive(Debug, Clone, Serialize)]
+pub struct SetAsideView {
+    pub run_id: String,
+    pub reason: session::SetAsideReason,
+    pub created_at: String,
+    pub by: Option<String>,
+    /// When and where the record was signed.
+    pub signed_at: String,
+    pub signed_on: Option<String>,
+    pub markdown: Option<String>,
 }
 
 /// A visit just moved to Deleted visits.
@@ -835,6 +894,10 @@ pub struct ModelRow {
     pub gated: bool,
     /// Used in place: where it is.
     pub path: Option<String>,
+    /// On a phone, why this model can't be downloaded or used here ("Too
+    /// large for this iPhone (8 GB): ..."). Never on a computer.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phone_note: Option<String>,
 }
 
 /// The MLX engine pack's self-test.
@@ -893,6 +956,12 @@ pub struct HubMlxView {
 const MODEL_BUSY: &str = "A note is being written with this model. Remove it when that's finished.";
 const MLX_FIRST: &str = "Download the MLX engine on the Models screen first.";
 const MLX_NEEDS: &str = "MLX models run on a Mac with Apple silicon and macOS 14 or later.";
+/// A model that isn't marked for phones, asked for on one (ADR-0018 section 10).
+const NOT_FOR_PHONE: &str =
+    "This model isn't made for phones. On an iPhone, OpenBark offers small models only.";
+/// Adding a model file from the phone itself (not in M3).
+const NO_IMPORT_ON_PHONE: &str =
+    "Adding a model from files isn't available on iPhone. Choose one from the list or from Hugging Face.";
 const MLX_DOWNLOADING: &str = "The MLX engine is already downloading.";
 const MLX_CHECK_FAILED: &str = "The MLX engine didn't pass its check on this computer. Choose Try again on the MLX engine card in Models.";
 
@@ -1218,11 +1287,16 @@ impl App {
             gpu_at_start: os_models::gpu_pack::loaded_at_start(),
             gpu_checked: Arc::new(std::sync::atomic::AtomicU8::new(0)),
             undo: Mutex::new(HashMap::new()),
+            #[cfg(feature = "sync")]
+            sync: None,
+            sync_wake: std::sync::atomic::AtomicBool::new(false),
             connect: ConnectStore::default(),
             twilio_base: None,
             call: Mutex::new(None),
             pending_call: Mutex::new(None),
         };
+        #[cfg(feature = "sync")]
+        let app = Self { sync: sync::open_service(&app.sessions_root), ..app };
         app.start_gpu_check();
         // Folders of older MLX engine packs and unfinished unpacks (ADR-0025 §4).
         static MLX_TIDY: std::sync::Once = std::sync::Once::new();
@@ -1247,7 +1321,7 @@ impl App {
     }
 
     pub fn status(&self) -> Status {
-        let models = os_engine::models::required_status(&self.store)
+        let models = os_engine::models::required_status_for(&self.store, Profile::current())
             .into_iter()
             .map(|(id, name, installed)| ModelStatus { id, name, installed })
             .collect();
@@ -1257,13 +1331,50 @@ impl App {
             models_dir: self.store.root().display().to_string(),
             sessions_dir: self.sessions_root.display().to_string(),
             models,
-            hardware: self.hardware.clone(),
+            hardware: on_this_device(self.hardware.clone()),
             recording: self.recorder.lock().map(|r| r.is_some()).unwrap_or(false),
             encryption: os_engine::vault::status(),
             plain_encounters: self.plain_encounters(),
             team: self.users.is_team(),
             platform: platform(),
             templates: self.templates_mode(),
+            profile: Profile::current(),
+            mobile_tier: self.phone_tier().flatten().map(|t| t.ram_gb),
+            default_llm: self.default_llm(),
+        }
+    }
+
+    /// On a phone, its memory tier (`Some(None)` below 6 GB); `None` on a
+    /// computer (ADR-0018 section 10).
+    fn phone_tier(&self) -> Option<Option<Tier>> {
+        Profile::current().is_mobile().then(|| {
+            os_models::platform::tier_for_ram(os_models::platform::device_ram(self.hardware.ram_bytes))
+        })
+    }
+
+    /// The default note model for this device.
+    pub fn default_llm(&self) -> String {
+        match self.phone_tier() {
+            Some(Some(t)) => t.default_llm.to_string(),
+            Some(None) => String::new(),
+            None => os_engine::models::DEFAULT_LLM.to_string(),
+        }
+    }
+
+    /// Why a note model can't be used on this phone, if it can't.
+    fn phone_refusal(&self, m: &CatalogEntry) -> Option<String> {
+        let tier = self.phone_tier()?;
+        if !m.mobile {
+            return Some(NOT_FOR_PHONE.into());
+        }
+        if m.llm_engine() == Some(LlmEngine::Mlx) {
+            return Some(hub::MLX_NOT_ON_PHONE.into());
+        }
+        match &m.layout {
+            Layout::LlmGguf { model } => os_models::platform::check_gguf(tier, model, m.total_size(), None)
+                .err()
+                .map(|why| why.message(tier.map(|t| t.ram_gb))),
+            _ => None,
         }
     }
 
@@ -1507,8 +1618,18 @@ impl App {
                         })
                     })
                     .unwrap_or_default(),
+                sync: self.sync_state_of(&s),
+                audio_on: s.meta.audio_on.as_ref().filter(|_| !s.has_audio()).map(|a| a.device_name.clone()),
             })
             .collect()
+    }
+
+    /// One visit's sync state for the screens.
+    fn sync_state_of(&self, s: &Session) -> Option<String> {
+        match self.sync_states().get(&s.meta.id) {
+            Some(state) => Some(state.clone()),
+            None => self.sync_would(s).then(|| "pending".to_string()),
+        }
     }
 
     // ---- patients (ADR-0011) -------------------------------------------------
@@ -1669,7 +1790,10 @@ impl App {
     /// An encounter, showing one animal's notes in a multi-pet visit
     /// (`pet`), or the visit's single note.
     pub fn open_session(&self, id: &str, pet: Option<&str>) -> Result<SessionView> {
-        Ok(view(&self.open(id, pet)?, None))
+        let s = self.open(id, pet)?;
+        let mut v = view(&s, None);
+        v.sync = self.sync_state_of(&s);
+        Ok(v)
     }
 
     fn open(&self, id: &str, pet: Option<&str>) -> Result<Session> {
@@ -2105,6 +2229,7 @@ impl App {
         }
         if let Some(r) = result.refinement.as_mut() {
             r.from_run = Some(run.dir.clone());
+            r.from_run_id = Some(run.id().to_string());
             r.saved_as_standard = request.save_as_standard;
         }
         result.by = who;
@@ -2156,6 +2281,7 @@ impl App {
         result.by = Some(who);
         if let Some(e) = result.edit.as_mut() {
             e.from_run = Some(run.dir.clone());
+            e.from_run_id = Some(run.id().to_string());
         }
         result.markdown = with_header(&s, &result.markdown);
         s.save_run("edited", &result, &template)?;
@@ -2684,6 +2810,13 @@ impl App {
         {
             return Ok(backend.clone());
         }
+        // A phone never loads a model that doesn't fit it (ADR-0018 section 10).
+        if self.phone_tier().is_some()
+            && let Some(m) = hub::full_catalog(&self.store).get(id)
+            && let Some(why) = self.phone_refusal(m)
+        {
+            return Err(AppError(why));
+        }
         *slot = None; // one model per process: free before loading
         // Speech models loaded ahead of a recording give the memory back too.
         self.release_speech();
@@ -2989,11 +3122,15 @@ impl App {
 
     pub fn models(&self) -> Vec<ModelRow> {
         let builtin: Vec<String> = os_models::Catalog::builtin().models.into_iter().map(|m| m.id).collect();
+        let phone = Profile::current().is_mobile();
         hub::full_catalog(&self.store)
             .models
             .into_iter()
             // The GPU recognisers come with the GPU speech pack, not one by one.
             .filter(|m| m.id != os_engine::models::GPU_STT && m.id != os_engine::models::GPU_SECOND_STT)
+            // A phone lists mobile models only; a computer doesn't list the
+            // ones made for small phones (ADR-0018 section 10).
+            .filter(|m| if phone { m.mobile } else { !PHONE_ONLY.contains(&m.id.as_str()) })
             .map(|m| self.row(&m, builtin.contains(&m.id)))
             .collect()
     }
@@ -3013,7 +3150,9 @@ impl App {
             size_bytes: size,
             license: m.license.clone(),
             installed: self.store.is_installed(m, Verify::Size),
-            fit: if m.slot == Slot::Llm {
+            fit: if m.slot == Slot::Llm && self.phone_tier().is_some() {
+                if self.phone_refusal(m).is_some() { Fit::WontFit } else { Fit::Fits }
+            } else if m.slot == Slot::Llm {
                 hub::fit(size, self.hardware.gpu_memory_bytes, self.hardware.ram_bytes)
             } else {
                 Fit::Fits
@@ -3029,6 +3168,7 @@ impl App {
             missing: in_place.is_some_and(|p| !p.exists()),
             gated: m.gated,
             path: in_place.map(|p| p.display().to_string()),
+            phone_note: if m.slot == Slot::Llm { self.phone_refusal(m) } else { None },
         }
     }
 
@@ -3051,6 +3191,16 @@ impl App {
         let entry =
             catalog.get(id).ok_or_else(|| AppError(format!("No model called {id} in the catalog.")))?;
         // Gigabytes that could never write a note here.
+        if self.phone_tier().is_some() {
+            if !entry.mobile {
+                return Err(AppError(NOT_FOR_PHONE.into()));
+            }
+            if entry.slot == Slot::Llm
+                && let Some(why) = self.phone_refusal(entry)
+            {
+                return Err(AppError(why));
+            }
+        }
         if entry.llm_engine() == Some(LlmEngine::Mlx) && !mlx_runs_here() {
             return Err(AppError(MLX_NEEDS.into()));
         }
@@ -3139,6 +3289,9 @@ impl App {
     /// sizes, free space), so with a team it needs a veterinarian, as adding does.
     pub fn inspect_import(&self, path: &str, by: Option<&str>) -> Result<ImportPreview> {
         self.who(by, Need::Models)?;
+        if self.phone_tier().is_some() {
+            return Err(AppError(NO_IMPORT_ON_PHONE.into()));
+        }
         let preview = os_models::local::inspect(&self.store, Path::new(path.trim()))?;
         if preview.kind == ImportKind::Mlx && !mlx_runs_here() {
             return Err(AppError(MLX_NEEDS.into()));
@@ -3512,18 +3665,24 @@ impl App {
     }
 
     pub fn hub_search(&self, query: &str) -> Result<Vec<HubModel>> {
+        if let Some(tier) = self.phone_tier() {
+            return Ok(hub::search_mobile(query, 30, tier)?);
+        }
         Ok(hub::search(query, 30, None, platform() == "macos")?)
     }
 
     /// A repo's details. Metadata and public files without a token; the
     /// saved token only for a gated repo whose files are hidden (ADR-0025 §8).
     fn fetch_repo(&self, repo: &str) -> Result<HubRepo> {
-        let r = hub::repo(repo, None)?;
+        let phone = self.phone_tier().is_some();
+        let get =
+            |token: Option<&str>| if phone { hub::repo_mobile(repo, token) } else { hub::repo(repo, token) };
+        let r = get(None)?;
         if r.gated_kind.is_some()
             && r.access == Access::NeedsToken
             && let Some((token, _)) = secrets::hf_token()
         {
-            return Ok(hub::repo(repo, Some(&token))?);
+            return Ok(get(Some(&token))?);
         }
         Ok(r)
     }
@@ -3531,6 +3690,9 @@ impl App {
     pub fn hub_repo(&self, repo: &str) -> Result<HubRepoView> {
         let r = self.fetch_repo(repo)?;
         let fit = |size| hub::fit(size, self.hardware.gpu_memory_bytes, self.hardware.ram_bytes);
+        if let Some(tier) = self.phone_tier() {
+            return Ok(phone_repo_view(r, tier));
+        }
         let files = r
             .files
             .iter()
@@ -3552,7 +3714,7 @@ impl App {
             support: mlx_pack::support(),
             pack_installed: mlx_pack::installed(),
         });
-        Ok(HubRepoView { files, mlx, repo: r })
+        Ok(HubRepoView { files, mlx, repo: r, held: Vec::new(), phone_note: None })
     }
 
     /// Add a Hub file (or `@mlx`, the whole MLX folder) to the catalog;
@@ -3564,7 +3726,7 @@ impl App {
         }
         let _work = self.begin_work()?;
         let r = self.fetch_repo(repo)?;
-        let entry = hub::add_to_catalog(&self.store, &r, file, accept_license)?;
+        let entry = hub::add_to_catalog_for(&self.store, &r, file, accept_license, self.phone_tier())?;
         Ok(self.row(&entry, false))
     }
 
@@ -3579,7 +3741,7 @@ impl App {
 fn platform() -> String {
     std::env::var("OPENBARK_PLATFORM")
         .ok()
-        .filter(|p| matches!(p.as_str(), "macos" | "windows" | "linux"))
+        .filter(|p| matches!(p.as_str(), "macos" | "windows" | "linux" | "ios"))
         .unwrap_or_else(|| std::env::consts::OS.to_string())
 }
 
@@ -3683,6 +3845,63 @@ pub struct HubRepoView {
     pub repo: HubRepo,
     pub files: Vec<HubFileView>,
     pub mlx: Option<HubMlxView>,
+    /// On a phone, the files held back and why (ADR-0018 section 10).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub held: Vec<HeldFile>,
+    /// On a phone, one line when anything is held back.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phone_note: Option<String>,
+}
+
+/// A GGUF a phone doesn't offer.
+#[derive(Debug, Clone, Serialize)]
+pub struct HeldFile {
+    pub path: String,
+    pub size_bytes: u64,
+    pub reason: String,
+}
+
+/// Note models made for 6 GB phones: a computer doesn't list them.
+const PHONE_ONLY: &[&str] = &["qwen3-1.7b-q4_k_m"];
+
+/// The repo sheet on a phone: offered files only, the rest listed with why,
+/// and MLX never shown.
+fn phone_repo_view(mut r: HubRepo, tier: Option<Tier>) -> HubRepoView {
+    let ram = tier.map(|t| t.ram_gb);
+    let (kept, held) = hub::mobile_files(&r, tier);
+    let files = kept
+        .iter()
+        .map(|f| HubFileView {
+            path: f.path.clone(),
+            size_bytes: f.size,
+            fit: Fit::Fits,
+            parts: f.parts.len(),
+        })
+        .collect();
+    let phone_note = match (kept.is_empty(), held.first()) {
+        (_, None) => None,
+        (true, Some((_, why))) if held.iter().all(|(_, w)| w == why) => Some(why.message(ram)),
+        (true, Some(_)) => Some(match tier {
+            Some(t) => format!(
+                "No file in this repository fits this iPhone ({} GB). Models up to {:.1} GB and {}B parameters, in a 3 to 5-bit build, fit.",
+                t.ram_gb,
+                t.llm_budget_bytes as f64 / 1e9,
+                t.max_params_b
+            ),
+            None => os_models::platform::TooBig::PhoneTooSmall.message(None),
+        }),
+        (false, Some(_)) => Some(format!(
+            "{} more {} too large for this iPhone, or not built for phones.",
+            held.len(),
+            if held.len() == 1 { "file is" } else { "files are" }
+        )),
+    };
+    let held = held
+        .into_iter()
+        .map(|(f, why)| HeldFile { path: f.path, size_bytes: f.size, reason: why.message(ram) })
+        .collect();
+    r.files = kept;
+    HubRepoView { repo: r, files, mlx: None, held, phone_note }
 }
 
 /// What an import's worker reports to the thread that started it.
@@ -3855,6 +4074,23 @@ fn view(s: &Session, transcript: Option<Transcript>) -> SessionView {
         audio_deleted: s.meta.audio_deleted.clone(),
         chart_checks: record.map(|r| r.chart_checks.clone()).unwrap_or_default(),
         unconfirmed_teeth,
+        audio_on: s.meta.audio_on.clone().filter(|_| !s.has_audio()),
+        set_aside: s
+            .my_runs()
+            .filter_map(|r| {
+                let aside = r.set_aside.as_ref()?;
+                Some(SetAsideView {
+                    run_id: r.id().to_string(),
+                    reason: aside.reason,
+                    created_at: r.created_at.format("%Y-%m-%d %H:%M").to_string(),
+                    by: r.by.as_ref().map(|w| w.name.clone()).or_else(|| r.signed_by.clone()),
+                    signed_at: aside.signed_at.format("%Y-%m-%d %H:%M").to_string(),
+                    signed_on: aside.signed_on.clone(),
+                    markdown: os_engine::vault::read_to_string(&s.dir.join(&r.dir).join("note.md")).ok(),
+                })
+            })
+            .collect(),
+        sync: None,
         call: s.meta.call.clone(),
     }
 }

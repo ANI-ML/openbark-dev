@@ -7,19 +7,30 @@ license.workspace = true
 rust-version.workspace = true
 
 [features]
-default = []
-cuda = ["llama-cpp-2/cuda"]
-vulkan = ["llama-cpp-2/vulkan"]
-metal = ["llama-cpp-2/metal"]
+default = ["llama"]
+# llama.cpp through llama-cpp-2. Without it the crate builds with no native
+# code: loading a GGUF says drafting isn't in this build (phones until it is
+# proven there; ADR-0018 sections 1 and 10).
+llama = ["dep:llama-cpp-2"]
+cuda = ["llama", "llama-cpp-2/cuda"]
+vulkan = ["llama", "llama-cpp-2/vulkan"]
+metal = ["llama", "llama-cpp-2/metal"]
 
 [dependencies]
-llama-cpp-2.workspace = true
 minijinja.workspace = true
 minijinja-contrib.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+
+# OpenMP on every target but iOS: Apple's compiler for iOS has no OpenMP
+# (ADR-0018 section 7). Desktop builds are unchanged.
+[target.'cfg(not(target_os = "ios"))'.dependencies]
+llama-cpp-2 = { workspace = true, optional = true, features = ["openmp"] }
+
+[target.'cfg(target_os = "ios")'.dependencies]
+llama-cpp-2 = { workspace = true, optional = true }
 
 [dev-dependencies]
 jsonschema.workspace = true

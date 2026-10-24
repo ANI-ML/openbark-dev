@@ -5,7 +5,12 @@
 //! backend, [`LlamaCppBackend`], over `llama-cpp-2`.
 
 mod chat_template;
+#[cfg(feature = "llama")]
 mod llama;
+#[cfg(not(feature = "llama"))]
+#[path = "llama_off.rs"]
+mod llama;
+mod llama_options;
 pub mod mlx;
 pub mod shutdown;
 
@@ -88,6 +93,14 @@ pub struct ComputeDevice {
 }
 
 /// Devices visible to the compiled llama.cpp backends (CUDA, Metal, Vulkan, CPU).
+/// None in a build without llama.cpp.
+#[cfg(not(feature = "llama"))]
+pub fn devices() -> Vec<ComputeDevice> {
+    Vec::new()
+}
+
+/// Devices visible to the compiled llama.cpp backends (CUDA, Metal, Vulkan, CPU).
+#[cfg(feature = "llama")]
 pub fn devices() -> Vec<ComputeDevice> {
     llama_cpp_2::list_llama_ggml_backend_devices()
         .into_iter()
@@ -103,8 +116,16 @@ pub fn devices() -> Vec<ComputeDevice> {
 /// The llama.cpp grammar a JSON Schema constrains drafting to, as the
 /// llama.cpp backend builds it. Lets callers check that a template's schema
 /// converts (the tooth chart's enums, for example) without loading a model.
+#[cfg(feature = "llama")]
 pub fn grammar_for_schema(schema: &str) -> Result<String, LlmError> {
     llama_cpp_2::json_schema_to_grammar(schema).map_err(|e| LlmError::Grammar(e.to_string()))
+}
+
+/// In a build without llama.cpp there is no grammar converter.
+#[cfg(not(feature = "llama"))]
+pub fn grammar_for_schema(schema: &str) -> Result<String, LlmError> {
+    let _ = schema;
+    Err(LlmError::Grammar(llama::NOT_IN_THIS_BUILD.into()))
 }
 
 /// A text-generation backend.

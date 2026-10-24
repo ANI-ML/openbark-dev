@@ -6,6 +6,20 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[features]
+default = ["recorder", "stt", "inference", "sync"]
+# ADR-0018 section 1: the phone links only what it uses. Desktop builds take
+# them all.
+recorder = ["os-engine/recorder"]
+stt = ["os-engine/stt"]
+inference = ["os-engine/inference"]
+# Encrypted sync (ADR-0017, M3 phase 2): the os-sync crate. Off at run time
+# until the person turns it on in Settings > Sync.
+sync = ["dep:os-sync"]
+# The end-to-end demo only (ADR-0023): a fault hook for calls (see phone.rs,
+# `fault`) and the fake Twilio. Never in builds clinics get.
+mock-twilio = ["os-connect/mock"]
+
 [dependencies]
 os-asr.workspace = true
 # The clinic's own Twilio account (ADR-0023). Its HTTP client stays in os-connect.
@@ -13,17 +27,18 @@ os-connect.workspace = true
 os-engine.workspace = true
 os-llm.workspace = true
 os-models.workspace = true
+os-sync = { workspace = true, optional = true }
 chrono.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-sysinfo.workspace = true
 tracing.workspace = true
 tempfile.workspace = true
 
-[features]
-# The end-to-end demo only (ADR-0023): a fault hook for calls (see phone.rs,
-# `fault`) and the fake Twilio. Never in builds clinics get.
-mock-twilio = ["os-connect/mock"]
+[target.'cfg(not(target_os = "ios"))'.dependencies]
+sysinfo = { workspace = true, features = ["default"] }
+
+[target.'cfg(target_os = "ios")'.dependencies]
+sysinfo = { workspace = true, features = ["system", "disk"] }
 
 [dev-dependencies]
 # The loopback fake Twilio for the phone tests (ADR-0023).

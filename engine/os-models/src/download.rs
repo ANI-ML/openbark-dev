@@ -348,6 +348,7 @@ mod tests {
                 .collect(),
             layout: Layout::LlmGguf { model: files[0].0.into() },
             gated: false,
+            mobile: false,
         }
     }
 

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Merged into the iOS app's Info.plist by the Tauri CLI (ADR-0018 section 7). -->
+<plist version="1.0">
+<dict>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>OpenBark records your consultations to transcribe them on this iPhone. Recordings stay on this iPhone.</string>
+  <key>NSCameraUsageDescription</key>
+  <string>OpenBark uses the camera only to scan the code another of your devices shows when you add it.</string>
+  <key>NSFaceIDUsageDescription</key>
+  <string>OpenBark uses Face ID to open the app, so only you can see your visits.</string>
+  <key>UIBackgroundModes</key>
+  <array>
+    <string>audio</string>
+  </array>
+</dict>
+</plist>

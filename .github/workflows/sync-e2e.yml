@@ -1,0 +1,125 @@
+name: Sync end to end
+
+# Encrypted sync between a phone and a computer (ADR-0017, ADR-0018), through a
+# LOCAL Supabase in Docker on the runner: never the hosted project. Two
+# OpenBark servers: A runs the iPhone profile (an 8 GB iPhone) and records;
+# B is a desktop that drafts and signs. scripts/sync-e2e.py drives them with
+# the same HTTP API the app uses: sign-in with emailed codes (Mailpit), the
+# Recovery Kit, pairing, a visit from the phone arriving transcribed on the
+# computer without its audio, the signed note coming back, both offline with
+# conflicting edits, removing a device, recovering from the kit, and a check
+# that the server holds ciphertext only.
+#
+# Synthetic data only: the committed smoke consult. Run it from the Actions
+# tab, or push a commit whose message contains [sync-e2e]. It never runs in
+# the public copy of the source.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["feat/**", "fix/**", "release/**", "chore/**", "design/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  SUPABASE_CLI_VERSION: "2.121.0"
+  SUPABASE_CLI_SHA256: "4b481189efbdc57cf2d37bdee5f1a0d29574314398564b32a6dfb76c0fcf275f"
+
+jobs:
+  sync:
+    name: Phone and computer through a local Supabase
+    if: github.repository == 'ANI-ML/openbark-dev' && (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[sync-e2e]'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: System packages (libclang, ALSA)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev cmake libasound2-dev
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-sync-e2e/${{ github.repository }}/${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-sync-e2e/${{ github.repository }}/
+            cargo-linux/${{ github.repository }}/
+      - run: cargo build --release -p os-cli
+      - name: Restore models
+        id: models
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/models
+          key: models-${{ hashFiles('engine/os-models/catalog.json') }}-e2b
+      - name: Download models
+        if: steps.models.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/models
+          export OPENBARK_MODELS_DIR=~/models
+          for id in silero-vad parakeet-tdt-0.6b-v3-int8 pyannote-segmentation-3.0 wespeaker-en-resnet34-lm gemma-4-e2b-it-q4_0; do
+            target/release/openbark models pull "$id"
+          done
+      - name: Supabase CLI (pinned, hash-checked; docs/versions.md)
+        run: |
+          f="supabase_${SUPABASE_CLI_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL -o "$RUNNER_TEMP/$f" "https://github.com/supabase/cli/releases/download/v${SUPABASE_CLI_VERSION}/$f"
+          echo "${SUPABASE_CLI_SHA256}  $RUNNER_TEMP/$f" | sha256sum -c -
+          mkdir -p ~/.local/bin
+          tar -xzf "$RUNNER_TEMP/$f" -C ~/.local/bin supabase
+          ~/.local/bin/supabase --version
+      - name: Local Supabase
+        run: bash scripts/sync-local-supabase.sh start
+      - name: Phone (A) and computer (B), then the end-to-end steps
+        shell: bash
+        run: |
+          eval "$(bash scripts/sync-local-supabase.sh env)"
+          demo="$PWD/target/sync-e2e"
+          rm -rf "$demo" && mkdir -p "$demo/ui" && touch "$demo/OPENBARK-DEMO"
+          # The test drives the HTTP API only; the server just needs a page to serve.
+          echo '<!doctype html><title>OpenBark</title>' > "$demo/ui/index.html"
+          start() {
+            local name=$1 port=$2; shift 2
+            mkdir -p "$demo/$name"
+            env OPENBARK_SESSIONS_DIR="$demo/$name/visits" OPENBARK_TEMPLATES_DIR="$demo/$name/templates" \
+              OPENBARK_USERS_FILE="$demo/$name/users.json" OPENBARK_LOCATIONS_FILE="$demo/$name/locations.json" \
+              OPENBARK_ENGINES_DIR="$demo/$name/engines" OPENBARK_CONNECTIONS_DIR="$demo/$name/connections" \
+              OPENBARK_SYNC_SECRETS_DIR="$demo/$name/sync-secrets" OPENBARK_MODELS_DIR="$HOME/models" \
+              OPENBARK_DATA_KEY="$(head -c 32 /dev/urandom | base64)" \
+              OPENBARK_SYNC_URL="$OPENBARK_SYNC_TEST_URL" OPENBARK_SYNC_KEY="$OPENBARK_SYNC_TEST_KEY" \
+              OPENBARK_SYNC_INTERVAL_SECS=5 "$@" \
+              target/release/openbark serve --port "$port" --ui-dir "$demo/ui" > "$demo/$name.log" 2>&1 &
+            for _ in $(seq 1 150); do curl -fs "http://127.0.0.1:$port/api/status" > /dev/null && return; sleep 0.2; done
+            echo "$name didn't start"; tail -50 "$demo/$name.log"; exit 1
+          }
+          start phone 4336 OPENBARK_PLATFORM=ios OPENBARK_DEVICE_RAM_GB=8
+          start computer 4337
+          curl -fs http://127.0.0.1:4336/api/status | jq -e '.profile == "ios"' > /dev/null
+          curl -fs http://127.0.0.1:4337/api/status | jq -e '.profile != "ios"' > /dev/null
+          export OPENBARK_SYNC_E2E_WAV="$PWD/packages/eval/fixtures/audio/smoke.wav" \
+            OPENBARK_SYNC_E2E_LLM=gemma-4-e2b-it-q4_0 \
+            OPENBARK_SYNC_E2E_A_NAME="Dr Rivera's iPhone" OPENBARK_SYNC_E2E_B_NAME="Exam room computer" \
+            OPENBARK_SYNC_E2E_B_VISITS="$demo/computer/visits" \
+            OPENBARK_SYNC_E2E_STATE="$demo/state.json"
+          for step in setup basic offline offline2 remove recover check; do
+            echo "::group::$step"
+            python3 -I scripts/sync-e2e.py "$step" | tee -a "$demo/steps.log"
+            echo "::endgroup::"
+          done
+          { echo '### Sync end to end (phone and computer)'; echo '```'; cat "$demo/steps.log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          # Synthetic data and logs only.
+          name: sync-e2e
+          path: |
+            target/sync-e2e/*.log
+            target/sync-e2e/state.json

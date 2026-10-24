@@ -7,6 +7,7 @@ import { DeletedVisits } from "../components/DeletedVisits";
 import { MicCheck } from "../components/MicCheck";
 import { PhoneSettings } from "../components/PhoneSettings";
 import { StorageSection } from "../components/StorageSection";
+import { SyncSection } from "../components/SyncSection";
 import { TeamSettings } from "../components/TeamSettings";
 
 /** DESIGN.md §6 Settings: hairline-separated groups. */
@@ -17,6 +18,7 @@ export function SettingsScreen() {
   const [key, setKey] = useState<string | null>(null);
   const [encrypting, setEncrypting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [syncOn, setSyncOn] = useState(false);
   const enc = app.status?.encryption;
 
   async function encryptNow() {
@@ -41,6 +43,10 @@ export function SettingsScreen() {
       setError(e instanceof Error ? e.message : String(e));
     }
   }
+
+  useEffect(() => {
+    engine.syncStatus().then((s) => setSyncOn(s.phase === "active"), () => {});
+  }, []);
 
   return (
     <div className="screen settings">
@@ -332,6 +338,8 @@ export function SettingsScreen() {
         )}
       </section>
 
+      <SyncSection />
+
       <StorageSection />
 
       {app.can.notes && <DeletedVisits />}
@@ -344,7 +352,9 @@ export function SettingsScreen() {
         </p>
         {/* §8 offline notice: where OpenBark states its privacy. */}
         <p className="ob-notice" data-tone="ok">
-          {t("Running locally. Nothing leaves this device.")}
+          {syncOn
+            ? t("Running locally. Encrypted sync is on: only encrypted copies of transcripts and notes leave this device, never recordings.")
+            : t("Running locally. Nothing leaves this device.")}
         </p>
       </section>
     </div>

@@ -64,6 +64,13 @@
 //!   → the visit moves to Deleted visits; `POST /api/sessions/{id}/recording/delete` `{by}` → the
 //!   visit without its recording; `GET /api/deleted?by=`; `POST /api/deleted/{tid}/restore` `{by}`;
 //!   `POST /api/deleted/{tid}/purge` `{by, pin?}` ("Delete now"). A PIN travels only in a body.
+//! - Encrypted sync (ADR-0017; off until turned on): `GET /api/sync` (status), `POST /api/sync/server`
+//!   `{url, key, by}`, `POST /api/sync/code` `{email, by}`, `POST /api/sync/verify`
+//!   `{code, device_name, backfill_days?, by}`, `POST /api/sync/kit/confirm` `{answers: [[n, word]], by}`,
+//!   `POST /api/sync/pair` `{words, approve, by}`, `POST /api/sync/pair/new`, `POST /api/sync/recover`
+//!   `{words, by}`, `POST /api/sync/now`, `POST /api/sync/devices/{did}/remove` `{by}`, `POST /api/sync/off`
+//!   `{by}`, `POST /api/sync/delete-account` `{confirm, by}`, `POST /api/sync/visits/{id}/stop` `{by}`.
+//!   The browser never sees a key: this process holds them and makes every sync call.
 //! - `GET  /api/events`                     server-sent events: segment, token, level, download
 //! - Phone calls through the clinic's own Twilio account (ADR-0023; outgoing
 //!   only): `GET /api/phone`, `GET /api/phone/bin?caller_id=` (the outgoing
@@ -197,6 +204,8 @@ pub async fn serve(options: ServerOptions) -> std::io::Result<()> {
     let app = Arc::new(App::new(options.store, options.sessions_root));
     // Deleted visits: recover what a crash left, remove what's due, then hourly.
     app.start_housekeeping();
+    // Encrypted sync polls every 30 s once turned on (ADR-0017).
+    app.start_sync();
     let state: St = Arc::new(Shared { app: RwLock::new(app), events: Arc::new(Broadcaster(tx)) });
     let shared = state.clone();
     let app = router(state, &options.ui_dir, options.port);
@@ -339,6 +348,19 @@ fn router(state: St, ui_dir: &std::path::Path, port: u16) -> Router {
         .route("/api/storage/check", post(check_folder))
         .route("/api/storage/change", post(change_folder))
         .route("/api/folders", get(list_folders))
+        .route("/api/sync", get(|State(s): State<St>| async move { Json(s.app().sync_status()) }))
+        .route("/api/sync/server", post(sync_server))
+        .route("/api/sync/code", post(sync_code))
+        .route("/api/sync/verify", post(sync_verify))
+        .route("/api/sync/kit/confirm", post(sync_confirm_kit))
+        .route("/api/sync/pair", post(sync_pair))
+        .route("/api/sync/pair/new", post(sync_new_code))
+        .route("/api/sync/recover", post(sync_recover))
+        .route("/api/sync/now", post(sync_now))
+        .route("/api/sync/devices/{did}/remove", post(sync_remove_device))
+        .route("/api/sync/off", post(sync_off))
+        .route("/api/sync/delete-account", post(sync_delete_account))
+        .route("/api/sync/visits/{id}/stop", post(sync_stop_visit))
         .route("/api/events", get(events_stream))
         .route("/api/phone", get(phone_view))
         .route("/api/phone/bin", get(phone_bin))
@@ -636,6 +658,131 @@ async fn phone_session(s: St, q: PhoneLiveQuery, mut socket: WebSocket) {
 
 // ---- deleting (ADR-0022) -------------------------------------------------------
 
+// ---- encrypted sync (ADR-0017) ---------------------------------------------
+
+#[derive(Deserialize)]
+struct SyncServerBody {
+    #[serde(default)]
+    url: String,
+    #[serde(default)]
+    key: String,
+    #[serde(default)]
+    by: Option<String>,
+}
+
+async fn sync_server(
+    State(s): State<St>,
+    Json(r): Json<SyncServerBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().sync_set_server(&r.url, &r.key, r.by.as_deref())).await
+}
+
+#[derive(Deserialize)]
+struct SyncCodeBody {
+    email: String,
+    #[serde(default)]
+    by: Option<String>,
+}
+
+async fn sync_code(State(s): State<St>, Json(r): Json<SyncCodeBody>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().sync_send_code(&r.email, r.by.as_deref())).await
+}
+
+#[derive(Deserialize)]
+struct SyncVerifyBody {
+    code: String,
+    #[serde(default)]
+    device_name: String,
+    /// How far back this computer's visits upload; absent for all.
+    #[serde(default)]
+    backfill_days: Option<u32>,
+    #[serde(default)]
+    by: Option<String>,
+}
+
+async fn sync_verify(
+    State(s): State<St>,
+    Json(r): Json<SyncVerifyBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().sync_verify(&r.code, &r.device_name, r.backfill_days, r.by.as_deref())).await
+}
+
+#[derive(Deserialize)]
+struct SyncKitBody {
+    answers: Vec<(usize, String)>,
+    #[serde(default)]
+    by: Option<String>,
+}
+
+async fn sync_confirm_kit(
+    State(s): State<St>,
+    Json(r): Json<SyncKitBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().sync_confirm_kit(r.answers, r.by.as_deref())).await
+}
+
+#[derive(Deserialize)]
+struct SyncWordsBody {
+    words: String,
+    #[serde(default)]
+    approve: bool,
+    #[serde(default)]
+    by: Option<String>,
+}
+
+async fn sync_pair(State(s): State<St>, Json(r): Json<SyncWordsBody>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().sync_pair(&r.words, r.approve, r.by.as_deref())).await
+}
+
+async fn sync_new_code(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().sync_new_code()).await
+}
+
+async fn sync_recover(
+    State(s): State<St>,
+    Json(r): Json<SyncWordsBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().sync_recover(&r.words, r.by.as_deref())).await
+}
+
+async fn sync_now(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().sync_now()).await
+}
+
+async fn sync_remove_device(
+    State(s): State<St>,
+    UrlPath(did): UrlPath<String>,
+    Json(r): Json<ByBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().sync_remove_device(&did, r.by.as_deref())).await
+}
+
+async fn sync_off(State(s): State<St>, Json(r): Json<ByBody>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().sync_off(r.by.as_deref())).await
+}
+
+#[derive(Deserialize)]
+struct SyncDeleteBody {
+    confirm: String,
+    #[serde(default)]
+    by: Option<String>,
+}
+
+async fn sync_delete_account(
+    State(s): State<St>,
+    Json(r): Json<SyncDeleteBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().sync_delete_account(&r.confirm, r.by.as_deref())).await
+}
+
+async fn sync_stop_visit(
+    State(s): State<St>,
+    UrlPath(id): UrlPath<String>,
+    Json(r): Json<ByBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().sync_stop_visit(&id, r.by.as_deref())).await
+}
+
 async fn delete_visit(
     State(s): State<St>,
     UrlPath(id): UrlPath<String>,
@@ -764,6 +911,7 @@ async fn change_folder(
         let fresh = Arc::new(App::new(ModelStore::new(models), visits));
         // The new folder's own Deleted visits (ADR-0022 section 9).
         fresh.start_housekeeping();
+        fresh.start_sync();
         *s.app.write().expect("app lock") = fresh;
         Ok(changed)
     })

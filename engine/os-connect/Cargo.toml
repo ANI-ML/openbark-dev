@@ -9,6 +9,8 @@ rust-version.workspace = true
 [dependencies]
 # The vault (ADR-0008) seals connections.bin under the local data key. No
 # cycle: os-engine never depends on os-connect.
+# Only the vault, so a phone build (ADR-0018 section 1) links no recorder or
+# speech code through here.
 os-engine.workspace = true
 # Allowed an HTTP client by scripts/ci/check-network.sh (ADR-0023, docs/network.md R9).
 reqwest.workspace = true

@@ -6,11 +6,16 @@
 //!   session.json        what happened: source, audio hash, models, settings, timings, runs
 //!   audio.wav           the recording (a copy of the source; live recordings write here)
 //!   transcript.jsonl    one segment per line (speaker, start/end, text)
-//!   runs/001_gemma-4-e4b-it-q4_0/
+//!   runs/001_a3f9_gemma-4-e4b-it-q4_0/
 //!     note.json         structured note + faithfulness report + generation stats
 //!     note.md           the rendered draft
 //!     template.yaml     the template (and standards) the draft was written with
 //! ```
+//!
+//! Run folders carry the tag of the device that drafted them (`a3f9`,
+//! [`crate::device`]) and each run a UUIDv7 `run_id`, so drafts made offline
+//! on two devices never collide when they meet (ADR-0017 section 6). Runs
+//! from before that (`runs/001_<model>`, no `run_id`) load as they are.
 //!
 //! The root defaults to the app's local data directory (never a cloud-synced
 //! folder such as Documents/OneDrive/iCloud: these files are clinical data).
@@ -55,6 +60,13 @@ pub struct TranscriptionInfo {
 pub struct RunInfo {
     /// Folder under `runs/`.
     pub dir: String,
+    /// UUIDv7, the run's id everywhere (ADR-0017 section 6). `None` for
+    /// runs drafted before M3; [`RunInfo::id`] then falls back to `dir`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
+    /// The tag of the device that drafted it ([`crate::device`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device: Option<String>,
     pub llm: String,
     pub template: String,
     pub created_at: DateTime<Local>,
@@ -107,6 +119,35 @@ pub struct RunInfo {
     /// entry; entries the vet edited or added are their own.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub chart_checks: Vec<ChartCheck>,
+    /// Set by encrypted sync (ADR-0017 section 9) on a run that met a
+    /// signature made on another device: a draft made offline after the note
+    /// was signed elsewhere, or a second signature that came later. The run
+    /// is kept and shown beside the record, offered as an addendum; it is
+    /// never the visit's record, and nothing is dropped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub set_aside: Option<SetAside>,
+}
+
+/// Why a run was set aside when visits from two devices met (ADR-0017
+/// section 9), and which signed run is the record.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SetAside {
+    pub reason: SetAsideReason,
+    /// The record: the run signed first.
+    pub record_run: String,
+    pub signed_at: DateTime<Local>,
+    /// Where the record was signed (a device name from the sync roster), when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signed_on: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SetAsideReason {
+    /// A draft made after the note was signed on another device.
+    SignedElsewhere,
+    /// Signed too, but after the record was signed.
+    SignedLater,
 }
 
 /// A veterinarian's confirmation that the drafted chart entries on one tooth
@@ -161,6 +202,11 @@ pub struct Addendum {
 }
 
 impl RunInfo {
+    /// The run's id: its `run_id`, or for a run from before M3 its folder.
+    pub fn id(&self) -> &str {
+        self.run_id.as_deref().unwrap_or(&self.dir)
+    }
+
     /// "soap" from "soap@0.1.0".
     pub fn template_id(&self) -> &str {
         self.template.split('@').next().unwrap_or_default()
@@ -191,6 +237,11 @@ pub struct SessionMeta {
     /// transcript, drafts, signatures and `audio_sha256` stay.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio_deleted: Option<AudioDeleted>,
+    /// For a visit that came from another device through encrypted sync:
+    /// the device that recorded it, which alone holds the audio (ADR-0017
+    /// section 7). Audio never syncs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio_on: Option<AudioOn>,
     /// Set for a phone call made through the clinic's own Twilio account
     /// (ADR-0023 section 8): the other number, when, how long, Twilio's call
     /// SID. Kept in `session.json`, encrypted like the rest of the visit.
@@ -257,6 +308,16 @@ impl CallInfo {
             self.clinic_label
         )
     }
+}
+
+/// The device that holds a synced visit's recording.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AudioOn {
+    /// The sync device id.
+    pub device_id: String,
+    /// Its name in the sync roster ("Anna's iPhone"), when known.
+    #[serde(default)]
+    pub device_name: String,
 }
 
 /// When the recording was deleted, and by whom. The rest of the visit stays.
@@ -495,6 +556,7 @@ impl Session {
             consent: None,
             recorded_by: None,
             audio_deleted: None,
+            audio_on: None,
             call: None,
         };
         let session = Self { dir, meta, pet: None };
@@ -526,6 +588,7 @@ impl Session {
             consent: None,
             recorded_by: None,
             audio_deleted: None,
+            audio_on: None,
             call: None,
         };
         let session = Self { dir, meta, pet: None };
@@ -610,9 +673,8 @@ impl Session {
         result: &NoteResult,
         template: &LoadedTemplate,
     ) -> Result<PathBuf, EngineError> {
-        let name = format!("{:03}_{}", self.meta.runs.len() + 1, slug(llm_id));
-        let dir = self.dir.join("runs").join(&name);
-        fs::create_dir_all(&dir).map_err(io(&dir))?;
+        let device = self.device();
+        let (name, dir) = self.new_run_dir(&device.tag, llm_id)?;
         let json = dir.join("note.json");
         crate::vault::write(
             &json,
@@ -653,6 +715,8 @@ impl Session {
         };
         self.meta.runs.push(RunInfo {
             dir: format!("runs/{name}"),
+            run_id: Some(uuid::Uuid::now_v7().to_string()),
+            device: Some(device.tag),
             llm: llm_id.into(),
             template: result.template.clone(),
             created_at: Local::now(),
@@ -677,9 +741,96 @@ impl Session {
             template_icon: Some(template.template.icon.clone()),
             chart_version: template.chart().map(|_| crate::dental::chart().version),
             chart_checks: carried,
+            set_aside: None,
         });
         self.save_meta()?;
         Ok(dir)
+    }
+
+    /// This device, as known in the visits folder the session is in.
+    fn device(&self) -> crate::device::Device {
+        crate::device::for_root(self.dir.parent().unwrap_or(&self.dir))
+    }
+
+    /// A new, empty run folder: `<number>_<device tag>_<model>`, the number
+    /// one past the runs listed, and never an existing folder's name.
+    fn new_run_dir(&self, tag: &str, llm_id: &str) -> Result<(String, PathBuf), EngineError> {
+        let runs = self.dir.join("runs");
+        let mut n = self.meta.runs.len() + 1;
+        loop {
+            let name = format!("{n:03}_{tag}_{}", slug(llm_id));
+            let dir = runs.join(&name);
+            if !dir.exists() && !self.meta.runs.iter().any(|r| r.dir == format!("runs/{name}")) {
+                fs::create_dir_all(&dir).map_err(io(&dir))?;
+                return Ok((name, dir));
+            }
+            n += 1;
+        }
+    }
+
+    /// Take in a visit made on another device (ADR-0017 section 6): write
+    /// its header (`session.json`) into a new folder under `root`, keeping
+    /// its id. Its runs come with their files through
+    /// [`Session::merge_runs_from`], so none is listed without them. If a
+    /// visit with that id is already here, it is opened instead. Files are
+    /// written under this device's data key. The audio isn't there: it stays
+    /// on the device that recorded it.
+    pub fn adopt(root: &Path, mut meta: SessionMeta) -> Result<Self, EngineError> {
+        meta.runs.clear();
+        if let Some(existing) = list(root).into_iter().find(|s| s.meta.id == meta.id) {
+            return Ok(existing);
+        }
+        let label = meta
+            .patient
+            .as_ref()
+            .map(|p| p.display_name())
+            .filter(|n| !n.trim().is_empty())
+            .map(|n| slug(&n))
+            .unwrap_or_else(|| "visit".into());
+        let base = format!("{}_{label}", meta.created_at.format("%Y-%m-%d_%H%M%S"));
+        let dir = unique_dir(root, &base)?;
+        let session = Self { dir, meta, pet: None };
+        session.save_meta()?;
+        Ok(session)
+    }
+
+    /// Bring in the runs of the same visit from another device's copy
+    /// (`other`): each run this copy doesn't have (by [`RunInfo::id`]) is
+    /// copied with its files, decrypted from `other` and written under this
+    /// device's data key, keeping its folder name unless that is taken here.
+    /// Nothing here is changed or dropped; signed runs stay as they are.
+    /// Runs are kept in the order they were drafted. Returns how many came in.
+    pub fn merge_runs_from(&mut self, other: &Session) -> Result<usize, EngineError> {
+        if other.meta.id != self.meta.id {
+            return Err(EngineError::Session("These are copies of two different visits.".into()));
+        }
+        let mut added = 0;
+        for run in &other.meta.runs {
+            if self.meta.runs.iter().any(|r| r.id() == run.id()) {
+                continue;
+            }
+            let from = other.dir.join(&run.dir);
+            let leaf = run.dir.strip_prefix("runs/").unwrap_or(&run.dir);
+            let mut name = leaf.to_string();
+            let mut n = 2;
+            while self.dir.join("runs").join(&name).exists()
+                || self.meta.runs.iter().any(|r| r.dir == format!("runs/{name}"))
+            {
+                name = format!("{leaf}-{n}");
+                n += 1;
+            }
+            let to = self.dir.join("runs").join(&name);
+            copy_run_files(&from, &to)?;
+            let mut copy = run.clone();
+            copy.dir = format!("runs/{name}");
+            self.meta.runs.push(copy);
+            added += 1;
+        }
+        if added > 0 {
+            self.meta.runs.sort_by(|a, b| a.created_at.cmp(&b.created_at).then_with(|| a.id().cmp(b.id())));
+            self.save_meta()?;
+        }
+        Ok(added)
     }
 
     /// Set or update the clinic-entered patient details. The first entry
@@ -812,12 +963,14 @@ impl Session {
     }
 
     /// The latest medical-record run (client documents aside).
+    /// A run set aside by sync (a draft or a second signature that met a
+    /// signature from another device) is never the record.
     pub fn latest_record(&self) -> Option<&RunInfo> {
-        self.meta.runs.iter().rev().find(|r| r.document.is_record() && self.mine(r))
+        self.meta.runs.iter().rev().find(|r| r.document.is_record() && r.set_aside.is_none() && self.mine(r))
     }
 
     fn latest_record_index(&self) -> Option<usize> {
-        self.meta.runs.iter().rposition(|r| r.document.is_record() && self.mine(r))
+        self.meta.runs.iter().rposition(|r| r.document.is_record() && r.set_aside.is_none() && self.mine(r))
     }
 
     /// The latest draft's tooth chart teeth with a drafted entry that no
@@ -931,7 +1084,7 @@ impl Session {
             .runs
             .iter_mut()
             .rev()
-            .find(|r| r.document.is_record() && r.pet == pet)
+            .find(|r| r.document.is_record() && r.set_aside.is_none() && r.pet == pet)
             .filter(|r| r.signed_at.is_some())
             .ok_or_else(|| {
                 EngineError::Session("Addenda are for signed notes. Edit the draft instead.".into())
@@ -993,11 +1146,34 @@ impl Session {
         self.save_meta()
     }
 
+    /// Save `session.json` after changing `meta` directly (encrypted sync
+    /// merging a visit from another device, ADR-0017 section 6).
+    pub fn save(&self) -> Result<(), EngineError> {
+        self.save_meta()
+    }
+
     fn save_meta(&self) -> Result<(), EngineError> {
         let path = self.dir.join(SESSION_FILE);
         let text = serde_json::to_string_pretty(&self.meta).expect("meta serialises");
         crate::vault::write(&path, text.as_bytes()).map_err(io(&path))
     }
+}
+
+/// Copy a run folder's files (one level), decrypted from the source and
+/// written under this device's data key.
+fn copy_run_files(from: &Path, to: &Path) -> Result<(), EngineError> {
+    fs::create_dir_all(to).map_err(io(to))?;
+    for entry in fs::read_dir(from).map_err(io(from))? {
+        let path = entry.map_err(io(from))?.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(name) = path.file_name() else { continue };
+        let plain = crate::vault::read(&path).map_err(io(&path))?;
+        let target = to.join(name);
+        crate::vault::write(&target, &plain).map_err(io(&target))?;
+    }
+    Ok(())
 }
 
 /// Sessions under `root`, newest first.
@@ -1119,7 +1295,17 @@ mod tests {
         let soap = LoadedTemplate::builtin("soap").unwrap();
         let run1 = s.save_run("gemma-4-e4b-it-q4_0", &note_result(), &soap).unwrap();
         let run2 = s.save_run("gemma-4-12b-it-q4_0", &note_result(), &soap).unwrap();
-        assert!(run1.ends_with("001_gemma-4-e4b-it-q4-0"));
+        let tag = crate::device::for_root(&root).tag;
+        assert!(run1.ends_with(format!("001_{tag}_gemma-4-e4b-it-q4-0")), "{}", run1.display());
+        // New runs carry a UUIDv7 run id and the device's tag.
+        let first = &s.meta.runs[0];
+        assert_eq!(
+            first.run_id.as_deref().map(|id| uuid::Uuid::parse_str(id).unwrap().get_version_num()),
+            Some(7)
+        );
+        assert_eq!(first.device.as_deref(), Some(tag.as_str()));
+        assert_eq!(first.id(), first.run_id.as_deref().unwrap());
+        assert_ne!(s.meta.runs[1].id(), first.id());
         assert!(run2.join("note.md").is_file());
         let last = s.meta.runs.last().unwrap().clone();
         assert_eq!(last.template_id(), "soap");
@@ -1436,6 +1622,7 @@ mod tests {
             heading: "dental_chart".into(),
             by: "Dr Rivera".into(),
             from_run: None,
+            from_run_id: None,
             changed: vec!["/dental_chart/2".into()],
             removed: 1,
             before: serde_json::Value::Null,
@@ -1461,5 +1648,102 @@ mod tests {
         s.save_run("gemma", &note_result(), &LoadedTemplate::builtin("soap").unwrap()).unwrap();
         assert!(s.unconfirmed_teeth().is_empty());
         s.sign_latest("Dr Rivera").unwrap();
+    }
+
+    // ---- sync groundwork (ADR-0017 sections 6 and 9) ------------------------
+
+    /// A visit saved by 0.1.x: `runs/NNN_<model>` folders, no run ids.
+    const OLD_SESSION: &str = r#"{
+      "id": "0199a000-0000-7000-8000-0000000000aa",
+      "app_version": "0.1.1",
+      "created_at": "2026-10-10T09:30:00-04:00",
+      "source": "live recording (Microphone)",
+      "audio_sha256": "",
+      "audio_secs": 61.0,
+      "transcription": null,
+      "runs": [
+        {"dir": "runs/001_gemma-4-e4b-it-q4-0", "llm": "gemma-4-e4b-it-q4_0", "template": "soap@0.1.0",
+         "created_at": "2026-10-10T09:31:00-04:00", "faithfulness_passed": true, "total_ms": 1000,
+         "signed_at": "2026-10-10T09:40:00-04:00", "signed_by": "Dr Patel"}
+      ]
+    }"#;
+
+    #[test]
+    fn old_visits_load_and_new_runs_get_ids_beside_them() {
+        let _plain = crate::vault::tests::SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("sessions");
+        let dir = root.join("2026-10-10_093000_maple");
+        fs::create_dir_all(dir.join("runs/001_gemma-4-e4b-it-q4-0")).unwrap();
+        fs::write(dir.join(SESSION_FILE), OLD_SESSION).unwrap();
+        fs::write(dir.join("runs/001_gemma-4-e4b-it-q4-0/note.json"), b"{\"note\":{}}").unwrap();
+        fs::write(dir.join("runs/001_gemma-4-e4b-it-q4-0/note.md"), b"# SOAP note\n").unwrap();
+
+        let mut s = Session::open(&dir).unwrap();
+        let old = s.meta.runs[0].clone();
+        assert_eq!((old.run_id.as_deref(), old.device.as_deref()), (None, None));
+        assert_eq!(old.id(), "runs/001_gemma-4-e4b-it-q4-0", "an old run is known by its folder");
+        assert!(s.is_signed());
+        // An addendum to the old signed note still works, and the file it
+        // writes back keeps the old run as it was.
+        s.add_addendum("Recheck in 2 weeks.", "Dr Patel").unwrap();
+        let text = fs::read_to_string(dir.join(SESSION_FILE)).unwrap();
+        assert!(!text.contains("run_id"), "nothing is invented for an old run");
+        // A new run beside it gets the next number, the tag and an id.
+        let next = s.save_run("gemma", &note_result(), &LoadedTemplate::builtin("soap").unwrap()).unwrap();
+        let tag = crate::device::for_root(&root).tag;
+        assert!(next.ends_with(format!("002_{tag}_gemma")));
+        assert!(Session::open(&dir).unwrap().meta.runs[1].run_id.is_some());
+    }
+
+    /// Golden: one visit, drafted offline on two devices, then merged both ways.
+    #[test]
+    fn runs_from_two_devices_merge_without_colliding() {
+        crate::vault::tests::with_key(|| {
+            let tmp = tempfile::tempdir().unwrap();
+            let (root_a, root_b) = (tmp.path().join("a"), tmp.path().join("b"));
+            // Device A records; device B adopts the visit (as sync will).
+            let mut a = Session::create_live(&root_a, "Maple").unwrap();
+            let soap = LoadedTemplate::builtin("soap").unwrap();
+            a.save_run("gemma-4-e4b", &note_result(), &soap).unwrap();
+            let mut b = Session::adopt(&root_b, a.meta.clone()).unwrap();
+            assert_eq!(b.meta.id, a.meta.id, "the visit keeps its id");
+            assert_eq!(
+                Session::adopt(&root_b, a.meta.clone()).unwrap().dir,
+                b.dir,
+                "adopting twice opens it"
+            );
+            // The first run's files come across with the merge.
+            assert_eq!(b.merge_runs_from(&a).unwrap(), 1);
+
+            // Offline, both draft a second run: same number, different devices.
+            a.save_run("gemma-4-e4b", &note_result(), &soap).unwrap();
+            b.save_run("gemma-4-e4b", &note_result(), &soap).unwrap();
+            let (tag_a, tag_b) = (crate::device::for_root(&root_a).tag, crate::device::for_root(&root_b).tag);
+            assert_ne!(a.meta.runs[1].dir, b.meta.runs[1].dir, "002_{tag_a}_… and 002_{tag_b}_…");
+            b.sign_latest("Dr Okafor").unwrap();
+
+            // They meet.
+            assert_eq!(a.merge_runs_from(&b).unwrap(), 1);
+            assert_eq!(b.merge_runs_from(&a).unwrap(), 1);
+            assert_eq!(a.merge_runs_from(&b).unwrap(), 0, "merging again brings nothing");
+            let ids = |s: &Session| s.meta.runs.iter().map(|r| r.id().to_string()).collect::<Vec<_>>();
+            assert_eq!(ids(&a), ids(&b), "both hold the same runs, in drafting order");
+            assert_eq!(a.meta.runs.len(), 3);
+            let tags: Vec<_> = a.meta.runs.iter().map(|r| r.device.clone().unwrap()).collect();
+            assert!(tags.contains(&tag_a) && tags.contains(&tag_b));
+            // B's signature came across unchanged, and the files open under A's key.
+            let signed = a.meta.runs.iter().find(|r| r.signed_by.is_some()).unwrap();
+            assert_eq!(signed.signed_by.as_deref(), Some("Dr Okafor"));
+            assert_eq!(signed.device.as_deref(), Some(tag_b.as_str()));
+            let md = crate::vault::read_to_string(&a.dir.join(&signed.dir).join("note.md")).unwrap();
+            assert_eq!(md, "# SOAP note\n");
+            assert!(crate::vault::is_encrypted(&a.dir.join(&signed.dir).join("note.json")));
+            // Saved: a reopened copy shows the same runs.
+            assert_eq!(ids(&Session::open(&a.dir).unwrap()), ids(&a));
+            // Copies of two different visits don't merge.
+            let other = Session::create_live(&root_a, "Pepper").unwrap();
+            assert!(a.merge_runs_from(&other).is_err());
+        });
     }
 }
