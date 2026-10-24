@@ -9,6 +9,7 @@
 pub mod align;
 pub mod audit;
 pub mod awake;
+pub mod breeds;
 pub mod crosscheck;
 pub mod dental;
 pub mod device;
@@ -19,6 +20,7 @@ pub mod from_example;
 pub mod hlc;
 pub mod keychain;
 pub mod live;
+pub mod mic_health;
 pub mod models;
 pub mod note;
 pub mod numbers;

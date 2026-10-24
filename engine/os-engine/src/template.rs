@@ -1062,13 +1062,13 @@ pub fn tooth_finding_schema(dentition: Option<Dentition>) -> Value {
             "tooth": { "type": "string", "enum": teeth },
             "text": { "type": "string" },
             "finding": { "type": "string", "enum": findings },
-            "detail": { "anyOf": [{ "type": "null" }, { "type": "string", "enum": details }] },
             "grade": { "anyOf": [{ "type": "null" }, { "type": "integer", "enum": [0, 1, 2, 3, 4, 5] }] },
+            "detail": { "anyOf": [{ "type": "null" }, { "type": "string", "enum": details }] },
             "mm": { "anyOf": [{ "type": "null" }, { "type": "number" }] },
             "planned": { "type": "boolean" },
             "evidence": { "$ref": "#/$defs/evidence" }
         },
-        "required": ["tooth", "text", "finding", "detail", "grade", "mm", "planned", "evidence"],
+        "required": ["tooth", "text", "finding", "grade", "detail", "mm", "planned", "evidence"],
         "additionalProperties": false
     })
 }

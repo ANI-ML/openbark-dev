@@ -99,14 +99,43 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
+      # Windows: build in a short folder. llama.cpp's Vulkan shader generator is an
+      # ExternalProject whose nested MSBuild paths pass Windows' 260-character limit
+      # under D:/a/openbark-dev/openbark-dev/target (its install step then fails with
+      # "Not a file: ...cmake_install.cmake"). `target` becomes a junction to D:/t,
+      # so every later step still finds target/release/bundle.
+      - name: Short build folder (Windows)
+        if: matrix.name == 'windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force D:/t | Out-Null
+          if (Test-Path target) { Remove-Item -Recurse -Force target }
+          New-Item -ItemType Junction -Path target -Target D:/t | Out-Null
+          "CARGO_TARGET_DIR=D:/t" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          # Ninja instead of the Visual Studio generator: under MSBuild the shader
+          # generator's install step can start before its configure step has written
+          # cmake_install.cmake (a step-ordering race seen on cold builds). Ninja is
+          # preinstalled on the image; the cmake crate passes MSVC's environment.
+          "CMAKE_GENERATOR=Ninja" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      # Keyed on the repository too, as in ci.yml: target/ holds absolute paths.
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        if: matrix.name != 'windows'
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: cargo-release-${{ matrix.name }}-${{ hashFiles('Cargo.lock') }}
-          restore-keys: cargo-release-${{ matrix.name }}-
+          key: cargo-release-${{ matrix.name }}/${{ github.repository }}/${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-release-${{ matrix.name }}/${{ github.repository }}/
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        if: matrix.name == 'windows'
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            D:/t
+          key: cargo-release-windows-short/${{ github.repository }}/${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-release-windows-short/${{ github.repository }}/
       # A cache can hold an earlier version's installers; each step below
       # expects exactly one of each.
       - name: Drop installers from an earlier build

@@ -1,0 +1,48 @@
+# Synthetic consult: written for OpenBark's test suite; not a real patient.
+# Speakerphone: the vet calls the owner from the dental suite with the patient
+# under anaesthesia; the owner is 15 dB below the vet (see
+# speaker-diabetic-callback.yaml).
+id: speaker-dental-estimate
+title: Speakerphone, owner approves dental extractions by phone
+category: speakerphone
+species: canine
+speakers:
+  dvm: af_nicole
+  client: bm_george
+phone:
+  speaker: client
+  level_db: -15
+  seed: 37
+pause_secs: 0.6
+lines:
+  - [dvm, "Hi, this is Doctor Lindqvist from the clinic. Bella is under anesthesia for her dental cleaning, and she's doing well. Is now a good time?"]
+  - [client, "Yes, I've been waiting for your call. Is everything alright?"]
+  - [dvm, "Her heart rate is ninety and her oxygen is ninety nine percent, so she's stable. We've finished the cleaning and the dental x-rays."]
+  - [dvm, "We found two teeth that need to come out. The upper right fourth premolar has a slab fracture with the pulp exposed, and the lower left first molar has lost a lot of bone around its roots."]
+  - [client, "Oh. She did break a tooth on an antler chew about a month ago. I wondered about that."]
+  - [dvm, "That fits. Have you noticed her chewing on one side, or dropping food?"]
+  - [client, "Yes, now that you mention it, she chews on the left and she drops kibble sometimes. And her breath has been really bad."]
+  - [dvm, "Those teeth are almost certainly painful. I'd recommend extracting both today, while she's already asleep."]
+  - [client, "How much will that add to the bill?"]
+  - [dvm, "The two surgical extractions, with nerve blocks and the extra anesthesia time, add about six hundred and forty dollars."]
+  - [client, "Okay. We set a budget of one thousand two hundred dollars total. Will we stay under that?"]
+  - [dvm, "Yes, with the cleaning that comes to about one thousand and fifty."]
+  - [client, "Then please go ahead with both extractions."]
+  - [dvm, "Thank you. I'll note that you approved both extractions by phone. She'll go home with pain medication."]
+  - [client, "She can't have the chicken flavored ones. She had a bad reaction to chicken, she gets itchy and her ears flare up."]
+  - [dvm, "Good to know. I'll record a chicken allergy. We'll send gabapentin capsules and meloxicam liquid, which isn't chicken flavored."]
+  - [client, "And what about food? She's on a hydrolyzed diet for the allergy."]
+  - [dvm, "Keep her on that, but soak the kibble in water for ten days so it's soft. No chew toys or antlers for two weeks."]
+  - [client, "No antlers at all, honestly. I'm throwing them out."]
+  - [dvm, "That's probably wise. We'll recheck her mouth in ten to fourteen days to make sure the gums have healed."]
+  - [client, "Okay. What time can I pick her up?"]
+  - [dvm, "Around four thirty. We'll call you when she's awake."]
+  - [client, "Thank you so much for calling."]
+
+expected:
+  medications:
+    - { drug: gabapentin }
+    - { drug: meloxicam }
+  # Said only by the client: antler, drops (food), breath, chicken, hydrolyzed, approved budget.
+  must_mention: [antler, chicken, hydrolyzed, breath, extraction, "four thirty", "ten days"]
+  must_not_mention: [declined extraction]

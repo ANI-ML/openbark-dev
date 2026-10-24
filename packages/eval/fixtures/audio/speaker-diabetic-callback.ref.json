@@ -1,0 +1,158 @@
+[
+  {
+    "speaker": "dvm",
+    "start": 0.0,
+    "end": 5.918875,
+    "text": "Hi, it's Doctor Okafor calling from the clinic. I have Pepper here for her glucose curve. Do you have a few minutes?"
+  },
+  {
+    "speaker": "client",
+    "start": 6.618875,
+    "end": 9.00675,
+    "text": "Yes, of course. How is she doing?"
+  },
+  {
+    "speaker": "dvm",
+    "start": 9.70675,
+    "end": 15.08375,
+    "text": "She's doing well. Before I go through the numbers, can you tell me how much insulin you've been giving her at home?"
+  },
+  {
+    "speaker": "client",
+    "start": 15.78375,
+    "end": 21.624813,
+    "text": "Two units of the glargine, twice a day. Morning at seven and evening at seven, right after she eats."
+  },
+  {
+    "speaker": "dvm",
+    "start": 22.324812,
+    "end": 24.266062,
+    "text": "And is she still drinking a lot of water?"
+  },
+  {
+    "speaker": "client",
+    "start": 24.966063,
+    "end": 30.032625,
+    "text": "Less than before. I used to fill her bowl three times a day, and now it's about once a day."
+  },
+  {
+    "speaker": "dvm",
+    "start": 30.732624,
+    "end": 34.082188,
+    "text": "That's a good sign. How about her appetite and the litter box?"
+  },
+  {
+    "speaker": "client",
+    "start": 34.78219,
+    "end": 41.497437,
+    "text": "She's eating well. The clumps in the litter are smaller now. But she threw up once on Saturday, just a hairball I think."
+  },
+  {
+    "speaker": "dvm",
+    "start": 42.197437,
+    "end": 47.380436,
+    "text": "Any wobbliness, weakness, or times she seemed sleepy or out of it, especially in the afternoon?"
+  },
+  {
+    "speaker": "client",
+    "start": 48.080437,
+    "end": 53.39169,
+    "text": "No, nothing like that. She's been jumping up on the counter again, which she hadn't done in months."
+  },
+  {
+    "speaker": "dvm",
+    "start": 54.091686,
+    "end": 56.301563,
+    "text": "Great. Has she missed any doses?"
+  },
+  {
+    "speaker": "client",
+    "start": 57.001564,
+    "end": 61.952625,
+    "text": "One on Thursday night. She didn't finish her dinner, so I skipped it like you told me."
+  },
+  {
+    "speaker": "dvm",
+    "start": 62.652626,
+    "end": 69.70681,
+    "text": "That was the right thing to do. Okay, here are her numbers today. She weighs four point eight kilos, up from four point five last month."
+  },
+  {
+    "speaker": "dvm",
+    "start": 70.406815,
+    "end": 78.55581,
+    "text": "Her glucose this morning before insulin was three hundred and ten. The lowest point was one hundred and sixty, at about six hours. That's called the nadir."
+  },
+  {
+    "speaker": "dvm",
+    "start": 79.25581,
+    "end": 83.19244,
+    "text": "Her fructosamine came back at four hundred and eighty, which is still a little high."
+  },
+  {
+    "speaker": "client",
+    "start": 83.89244,
+    "end": 85.63919,
+    "text": "So is that good or bad?"
+  },
+  {
+    "speaker": "dvm",
+    "start": 86.33919,
+    "end": 92.13225,
+    "text": "It's better, but she's not fully regulated yet. I'd like to increase her insulin to two and a half units twice a day."
+  },
+  {
+    "speaker": "client",
+    "start": 92.83225,
+    "end": 97.62688,
+    "text": "Okay, two and a half units. Can I measure a half unit with the syringes I have?"
+  },
+  {
+    "speaker": "client",
+    "start": 98.32687,
+    "end": 101.50112,
+    "text": "They're the one hundred unit syringes, the half milliliter ones."
+  },
+  {
+    "speaker": "dvm",
+    "start": 102.201126,
+    "end": 105.60194,
+    "text": "Those have half unit markings, so yes. We'll show you at pickup."
+  },
+  {
+    "speaker": "dvm",
+    "start": 106.30194,
+    "end": 114.38269,
+    "text": "If she ever seems weak, wobbly, or has a seizure, rub some corn syrup on her gums and call us right away, or the emergency hospital if we're closed."
+  },
+  {
+    "speaker": "client",
+    "start": 115.08269,
+    "end": 117.54825,
+    "text": "Corn syrup on the gums. Got it."
+  },
+  {
+    "speaker": "dvm",
+    "start": 118.24825,
+    "end": 122.82644,
+    "text": "I'd like to repeat the glucose curve in two weeks. Keep her on the same diabetic food."
+  },
+  {
+    "speaker": "client",
+    "start": 123.526436,
+    "end": 129.0775,
+    "text": "She's on the dry diabetic food, and I give her a spoon of the canned one at night. Is that okay?"
+  },
+  {
+    "speaker": "dvm",
+    "start": 129.7775,
+    "end": 133.9587,
+    "text": "Yes, as long as it's the same amount every night. She can go home at four o'clock."
+  },
+  {
+    "speaker": "client",
+    "start": 134.65869,
+    "end": 138.23318,
+    "text": "Perfect. I'll be there at four. Thank you, Doctor."
+  }
+]

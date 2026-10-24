@@ -12,6 +12,7 @@ export {
   type RecordState,
 } from "./RecordButton";
 export { Dialog, Sheet, useSheetClose, type SheetProps } from "./Sheet";
+export { Skeleton, type SkeletonProps } from "./Skeleton";
 export { animateSpring, prefersReducedMotion, project, rubberband, type SpringOptions } from "./spring";
 export { StatusDot, type Tone } from "./StatusDot";
 export { ThemeToggle } from "./ThemeToggle";

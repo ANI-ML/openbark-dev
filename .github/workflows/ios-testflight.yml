@@ -97,7 +97,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: cargo-ios-release-${{ hashFiles('Cargo.lock') }}
+          key: cargo-ios-release/${{ github.repository }}/${{ hashFiles('Cargo.lock') }}
           restore-keys: cargo-ios-release-
       - name: App Store Connect API key on disk
         if: steps.secrets.outputs.ok == 'true'

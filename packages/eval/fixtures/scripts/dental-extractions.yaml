@@ -1,0 +1,60 @@
+# Synthetic consult: written for OpenBark's test suite; not a real patient.
+# Generalisation fixture for the dental chart (ADR-0021): a mouth with several
+# extractions of different techniques, a "no sectioning" remark that must stay
+# a closed extraction, a pair of teeth said together, a retained root, a tooth
+# said only by name and a possible extraction at the next visit (a plan).
+# Held out from the prompt work on the four original dental fixtures, to check
+# that it generalises.
+#
+# expected.chart: one fact per item; see dental-chart.yaml for how items match.
+id: dental-extractions
+title: Canine dental with several extractions, charted
+species: canine
+template: dental
+# As the clinic enters it before the visit; the app sends it with every draft.
+patient: { name: Bella, reason: Dental, species: Dog }
+speakers:
+  dvm: bf_emma
+  tech: am_adam
+pause_secs: 0.6
+lines:
+  - [dvm, "This is Bella, a fourteen year old spayed Dachshund, in for her dental and extractions."]
+  - [tech, "She's eight point five kilos. Premed was methadone and acepromazine, alfaxalone to induce, on isoflurane."]
+  - [dvm, "The upper left canine is fractured, with the pulp exposed."]
+  - [dvm, "Three oh seven and three oh eight are both mobile, grade two."]
+  - [dvm, "Four oh seven has a retained root."]
+  - [dvm, "One oh one and one oh two are missing."]
+  - [dvm, "Four oh four looks normal."]
+  - [dvm, "Two oh four comes out surgically, with a flap and alveoloplasty."]
+  - [dvm, "Three oh seven and three oh eight are extracted closed, no sectioning needed."]
+  - [dvm, "The root tip at four oh seven is extracted surgically."]
+  - [dvm, "Four oh eight might need to come out next time."]
+  - [dvm, "Recheck in ten days, soft food until then."]
+
+expected:
+  vitals:
+    weight: "8.5"
+  must_mention: ["204", "307", "ten days"]
+  chart:
+    # Said only by name: "the upper left canine".
+    - { tooth: "204", finding: fracture, detail: complicated_crown }
+    - { tooth: "307", finding: mobility, grade: 2 }
+    - { tooth: "308", finding: mobility, grade: 2 }
+    - { tooth: "407", finding: retained_root }
+    - { tooth: "101", finding: missing }
+    - { tooth: "102", finding: missing }
+    - { tooth: "404", finding: normal }
+    - { tooth: "204", finding: extraction, detail: open, planned: false }
+    # "No sectioning needed": closed, never sectioned.
+    - { tooth: "307", finding: extraction, detail: closed, planned: false }
+    - { tooth: "308", finding: extraction, detail: closed, planned: false }
+    - { tooth: "407", finding: extraction, detail: open, planned: false }
+    # "Might need to come out next time": a plan, no technique said.
+    - { tooth: "408", finding: extraction, detail: null, planned: true }
+  chart_flags: []
+  chart_not_allowed:
+    - { finding: normal, except: ["404"] }
+    - { finding: missing, except: ["101", "102"] }
+    - { finding: extraction, except: ["204", "307", "308", "407", "408"] }
+    - { finding: resorption }
+    - { finding: periodontal_stage }

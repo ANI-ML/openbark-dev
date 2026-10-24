@@ -1,0 +1,88 @@
+/* The phone window (ADR-0023): one column, from a 360 px phone up. Tokens
+   only (docs/brand/DESIGN.md). Amber is kept for the recording dot; the Call
+   button is ink, and Hang up uses the destructive outline. */
+body { background: var(--bg); }
+.phone {
+  max-width: 440px;
+  margin: 0 auto;
+  min-height: 100vh;
+  padding: 16px 16px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.phone-head { display: flex; align-items: center; gap: 8px; color: var(--ink-2); }
+.phone-who { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; padding: 16px 0 4px; }
+.phone-who h1 { font-size: 24px; line-height: 30px; font-weight: 800; letter-spacing: -0.02em; overflow-wrap: anywhere; }
+.phone-status { display: inline-flex; align-items: center; gap: 8px; font-size: 15px; line-height: 24px; color: var(--ink); }
+.phone-rec-dot {
+  position: relative;
+  width: 10px;
+  height: 10px;
+  border-radius: var(--r-full);
+  background: var(--record);
+  flex: none;
+}
+.phone-rec-dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--r-full);
+  background: var(--record);
+  animation: ob-record-pulse 1.6s ease-out infinite;
+}
+@media (prefers-reduced-motion: reduce) { .phone-rec-dot::after { animation: none; } }
+
+.phone-dial, .phone-controls, .phone-ended, .phone-script { display: flex; flex-direction: column; gap: 12px; }
+.phone-dial .ob-input { font-size: 18px; text-align: center; letter-spacing: 0.02em; }
+.phone-precall { display: flex; flex-direction: column; gap: 4px; }
+.phone-dial > .ob-button, .phone-hangup { width: 100%; justify-content: center; }
+
+.phone-pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.phone-pad-key {
+  height: 48px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 18px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--dur-fast) var(--ease);
+}
+.phone-pad-key:hover { background: var(--surface-2); }
+.phone-pad-key:focus-visible, .phone-key:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.phone-pad-back { grid-column: 3; }
+
+.phone-script {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface-2);
+}
+.phone-script-text { margin: 0; font-size: 18px; line-height: 28px; font-weight: 600; color: var(--ink); }
+.phone-answer { display: flex; flex-wrap: wrap; gap: 8px; }
+.phone-answer > .ob-button { flex: 1 1 140px; justify-content: center; }
+
+.phone-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.phone-key {
+  min-height: 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  color: var(--ink);
+  font: 500 13px/18px var(--font-sans);
+  cursor: pointer;
+}
+.phone-key[aria-pressed="true"] { background: var(--fill-strong); border-color: var(--border-strong); }
+.phone-confirm { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: var(--r-md); }
+.phone-ended { text-align: center; align-items: stretch; }
+.phone-foot { margin-top: auto; text-align: center; }
+@media (pointer: coarse) { .phone-pad-key { height: 56px; } }

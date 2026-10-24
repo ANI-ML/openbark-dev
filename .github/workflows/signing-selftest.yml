@@ -120,8 +120,8 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: cargo-release-macos-${{ hashFiles('Cargo.lock') }}
-          restore-keys: cargo-release-macos-
+          key: cargo-release-macos/${{ github.repository }}/${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-release-macos/${{ github.repository }}/
       - name: Drop installers from an earlier build
         run: rm -rf target/release/bundle
       # As the release does: compile before any signing credential exists.
@@ -222,8 +222,8 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: cargo-release-windows-${{ hashFiles('Cargo.lock') }}
-          restore-keys: cargo-release-windows-
+          key: cargo-release-windows/${{ github.repository }}/${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-release-windows/${{ github.repository }}/
       - name: Drop installers from an earlier build
         shell: bash
         run: rm -rf target/release/bundle

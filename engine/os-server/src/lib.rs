@@ -65,6 +65,20 @@
 //!   visit without its recording; `GET /api/deleted?by=`; `POST /api/deleted/{tid}/restore` `{by}`;
 //!   `POST /api/deleted/{tid}/purge` `{by, pin?}` ("Delete now"). A PIN travels only in a body.
 //! - `GET  /api/events`                     server-sent events: segment, token, level, download
+//! - Phone calls through the clinic's own Twilio account (ADR-0023; outgoing
+//!   only): `GET /api/phone`, `GET /api/phone/bin?caller_id=` (the outgoing
+//!   Bin's text), `POST /api/phone/connect` `{account_sid, api_key_sid,
+//!   api_key_secret, computer_name, caller_id, outgoing_bin_url, by}` (the
+//!   secret travels only in this body and is never sent back),
+//!   `POST /api/phone/disconnect` `{by}`, `POST /api/phone/prefs` `{enabled,
+//!   record_calls, announcement, by}`, `POST /api/phone/check` `{by}`,
+//!   `POST /api/phone/prepare` `{patient_id?, number?, by}`, `GET /api/phone/pending`,
+//!   `POST /api/phone/token` (a one-hour Voice token for the phone page),
+//!   `GET /api/phone/live?number=&patient_id=&call_sid=&sample_rate=` (WebSocket:
+//!   binary interleaved two-channel f32 PCM, clinic then client; text
+//!   `{"consent": {"outcome": "agreed"|"declined"|"stayed_on_line", "announced_at": s}}` and
+//!   `{"end": {"duration_secs", "call_sid"}}`). `/phone.html` is served with
+//!   its own Content-Security-Policy, the only page allowed to reach Twilio.
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
@@ -79,9 +93,9 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{delete, get, post};
 use os_app::{
-    App, AppError, Approver, AudioBlock, ConsentMethod, ConsentRule, DeleteRequest, Events, Patient,
-    PdfRequest, RecordingConsent, RecordingSource, RefineRequest, SaveTemplateRequest, ShareMode,
-    TemplateMode,
+    App, AppError, Approver, AudioBlock, CallBlock, CallEnd, CallRequest, CallStart, ConnectRequest,
+    ConsentMethod, ConsentOutcome, ConsentRule, DeleteRequest, Events, Patient, PdfRequest, PhonePrefs,
+    RecordingConsent, RecordingSource, RefineRequest, SaveTemplateRequest, ShareMode, TemplateMode,
 };
 use os_engine::Segment;
 use os_engine::template::{Scope, Template};
@@ -122,6 +136,7 @@ enum ServerEvent {
     Download { model: String, done: u64, total: u64 },
     Progress(os_app::Progress),
     Moving { done: u64, total: u64 },
+    Mic(os_app::MicHealth),
 }
 
 struct Broadcaster(broadcast::Sender<ServerEvent>);
@@ -144,6 +159,9 @@ impl Events for Broadcaster {
     }
     fn moving(&self, done: u64, total: u64) {
         let _ = self.0.send(ServerEvent::Moving { done, total });
+    }
+    fn mic(&self, health: &os_app::MicHealth) {
+        let _ = self.0.send(ServerEvent::Mic(health.clone()));
     }
 }
 
@@ -180,6 +198,7 @@ pub async fn serve(options: ServerOptions) -> std::io::Result<()> {
     // Deleted visits: recover what a crash left, remove what's due, then hourly.
     app.start_housekeeping();
     let state: St = Arc::new(Shared { app: RwLock::new(app), events: Arc::new(Broadcaster(tx)) });
+    let shared = state.clone();
     let app = router(state, &options.ui_dir, options.port);
 
     // Loopback only: there is no authentication yet (see module docs).
@@ -198,7 +217,42 @@ pub async fn serve(options: ServerOptions) -> std::io::Result<()> {
         }
     };
     tracing::info!(%addr, "OpenBark web mode");
-    axum::serve(listener, app).await
+    tokio::select! {
+        served = axum::serve(listener, app) => served,
+        () = stop_requested() => {
+            eprintln!("OpenBark is stopping.");
+            stop(shared.app()).await
+        }
+    }
+}
+
+/// Ctrl+C, or a polite termination request (SIGTERM, as from `kill` or a
+/// service manager).
+async fn stop_requested() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        match signal(SignalKind::terminate()) {
+            Ok(mut term) => tokio::select! {
+                _ = tokio::signal::ctrl_c() => {}
+                _ = term.recv() => {}
+            },
+            Err(_) => {
+                let _ = tokio::signal::ctrl_c().await;
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+    }
+}
+
+/// Free the note model, then end the process (os_app::App::shutdown): with
+/// a model still loaded at exit, llama.cpp's Metal teardown aborts on macOS.
+async fn stop(app: Arc<App>) -> ! {
+    let _ = tokio::task::spawn_blocking(move || app.shutdown(os_app::SHUTDOWN_WAIT)).await;
+    os_app::exit_process(0)
 }
 
 /// The whole server: the API, the UI's files, and the guard that keeps other
@@ -247,6 +301,8 @@ fn router(state: St, ui_dir: &std::path::Path, port: u16) -> Router {
         .route("/api/users/{uid}/admin", post(set_user_admin))
         .route("/api/users/{uid}/profile", get(profile_summary))
         .route("/api/live", get(live))
+        .route("/api/record/prewarm", post(record_prewarm))
+        .route("/api/record/release", post(record_release))
         .route("/api/record/start", post(record_start))
         .route("/api/record/stop", post(record_stop))
         .route("/api/models", get(|State(s): State<St>| async move { Json(s.app().models()) }))
@@ -284,10 +340,298 @@ fn router(state: St, ui_dir: &std::path::Path, port: u16) -> Router {
         .route("/api/storage/change", post(change_folder))
         .route("/api/folders", get(list_folders))
         .route("/api/events", get(events_stream))
+        .route("/api/phone", get(phone_view))
+        .route("/api/phone/bin", get(phone_bin))
+        .route("/api/phone/connect", post(phone_connect))
+        .route("/api/phone/disconnect", post(phone_disconnect))
+        .route("/api/phone/prefs", post(phone_prefs))
+        .route("/api/phone/check", post(phone_check))
+        .route("/api/phone/prepare", post(phone_prepare))
+        .route("/api/phone/pending", get(phone_pending))
+        .route("/api/phone/token", post(phone_token))
+        .route("/api/phone/live", get(phone_live))
         .layer(DefaultBodyLimit::max(1 << 30))
         .with_state(state);
     api.fallback_service(ServeDir::new(ui_dir).fallback(ServeFile::new(index)))
+        .layer(axum::middleware::from_fn_with_state(port, page_policy))
         .layer(axum::middleware::from_fn_with_state(port, local_only))
+}
+
+/// Twilio's calling service, as the Voice SDK reaches it (docs/network.md
+/// R10): signalling through the roaming edge, then the edge Twilio picked
+/// (the SDK reconnects there), and call-quality events, by default and for
+/// each home region. The SDK's sounds are local files, so no sound host.
+pub const TWILIO_CONNECT: &str = "wss://voice-js.roaming.twilio.com wss://voice-js.ashburn.twilio.com \
+wss://voice-js.umatilla.twilio.com wss://voice-js.dublin.twilio.com wss://voice-js.frankfurt.twilio.com \
+wss://voice-js.sao-paulo.twilio.com wss://voice-js.sydney.twilio.com wss://voice-js.singapore.twilio.com \
+wss://voice-js.tokyo.twilio.com https://eventgw.twilio.com https://eventgw.us1.twilio.com \
+https://eventgw.ie1.twilio.com https://eventgw.au1.twilio.com";
+
+/// This server's own WebSockets, on its own port only.
+fn own_sockets(port: u16) -> String {
+    format!("ws://127.0.0.1:{port} ws://localhost:{port}")
+}
+
+/// The phone page's Content-Security-Policy (ADR-0023 section 4): the only
+/// page of web mode that may reach Twilio, and only its calling service.
+pub fn phone_csp(port: u16) -> String {
+    format!(
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; \
+font-src 'self'; media-src 'self' mediastream: blob:; connect-src 'self' {} {TWILIO_CONNECT}; worker-src 'self'; \
+object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+        own_sockets(port)
+    )
+}
+
+/// Every other page: this computer only. The main page carries the same
+/// rule in a `<meta>` tag (apps/desktop/vite.config.ts), for the desktop app.
+pub fn page_csp(port: u16) -> String {
+    format!(
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; \
+font-src 'self'; media-src 'self' blob:; connect-src 'self' {}; object-src 'none'; base-uri 'none'; \
+frame-ancestors 'none'",
+        own_sockets(port)
+    )
+}
+
+/// Sets each page's Content-Security-Policy: the phone page's own, which
+/// allows Twilio, and the local-only one everywhere else.
+async fn page_policy(
+    State(port): State<u16>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let phone = request.uri().path() == "/phone.html";
+    let mut response = next.run(request).await;
+    let html = response
+        .headers()
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.starts_with("text/html"));
+    if html {
+        let policy = if phone { phone_csp(port) } else { page_csp(port) };
+        if let Ok(value) = axum::http::HeaderValue::from_str(&policy) {
+            response.headers_mut().insert(axum::http::header::CONTENT_SECURITY_POLICY, value);
+        }
+    }
+    response
+}
+
+// ---- phone calls (ADR-0023) ----------------------------------------------------
+
+async fn phone_view(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().phone()).await
+}
+
+#[derive(Deserialize)]
+struct BinQuery {
+    #[serde(default)]
+    caller_id: String,
+}
+
+async fn phone_bin(State(s): State<St>, Query(q): Query<BinQuery>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().phone_bin_text(&q.caller_id).map(|text| serde_json::json!({ "text": text })))
+        .await
+}
+
+/// No `Debug`: it carries the API key secret.
+#[derive(Deserialize)]
+struct PhoneConnectBody {
+    #[serde(flatten)]
+    request: ConnectRequest,
+    #[serde(default)]
+    by: Option<String>,
+}
+
+async fn phone_connect(
+    State(s): State<St>,
+    Json(b): Json<PhoneConnectBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().phone_connect(b.request, b.by.as_deref())).await
+}
+
+async fn phone_disconnect(State(s): State<St>, Json(b): Json<ByBody>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().phone_disconnect(b.by.as_deref())).await
+}
+
+#[derive(Deserialize)]
+struct PrefsBody {
+    #[serde(flatten)]
+    prefs: PhonePrefs,
+    #[serde(default)]
+    by: Option<String>,
+}
+
+async fn phone_prefs(State(s): State<St>, Json(b): Json<PrefsBody>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().phone_set_prefs(b.prefs, b.by.as_deref())).await
+}
+
+async fn phone_check(State(s): State<St>, Json(b): Json<ByBody>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().phone_check(b.by.as_deref())).await
+}
+
+#[derive(Deserialize)]
+struct PrepareBody {
+    #[serde(flatten)]
+    call: CallRequest,
+    #[serde(default)]
+    by: Option<String>,
+}
+
+async fn phone_prepare(
+    State(s): State<St>,
+    Json(b): Json<PrepareBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().phone_prepare(b.call, b.by.as_deref())).await
+}
+
+async fn phone_pending(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().phone_pending()).await
+}
+
+/// A POST, so it needs the `X-OpenBark` header like every change (ADR-0023
+/// section 10): only this computer's own phone page gets a token.
+async fn phone_token(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().phone_token()).await
+}
+
+#[derive(Deserialize)]
+struct PhoneLiveQuery {
+    number: String,
+    #[serde(default)]
+    patient_id: Option<String>,
+    #[serde(default)]
+    call_sid: Option<String>,
+    #[serde(default = "rate")]
+    sample_rate: u32,
+    /// Seconds since the client answered (audio kept by the page meanwhile).
+    #[serde(default)]
+    since_answer: Option<f32>,
+}
+
+/// What the phone page sends as text on the call's WebSocket.
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum CallMessage {
+    /// "I've read it": the announcement was read to the client.
+    Announced {
+        #[serde(default)]
+        at: Option<f32>,
+    },
+    Consent {
+        outcome: ConsentOutcome,
+        #[serde(default)]
+        announced_at: Option<f32>,
+    },
+    End(CallEnd),
+}
+
+/// A recorded call (ADR-0023 section 7): the phone page streams both sides
+/// as interleaved two-channel f32 PCM. The visit is saved when the page sends
+/// `end`, or when the socket closes (a dropped call keeps what was recorded).
+async fn phone_live(State(s): State<St>, Query(q): Query<PhoneLiveQuery>, ws: WebSocketUpgrade) -> Response {
+    ws.on_upgrade(move |socket| phone_session(s, q, socket))
+}
+
+async fn phone_session(s: St, q: PhoneLiveQuery, mut socket: WebSocket) {
+    let (tx, rx) = std::sync::mpsc::channel::<CallBlock>();
+    let events: Arc<dyn Events> = s.events.clone();
+    let start = CallStart {
+        number: q.number,
+        patient_id: q.patient_id,
+        call_sid: q.call_sid,
+        // Checked by the engine: a rate the recorder can't use is refused now.
+        sample_rate: Some(q.sample_rate),
+        since_answer_secs: q.since_answer,
+    };
+    let started = {
+        let s = s.clone();
+        tokio::task::spawn_blocking(move || s.app().start_call(start, rx, events)).await
+    };
+    let reply = |v: serde_json::Value| Message::Text(v.to_string().into());
+    match started {
+        Ok(Ok(id)) => {
+            let _ = socket.send(reply(serde_json::json!({ "started": id }))).await;
+        }
+        Ok(Err(e)) => {
+            let _ = socket.send(reply(serde_json::json!({ "error": e.0 }))).await;
+            return;
+        }
+        Err(e) => {
+            let _ = socket.send(reply(serde_json::json!({ "error": e.to_string() }))).await;
+            return;
+        }
+    }
+    let mut tx = Some(tx);
+    let mut end = CallEnd::default();
+    while let Some(Ok(msg)) = socket.recv().await {
+        match msg {
+            Message::Binary(bytes) => {
+                // After the client declines, the call goes on unrecorded: audio is dropped.
+                if let Some(sender) = &tx {
+                    let samples: Vec<f32> = bytes
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
+                        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+                        .collect();
+                    if sender.send(CallBlock::from_interleaved(&samples, q.sample_rate)).is_err() {
+                        tx = None;
+                    }
+                }
+            }
+            Message::Text(t) => match serde_json::from_str::<CallMessage>(t.as_str()) {
+                Ok(CallMessage::Consent { outcome, announced_at }) => {
+                    let s2 = s.clone();
+                    let done =
+                        tokio::task::spawn_blocking(move || s2.app().call_consent(outcome, announced_at))
+                            .await;
+                    let msg = match done {
+                        Ok(Ok(Some(view))) => {
+                            tx = None;
+                            serde_json::json!({ "declined": view })
+                        }
+                        Ok(Ok(None)) => serde_json::json!({ "consent": outcome }),
+                        Ok(Err(e)) => serde_json::json!({ "error": e.0 }),
+                        Err(e) => serde_json::json!({ "error": e.to_string() }),
+                    };
+                    let _ = socket.send(reply(msg)).await;
+                }
+                Ok(CallMessage::Announced { at }) => {
+                    let s2 = s.clone();
+                    let done = tokio::task::spawn_blocking(move || s2.app().call_announced(at)).await;
+                    let msg = match done {
+                        Ok(Ok(())) => serde_json::json!({ "announced": true }),
+                        Ok(Err(e)) => serde_json::json!({ "error": e.0 }),
+                        Err(e) => serde_json::json!({ "error": e.to_string() }),
+                    };
+                    let _ = socket.send(reply(msg)).await;
+                }
+                Ok(CallMessage::End(e)) => {
+                    end = e;
+                    break;
+                }
+                Err(_) => {
+                    let _ = socket
+                        .send(reply(
+                            serde_json::json!({ "error": "OpenBark didn't understand that message." }),
+                        ))
+                        .await;
+                }
+            },
+            Message::Close(_) => break,
+            _ => {}
+        }
+    }
+    drop(tx); // ends the recording's source
+    let result = tokio::task::spawn_blocking(move || s.app().end_call(end)).await;
+    let msg = match result {
+        Ok(Ok(view)) => serde_json::json!({ "session": view }),
+        Ok(Err(e)) => serde_json::json!({ "error": e.0 }),
+        Err(e) => serde_json::json!({ "error": e.to_string() }),
+    };
+    let _ = socket.send(reply(msg)).await;
+    let _ = socket.send(Message::Close(None)).await;
 }
 
 // ---- deleting (ADR-0022) -------------------------------------------------------
@@ -531,9 +875,9 @@ async fn restart(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
     std::process::Command::new(exe).args(std::env::args_os().skip(1)).spawn().map_err(|e| {
         ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("OpenBark couldn't restart: {e}"))
     })?;
-    tokio::spawn(async {
+    tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-        std::process::exit(0);
+        stop(app).await
     });
     Ok(Json(serde_json::json!({ "restarting": true })))
 }
@@ -686,6 +1030,9 @@ struct PatientDetails {
     last_name: String,
     #[serde(default)]
     species: String,
+    /// The owner's phone number (ADR-0023); empty clears it, absent keeps it.
+    #[serde(default)]
+    owner_phone: Option<String>,
 }
 
 async fn create_patient(
@@ -700,7 +1047,14 @@ async fn update_patient_record(
     UrlPath(id): UrlPath<String>,
     Json(p): Json<PatientDetails>,
 ) -> Result<impl IntoResponse, ApiError> {
-    blocking(move || s.app().update_patient_record(&id, &p.name, &p.last_name, &p.species)).await
+    blocking(move || {
+        let record = s.app().update_patient_record(&id, &p.name, &p.last_name, &p.species)?;
+        match p.owner_phone {
+            Some(phone) => s.app().set_owner_phone(&id, &phone),
+            None => Ok(record),
+        }
+    })
+    .await
 }
 
 async fn list_sessions(State(s): State<St>) -> impl IntoResponse {
@@ -721,41 +1075,27 @@ async fn open_session(
     blocking(move || s.app().open_session(&id, q.pet.as_deref())).await
 }
 
-/// The recording, decrypted in memory (never as a plain file), with byte
-/// ranges so the browser's player can seek.
+/// The recording, decrypted in memory (never as a plain file), in byte
+/// ranges so the player can seek; only the chunks asked for are decrypted
+/// (os_app::App::session_audio_part).
 async fn session_audio(
     State(s): State<St>,
     UrlPath(id): UrlPath<String>,
+    method: axum::http::Method,
     headers: axum::http::HeaderMap,
 ) -> Result<Response, ApiError> {
-    use axum::http::header;
-    let wav = tokio::task::spawn_blocking(move || s.app().session_audio(&id))
+    let range = headers.get(axum::http::header::RANGE).and_then(|v| v.to_str().ok()).map(str::to_owned);
+    let head = method == axum::http::Method::HEAD;
+    let part = tokio::task::spawn_blocking(move || s.app().session_audio_part(&id, range.as_deref(), head))
         .await
         .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))??;
-    let total = wav.len();
-    let range = headers
-        .get(header::RANGE)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("bytes="))
-        .and_then(|v| v.split_once('-'))
-        .and_then(|(a, b)| {
-            let start: usize = a.parse().ok()?;
-            let end: usize =
-                if b.is_empty() { total.checked_sub(1)? } else { b.parse::<usize>().ok()?.min(total - 1) };
-            (start <= end && end < total).then_some((start, end))
-        });
-    let common =
-        [(header::CONTENT_TYPE, "audio/wav".to_string()), (header::ACCEPT_RANGES, "bytes".to_string())];
-    Ok(match range {
-        Some((start, end)) => (
-            StatusCode::PARTIAL_CONTENT,
-            common,
-            [(header::CONTENT_RANGE, format!("bytes {start}-{end}/{total}"))],
-            wav[start..=end].to_vec(),
-        )
-            .into_response(),
-        None => (common, wav).into_response(),
-    })
+    let mut response = Response::builder().status(part.status);
+    for (name, value) in part.headers() {
+        response = response.header(name, value);
+    }
+    response
+        .body(axum::body::Body::from(part.body))
+        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
 async fn list_users(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
@@ -866,6 +1206,8 @@ impl ConsentQuery {
             confirmed_by: self.consent_by,
             confirmed_at: None,
             script: Some(self.consent_script).filter(|s| !s.trim().is_empty()),
+            outcome: None,
+            announced_at_secs: None,
         })
     }
 }
@@ -889,6 +1231,9 @@ impl PatientQuery {
 struct CreateSession {
     #[serde(default)]
     diarize: bool,
+    /// A client on a phone on speaker in the room.
+    #[serde(default)]
+    speakerphone: bool,
     #[serde(default)]
     name: Option<String>,
     #[serde(flatten)]
@@ -912,6 +1257,7 @@ async fn create_session(
             &name,
             &body,
             q.diarize,
+            q.speakerphone,
             q.patient.into_patient(),
             q.consent.into_consent(),
             q.by.as_deref(),
@@ -1373,6 +1719,9 @@ async fn mute_standard(
 struct LiveQuery {
     #[serde(default = "yes")]
     speakers: bool,
+    /// A client on a phone on speaker in the room.
+    #[serde(default)]
+    speakerphone: bool,
     #[serde(default = "rate")]
     sample_rate: u32,
     #[serde(flatten)]
@@ -1392,12 +1741,55 @@ fn rate() -> u32 {
 
 /// Browser microphone streaming: binary messages are little-endian f32 PCM
 /// (mono, `sample_rate` Hz). Text "stop" ends the recording; the server replies
-/// with the saved encounter as JSON text, then closes.
+/// with the saved encounter as JSON text, then closes. Text
+/// `{"sample_rate": 44100}` changes the rate of the blocks that follow (the
+/// browser switched to a microphone running at another rate).
 async fn live(State(s): State<St>, Query(q): Query<LiveQuery>, ws: WebSocketUpgrade) -> Response {
     ws.on_upgrade(move |socket| live_session(s, q, socket))
 }
 
+/// A rate the recorder can resample from.
+fn usable_rate(rate: u32) -> bool {
+    (os_app::MIN_SAMPLE_RATE..=os_app::MAX_SAMPLE_RATE).contains(&rate)
+}
+
+/// A text message's new sample rate, if it is one.
+fn rate_change(text: &str) -> Option<u32> {
+    #[derive(Deserialize)]
+    struct RateChange {
+        sample_rate: u32,
+    }
+    serde_json::from_str::<RateChange>(text).ok().map(|r| r.sample_rate)
+}
+
+#[derive(Deserialize)]
+struct Prewarm {
+    #[serde(default = "yes")]
+    speakers: bool,
+    #[serde(default)]
+    speakerphone: bool,
+}
+
+/// The Record screen opened: load the speech models now, if memory allows.
+async fn record_prewarm(State(s): State<St>, Json(req): Json<Prewarm>) -> impl IntoResponse {
+    let ready = tokio::task::spawn_blocking(move || s.app().prewarm_speech(req.speakers, req.speakerphone))
+        .await
+        .unwrap_or(false);
+    Json(serde_json::json!({ "loading": ready }))
+}
+
+/// The Record screen closed: give the memory back.
+async fn record_release(State(s): State<St>) -> impl IntoResponse {
+    let _ = tokio::task::spawn_blocking(move || s.app().release_speech()).await;
+    Json(serde_json::json!({}))
+}
+
 async fn live_session(s: St, mut q: LiveQuery, mut socket: WebSocket) {
+    if !usable_rate(q.sample_rate) {
+        let error = "This browser reported a microphone rate OpenBark can't use. Reload the page and try again, or use another browser.";
+        let _ = socket.send(Message::Text(serde_json::json!({ "error": error }).to_string().into())).await;
+        return;
+    }
     let patient = std::mem::take(&mut q.patient).into_patient();
     let consent = std::mem::take(&mut q.consent).into_consent();
     let (tx, rx) = std::sync::mpsc::channel::<AudioBlock>();
@@ -1408,6 +1800,7 @@ async fn live_session(s: St, mut q: LiveQuery, mut socket: WebSocket) {
             s.app().start_recording(
                 RecordingSource::Stream(rx),
                 q.speakers,
+                q.speakerphone,
                 patient,
                 consent,
                 q.by.as_deref(),
@@ -1445,6 +1838,14 @@ async fn live_session(s: St, mut q: LiveQuery, mut socket: WebSocket) {
                 }
             }
             Message::Text(t) if t.as_str() == "stop" => break,
+            Message::Text(t) => match rate_change(t.as_str()) {
+                Some(rate) if usable_rate(rate) => {
+                    tracing::info!(rate, "browser microphone rate changed");
+                    q.sample_rate = rate;
+                }
+                Some(rate) => tracing::warn!(rate, "ignored an unusable browser microphone rate"),
+                None => {}
+            },
             Message::Close(_) => break,
             _ => {}
         }
@@ -1466,6 +1867,9 @@ struct RecordStart {
     device: Option<String>,
     #[serde(default = "yes")]
     speakers: bool,
+    /// A client on a phone on speaker in the room.
+    #[serde(default)]
+    speakerphone: bool,
     #[serde(default)]
     patient: Option<Patient>,
     #[serde(default)]
@@ -1483,6 +1887,7 @@ async fn record_start(
         s.app().start_recording(
             RecordingSource::Microphone(req.device),
             req.speakers,
+            req.speakerphone,
             req.patient,
             req.consent,
             req.by.as_deref(),
@@ -1611,6 +2016,8 @@ mod tests {
                 std::env::set_var("OPENBARK_TEMPLATES_DIR", dir.join("templates"));
                 std::env::set_var("OPENBARK_KEY_FILE", dir.join("data.key"));
                 std::env::set_var("OPENBARK_ENGINES_DIR", dir.join("engines"));
+                // Twilio settings and secrets (ADR-0023): a scratch folder, no keychain.
+                std::env::set_var("OPENBARK_CONNECTIONS_DIR", dir.join("connections"));
             }
             dir
         })
@@ -1685,6 +2092,184 @@ mod tests {
         let status = res.status();
         let bytes = axum::body::to_bytes(res.into_body(), usize::MAX).await.unwrap();
         (status, serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null))
+    }
+
+    /// Phone calls (ADR-0023): the secret goes in and never comes back, a
+    /// token goes only to a request with the `X-OpenBark` header, and only the
+    /// phone page may reach Twilio.
+    #[tokio::test]
+    async fn the_phone_routes_keep_the_secret_in_and_twilio_to_the_phone_page() {
+        use os_connect::mock::fake::{FakeTwilio, sid};
+        test_env();
+        let tmp = tempfile::tempdir().unwrap();
+        let ui = tmp.path().join("ui");
+        std::fs::create_dir_all(&ui).unwrap();
+        std::fs::write(ui.join("index.html"), "<!doctype html><title>main</title>").unwrap();
+        std::fs::write(ui.join("phone.html"), "<!doctype html><title>phone</title>").unwrap();
+        let fake_key = concat!("fake-", "value-for-", "server-tests-77");
+        let fake = FakeTwilio::start(&sid("AC", 1), &sid("SK", 2), fake_key, &["+15555550100"]);
+        let mut app = App::new(ModelStore::new(tmp.path().join("models")), tmp.path().join("sessions"));
+        app.users = UserStore::new(tmp.path().join("users.json"));
+        app.connect = os_app::ConnectStore::with_keychain(
+            tmp.path().join("connections"),
+            Box::new(os_connect::NoKeychain),
+        );
+        app.twilio_base = Some(fake.server.base.clone());
+        let app = Arc::new(app);
+        let (tx, _) = broadcast::channel(16);
+        let state: St = Arc::new(Shared { app: RwLock::new(app.clone()), events: Arc::new(Broadcaster(tx)) });
+        let router = router(state, &ui, PORT);
+
+        let connect = serde_json::json!({
+            "account_sid": sid("AC", 1), "api_key_sid": sid("SK", 2), "api_key_secret": fake_key,
+            "computer_name": "front-desk", "caller_id": "+15555550100",
+            "outgoing_bin_url": format!("https://handler.twilio.com/twiml/{}", sid("EH", 3)),
+        });
+        let (status, _) = call(&router, "POST", "/api/phone/connect", Some(connect.clone()), false).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "another page can't connect an account");
+        let (status, body) = call(&router, "POST", "/api/phone/connect", Some(connect), true).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(!body.to_string().contains(fake_key), "the secret is never sent back");
+        assert_eq!(body["phone"]["secret"]["hint"], "****s-77");
+        let (_, view) = call(&router, "GET", "/api/phone", None, false).await;
+        assert!(!view.to_string().contains(fake_key));
+        assert_eq!(view["connected"], true);
+
+        let (status, body) = call(&router, "POST", "/api/phone/token", None, true).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "the phone is still off");
+        assert!(body["error"].as_str().unwrap().contains("The phone is off"));
+        let on = serde_json::json!({ "enabled": true, "record_calls": true, "announcement": "This call is recorded. Is that all right?" });
+        let (status, _) = call(&router, "POST", "/api/phone/prefs", Some(on), true).await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, _) = call(&router, "POST", "/api/phone/token", None, false).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "no token without the X-OpenBark header");
+        let (status, body) = call(&router, "POST", "/api/phone/token", None, true).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["identity"], "openbark_front_desk");
+        assert!(!body.to_string().contains(fake_key));
+        let (_, bin) =
+            call(&router, "GET", "/api/phone/bin?caller_id=%2B1%20555%20555%200100", None, false).await;
+        assert!(bin["text"].as_str().unwrap().contains(r#"callerId="+15555550100""#));
+        let (_, target) = call(
+            &router,
+            "POST",
+            "/api/phone/prepare",
+            Some(serde_json::json!({ "number": "555-555-0142" })),
+            true,
+        )
+        .await;
+        assert_eq!(target["number"], "+15555550142");
+        let (_, pending) = call(&router, "GET", "/api/phone/pending", None, false).await;
+        assert_eq!(pending["number"], "+15555550142");
+
+        // Each page's policy: Twilio only from the phone page.
+        let page = |path: &'static str| {
+            let router = router.clone();
+            async move {
+                let r = Request::builder()
+                    .uri(path)
+                    .header("host", format!("127.0.0.1:{PORT}"))
+                    .body(Body::empty());
+                let res = router.oneshot(r.unwrap()).await.unwrap();
+                res.headers()
+                    .get("content-security-policy")
+                    .map(|v| v.to_str().unwrap().to_string())
+                    .unwrap_or_default()
+            }
+        };
+        let phone = page("/phone.html").await;
+        assert!(
+            phone.contains("wss://voice-js.roaming.twilio.com")
+                && phone.contains("https://eventgw.twilio.com"),
+            "{phone}"
+        );
+        assert!(!phone.contains("sdk.twilio.com") && !phone.contains("twiliocdn"), "sounds are local files");
+        assert!(phone.contains("wss://voice-js.ashburn.twilio.com"), "the edge the SDK reconnects to");
+        assert!(
+            phone.contains(&format!("ws://127.0.0.1:{PORT}")) && !phone.contains(":*"),
+            "own port only: {phone}"
+        );
+        for path in ["/", "/index.html", "/patients"] {
+            let main = page(path).await;
+            assert!(main.starts_with("default-src 'self'"), "{path}: {main}");
+            assert!(
+                !main.contains("twilio") && !main.contains("https:") && !main.contains("wss:"),
+                "{path}: {main}"
+            );
+            assert!(!main.contains(":*"), "{path}: only this server's own port: {main}");
+        }
+        // The pending call's patient phone route.
+        let bella = app.create_patient("Bella", "Patel", "canine").unwrap();
+        let uri = format!("/api/patients/{}", bella.id);
+        let (status, rec) = call(&router, "POST", &uri, Some(serde_json::json!({ "name": "Bella", "last_name": "Patel", "species": "canine", "owner_phone": "(555) 555-0142" })), true).await;
+        assert_eq!(status, StatusCode::OK, "{rec}");
+        assert_eq!(rec["owner_phone"], "+15555550142");
+        let (_, rec) = call(
+            &router,
+            "POST",
+            &uri,
+            Some(serde_json::json!({ "name": "Bella", "last_name": "Patel", "species": "canine" })),
+            true,
+        )
+        .await;
+        assert_eq!(rec["owner_phone"], "+15555550142", "absent keeps it");
+        let (status, _) =
+            call(&router, "POST", "/api/phone/disconnect", Some(serde_json::json!({})), true).await;
+        assert_eq!(status, StatusCode::OK);
+        let (_, view) = call(&router, "GET", "/api/phone", None, false).await;
+        assert_eq!(view["connected"], false);
+    }
+
+    /// The player's requests for a recording, as WebKit and Chromium send them.
+    #[tokio::test]
+    async fn recordings_play_in_ranges() {
+        let srv = server();
+        let visits = os_app::demo::audio_visits(&srv.app.sessions_root).unwrap();
+        let v = &visits[0];
+        let whole = srv.app.session_audio(&v.id).unwrap();
+        let total = whole.len();
+        let get = |range: Option<String>, method: &'static str| {
+            let mut r = Request::builder()
+                .method(method)
+                .uri(format!("/api/sessions/{}/audio", v.id))
+                .header("host", format!("127.0.0.1:{PORT}"));
+            if let Some(range) = range {
+                r = r.header("range", range);
+            }
+            let router = srv.router.clone();
+            async move {
+                let res = router.oneshot(r.body(Body::empty()).unwrap()).await.unwrap();
+                let status = res.status();
+                let h = |n: &str| res.headers().get(n).map(|v| v.to_str().unwrap().to_string());
+                let heads = (h("content-type"), h("content-range"), h("accept-ranges"), h("cache-control"));
+                let body = axum::body::to_bytes(res.into_body(), usize::MAX).await.unwrap();
+                (status, heads, body)
+            }
+        };
+        let (status, (ty, cr, ar, cc), body) = get(Some("bytes=0-1".into()), "GET").await;
+        assert_eq!(status, StatusCode::PARTIAL_CONTENT);
+        assert_eq!(ty.as_deref(), Some("audio/wav"));
+        assert_eq!(cr, Some(format!("bytes 0-1/{total}")));
+        assert_eq!(ar.as_deref(), Some("bytes"));
+        assert_eq!(cc.as_deref(), Some("no-store"));
+        assert_eq!(&body[..], &whole[..2]);
+        let (status, (_, cr, ..), body) = get(Some("bytes=0-".into()), "GET").await;
+        assert_eq!(status, StatusCode::PARTIAL_CONTENT);
+        let max = os_app::AUDIO_PART_MAX as usize;
+        assert_eq!(cr, Some(format!("bytes 0-{}/{total}", max - 1)));
+        assert_eq!(&body[..], &whole[..max]);
+        let (status, _, body) = get(Some(format!("bytes={}-", total - 10)), "GET").await;
+        assert_eq!(status, StatusCode::PARTIAL_CONTENT);
+        assert_eq!(&body[..], &whole[total - 10..]);
+        let (status, (_, cr, ..), _) = get(Some(format!("bytes={total}-")), "GET").await;
+        assert_eq!(status, StatusCode::RANGE_NOT_SATISFIABLE);
+        assert_eq!(cr, Some(format!("bytes */{total}")));
+        let (status, _, body) = get(None, "GET").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(&body[..], &whole[..]);
+        let (status, _, body) = get(None, "HEAD").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.is_empty());
     }
 
     #[tokio::test]

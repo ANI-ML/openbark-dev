@@ -1,10 +1,12 @@
-import { Button, Dialog, StatusDot } from "@openbark/ui";
+import { Button, Dialog, Skeleton, StatusDot } from "@openbark/ui";
 import { RotateCcw, Trash2 } from "lucide-react";
+import { AnimatePresence, m } from "motion/react";
 import { useCallback, useEffect, useState } from "react";
 import { useApp } from "../context";
 import { listNames, reasonLabel } from "../deleting";
 import * as engine from "../engine";
 import { useT } from "../i18n";
+import { EXIT, FADE_IN, SPRING } from "../motion";
 
 /**
  * Settings, Deleted visits (ADR-0022 section 11): every deleted visit, kept
@@ -62,47 +64,58 @@ export function DeletedVisits() {
         </p>
       )}
       {items === null ? (
-        <div className="ob-skeleton" style={{ height: 72 }} />
+        <Skeleton lines={3} label={t("Loading")} />
       ) : items.length === 0 ? (
         <p className="small faint deleted-empty">{t("No deleted visits.")}</p>
       ) : (
+        // A restored or removed visit fades out and the rest close up (Motion).
         <ul className="deleted-list">
-          {items.map((item) => (
-            <li key={item.trash_id} className="deleted-row">
-              <div className="deleted-text">
-                <span className="deleted-who">
-                  <span className="label">{item.patient || t("No patient")}</span>
-                  {item.pets.length > 1 && (
-                    <span className="small muted">{listNames(app.settings.uiLanguage, item.pets)}</span>
-                  )}
-                  {item.signed && <StatusDot tone="ok">{t("Signed")}</StatusDot>}
-                </span>
-                <span className="small muted">{t("Visit of {date}", { date: item.created_at })}</span>
-                <span className="small muted">
-                  {t("Deleted {date} by {name}", { date: item.deleted_at, name: item.by })}
-                </span>
-                <span className="small muted">
-                  {reasonLabel(t, item.reason.kind)}
-                  {item.reason.note ? `: ${item.reason.note}` : ""}
-                </span>
-                <span className="small faint">
-                  {item.kept_until
-                    ? t("Kept until {date} by your clinic's rule", { date: item.kept_until.slice(0, 10) })
-                    : t("Removed for good on {date}", { date: item.purge_after.slice(0, 10) })}
-                </span>
-              </div>
-              <div className="deleted-actions">
-                <Button size="compact" disabled={busy != null} onClick={() => void restore(item)}>
-                  <RotateCcw size={16} aria-hidden />
-                  {t("Restore")}
-                </Button>
-                <Button variant="danger" size="compact" disabled={busy != null} onClick={() => setPurging(item)}>
-                  <Trash2 size={16} aria-hidden />
-                  {t("Delete now")}
-                </Button>
-              </div>
-            </li>
-          ))}
+          <AnimatePresence initial={false} mode="popLayout">
+            {items.map((item) => (
+              <m.li
+                key={item.trash_id}
+                className="deleted-row"
+                layout="position"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1, transition: FADE_IN }}
+                exit={{ opacity: 0, transition: EXIT }}
+                transition={SPRING}
+              >
+                <div className="deleted-text">
+                  <span className="deleted-who">
+                    <span className="label">{item.patient || t("No patient")}</span>
+                    {item.pets.length > 1 && (
+                      <span className="small muted">{listNames(app.settings.uiLanguage, item.pets)}</span>
+                    )}
+                    {item.signed && <StatusDot tone="ok">{t("Signed")}</StatusDot>}
+                  </span>
+                  <span className="small muted">{t("Visit of {date}", { date: item.created_at })}</span>
+                  <span className="small muted">
+                    {t("Deleted {date} by {name}", { date: item.deleted_at, name: item.by })}
+                  </span>
+                  <span className="small muted">
+                    {reasonLabel(t, item.reason.kind)}
+                    {item.reason.note ? `: ${item.reason.note}` : ""}
+                  </span>
+                  <span className="small faint">
+                    {item.kept_until
+                      ? t("Kept until {date} by your clinic's rule", { date: item.kept_until.slice(0, 10) })
+                      : t("Removed for good on {date}", { date: item.purge_after.slice(0, 10) })}
+                  </span>
+                </div>
+                <div className="deleted-actions">
+                  <Button size="compact" disabled={busy != null} onClick={() => void restore(item)}>
+                    <RotateCcw size={16} aria-hidden />
+                    {t("Restore")}
+                  </Button>
+                  <Button variant="danger" size="compact" disabled={busy != null} onClick={() => setPurging(item)}>
+                    <Trash2 size={16} aria-hidden />
+                    {t("Delete now")}
+                  </Button>
+                </div>
+              </m.li>
+            ))}
+          </AnimatePresence>
         </ul>
       )}
       {purging && (

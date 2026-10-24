@@ -108,15 +108,19 @@ export function RecordButton({
           aria-pressed={Boolean(recording || paused)}
           aria-label={name}
         >
-          {state === "recording" ? (
-            <Square size={20} aria-hidden />
-          ) : (
-            <MarkMono size={24} className="ob-record-glyph" />
-          )}
+          {/* Keyed, so a state change mounts the new glyph, which scales up
+              into place (record.css, @starting-style). */}
+          <span className="ob-record-icon" key={state === "recording" ? "stop" : "mark"}>
+            {state === "recording" ? (
+              <Square size={20} aria-hidden />
+            ) : (
+              <MarkMono size={24} className="ob-record-glyph" />
+            )}
+          </span>
         </button>
       </span>
       {!hideLabel && (
-        <span className="ob-record-label" data-state={state}>
+        <span className="ob-record-label" data-state={state} key={state}>
           {visible}
         </span>
       )}

@@ -56,7 +56,8 @@ Run what CI runs before you open a pull request:
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-bash scripts/ci/check-network.sh                   # only os-models may have an HTTP client
+bash scripts/ci/check-network.sh                   # only os-models and os-connect may have an HTTP client
+node scripts/ci/check-phone-bundle.mjs apps/desktop/dist  # after a UI build: no Twilio code or remote host in the main window
 pnpm -r run typecheck
 pnpm -r run test
 ```

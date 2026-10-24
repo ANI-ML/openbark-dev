@@ -9,7 +9,9 @@ rust-version.workspace = true
 [dependencies]
 # The vault (ADR-0008) seals connections.bin under the local data key. No
 # cycle: os-engine never depends on os-connect.
-os-engine = { workspace = true, features = ["default"] }
+# Only the vault, so a phone build (ADR-0018 section 1) links no recorder or
+# speech code through here.
+os-engine.workspace = true
 # Allowed an HTTP client by scripts/ci/check-network.sh (ADR-0023, docs/network.md R9).
 reqwest.workspace = true
 serde.workspace = true
@@ -26,6 +28,15 @@ base64 = "=0.23.1"
 [target.'cfg(any(windows, target_os = "macos", target_os = "linux"))'.dependencies]
 # The API key secret lives in the OS keychain, as the data key does (ADR-0008).
 keyring = "=4.2.0"
+
+[features]
+# The loopback fake Twilio (src/mock.rs) for other crates' tests and the
+# end-to-end demo's `fake-twilio` example. Never enabled in a release build.
+mock = []
+
+[[example]]
+name = "fake-twilio"
+required-features = ["mock"]
 
 [dev-dependencies]
 tempfile.workspace = true

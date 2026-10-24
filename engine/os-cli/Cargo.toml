@@ -18,12 +18,17 @@ metal = ["os-llm/metal"]
 # The end-to-end demo only (ADR-0024 plan step 0): OPENBARK_TEST_BUILTINS_DIR
 # replaces built-in templates, to simulate a release. Never in release builds.
 test-builtins = ["os-engine/test-builtins"]
+# The end-to-end demo only (ADR-0023): honour OPENBARK_TWILIO_API_BASE (a
+# loopback fake Twilio) in a release build. Never in release builds clinics get.
+mock-twilio = ["dep:os-connect", "os-connect/mock", "os-app/mock-twilio"]
 # Honour OPENBARK_MLX_DEV=1 (MLX on Linux's CPU, for CI and developers) in a
 # release build (ADR-0025 §1). Never enabled for the builds clinics get.
 mlx-test-mode = ["os-models/mlx-test-mode"]
 
 [dependencies]
 os-app = { workspace = true, features = ["default"] }
+# Only with the mock-twilio feature (the demo's fake Twilio account).
+os-connect = { workspace = true, optional = true }
 os-asr = { workspace = true, features = ["default"] }
 os-diar = { workspace = true, features = ["default"] }
 os-engine = { workspace = true, features = ["default"] }

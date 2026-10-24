@@ -103,13 +103,42 @@
   --radius-control: var(--r-md); --radius-panel: var(--r-lg); --radius-sheet: var(--r-xl); --radius-mark: var(--r-sm);
   --font-sans: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
-  /* Motion (§5.4): 120 / 200 / 320 ms; utilitarian easing. The --spring
-     names are kept so components need no change; they are plain curves now. */
-  --ease-in: cubic-bezier(0.2, 0, 0, 1); --ease-out: cubic-bezier(0.4, 0, 1, 1);
-  --ease: var(--ease-in); --dur-fast: 120ms; --dur: 200ms; --dur-large: 320ms;
-  --spring: var(--ease-in); --spring-dur: 320ms; --spring-fast: 200ms;
-  --press: 120ms var(--ease-in);
+  /* ---- Motion tokens (§5.4; docs/plans/design-motion.md) ----
+     Durations 120 / 200 / 320 ms; the enter and exit curves from the guide.
+     Animate transform and opacity only. Everything here is zero under
+     prefers-reduced-motion (below). apps/desktop/src/motion.ts mirrors these
+     values for Motion in React; website/src/site.css mirrors them for the site. */
+  --dur-micro: 120ms;     /* hover, press, toggles */
+  --dur-standard: 200ms;  /* menus, toasts, panels */
+  --dur-large: 320ms;     /* sheets, dialogs */
+  --dur-exit: 200ms;      /* leaving is quicker than arriving */
+  --ease-in: cubic-bezier(0.2, 0, 0, 1);  /* the guide's enter curve */
+  --ease-out: cubic-bezier(0.4, 0, 1, 1); /* the guide's exit curve */
+  --ease-enter: var(--ease-in);
+  --ease-exit: var(--ease-out);
+  /* Springs with no bounce (a clinical tool shouldn't overshoot), sampled
+     from Motion's spring model into linear(). --ease-spring looks like
+     320 ms and settles by 480 ms; --ease-spring-fast looks like 200 ms. */
+  --ease-spring: linear(0, 0.089, 0.26, 0.438, 0.588, 0.706, 0.794, 0.859, 0.904, 0.935, 0.957, 0.971, 0.981, 0.987, 0.992, 0.995, 1);
+  --dur-spring: 480ms;
+  --ease-spring-fast: linear(0, 0.162, 0.417, 0.625, 0.773, 0.867, 0.923, 0.957, 0.976, 0.987, 0.993, 0.996, 1);
+  --dur-spring-fast: 320ms;
+  --press-scale: 0.97;    /* buttons and chips sink this far on press */
+  --enter-y: 8px;         /* how far small things travel as they appear */
+  --skeleton-delay: 150ms; /* skeletons show only if loading takes longer */
+  /* Older names, kept so existing components need no change. */
+  --ease: var(--ease-in); --dur-fast: var(--dur-micro); --dur: var(--dur-standard);
+  --spring: var(--ease-in); --spring-dur: var(--dur-large); --spring-fast: var(--dur-standard);
+  --press: var(--dur-micro) var(--ease-in);
   color-scheme: light;
+}
+/* Reduced motion (§5.4): every motion token to zero, no press scale, no travel. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-micro: 0ms; --dur-standard: 0ms; --dur-large: 0ms; --dur-exit: 0ms;
+    --dur-spring: 0ms; --dur-spring-fast: 0ms; --skeleton-delay: 0ms;
+    --press-scale: 1; --enter-y: 0px;
+  }
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --ob-surface: #0F151D; --ob-surface-2: #182230; --ob-surface-3: #243040;
@@ -216,8 +245,11 @@ svg.lucide { stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; 
   white-space: nowrap;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition: background-color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  /* Press feedback (design-motion): sinks on press over 120 ms, springs back
+     on release. Transform only; colours keep their short transitions. */
+  transition: background-color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), transform var(--dur-spring-fast) var(--ease-spring-fast);
 }
+.ob-button:active:not(:disabled) { transform: scale(var(--press-scale)); transition-duration: var(--dur-fast), var(--dur-fast), var(--dur-fast), var(--dur-micro); transition-timing-function: var(--ease); }
 .ob-button:hover:not(:disabled) { background: var(--surface-2); }
 .ob-button:disabled { opacity: 0.45; cursor: not-allowed; }
 .ob-button[data-variant="primary"] { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
@@ -283,8 +315,10 @@ svg.lucide { stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; 
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease), transform var(--dur-spring-fast) var(--ease-spring-fast);
 }
+.ob-segment:active { transform: scale(var(--press-scale)); transition-duration: var(--dur-micro); }
 .ob-segment[aria-checked="true"], .ob-segment[aria-selected="true"] {
   background: var(--segment-thumb);
   border-color: var(--border);
@@ -308,6 +342,8 @@ svg.lucide { stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; 
   font-weight: 600;
   letter-spacing: 0.01em;
 }
+button.ob-chip { cursor: pointer; -webkit-tap-highlight-color: transparent; transition: background-color var(--dur-fast) var(--ease), transform var(--dur-spring-fast) var(--ease-spring-fast); }
+button.ob-chip:active:not(:disabled) { transform: scale(var(--press-scale)); transition-duration: var(--dur-micro); }
 .ob-dot { width: 8px; height: 8px; border-radius: var(--r-full); flex: none; background: var(--ink-3); }
 .ob-dot[data-tone="ok"] { background: var(--ok); }
 .ob-dot[data-tone="warn"] { background: var(--warn); }
@@ -357,10 +393,27 @@ svg.lucide { stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; 
   box-shadow: var(--shadow-raised);
   font-size: 15px;
   font-weight: 600;
-  transition: transform var(--dur) var(--ease-in), opacity var(--dur) var(--ease-in);
+  overflow: hidden;
 }
-@starting-style { .ob-toast { transform: translateY(12px); opacity: 0; } }
-@media (max-width: 640px) { .ob-toast { top: 12px; bottom: auto; left: 16px; right: 16px; } @starting-style { .ob-toast { transform: translateY(-12px); } } }
+/* Enter and exit run through Motion in the app (Toast.tsx): rise 12 px and
+   fade in over 200 ms, leave the same way, quicker. */
+@media (max-width: 640px) { .ob-toast { top: 12px; bottom: auto; left: 16px; right: 16px; } }
+/* Time left: a 2 px ink bar along the bottom edge that shrinks (scaleX only)
+   and holds while the toast is held. Hidden with reduced motion; the toast
+   still closes on its timer. */
+.ob-toast-time {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--ink);
+  opacity: 0.5;
+  transform-origin: left center;
+  animation: ob-toast-time linear forwards;
+}
+@keyframes ob-toast-time { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+@media (prefers-reduced-motion: reduce) { .ob-toast-time { display: none; } }
 
 /* Sheets and dialogs: solid surface, level 2 elevation, 320 ms. */
 .ob-backdrop {
@@ -442,9 +495,25 @@ svg.lucide { stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; 
 .ob-table tbody tr { transition: background-color var(--dur-fast) var(--ease); }
 .ob-table tbody tr:hover { background: var(--surface-2); }
 
-/* Skeleton: a quiet opacity pulse (no gradients, §3.5). */
-.ob-skeleton { background: var(--surface-2); border-radius: var(--r-md); animation: ob-breathe 1.6s var(--ease-in) infinite alternate; }
+/* Skeleton: a quiet opacity breathe (no gradients, §3.5). The block fades
+   in only after --skeleton-delay, so quick loads never flash; the grey is
+   drawn by ::before, which breathes. Opacity only. */
+.ob-skeleton { position: relative; display: block; border-radius: var(--r-md); animation: ob-appear var(--dur-standard) var(--ease-enter) var(--skeleton-delay) both; }
+.ob-skeleton::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--surface-2); animation: ob-breathe 1.6s var(--ease-in) infinite alternate; }
 @keyframes ob-breathe { from { opacity: 1; } to { opacity: 0.55; } }
+@keyframes ob-appear { from { opacity: 0; } to { opacity: 1; } }
+/* Shaped skeletons (Skeleton.tsx): list rows and text lines. */
+.ob-skeleton-rows { border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); overflow: hidden; }
+.ob-skeleton-row { display: flex; align-items: center; gap: 12px; padding: 14px 16px; }
+.ob-skeleton-row + .ob-skeleton-row { border-top: 1px solid var(--border); }
+.ob-skeleton-icon { flex: none; width: 36px; height: 36px; border-radius: var(--r-full); }
+.ob-skeleton-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.ob-skeleton-text .ob-skeleton { height: 14px; border-radius: var(--r-sm); }
+.ob-skeleton-text .ob-skeleton-short { height: 12px; }
+.ob-skeleton-meta { flex: none; width: 72px; height: 12px; border-radius: var(--r-sm); }
+@media (max-width: 480px) { .ob-skeleton-meta { display: none; } }
+.ob-skeleton-lines { display: flex; flex-direction: column; gap: 12px; }
+.ob-skeleton-lines .ob-skeleton { height: 14px; border-radius: var(--r-sm); }
 
 /* Reduced motion (§5.4): durations to zero, no pulse. */
 @media (prefers-reduced-motion: reduce) {

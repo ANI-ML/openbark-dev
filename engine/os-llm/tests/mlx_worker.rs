@@ -413,6 +413,13 @@ fn the_worker_starts_from_an_empty_environment() {
             // The Microsoft Store's Python sets this for itself at start-up.
             allowed.insert("PYTHONUSERBASE");
         }
+        if cfg!(target_os = "macos") {
+            // macOS's CoreFoundation adds this to every process that loads it
+            // (the user's id and text encoding), even one started with an
+            // empty environment, as `env -i python3` shows. The worker's
+            // environment is still cleared; this is not passed through.
+            allowed.insert("__CF_USER_TEXT_ENCODING");
+        }
         // Windows reports names in upper case; compare that way.
         let keys_upper: BTreeSet<String> = keys.iter().map(|k| k.to_uppercase()).collect();
         let allowed_upper: BTreeSet<String> = allowed.iter().map(|k| k.to_uppercase()).collect();

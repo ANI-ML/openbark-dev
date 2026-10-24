@@ -10,7 +10,14 @@
 //!   there is refused rather than written in plain text.
 //!
 //! Both files sit in `<local data>/OpenBark` beside `data.key` and
-//! `users.json`; `OPENBARK_CONNECTIONS_DIR` moves them (tests, demos).
+//! `users.json`; `OPENBARK_CONNECTIONS_DIR` moves them (tests, demos). A
+//! moved store never uses the keychain: its secret is sealed in its own
+//! `connections.bin`, so a demo can't read or overwrite the clinic's real
+//! keychain entry.
+//!
+//! `connections.json` also holds this computer's phone preferences
+//! ([`PhonePrefs`]): whether the phone is on, whether calls are recorded, and
+//! the announcement read at the start of a recorded call.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -21,7 +28,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::ConnectError;
 use crate::secrets::{
-    Keychain, OsKeychain, SEALED_FILE_NOTE, Secret, SecretId, SecretLocation, SecretStatus,
+    Keychain, NoKeychain, OsKeychain, SEALED_FILE_NOTE, Secret, SecretId, SecretLocation, SecretStatus,
 };
 use crate::settings::{TwilioSettings, check_api_key_secret};
 use crate::token::{self, AccessToken, TOKEN_TTL_SECS, TokenRequest, VoiceGrant};
@@ -34,10 +41,73 @@ pub const SEALED_FILE: &str = "connections.bin";
 
 /// `<local data>/OpenBark`, or `OPENBARK_CONNECTIONS_DIR`.
 pub fn default_dir() -> PathBuf {
-    if let Some(dir) = std::env::var_os("OPENBARK_CONNECTIONS_DIR") {
+    if let Some(dir) = std::env::var_os(DIR_ENV) {
         return PathBuf::from(dir);
     }
     dirs::data_local_dir().unwrap_or_else(|| PathBuf::from(".")).join("OpenBark")
+}
+
+/// Moves the store, and turns the keychain off for it.
+pub const DIR_ENV: &str = "OPENBARK_CONNECTIONS_DIR";
+
+/// The announcement read at the start of every recorded call (ADR-0023
+/// section 7). Spoken words that ask a question, so the client can answer.
+pub const DEFAULT_ANNOUNCEMENT: &str = "This call is recorded for your pet's medical record. The recording stays at the clinic. Is that all right with you?";
+
+/// Longest announcement accepted.
+pub const MAX_ANNOUNCEMENT: usize = 600;
+
+/// This computer's phone preferences (ADR-0023 section 10, Settings > Phone
+/// and email). Not secret.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PhonePrefs {
+    /// "Turn on the phone on this computer". Off until a veterinarian turns
+    /// it on; nothing reaches Twilio's calling service while it's off.
+    #[serde(default)]
+    pub enabled: bool,
+    /// "Record calls". When on, every recorded call starts with the
+    /// announcement; any one call can still go unrecorded.
+    #[serde(default = "yes")]
+    pub record_calls: bool,
+    /// What the caller reads to the client when the call is answered.
+    #[serde(default = "default_announcement")]
+    pub announcement: String,
+}
+
+fn yes() -> bool {
+    true
+}
+
+fn default_announcement() -> String {
+    DEFAULT_ANNOUNCEMENT.to_string()
+}
+
+impl Default for PhonePrefs {
+    fn default() -> Self {
+        Self { enabled: false, record_calls: true, announcement: default_announcement() }
+    }
+}
+
+impl PhonePrefs {
+    /// Tidies and checks: the announcement can't be empty while calls are
+    /// recorded, because recording without it isn't possible (ADR-0023 decision 1).
+    pub fn normalised(mut self) -> Result<Self, ConnectError> {
+        self.announcement = self.announcement.split_whitespace().collect::<Vec<_>>().join(" ");
+        if self.announcement.is_empty() {
+            if self.record_calls {
+                return Err(ConnectError::Invalid(
+                    "Write the announcement. Recorded calls always start with it.".into(),
+                ));
+            }
+            self.announcement = default_announcement();
+        }
+        if self.announcement.chars().count() > MAX_ANNOUNCEMENT {
+            return Err(ConnectError::Invalid(format!(
+                "Keep the announcement under {MAX_ANNOUNCEMENT} characters, so it's quick to read."
+            )));
+        }
+        Ok(self)
+    }
 }
 
 /// What `connections.json` holds. Sections this version doesn't know (a
@@ -46,6 +116,8 @@ pub fn default_dir() -> PathBuf {
 struct ConnectionsFile {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     twilio: Option<TwilioSettings>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    phone: Option<PhonePrefs>,
     #[serde(flatten)]
     other: serde_json::Map<String, serde_json::Value>,
 }
@@ -59,9 +131,10 @@ pub struct TwilioCredentials {
 }
 
 impl TwilioCredentials {
-    /// A REST client for this account (`api.twilio.com`).
+    /// A REST client for this account (`api.twilio.com`, or a loopback mock
+    /// named by `OPENBARK_TWILIO_API_BASE`).
     pub fn client(&self) -> Result<TwilioClient, ConnectError> {
-        TwilioClient::new(&self.settings.account_sid, &self.settings.api_key_sid, self.secret.clone())
+        TwilioClient::for_account(&self.settings.account_sid, &self.settings.api_key_sid, self.secret.clone())
     }
 
     /// A one-hour access token for this computer's phone window. Calls out
@@ -114,8 +187,10 @@ impl std::fmt::Debug for ConnectStore {
 }
 
 impl Default for ConnectStore {
+    /// The real store, with the OS keychain; or, with `OPENBARK_CONNECTIONS_DIR`
+    /// set, a store in that folder that never touches the keychain.
     fn default() -> Self {
-        Self::new(default_dir())
+        Self::from_env(&|name| std::env::var_os(name))
     }
 }
 
@@ -123,6 +198,27 @@ impl ConnectStore {
     /// A store in `dir` using the OS keychain.
     pub fn new(dir: PathBuf) -> Self {
         Self::with_keychain(dir, Box::new(OsKeychain))
+    }
+
+    fn from_env(env: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> Self {
+        match env(DIR_ENV).filter(|d| !d.is_empty()) {
+            Some(dir) => Self::with_keychain(PathBuf::from(dir), Box::new(NoKeychain)),
+            None => Self::new(default_dir()),
+        }
+    }
+
+    /// This computer's phone preferences (the defaults when none are saved).
+    pub fn load_phone(&self) -> Result<PhonePrefs, ConnectError> {
+        Ok(self.read_file()?.phone.unwrap_or_default())
+    }
+
+    /// Tidies, checks and saves the phone preferences.
+    pub fn save_phone(&self, prefs: PhonePrefs) -> Result<PhonePrefs, ConnectError> {
+        let prefs = prefs.normalised()?;
+        let mut file = self.read_file()?;
+        file.phone = Some(prefs.clone());
+        self.write_file(&file)?;
+        Ok(prefs)
     }
 
     /// A store with another keychain (tests use an in-memory one).
@@ -242,9 +338,13 @@ impl ConnectStore {
         }
         if self.settings_path().is_file() {
             let mut file = self.read_file()?;
+            // The phone goes off with the account; the announcement is kept.
+            if let Some(phone) = file.phone.as_mut() {
+                phone.enabled = false;
+            }
             if file.twilio.take().is_some() {
                 out.settings = true;
-                if file.other.is_empty() {
+                if file.other.is_empty() && file.phone.as_ref().is_none_or(|p| *p == PhonePrefs::default()) {
                     fs::remove_file(self.settings_path()).map_err(storage)?;
                 } else {
                     self.write_file(&file)?;
@@ -461,6 +561,62 @@ mod tests {
         let removed = s.remove_twilio().unwrap();
         assert!(removed.sealed_file);
         assert!(removed.warning.unwrap().contains("keychain"));
+    }
+
+    #[test]
+    fn a_moved_store_never_uses_the_keychain() {
+        let _v = vault_on();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().to_path_buf();
+        let env = move |name: &str| (name == DIR_ENV).then(|| path.clone().into_os_string());
+        let s = ConnectStore::from_env(&env);
+        assert_eq!(s.dir(), dir.path());
+        let loc = s.save_secret(SecretId::TwilioApiKeySecret, &Secret::new(SECRET)).unwrap();
+        assert_eq!(loc, SecretLocation::SealedFile, "sealed in the scratch folder, not the keychain");
+        assert!(s.sealed_path().is_file());
+        let (back, _) = s.load_secret(SecretId::TwilioApiKeySecret).unwrap().unwrap();
+        assert_eq!(back.expose(), SECRET);
+        assert!(s.remove_twilio().unwrap().warning.is_some(), "says the keychain wasn't reached");
+        assert!(!s.sealed_path().exists());
+        // Without the variable, the real folder and the OS keychain.
+        let real = ConnectStore::from_env(&|_| None);
+        assert_eq!(real.dir(), default_dir());
+    }
+
+    #[test]
+    fn phone_preferences_start_off_and_survive_disconnect() {
+        let _v = vault_on();
+        let dir = tempfile::tempdir().unwrap();
+        let s = store(dir.path(), MemoryKeychain::working());
+        let prefs = s.load_phone().unwrap();
+        assert_eq!(prefs, PhonePrefs::default());
+        assert!(!prefs.enabled && prefs.record_calls, "off until turned on; calls recorded by default");
+        assert_eq!(prefs.announcement, DEFAULT_ANNOUNCEMENT);
+        let saved = s
+            .save_phone(PhonePrefs {
+                enabled: true,
+                record_calls: true,
+                announcement: "  We record   calls. OK? ".into(),
+            })
+            .unwrap();
+        assert_eq!(saved.announcement, "We record calls. OK?");
+        assert!(
+            s.save_phone(PhonePrefs { announcement: " ".into(), ..saved.clone() }).is_err(),
+            "never empty"
+        );
+        assert!(s.save_phone(PhonePrefs { announcement: "x".repeat(601), ..saved.clone() }).is_err());
+        s.save_twilio(sample()).unwrap();
+        s.save_secret(SecretId::TwilioApiKeySecret, &Secret::new(SECRET)).unwrap();
+        s.remove_twilio().unwrap();
+        let after = s.load_phone().unwrap();
+        assert!(!after.enabled, "Disconnect turns the phone off");
+        assert_eq!(after.announcement, "We record calls. OK?", "the clinic's wording is kept");
+        // Defaults left after Disconnect don't keep an otherwise empty file.
+        let dir2 = tempfile::tempdir().unwrap();
+        let s2 = store(dir2.path(), MemoryKeychain::working());
+        s2.save_twilio(sample()).unwrap();
+        s2.remove_twilio().unwrap();
+        assert!(!s2.settings_path().exists());
     }
 
     #[test]

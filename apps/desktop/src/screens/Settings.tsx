@@ -4,6 +4,8 @@ import { DEFAULT_CONSENT_SCRIPT, useApp } from "../context";
 import * as engine from "../engine";
 import { NOTE_LANGUAGES, UI_LANGUAGES, useT } from "../i18n";
 import { DeletedVisits } from "../components/DeletedVisits";
+import { MicCheck } from "../components/MicCheck";
+import { PhoneSettings } from "../components/PhoneSettings";
 import { StorageSection } from "../components/StorageSection";
 import { TeamSettings } from "../components/TeamSettings";
 
@@ -12,7 +14,6 @@ export function SettingsScreen() {
   const app = useApp();
   const t = useT();
   const s = app.settings;
-  const [devices, setDevices] = useState<string[]>([]);
   const [key, setKey] = useState<string | null>(null);
   const [encrypting, setEncrypting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,10 +41,6 @@ export function SettingsScreen() {
       setError(e instanceof Error ? e.message : String(e));
     }
   }
-
-  useEffect(() => {
-    if (engine.isDesktop) engine.inputDevices().then(setDevices, () => {});
-  }, []);
 
   return (
     <div className="screen settings">
@@ -119,25 +116,12 @@ export function SettingsScreen() {
 
       <section className="group">
         <h2>{t("Recording")}</h2>
-        {engine.isDesktop ? (
-          <label className="ob-field narrow">
-            <span className="label">{t("Microphone")}</span>
-            <select
-              className="ob-select"
-              value={s.device ?? ""}
-              onChange={(e) => app.setSettings({ device: e.target.value || null })}
-            >
-              <option value="">{t("System default")}</option>
-              {devices.map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : (
+        <div className="narrow">
+          <MicCheck id="settings-mic" />
+        </div>
+        {!engine.isDesktop && (
           <p className="small muted">
-            {t("In the browser, the microphone is the one you allow when you first record.")}
+            {t("In the browser, microphone names appear once you allow the microphone (press Test microphone).")}
           </p>
         )}
         <label className="check">
@@ -223,6 +207,8 @@ export function SettingsScreen() {
           </>
         )}
       </section>
+
+      <PhoneSettings />
 
       <section className="group">
         <h2>{t("PDFs and copying")}</h2>

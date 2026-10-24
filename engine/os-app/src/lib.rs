@@ -39,6 +39,7 @@ use os_models::{CatalogEntry, Layout, LlmEngine, ModelStore, Slot, Source, Verif
 use serde::Serialize;
 
 pub use os_asr::capture::AudioBlock;
+pub use os_asr::resample::{MAX_RATE as MAX_SAMPLE_RATE, MIN_RATE as MIN_SAMPLE_RATE};
 pub use os_engine::template_store::{ProfileSummary, ShareMode, TemplateSummary};
 pub use os_engine::users::TemplateMode;
 pub use templates::{
@@ -46,9 +47,22 @@ pub use templates::{
     TemplatesMode,
 };
 
+#[doc(hidden)]
+pub mod demo;
+mod mic;
+mod phone;
 mod templates;
+pub use mic::{MicLevel, MicTestStarted};
+pub use os_connect::{ConnectStore, PhonePrefs};
+pub use os_engine::live::CallBlock;
+pub use os_engine::mic_health::{MicHealth, MicQuality, MicState};
 pub use os_engine::session::PatientInfo as Patient;
+pub use os_engine::session::{CallDirection, CallInfo, ConsentOutcome};
 pub use os_engine::session::{Consent as RecordingConsent, ConsentMethod, ConsentRule};
+pub use phone::{
+    CALL_SAMPLE_RATES, CallEnd, CallRequest, CallStart, CallTarget, ConnectRequest, Connected, Disconnected,
+    PhoneToken, PhoneView, SetupCheck, TwilioView, check_call_sample_rate,
+};
 
 /// Progress notifications for the UI.
 pub trait Events: Send + Sync {
@@ -61,6 +75,11 @@ pub trait Events: Send + Sync {
     fn progress(&self, _progress: &Progress) {}
     /// Bytes moved so far when a folder changes (ADR-0013).
     fn moving(&self, _done: u64, _total: u64) {}
+    /// The recording's microphone: silent, stalled, lost, switched, or a
+    /// Bluetooth headset in hands-free mode. Sent when it changes.
+    fn mic(&self, _health: &MicHealth) {}
+    /// The microphone test's level, about 20 times a second.
+    fn mic_test(&self, _level: &MicLevel) {}
 }
 
 /// Where models or visits are kept (Settings, Storage).
@@ -291,6 +310,10 @@ pub struct App {
     recording_work: Mutex<Option<Busy>>,
     /// The live recording's hold on its visit, until it stops.
     recording_lock: Mutex<Option<VisitLock>>,
+    /// Speech models loaded when the Record screen opened, for the next recording.
+    warm: Mutex<mic::Warm>,
+    /// A microphone test running from the Record screen or Settings.
+    mic_test: Mutex<Option<mic::MicTest>>,
     /// Visits being imported, recorded, drafted, saved or deleted (ADR-0022).
     visit_locks: VisitLocks,
     gate: Arc<Gate>,
@@ -302,6 +325,15 @@ pub struct App {
     gpu_checked: Arc<std::sync::atomic::AtomicU8>,
     /// Template resets that can still be undone (ADR-0024).
     undo: Mutex<templates::UndoMap>,
+    /// The clinic's own Twilio account and this computer's phone settings
+    /// (ADR-0023). `OPENBARK_CONNECTIONS_DIR` moves it, away from the keychain.
+    pub connect: ConnectStore,
+    /// Tests: the loopback fake Twilio's address. Only loopback is accepted.
+    pub twilio_base: Option<String>,
+    /// The phone call being recorded, if any.
+    call: Mutex<Option<phone::CallState>>,
+    /// Who the main window asked the phone window to call.
+    pending_call: Mutex<Option<phone::Pending>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -337,6 +369,98 @@ static MLX_INSTALLING: std::sync::atomic::AtomicBool = std::sync::atomic::Atomic
 
 /// Passed to the program itself to run the GPU self-test in a child process.
 pub const GPU_CHECK_ARG: &str = "--openbark-gpu-check";
+
+/// The most one ranged answer for a recording carries
+/// ([`App::session_audio_part`]); players ask again for the rest.
+pub const AUDIO_PART_MAX: u64 = 1024 * 1024;
+
+/// Part of a recording, as an HTTP answer: 200 with the whole recording,
+/// 206 with bytes `start..=end` of `total`, or 416 when the range asked for
+/// lies outside it. Recordings are served as `audio/wav`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AudioPart {
+    pub status: u16,
+    pub total: u64,
+    pub start: u64,
+    pub end: u64,
+    pub body: Vec<u8>,
+}
+
+impl AudioPart {
+    /// The response headers, other than the status: type, length, ranges,
+    /// and no caching (decrypted audio must never land in a cache on disk).
+    pub fn headers(&self) -> Vec<(&'static str, String)> {
+        let mut h = vec![
+            ("Content-Type", "audio/wav".to_string()),
+            ("Accept-Ranges", "bytes".to_string()),
+            ("Cache-Control", "no-store".to_string()),
+        ];
+        match self.status {
+            206 => {
+                h.push(("Content-Range", format!("bytes {}-{}/{}", self.start, self.end, self.total)));
+                h.push(("Content-Length", (self.end - self.start + 1).to_string()));
+            }
+            416 => {
+                h.push(("Content-Range", format!("bytes */{}", self.total)));
+                h.push(("Content-Length", "0".to_string()));
+            }
+            _ => h.push(("Content-Length", self.total.to_string())),
+        }
+        h
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum RangePlan {
+    Whole,
+    /// Inclusive, within the recording.
+    Part(u64, u64),
+    Unsatisfiable,
+}
+
+/// What a `Range` header asks of a recording `total` bytes long. Only the
+/// first of several ranges is answered (players ask for one); a header that
+/// doesn't parse is ignored, as HTTP says.
+fn plan_range(header: Option<&str>, total: u64) -> RangePlan {
+    let Some(spec) = header.map(str::trim).and_then(|h| h.strip_prefix("bytes=")) else {
+        return RangePlan::Whole;
+    };
+    let first = spec.split(',').next().unwrap_or("").trim();
+    let Some((a, b)) = first.split_once('-') else { return RangePlan::Whole };
+    let (a, b) = (a.trim(), b.trim());
+    let parsed = match (a.is_empty(), b.is_empty()) {
+        // bytes=-n: the last n bytes.
+        (true, false) => match b.parse::<u64>() {
+            Ok(0) => return RangePlan::Unsatisfiable,
+            Ok(n) if total > 0 => Some((total.saturating_sub(n), total - 1)),
+            Ok(_) => return RangePlan::Unsatisfiable,
+            Err(_) => None,
+        },
+        (false, true) => a.parse::<u64>().ok().map(|s| (s, u64::MAX)),
+        (false, false) => match (a.parse::<u64>(), b.parse::<u64>()) {
+            (Ok(s), Ok(e)) if s <= e => Some((s, e)),
+            _ => None,
+        },
+        (true, true) => None,
+    };
+    match parsed {
+        None => RangePlan::Whole,
+        Some((start, _)) if start >= total => RangePlan::Unsatisfiable,
+        Some((start, end)) => RangePlan::Part(start, end.min(total - 1)),
+    }
+}
+
+/// How long quitting waits for a running draft to stop and the note model
+/// to be freed ([`App::shutdown`]). A draft stops at its next token, so this
+/// only runs out when a model load is in progress.
+pub const SHUTDOWN_WAIT: std::time::Duration = std::time::Duration::from_secs(8);
+
+/// End the process, after [`App::shutdown`]: the normal exit when every note
+/// model was freed, else one that skips the C++ static destructors so ggml's
+/// Metal teardown can't abort (`os_llm::shutdown::exit`).
+pub fn exit_process(code: i32) -> ! {
+    os_llm::shutdown::exit(code)
+}
 
 /// The GPU self-test, run in a child process (`<program> --openbark-gpu-check`,
 /// with `OPENBARK_MODELS_DIR` set): load both full-precision recognisers on
@@ -578,6 +702,9 @@ pub struct SessionView {
     /// The latest draft's teeth with a drafted chart entry that no
     /// veterinarian has confirmed yet. Signing waits until it is empty.
     pub unconfirmed_teeth: Vec<String>,
+    /// A phone call's details (ADR-0023 section 8): direction, number,
+    /// length, Twilio's call SID, and who was on the clinic's side.
+    pub call: Option<CallInfo>,
 }
 
 /// A visit just moved to Deleted visits.
@@ -1108,12 +1235,18 @@ impl App {
             recorder: Mutex::new(None),
             recording_work: Mutex::new(None),
             recording_lock: Mutex::new(None),
+            warm: Mutex::new(mic::Warm::Empty),
+            mic_test: Mutex::new(None),
             visit_locks: Arc::new(Mutex::new(HashMap::new())),
             gate: Arc::new(Gate::default()),
             hardware: probe_hardware(),
             gpu_at_start: os_models::gpu_pack::loaded_at_start(),
             gpu_checked: Arc::new(std::sync::atomic::AtomicU8::new(0)),
             undo: Mutex::new(HashMap::new()),
+            connect: ConnectStore::default(),
+            twilio_base: None,
+            call: Mutex::new(None),
+            pending_call: Mutex::new(None),
         };
         app.start_gpu_check();
         // Folders of older MLX engine packs and unfinished unpacks (ADR-0025 §4).
@@ -1212,7 +1345,7 @@ impl App {
             Need::Sign | Need::ConfirmChart | Need::DeleteSigned | Need::DeleteSignedRecording => {
                 user.role.can_sign()
             }
-            Need::Team | Need::Models => user.role.can_manage_team(),
+            Need::Team | Need::Models | Need::Phone => user.role.can_manage_team(),
         };
         if !allowed {
             return Err(AppError(match need {
@@ -1242,6 +1375,7 @@ impl App {
                 }
                 Need::Team => "Only a veterinarian can change the team.".into(),
                 Need::Models => "Only a veterinarian can change the models.".into(),
+                Need::Phone => "Only a veterinarian can connect Twilio or change the phone settings.".into(),
                 Need::Any => unreachable!(),
             }));
         }
@@ -1323,6 +1457,31 @@ impl App {
 
     /// An encounter's recording as WAV bytes (decrypted for playback).
     pub fn session_audio(&self, id: &str) -> Result<Vec<u8>> {
+        Ok(os_engine::vault::read(&self.audio_file(id)?)?)
+    }
+
+    /// Part of a visit's recording for a media player, by an HTTP `Range`
+    /// header (`bytes=a-b`, `bytes=a-`, `bytes=-n`). Only the chunks asked
+    /// for are decrypted, and an open-ended range is answered with at most
+    /// [`AUDIO_PART_MAX`] bytes, so a long recording never sits whole in
+    /// memory. WebKit's player (macOS, Linux) won't play over a custom
+    /// scheme without ranges. With `head`, the body is left empty.
+    pub fn session_audio_part(&self, id: &str, range: Option<&str>, head: bool) -> Result<AudioPart> {
+        let mut reader = os_engine::vault::AudioReader::open(&self.audio_file(id)?)?;
+        let total = reader.len();
+        let (status, start, end) = match plan_range(range, total) {
+            RangePlan::Whole => (200, 0, total.saturating_sub(1)),
+            RangePlan::Part(start, end) => (206, start, end.min(start + AUDIO_PART_MAX - 1)),
+            RangePlan::Unsatisfiable => {
+                return Ok(AudioPart { status: 416, total, start: 0, end: 0, body: Vec::new() });
+            }
+        };
+        let body = if head || total == 0 { Vec::new() } else { reader.read_range(start, end)? };
+        Ok(AudioPart { status, total, start, end, body })
+    }
+
+    /// The recording's file, or why there's none.
+    fn audio_file(&self, id: &str) -> Result<PathBuf> {
         let dir = self.session_dir(id)?;
         let audio = dir.join(session::AUDIO_FILE);
         if !audio.is_file()
@@ -1333,7 +1492,7 @@ impl App {
                 gone.at.format("%Y-%m-%d")
             )));
         }
-        Ok(os_engine::vault::read(&audio)?)
+        Ok(audio)
     }
 
     // ---- sessions --------------------------------------------------------
@@ -1619,8 +1778,18 @@ impl App {
             Some(pet) => pets.iter().filter(|p| !p.eq_ignore_ascii_case(pet)).cloned().collect(),
             None => Vec::new(),
         };
+        // A phone call says who is who (ADR-0023 section 7): entered, not said.
+        let context = [
+            s.meta.patient.as_ref().map(|p| p.prompt_context()),
+            s.meta.call.as_ref().map(|c| c.prompt_context()),
+        ]
+        .into_iter()
+        .flatten()
+        .filter(|c| !c.is_empty())
+        .collect::<Vec<_>>()
+        .join("; ");
         NoteOptions {
-            context: s.meta.patient.as_ref().map(|p| p.prompt_context()),
+            context: Some(context).filter(|c| !c.is_empty()),
             language,
             pet: s.pet.clone(),
             other_pets,
@@ -1633,24 +1802,29 @@ impl App {
     /// Runs the file through the live pipeline at full speed, so imports and
     /// recordings get the same segmentation and speaker labels (the live
     /// tracker was more accurate than full-recording diarization on short
-    /// clips; M1 tuning).
+    /// clips; M1 tuning). `speakerphone`: a client on a phone on speaker
+    /// (see `LiveOptions::speakerphone`).
+    #[allow(clippy::too_many_arguments)]
     pub fn import_file(
         &self,
         path: &Path,
         label_speakers: bool,
+        speakerphone: bool,
         patient: Option<PatientInfo>,
         consent: Option<Consent>,
         by: Option<&str>,
         events: &dyn Events,
     ) -> Result<SessionView> {
         let source = LiveSource::File { path: path.to_path_buf(), realtime: false };
-        self.import_source(source, label_speakers, patient, consent, by, events)
+        self.import_source(source, label_speakers, speakerphone, patient, consent, by, events)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn import_source(
         &self,
         source: LiveSource,
         label_speakers: bool,
+        speakerphone: bool,
         patient: Option<PatientInfo>,
         consent: Option<Consent>,
         by: Option<&str>,
@@ -1667,6 +1841,7 @@ impl App {
         let (tx, rx) = std::sync::mpsc::channel::<Live>();
         let mut options = LiveOptions::microphone();
         options.label_speakers = label_speakers;
+        options.speakerphone = speakerphone;
         options.patient = patient.filter(|p| !p.is_empty());
         options.consent = consent;
         options.recorded_by = recorded_by;
@@ -1709,6 +1884,7 @@ impl App {
         name: &str,
         wav: &[u8],
         label_speakers: bool,
+        speakerphone: bool,
         patient: Option<PatientInfo>,
         consent: Option<Consent>,
         by: Option<&str>,
@@ -1721,7 +1897,7 @@ impl App {
         let file = Path::new(name).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let name = if file.is_empty() { "recording.wav".to_string() } else { file };
         let source = LiveSource::Memory { name, bytes: wav.to_vec() };
-        self.import_source(source, label_speakers, patient, consent, by, events)
+        self.import_source(source, label_speakers, speakerphone, patient, consent, by, events)
     }
 
     // ---- live recording --------------------------------------------------
@@ -1734,10 +1910,14 @@ impl App {
     /// = default) or from blocks the caller pushes (`stream`). Consent is the
     /// clinic's responsibility (the app shows a one-time notice); when the
     /// per-recording consent step is used, the consent is checked and saved.
+    /// `speakerphone`: a client on a phone on speaker in the room (see
+    /// `LiveOptions::speakerphone`).
+    #[allow(clippy::too_many_arguments)]
     pub fn start_recording(
         &self,
         source: RecordingSource,
         label_speakers: bool,
+        speakerphone: bool,
         patient: Option<PatientInfo>,
         consent: Option<Consent>,
         by: Option<&str>,
@@ -1748,6 +1928,8 @@ impl App {
         }
         let recorded_by = self.who(by, Need::Any)?;
         let work = self.begin_work()?;
+        // The test's meter gives way to the recording's waveform.
+        self.stop_mic_test();
         let mut slot = self.recorder.lock().map_err(|_| AppError("recorder lock poisoned".into()))?;
         if slot.is_some() {
             return Err(AppError("A recording is already running. Stop it first.".into()));
@@ -1758,18 +1940,31 @@ impl App {
         };
         let mut options = LiveOptions::microphone();
         options.label_speakers = label_speakers;
+        options.speakerphone = speakerphone;
         options.patient = patient.filter(|p| !p.is_empty());
         options.consent = consent;
         options.recorded_by = recorded_by;
-        let recorder = LiveRecorder::start(
+        // Loaded when the Record screen opened, if they were.
+        let warm_key = options.clone();
+        let mut warm = self.take_warm(&options);
+        let started = LiveRecorder::start_with(
             &self.store,
             &self.sessions_root,
             source,
             options,
+            &mut warm,
             Box::new(EventsSink(events)),
-        )?;
+        );
+        // Not used (the microphone didn't open): kept for the next try.
+        if let Some(models) = warm.take() {
+            self.keep_warm(&warm_key, models);
+        }
+        let recorder = started?;
         let id = folder_name(&recorder.session_dir);
         *slot = Some(recorder);
+        drop(slot);
+        // A test that finished opening while this recording started gives way too.
+        self.stop_mic_test();
         *self.recording_work.lock().map_err(|_| AppError("recorder lock poisoned".into()))? = Some(work);
         *self.recording_lock.lock().map_err(|_| AppError("recorder lock poisoned".into()))? =
             self.lock_visit(&id, Holder::Recording).ok();
@@ -2511,6 +2706,15 @@ impl App {
 
     // ---- templates -------------------------------------------------------
 
+    /// Load a note model into the slot, as a draft would, without drafting:
+    /// the quit checks (the desktop self-test, os-cli's exit_order example)
+    /// need a model on the GPU at exit, and GitHub's Mac runners draft on
+    /// their paravirtual GPU too slowly to wait for.
+    #[doc(hidden)]
+    pub fn preload_llm(&self, llm: &str) -> Result<()> {
+        self.load_llm(llm).map(drop)
+    }
+
     /// Propose a template from a note the clinic already writes (M2 item 5).
     /// Nothing is saved: the proposal opens in the builder for editing.
     pub fn template_from_example(&self, llm: &str, example: &str) -> Result<TemplateView> {
@@ -2536,6 +2740,9 @@ impl App {
     /// worker for MLX folders. It stays loaded for the next draft.
     fn load_llm(&self, id: &str) -> Result<Arc<dyn LlmBackend>> {
         let mut slot = self.llm.lock().map_err(|_| AppError("model lock poisoned".into()))?;
+        if os_llm::shutdown::stopping() {
+            return Err(AppError("OpenBark is closing.".into()));
+        }
         if let Some((loaded, backend)) = slot.as_ref()
             && loaded == id
         {
@@ -2549,6 +2756,8 @@ impl App {
             return Err(AppError(why));
         }
         *slot = None; // one model per process: free before loading
+        // Speech models loaded ahead of a recording give the memory back too.
+        self.release_speech();
         // While it loads (minutes, for MLX), status calls read this instead
         // of waiting for the slot.
         let loading_mlx =
@@ -2569,6 +2778,62 @@ impl App {
         *slot = Some((id.to_string(), backend.clone()));
         self.mlx_in_slot.store(mlx, std::sync::atomic::Ordering::SeqCst);
         Ok(backend)
+    }
+
+    /// Before the process exits: stop running drafts and free every note
+    /// model, so nothing of llama.cpp is alive when the C++ static
+    /// destructors run (ggml's Metal teardown aborts otherwise; see
+    /// `os_llm::shutdown`). Waits up to `timeout`; true when every model was
+    /// freed. Call [`os_llm::shutdown::exit`] afterwards (or return from
+    /// `main`). The app refuses to load models from here on.
+    pub fn shutdown(&self, timeout: std::time::Duration) -> bool {
+        os_llm::shutdown::begin();
+        self.stop_mic_test();
+        self.release_speech();
+        let deadline = std::time::Instant::now() + timeout;
+        let released = self.release_llms(deadline);
+        // A handle's count reaches zero just before the model behind it is
+        // freed (Arc drops the value after the count), so wait for that too.
+        let freed = released
+            && os_llm::shutdown::wait_released(deadline.saturating_duration_since(std::time::Instant::now()));
+        if !freed {
+            tracing::warn!(
+                live = os_llm::shutdown::live_models(),
+                "a note model was still in use when OpenBark closed"
+            );
+        }
+        freed
+    }
+
+    /// Empty the note-model slot and wait for drafts still holding a model
+    /// to let go, until `deadline`. True when no handed-out model is alive.
+    /// The slot's lock is tried rather than waited on: a model load holds it.
+    fn release_llms(&self, deadline: std::time::Instant) -> bool {
+        let pause = std::time::Duration::from_millis(10);
+        loop {
+            match self.llm.try_lock() {
+                Ok(mut slot) => {
+                    *slot = None;
+                    break;
+                }
+                Err(std::sync::TryLockError::Poisoned(p)) => {
+                    *p.into_inner() = None;
+                    break;
+                }
+                Err(std::sync::TryLockError::WouldBlock) if std::time::Instant::now() < deadline => {
+                    std::thread::sleep(pause)
+                }
+                Err(std::sync::TryLockError::WouldBlock) => return false,
+            }
+        }
+        self.mlx_in_slot.store(false, std::sync::atomic::Ordering::SeqCst);
+        while self.loaned_out(|_, _| true) {
+            if std::time::Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(pause);
+        }
+        true
     }
 
     /// Something outside the slot still holds a matching model: a draft that
@@ -3437,6 +3702,9 @@ enum Need {
     DeleteSigned,
     /// Delete the recording of a signed visit (veterinarian).
     DeleteSignedRecording,
+    /// Connect or disconnect the clinic's Twilio account, or change the
+    /// phone settings (veterinarian; ADR-0023 section 10).
+    Phone,
 }
 
 /// What to put in a PDF export.
@@ -3605,6 +3873,9 @@ impl LiveSink for EventsSink {
     fn progress(&mut self, progress: &Progress) {
         self.0.progress(progress);
     }
+    fn mic(&mut self, health: &MicHealth) {
+        self.0.mic(health);
+    }
 }
 
 /// Make `dir` (and its parents) and write a test file there. What the test
@@ -3741,6 +4012,7 @@ fn view(s: &Session, transcript: Option<Transcript>) -> SessionView {
         audio_deleted: s.meta.audio_deleted.clone(),
         chart_checks: record.map(|r| r.chart_checks.clone()).unwrap_or_default(),
         unconfirmed_teeth,
+        call: s.meta.call.clone(),
     }
 }
 

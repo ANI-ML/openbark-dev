@@ -3291,6 +3291,71 @@ pub fn merge_repeats(note: &mut Value) {
     }
 }
 
+/// Finding and detail ids the drafting model writes under another name.
+/// With grammar-constrained decoding, an id that is the start of another id
+/// ("resorption" and "resorption_type", "closed" and "closed_sectioned",
+/// a root fracture's "root" and resorption stage 4c's "root_worse")
+/// lets the model close the string after the shorter one before the longer
+/// one is considered: Gemma 4 E4B charted "type 2" as a resorption stage 2
+/// that way (docs/eval/M2.md).
+/// With these names no drafting id starts another, so stage or type,
+/// sectioned or not, is a choice between two words. Only the drafting
+/// grammar and prompt use them; a draft is read back into the finding
+/// table's ids before anything else sees it.
+pub const DRAFT_NAMES: &[(&str, &str)] = &[
+    ("resorption", "resorption_stage"),
+    ("closed_sectioned", "sectioned_closed"),
+    ("uncomplicated_crown_root", "crown_root_uncomplicated"),
+    ("complicated_crown_root", "crown_root_complicated"),
+    ("root", "root_fracture"),
+];
+
+/// The name the drafting model writes for a finding or detail id.
+pub fn draft_name(id: &str) -> &str {
+    DRAFT_NAMES.iter().find(|(i, _)| *i == id).map_or(id, |(_, name)| name)
+}
+
+/// A drafting schema: the template's schema with the tooth finding and
+/// detail enums in drafting names. Schemas without a tooth chart are
+/// returned unchanged.
+pub fn drafting_schema(schema: &Value) -> Value {
+    let mut schema = schema.clone();
+    for pointer in [
+        "/$defs/tooth_finding/properties/finding/enum",
+        "/$defs/tooth_finding/properties/detail/anyOf/1/enum",
+    ] {
+        if let Some(Value::Array(ids)) = schema.pointer_mut(pointer) {
+            for id in ids.iter_mut() {
+                if let Some(name) = id.as_str().map(draft_name).filter(|n| Some(*n) != id.as_str()) {
+                    *id = Value::String(name.to_string());
+                }
+            }
+        }
+    }
+    schema
+}
+
+/// Tooth items anywhere in `note` with their finding and detail in drafting
+/// names (`to_draft`), or back in the finding table's ids.
+pub fn rename_for_drafting(note: &mut Value, to_draft: bool) {
+    match note {
+        Value::Object(map) if is_tooth_item(map) => {
+            for key in ["finding", "detail"] {
+                let Some(value) = map.get(key).and_then(Value::as_str) else { continue };
+                let renamed = DRAFT_NAMES.iter().find_map(|(id, name)| {
+                    if to_draft { (value == *id).then_some(*name) } else { (value == *name).then_some(*id) }
+                });
+                if let Some(renamed) = renamed {
+                    map.insert(key.into(), Value::String(renamed.to_string()));
+                }
+            }
+        }
+        Value::Array(items) => items.iter_mut().for_each(|v| rename_for_drafting(v, to_draft)),
+        Value::Object(map) => map.values_mut().for_each(|v| rename_for_drafting(v, to_draft)),
+        _ => {}
+    }
+}
+
 /// Items repeating an earlier item's tooth, finding, detail, grade, mm and
 /// planned, then findings on one tooth that contradict each other.
 pub fn duplicates(items: &[Value], path: &str) -> Vec<ToothFlag> {
@@ -3945,10 +4010,58 @@ mod tests {
         assert!(check(&charted("204", "normal", None, None, &[0]), &t).flags.is_empty());
     }
 
+    /// No finding or detail id the drafting grammar offers is the start of
+    /// another (`DRAFT_NAMES`), so a new id that is can't ship unnoticed, and
+    /// every drafting name reads back to its id.
+    #[test]
+    fn no_drafting_id_starts_another_and_every_name_reads_back() {
+        let schema = drafting_schema(
+            &json!({ "$defs": { "tooth_finding": crate::template::tooth_finding_schema(None) } }),
+        );
+        for pointer in [
+            "/$defs/tooth_finding/properties/finding/enum",
+            "/$defs/tooth_finding/properties/detail/anyOf/1/enum",
+        ] {
+            let ids: Vec<&str> = schema
+                .pointer(pointer)
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap())
+                .collect();
+            for a in &ids {
+                for b in &ids {
+                    assert!(a == b || !b.starts_with(a), "{a} starts {b}");
+                }
+            }
+        }
+        for (id, name) in DRAFT_NAMES {
+            let key = if chart().findings.iter().any(|f| f.id == *id) { "finding" } else { "detail" };
+            let mut item = json!({ "tooth": "108", "finding": "extraction", "detail": null });
+            item[key] = json!(id);
+            let mut note = json!({ "chart": [item.clone()] });
+            rename_for_drafting(&mut note, true);
+            assert_eq!(note["chart"][0][key], json!(name));
+            rename_for_drafting(&mut note, false);
+            assert_eq!(note["chart"][0], item);
+        }
+        // Statements and other values are never renamed.
+        let mut other =
+            json!({ "statement": { "text": "resorption", "evidence": [0] }, "detail": "closed_sectioned" });
+        let before = other.clone();
+        rename_for_drafting(&mut other, true);
+        assert_eq!(other, before);
+    }
+
     /// The scripted dental consults (packages/eval/fixtures/scripts): every
     /// expected chart fact, cited to the lines that name its tooth, passes the
     /// tooth checks with no flag, so a correct draft is a clean draft. The old
     /// `dental` fixture keeps its wrong-side name, which is flagged.
+    /// `dental-perio-dog` isn't here: its correct chart gets soft flags, by
+    /// design, where a stage is said with no periodontal word ("209 is stage
+    /// three") and where "sectioned and extracted, closed" holds the closed
+    /// extraction's word (docs/eval/M2.md).
     #[test]
     fn the_dental_fixtures_chart_cleanly_from_their_own_lines() {
         let dir =
@@ -3966,7 +4079,13 @@ mod tests {
                 .collect();
             transcript(&lines.iter().map(String::as_str).collect::<Vec<_>>())
         };
-        for (name, facts) in [("dental-chart", 26), ("dental-feline", 9), ("dental-young-dog", 9)] {
+        for (name, facts) in [
+            ("dental-chart", 26),
+            ("dental-feline", 9),
+            ("dental-young-dog", 9),
+            ("dental-feline-multi-tr", 10),
+            ("dental-extractions", 12),
+        ] {
             let script = load(name);
             let t = lines_of(&script);
             let dentition = Dentition::from_species_key(script["species"].as_str().unwrap());
