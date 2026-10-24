@@ -64,7 +64,29 @@
   border-radius: var(--r-full);
   background: var(--ink);
 }
-.sidebar-foot { margin-top: auto; padding: 0 8px; }
+.sidebar-foot { padding: 0 8px; }
+/* The rail (ADR-0027): Record, Visits, Patients, Templates; then Models,
+   Settings and Help as a quieter group at the bottom. */
+.sidebar ul { flex: 1 1 auto; }
+.sidebar li.nav-group-start { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--border); }
+.sidebar .nav-secondary .nav-item { height: 36px; font-size: 13px; line-height: 18px; }
+/* Visits that need someone: a count beside Visits. */
+.nav-badge {
+  margin-left: auto;
+  min-width: 24px;
+  padding: 1px 8px;
+  border-radius: var(--r-full);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.nav-item[aria-current="page"] .nav-badge { background: var(--surface); }
+.running-on { display: inline-flex; align-items: center; gap: 6px; }
 
 @media (max-width: 1199px) {
   .frame { grid-template-columns: 56px 1fr; }
@@ -91,8 +113,10 @@
   }
   .brand, .sidebar-foot { display: none; }
   .sidebar ul { flex-direction: row; width: 100%; justify-content: space-around; }
-  /* Four tabs (§9: Record, Patients, Templates, Settings); the rest are listed under Settings. */
-  .sidebar li.nav-secondary { display: none; }
+  /* Four tabs (ADR-0027: Record, Visits, Patients, Settings); the rest are rows in Settings. */
+  .sidebar li[data-phone="no"] { display: none; }
+  .sidebar li.nav-group-start { margin-top: 0; padding-top: 0; border-top: 0; }
+  .sidebar .nav-secondary .nav-item { height: 56px; font-size: inherit; }
   .sidebar li { flex: 1 1 0; min-width: 0; display: flex; }
   .nav-item {
     flex: 1 1 0;
@@ -130,38 +154,6 @@
 /* "Settings" back link in the Models and Help headers: phones only. */
 .ob-button.back-to-settings { display: none; }
 @media (max-width: 640px) { .ob-button.back-to-settings { display: inline-flex; margin-left: -10px; } }
-
-/* Phones: the destinations left out of the tab bar, as rows under Settings. */
-.phone-more { display: none; }
-@media (max-width: 640px) {
-  .phone-more { display: block; padding: 0 24px 24px; }
-  .phone-more ul { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); overflow: hidden; }
-  .phone-more li + li .phone-more-row { border-top: 1px solid var(--border); }
-  .phone-more-row {
-    width: 100%;
-    min-height: 48px;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 12px 16px;
-    border: 0;
-    background: transparent;
-    color: var(--ink);
-    font: inherit;
-    font-size: 15px;
-    line-height: 24px;
-    font-weight: 500;
-    text-align: left;
-    cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
-    transition: background-color var(--dur-fast) var(--ease);
-  }
-  .phone-more-row > span { flex: 1 1 auto; min-width: 0; }
-  .phone-more-row:active { background: var(--fill-strong); }
-  .phone-more-row svg { color: var(--ink-2); flex: none; }
-  .phone-more-row .phone-more-chevron { color: var(--ink-3); }
-}
-@media (max-width: 480px) { .phone-more { padding: 0 16px 24px; } }
 
 /* Screens: content max 1200 px; gutter 48 desktop, 24 tablet and mobile, 16 on phones (§5.2, §9). */
 .content { min-width: 0; }
@@ -232,56 +224,14 @@
 .slots dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 @media (max-width: 640px) { .slots > div { grid-template-columns: 1fr; gap: 4px; } }
 
-/* Recorder (home): patient | recorder | options */
-.recorder-grid { display: grid; grid-template-columns: 280px 1fr 280px; gap: 24px; align-items: start; }
-/* Three columns only when the middle one still fits a readable transcript;
-   below that the options move under the recorder. */
-@media (max-width: 1439px) { .recorder-grid { grid-template-columns: 240px 1fr; } .recorder-rail { grid-column: 1 / -1; } }
-@media (max-width: 1023px) { .recorder-grid { grid-template-columns: 1fr; gap: 16px; } }
-.recorder-patient, .recorder-rail {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding: 20px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  background: var(--surface);
-}
-/* Card titles use the h3 style (§7.4); the element stays h2 for the outline. */
-.recorder-patient > h2 { font-size: 18px; line-height: 24px; font-weight: 600; letter-spacing: -0.01em; }
-/* Phones: the patient card folds to one row so the visit type, transcript and Record come first. */
-.recorder-patient.recorder-patient-fold { display: block; }
-.recorder-patient-fold > summary { display: flex; align-items: center; gap: 8px; min-height: 24px; cursor: pointer; list-style: none; -webkit-tap-highlight-color: transparent; }
-.recorder-patient-fold > summary::-webkit-details-marker { display: none; }
-.recorder-patient-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.recorder-patient-fold .fold-chevron { margin-left: auto; color: var(--ink-3); transition: transform var(--dur-fast) var(--ease); }
-.recorder-patient-fold[open] .fold-chevron { transform: rotate(180deg); }
-.recorder-patient-body { display: flex; flex-direction: column; gap: 16px; margin-top: 16px; }
 .patient-fields { display: flex; flex-direction: column; gap: 12px; }
 .ob-textarea { height: auto; padding: 8px 12px; resize: vertical; font: inherit; font-size: 15px; line-height: 24px; }
 .reason-cell { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .visit { border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); padding: 24px; }
-.visit-facts { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 16px 32px; margin: 0; }
-.visit-facts > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.visit-facts > div:first-child { flex: 1 1 320px; }
-.visit-facts dd { margin: 0; overflow-wrap: anywhere; }
-.visit-edit-btn { margin-left: auto; align-self: center; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .visit-edit .patient-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
 .visit-edit .patient-fields > :last-child { grid-column: 1 / -1; }
 @media (max-width: 640px) { .visit-edit .patient-fields { grid-template-columns: 1fr; } .visit { padding: 20px; } }
 .visit-actions { display: flex; gap: 8px; margin-top: 12px; }
-.recorder-center { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
-.recorder-stage {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 24px;
-  padding: 24px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  background: var(--surface);
-}
-.recorder-meta { display: flex; flex-direction: column; gap: 4px; }
 /* Microphone picker and test (Record rail, Settings): an ink level bar on a
    hairline track, and a one-line verdict with a tone dot. */
 .mic-check { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
@@ -311,38 +261,6 @@
   border-radius: var(--r-lg);
   background: var(--surface);
   padding: 20px 24px;
-}
-
-@media (max-width: 640px) {
-  .recorder-stage, .recorder-transcript { padding: 20px; }
-  /* One-handed: visit type first, transcript above, record button in the lower third. */
-  .recorder-center { flex-direction: column; gap: 16px; }
-  .recorder-center > .visit-types { order: 0; }
-  .recorder-center > .recorder-transcript { order: 1; }
-  .recorder-center > .recorder-stage { order: 2; }
-  /* While an import or a stopped recording is processing, its progress comes first. */
-  .recorder-center.is-processing > .recorder-stage { order: -1; }
-  /* Record fixed bottom-centre above the 64 px tab bar, safe-area aware (§9).
-     The screen reserves the dock's full height, so nothing ends up under it. */
-  .screen.recorder { padding-bottom: calc(64px + env(safe-area-inset-bottom) + 96px); scroll-padding-bottom: 96px; }
-  /* The empty transcript is short on phones: the title only (the stage hint
-     already says how to start), so it ends above the dock even when a long
-     translated header wraps to two lines (§7.7). */
-  .recorder-transcript .empty-state { flex: none; padding: 24px 16px; gap: 4px; }
-  .recorder-transcript .empty-state p,
-  .recorder-transcript .empty-state > .ob-mark-mono { display: none; }
-  .recorder-stage .recorder-record {
-    position: fixed;
-    left: 50%;
-    bottom: calc(64px + env(safe-area-inset-bottom) + 12px);
-    transform: translateX(-50%);
-    z-index: 30;
-    padding: 8px 16px 6px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--r-xl);
-    box-shadow: var(--shadow-raised);
-  }
 }
 
 /* Transcript (§7.5): mono 15/26 in ink-2, the current utterance in ink;
@@ -515,44 +433,6 @@ button.turn-text:hover { color: var(--ink); }
 .not-discussed { color: var(--ink-2); font-style: italic; }
 .text-box { max-width: 720px; }
 .text-box .hardfail { display: inline-flex; }
-
-/* Visit types: selectable tiles. Selected = ink border on accent-50 (§3.2). */
-.visit-types { display: flex; flex-direction: column; gap: 12px; }
-.type-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 12px; }
-.type-tile {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 12px;
-  min-height: 88px;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  background: var(--surface);
-  color: var(--ink);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-  transition: border-color var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease);
-}
-.type-tile:hover:not(:disabled) { background: var(--surface-2); }
-.type-tile:disabled { opacity: 0.5; cursor: not-allowed; }
-.type-tile[aria-checked="true"] { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); background: var(--accent-soft); }
-.type-icon {
-  display: inline-grid;
-  place-items: center;
-  flex: none;
-  width: 32px;
-  height: 32px;
-  border-radius: var(--r-md);
-  background: var(--surface-2);
-  color: var(--ink-2);
-}
-.type-tile[aria-checked="true"] .type-icon { background: transparent; color: var(--ink); }
-.type-name { max-width: 100%; font-size: 13px; font-weight: 600; line-height: 18px; overflow-wrap: anywhere; -webkit-hyphens: auto; hyphens: auto; }
-.type-more { align-self: flex-start; width: auto; max-width: 100%; }
-@media (max-width: 640px) { .type-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; } .type-tile { min-height: 80px; padding: 12px 8px; gap: 8px; } }
 
 /* Template list: grouped rows with icons */
 .tpl-group { display: flex; flex-direction: column; gap: 8px; }

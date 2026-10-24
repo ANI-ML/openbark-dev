@@ -680,6 +680,12 @@ pub struct SessionSummary {
     pub sync: Option<String>,
     /// For a visit from another device: the device that holds its audio.
     pub audio_on: Option<String>,
+    /// The animal's name and the family name, apart ("Maple", "Okonkwo"),
+    /// so the visit list can show "Maple · Okonkwo" (ADR-0027).
+    pub animal: String,
+    pub family: String,
+    /// Who signed the latest signed note, by name; none until signed.
+    pub signed_by: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -1620,6 +1626,15 @@ impl App {
                     .unwrap_or_default(),
                 sync: self.sync_state_of(&s),
                 audio_on: s.meta.audio_on.as_ref().filter(|_| !s.has_audio()).map(|a| a.device_name.clone()),
+                animal: s.meta.patient.as_ref().map(|p| p.name.trim().to_string()).unwrap_or_default(),
+                family: s.meta.patient.as_ref().map(|p| p.last_name.trim().to_string()).unwrap_or_default(),
+                signed_by: s
+                    .meta
+                    .runs
+                    .iter()
+                    .filter(|r| r.signed_at.is_some())
+                    .max_by_key(|r| r.signed_at)
+                    .and_then(|r| r.signer.as_ref().map(|w| w.name.clone()).or_else(|| r.signed_by.clone())),
             })
             .collect()
     }

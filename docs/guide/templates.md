@@ -14,7 +14,7 @@ A template is the headings of a note, and what goes under each one. OpenBark shi
 | Euthanasia and quality of life | The medical record |
 | Discharge instructions, Client summary, Estimate explanation, Euthanasia aftercare | The client |
 
-On **Record**, choose the type of visit from the icon tiles (or **More types**) before recording, or use **Draft as** in Review. You can change any of them, make your own, or copy one.
+On **Record**, choose the template with **Template** before recording (a list beside the Record button on a computer; on a phone, the **Template** row under it opens the list), or use **Draft as** in Review. You can change any of them, make your own, or copy one.
 
 ## Change any template
 

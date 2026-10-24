@@ -11,6 +11,8 @@ import { MLX_CARD_ID, MlxCard } from "../components/MlxCard";
 import { ModelGuide, ModelMeaning, ModelTags } from "../components/ModelGuide";
 import { RemoveModelDialog, rowBytes } from "../components/RemoveModelDialog";
 import { PHONE_STARTERS, STARTERS } from "../modelGuide";
+import { PHONE, useMediaQuery } from "../useMediaQuery";
+import "./Models.css";
 
 const SLOT_LABEL: Record<engine.Slot, string> = {
   llm: "Notes",
@@ -141,9 +143,20 @@ export function Models() {
   // and no files from the device itself.
   const phone = engine.isMobilePlatform(app.status?.platform) || app.status?.profile === "ios";
   const tier = app.status?.mobile_tier ?? null;
+  /** Phone width (layout only): stacked catalog rows, plain names, a quieter Browse button. */
+  const narrow = useMediaQuery(PHONE);
+  const label = (name: string) => (narrow ? plainModelName(name).name : name);
+  const rowProps = (r: engine.ModelRow) => ({
+    row: r,
+    progress: progress[r.id],
+    noteModel: r.id === app.settings.llm,
+    onDownload: () => void download(r.id),
+    onRemove: () => setRemoving(r),
+    onRemoveFromList: () => void removeFromList(r),
+  });
 
   return (
-    <div className="screen">
+    <div className="screen models">
       <header className="screen-head">
         <div className="head-title">
           {/* Phones reach Models from Settings: the way back (§9). */}
@@ -165,7 +178,8 @@ export function Models() {
               {t("Add from this computer")}
             </Button>
           )}
-          <Button variant="primary" onClick={() => setBrowsing(true)}>
+          {/* On a phone the catalog's own Download buttons come first; browsing is secondary. */}
+          <Button variant={narrow ? "default" : "primary"} onClick={() => setBrowsing(true)}>
             <Search size={20} aria-hidden />
             {t("Browse Hugging Face")}
           </Button>
@@ -179,13 +193,22 @@ export function Models() {
             </StatusDot>
           ) : current?.installed && !current.missing ? (
             // §7.6: always say where inference runs. Local-first is the promise.
-            <StatusDot tone="ok">{`${current.name} · ${t("local")}`}</StatusDot>
+            <StatusDot tone="ok">{`${label(current.name)} · ${t("local")}`}</StatusDot>
           ) : (
             <StatusDot tone="danger">{t("No model loaded")}</StatusDot>
           )}
         </p>
       )}
-      <p className="small muted">{hardwareLine(t, app.status?.hardware)}</p>
+      <p className="small muted">
+        {app.status?.profile === "ios" && app.status.hardware
+          ? // The engine says the phone's own memory in its summary (ADR-0018 section 10), not a graphics card.
+            t("This iPhone, {gb} GB memory", {
+              gb:
+                app.status.hardware.summary.match(/(\d+)\s*GB/)?.[1] ??
+                String(Math.round(app.status.hardware.ram_bytes / 1e9)),
+            })
+          : hardwareLine(t, app.status?.hardware)}
+      </p>
       {error && (
         <p className="ob-notice" data-tone="danger" role="alert">
           {error}
@@ -225,10 +248,10 @@ export function Models() {
                 {llms.map((m) => (
                   <option key={m.id} value={m.id} disabled={!canDraft(m) && m.id !== app.settings.llm}>
                     {canDraft(m)
-                      ? m.name
+                      ? label(m.name)
                       : m.phone_note
-                        ? t("{name} (too large for this iPhone)", { name: m.name })
-                        : t("{name} (needs the MLX engine)", { name: m.name })}
+                        ? t("{name} (too large for this iPhone)", { name: label(m.name) })
+                        : t("{name} (needs the MLX engine)", { name: label(m.name) })}
                   </option>
                 ))}
                 {!llms.some((m) => m.id === app.settings.llm) && (
@@ -253,33 +276,33 @@ export function Models() {
 
       <section className="group">
         <h2>{t("Catalog")}</h2>
-        <div className="table-wrap">
-          <table className="ob-table">
-            <thead>
-              <tr>
-                <th>{t("Model")}</th>
-                <th>{t("Use")}</th>
-                <th className="num">{t("Size")}</th>
-                <th>{t("Licence")}</th>
-                <th>{phone ? t("On this phone") : t("On this computer")}</th>
-                <th aria-label={t("Actions")} />
-              </tr>
-            </thead>
-            <tbody>
-              {shown.map((r) => (
-                <CatalogRow
-                  key={r.id}
-                  row={r}
-                  progress={progress[r.id]}
-                  noteModel={r.id === app.settings.llm}
-                  onDownload={() => void download(r.id)}
-                  onRemove={() => setRemoving(r)}
-                  onRemoveFromList={() => void removeFromList(r)}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
+        {narrow ? (
+          <ul className="model-items">
+            {shown.map((r) => (
+              <CatalogItem key={r.id} {...rowProps(r)} />
+            ))}
+          </ul>
+        ) : (
+          <div className="table-wrap">
+            <table className="ob-table">
+              <thead>
+                <tr>
+                  <th>{t("Model")}</th>
+                  <th>{t("Use")}</th>
+                  <th className="num">{t("Size")}</th>
+                  <th>{t("Licence")}</th>
+                  <th>{phone ? t("On this phone") : t("On this computer")}</th>
+                  <th aria-label={t("Actions")} />
+                </tr>
+              </thead>
+              <tbody>
+                {shown.map((r) => (
+                  <CatalogRow key={r.id} {...rowProps(r)} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       {browsing && (
@@ -329,14 +352,8 @@ export function Models() {
   );
 }
 
-function CatalogRow({
-  row: r,
-  progress: p,
-  noteModel,
-  onDownload,
-  onRemove,
-  onRemoveFromList,
-}: {
+/** What a catalog row's state, chips and actions need. */
+interface RowProps {
   row: engine.ModelRow;
   progress?: { done: number; total: number };
   /** This device's note model: it can't be removed. */
@@ -344,38 +361,126 @@ function CatalogRow({
   onDownload: () => void;
   onRemove: () => void;
   onRemoveFromList: () => void;
-}) {
+}
+
+function RowChips({ row: r }: { row: engine.ModelRow }) {
+  const t = useT();
+  const inPlace = r.origin === "local_in_place";
+  const parts = r.parts ?? 1;
+  // ModelTags already labels MLX when the id says so (Hub ids end in "@mlx").
+  const mlxChip = r.engine === "mlx" && !/mlx/i.test(r.id);
+  if (!inPlace && !mlxChip && parts <= 1) return null;
+  return (
+    <div className="row-chips">
+      {mlxChip && <span className="ob-chip mlx-chip">{t("MLX")}</span>}
+      {parts > 1 &&
+        (r.engine === "mlx" ? (
+          <span className="ob-chip">{t("{n} files", { n: parts })}</span>
+        ) : (
+          <span className="ob-chip">{t("{n} parts", { n: parts })}</span>
+        ))}
+      {inPlace && (
+        <span className="ob-chip" title={r.path ?? undefined}>
+          {t("Used where it is")}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function RowState({ row: r, progress: p }: { row: engine.ModelRow; progress?: { done: number; total: number } }) {
+  const t = useT();
+  const inPlace = r.origin === "local_in_place";
+  return (
+    <div className="row-state">
+      {p ? (
+        <StatusDot tone="warn">{t("Downloading")}</StatusDot>
+      ) : r.missing ? (
+        <StatusDot tone="danger">{t("Not found")}</StatusDot>
+      ) : r.installed ? (
+        <StatusDot tone="ok">{t("Ready")}</StatusDot>
+      ) : r.slot === "llm" ? (
+        <StatusDot tone={FIT[r.fit].tone}>{t(FIT[r.fit].label)}</StatusDot>
+      ) : (
+        <StatusDot>{t("Not downloaded")}</StatusDot>
+      )}
+      {!p && r.installed && !inPlace && (r.disk_bytes ?? 0) > 0 && (
+        <span className="small faint">{t("{size} on disk", { size: fmtBytes(r.disk_bytes) })}</span>
+      )}
+      {!p && r.installed && !inPlace && (r.shared_bytes ?? 0) > 0 && (r.disk_bytes ?? 0) === 0 && (
+        <span className="small faint">{t("Linked to another file, so it takes no extra space")}</span>
+      )}
+      {!p && !r.installed && (r.partial_bytes ?? 0) > 0 && (
+        <span className="small faint">{t("{size} partly downloaded", { size: fmtBytes(r.partial_bytes) })}</span>
+      )}
+      {inPlace && r.path && <span className="small faint mono row-path">{r.path}</span>}
+    </div>
+  );
+}
+
+function RowActions({ row: r, progress: p, noteModel, onDownload, onRemove, onRemoveFromList }: RowProps) {
   const t = useT();
   const local = r.origin === "local_copy" || r.origin === "local_in_place";
   const inPlace = r.origin === "local_in_place";
   const files = hasFiles(r);
   const removable = files && r.remove !== "needed" && r.remove !== "with_gpu_pack";
-  const parts = r.parts ?? 1;
   const noteHelpId = `note-model-${r.id}`;
-  // ModelTags already labels MLX when the id says so (Hub ids end in "@mlx").
-  const mlxChip = r.engine === "mlx" && !/mlx/i.test(r.id);
+  if (p) {
+    return (
+      <div className="dl">
+        <div className="ob-progress" role="progressbar" aria-valuenow={Math.round((p.done / Math.max(1, p.total)) * 100)}>
+          <span style={{ transform: `scaleX(${p.done / Math.max(1, p.total)})` }} />
+        </div>
+        <span className="mono faint">{t("{size} left", { size: fmtBytes(Math.max(0, p.total - p.done)) })}</span>
+      </div>
+    );
+  }
+  return (
+    <div className="row-actions">
+      {!r.installed && !local && (
+        <Button onClick={onDownload} disabled={r.fit === "wont_fit" || Boolean(r.phone_note)}>
+          <Download size={20} aria-hidden />
+          {t("Download ({size})", { size: fmtBytes(r.size_bytes) })}
+        </Button>
+      )}
+      {removable ? (
+        <>
+          <Button
+            variant="ghost"
+            onClick={onRemove}
+            disabled={noteModel}
+            aria-describedby={noteModel ? noteHelpId : undefined}
+          >
+            <Trash2 size={18} aria-hidden />
+            {inPlace ? t("Forget") : t("Remove")}
+          </Button>
+          {noteModel && (
+            <span id={noteHelpId} className="small faint row-help">
+              {t("Writes your notes. Choose another model first.")}
+            </span>
+          )}
+        </>
+      ) : files && r.remove === "needed" ? (
+        <span className="small faint row-help">{t("Needed to transcribe visits")}</span>
+      ) : !files && r.origin === "hub" ? (
+        <Button variant="ghost" onClick={onRemoveFromList} disabled={noteModel}>
+          {t("Remove from list")}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
 
+function CatalogRow(props: RowProps) {
+  const t = useT();
+  const r = props.row;
+  const local = r.origin === "local_copy" || r.origin === "local_in_place";
   return (
     <tr>
       <td>
         <div>{r.name}</div>
         <div className="small faint">{local ? t("This computer") : r.publisher}</div>
-        {(inPlace || mlxChip || parts > 1) && (
-          <div className="row-chips">
-            {mlxChip && <span className="ob-chip mlx-chip">{t("MLX")}</span>}
-            {parts > 1 &&
-              (r.engine === "mlx" ? (
-                <span className="ob-chip">{t("{n} files", { n: parts })}</span>
-              ) : (
-                <span className="ob-chip">{t("{n} parts", { n: parts })}</span>
-              ))}
-            {inPlace && (
-              <span className="ob-chip" title={r.path ?? undefined}>
-                {t("Used where it is")}
-              </span>
-            )}
-          </div>
-        )}
+        <RowChips row={r} />
         {r.slot === "llm" && <ModelTags name={r.id} />}
         {r.phone_note && <div className="small muted row-help">{r.phone_note}</div>}
       </td>
@@ -385,79 +490,79 @@ function CatalogRow({
         <span className="ob-chip">{r.license}</span>
       </td>
       <td>
-        <div className="row-state">
-          {p ? (
-            <StatusDot tone="warn">{t("Downloading")}</StatusDot>
-          ) : r.missing ? (
-            <StatusDot tone="danger">{t("Not found")}</StatusDot>
-          ) : r.installed ? (
-            <StatusDot tone="ok">{t("Ready")}</StatusDot>
-          ) : r.slot === "llm" ? (
-            <StatusDot tone={FIT[r.fit].tone}>{t(FIT[r.fit].label)}</StatusDot>
-          ) : (
-            <StatusDot>{t("Not downloaded")}</StatusDot>
-          )}
-          {!p && r.installed && !inPlace && (r.disk_bytes ?? 0) > 0 && (
-            <span className="small faint">{t("{size} on disk", { size: fmtBytes(r.disk_bytes) })}</span>
-          )}
-          {!p && r.installed && !inPlace && (r.shared_bytes ?? 0) > 0 && (r.disk_bytes ?? 0) === 0 && (
-            <span className="small faint">{t("Linked to another file, so it takes no extra space")}</span>
-          )}
-          {!p && !r.installed && (r.partial_bytes ?? 0) > 0 && (
-            <span className="small faint">{t("{size} partly downloaded", { size: fmtBytes(r.partial_bytes) })}</span>
-          )}
-          {inPlace && r.path && <span className="small faint mono row-path">{r.path}</span>}
-        </div>
+        <RowState row={r} progress={props.progress} />
       </td>
       <td className="cell-action">
-        {p ? (
-          <div className="dl">
-            <div
-              className="ob-progress"
-              role="progressbar"
-              aria-valuenow={Math.round((p.done / Math.max(1, p.total)) * 100)}
-            >
-              <span style={{ transform: `scaleX(${p.done / Math.max(1, p.total)})` }} />
-            </div>
-            <span className="mono faint">{t("{size} left", { size: fmtBytes(Math.max(0, p.total - p.done)) })}</span>
-          </div>
-        ) : (
-          <div className="row-actions">
-            {!r.installed && !local && (
-              <Button onClick={onDownload} disabled={r.fit === "wont_fit" || Boolean(r.phone_note)}>
-                <Download size={20} aria-hidden />
-                {t("Download ({size})", { size: fmtBytes(r.size_bytes) })}
-              </Button>
-            )}
-            {removable ? (
-              <>
-                <Button
-                  variant="ghost"
-                  onClick={onRemove}
-                  disabled={noteModel}
-                  aria-describedby={noteModel ? noteHelpId : undefined}
-                >
-                  <Trash2 size={18} aria-hidden />
-                  {inPlace ? t("Forget") : t("Remove")}
-                </Button>
-                {noteModel && (
-                  <span id={noteHelpId} className="small faint row-help">
-                    {t("Writes your notes. Choose another model first.")}
-                  </span>
-                )}
-              </>
-            ) : files && r.remove === "needed" ? (
-              <span className="small faint row-help">{t("Needed to transcribe visits")}</span>
-            ) : !files && r.origin === "hub" ? (
-              <Button variant="ghost" onClick={onRemoveFromList} disabled={noteModel}>
-                {t("Remove from list")}
-              </Button>
-            ) : null}
-          </div>
-        )}
+        <RowActions {...props} />
       </td>
     </tr>
   );
+}
+
+/**
+ * The same row stacked for a phone (ADR-0027): the plain name first, the
+ * build details (quantization, publisher, licence) on a quiet line beneath,
+ * then the size and state, then the actions. No columns that wrap.
+ */
+function CatalogItem(props: RowProps) {
+  const t = useT();
+  const r = props.row;
+  const local = r.origin === "local_copy" || r.origin === "local_in_place";
+  const { name, detail } = plainModelName(r.name);
+  const origin = local ? t("This computer") : r.publisher;
+  return (
+    <li className="model-item">
+      <div className="model-item-text">
+        <span className="model-item-name">{name}</span>
+        <span className="small muted model-item-detail">
+          {[t(SLOT_LABEL[r.slot]), origin, r.license].filter(Boolean).join(", ")}
+          {detail && (
+            <>
+              {", "}
+              <span className="mono">{detail}</span>
+            </>
+          )}
+        </span>
+        <span className="model-item-state">
+          <span className="small mono">{fmtBytes(r.size_bytes)}</span>
+          <RowState row={r} progress={props.progress} />
+        </span>
+        <RowChips row={r} />
+        {r.phone_note && <span className="small muted">{r.phone_note}</span>}
+      </div>
+      <div className="model-item-actions">
+        <RowActions {...props} />
+      </div>
+    </li>
+  );
+}
+
+/** Build and file-format words that don't belong in a model's plain name. */
+const BUILD_TOKEN = /^(?:i?q\d\w*|qat|gguf|onnx|mlx|int\d+|fp\d+|bf16|f16|f32|\d+-?bit|instruct|it)$/i;
+
+/**
+ * "Gemma 4 E4B instruct (QAT Q4_0)" reads "Gemma 4 E4B" with "QAT Q4_0" as its
+ * detail; "Qwen3 235B Q4_K_M" reads "Qwen3 235B" with "Q4_K_M". The name a
+ * person picks a model by, and the build details kept for a second line.
+ */
+export function plainModelName(full: string): { name: string; detail: string } {
+  const details: string[] = [];
+  // Parenthesised build details: "(QAT Q4_0)", "(int8)", "(full precision)".
+  let name = full.replace(/\s*\(([^)]*)\)/g, (_, inner: string) => {
+    if (inner.trim()) details.push(inner.trim());
+    return "";
+  });
+  // Trailing build words, separated by spaces or hyphens ("Q4_K_M" is one word).
+  for (;;) {
+    const m = name.match(/^(.*\S)[\s-]+([A-Za-z0-9_]+)$/);
+    if (!m || !BUILD_TOKEN.test(m[2] ?? "")) break;
+    const token = m[2] ?? "";
+    if (!/^(?:instruct|it)$/i.test(token)) details.unshift(token);
+    name = m[1] ?? name;
+  }
+  name = name.trim();
+  if (!name) return { name: full, detail: "" };
+  return { name, detail: details.join(", ") };
 }
 
 function HubBrowser({

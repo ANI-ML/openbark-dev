@@ -4,6 +4,7 @@ import { useContext, useEffect, useMemo, useState } from "react";
 import { AppContext, fmtBytes } from "../context";
 import * as engine from "../engine";
 import { useT } from "../i18n";
+import { isIos } from "../visits";
 
 export interface SetupPanelProps {
   /** Required models (from status) that aren't on this computer yet. */
@@ -19,6 +20,7 @@ export function SetupPanel({ missing, onReady }: SetupPanelProps) {
   const t = useT();
   // Optional: the panel also renders outside the app shell (tests).
   const app = useContext(AppContext);
+  const ios = isIos(app?.status);
   const [rows, setRows] = useState<engine.ModelRow[]>([]);
   const [current, setCurrent] = useState<string | null>(null);
   const [done, setDone] = useState<Record<string, number>>({});
@@ -75,9 +77,13 @@ export function SetupPanel({ missing, onReady }: SetupPanelProps) {
         </p>
       )}
       <p className="small muted measure">
-        {t("OpenBark transcribes and writes notes on this computer, so it needs its models once:")}{" "}
+        {ios
+          ? t("OpenBark transcribes and writes notes on this iPhone, so it needs its models once:")
+          : t("OpenBark transcribes and writes notes on this computer, so it needs its models once:")}{" "}
         <span className="mono">{fmtBytes(total)}</span>{" "}
-        {t("in all. After that it works offline. The computer stays awake while they download.")}
+        {ios
+          ? t("in all. After that it works offline. Keep OpenBark open while they download.")
+          : t("in all. After that it works offline. The computer stays awake while they download.")}
       </p>
       <ul className="setup-list">
         {queue.map((m) => (
@@ -96,7 +102,9 @@ export function SetupPanel({ missing, onReady }: SetupPanelProps) {
       </ul>
       {fits === "wont_fit" && (
         <p className="ob-notice">
-          {t("The note model may not fit this computer's memory. You can still download it, or choose a smaller one in Models.")}
+          {ios
+            ? t("The note model may not fit this iPhone's memory. You can still download it, or choose a smaller one in Models.")
+            : t("The note model may not fit this computer's memory. You can still download it, or choose a smaller one in Models.")}
         </p>
       )}
       {current && (

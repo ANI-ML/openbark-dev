@@ -86,7 +86,8 @@ describe("Settings, Encrypted sync", () => {
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     await waitFor(() => expect(mocked.syncVerify).toHaveBeenCalledWith("123456", "", 30));
     expect(await screen.findByText("word24")).toBeTruthy();
-    expect(screen.getByText("computer-key")).toBeTruthy();
+    // The computer's own key arrives separately from the kit: wait for it.
+    expect(await screen.findByText("computer-key")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "I've kept it safe" }));
     fireEvent.change(screen.getByLabelText("Word 3"), { target: { value: "word3" } });
     fireEvent.change(screen.getByLabelText("Word 17"), { target: { value: "word17" } });

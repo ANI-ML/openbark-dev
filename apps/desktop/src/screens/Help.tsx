@@ -143,6 +143,14 @@ function HelpVideo({ id, title }: { id: string; title: string }) {
  * e2e/help-videos.mjs) with the same steps written out. Videos ship with
  * the app (public/help), so help works offline.
  */
+/** Steps that name the device, as the iPhone profile says them (ADR-0027). */
+const IPHONE_STEP: Record<string, string> = {
+  "If the models aren't on this computer yet, choose Download everything on the Record screen. It's a one-time download; after that OpenBark works offline.":
+    "If the models aren't on this iPhone yet, choose Download everything on the Record screen. It's a one-time download; after that OpenBark works offline.",
+  "Recordings, transcripts and notes are encrypted on this computer. Show the recovery key once and keep it somewhere safe.":
+    "Recordings, transcripts and notes are encrypted on this iPhone. Show the recovery key once and keep it somewhere safe.",
+};
+
 export const HELP_TOPICS = [
   {
     id: "getting-started",
@@ -151,9 +159,9 @@ export const HELP_TOPICS = [
     steps: [
       "Read the consent notice and accept it. You're responsible for getting each client's consent before recording.",
       "If the models aren't on this computer yet, choose Download everything on the Record screen. It's a one-time download; after that OpenBark works offline.",
-      "Use the sidebar: Record, Patients, Templates, Models, Settings and Help.",
+      "Use the side menu: Record, Visits, Patients and Templates, then Models, Settings and Help. On a phone the tabs are Record, Visits, Patients and Settings, and Templates, Models and Help are in Settings.",
       "In Settings, add your name for signing, and choose the app language and the language notes are written in.",
-      "In Settings, Storage, choose where visits and models are kept, such as another drive.",
+      "In Settings, Privacy and storage, choose where visits and models are kept, such as another drive.",
     ],
   },
   {
@@ -164,7 +172,7 @@ export const HELP_TOPICS = [
       "Patients lists every animal, most recently seen first. Type a name to find one.",
       "Open a patient to see every visit, newest first, with its type and whether it's signed.",
       "New visit on a patient's page opens Record with the patient filled in.",
-      "Recent visits shows the day's recordings as a list.",
+      "Visits lists every recording: what still needs you first, then what is signed.",
       "Edit details corrects the name or species. Past visits keep what was entered at the time.",
     ],
   },
@@ -174,8 +182,8 @@ export const HELP_TOPICS = [
     summary: "Enter the patient, press Record, and watch the transcript appear.",
     steps: [
       "On Record, choose Find a patient to pick an animal you've seen before, or enter a new patient's name, the client's last name and the reason for the visit. They're optional and can be added later.",
-      "Choose the kind of visit, then press Record or Space to start.",
-      "Not sure the microphone is working? Press Test microphone on the right and speak: the bar should move. If the microphone is unplugged while you record, recording moves to another one or pauses until one is back, and the screen says so.",
+      "Choose the template, then press Record or Space to start.",
+      "Not sure the microphone is working? Choose Change under the Record button, press Test microphone and speak: the bar should move. If the microphone is unplugged while you record, recording moves to another one or pauses until one is back, and the screen says so.",
       "Each sentence appears in the live transcript once it's finished. The audio is saved, encrypted, as you go.",
       "Press the button again to stop. A progress bar shows the transcript being finished, then the note is drafted and opens in Review.",
       "Client on a phone on speaker? Tick Phone on speaker before you start, and put the phone between you and the computer with the volume up. Calling through OpenBark's own phone records the client more clearly still.",
@@ -280,7 +288,7 @@ export function Help() {
           )}
           <ol className="help-steps">
             {topic.steps.map((s) => (
-              <li key={s}>{t(s)}</li>
+              <li key={s}>{t((app.status?.profile === "ios" && IPHONE_STEP[s]) || s)}</li>
             ))}
           </ol>
         </article>

@@ -55,7 +55,7 @@ To change the caller ID or the Bin later, choose **Change**. You don't need to p
 
 ## Making a call
 
-1. Open a patient and choose **Call**, or choose **Call** on a visit. **Patients > Call a number** opens the dial pad. To call a client from their patient, add the **Owner's phone** on the patient (**Edit details**).
+1. Open a patient and choose **Call**, or choose **Call** in a visit (in Review's **More** menu). **Patients > Call a number** opens the dial pad. To call a client from their patient, add the **Owner's phone** on the patient (**Edit details**).
 2. The phone window opens. It says **This call will be recorded and announced.** Tick **Don't record this call** to make this one call without recording.
 3. Choose **Call**. You hear ringing until the client answers.
 4. When the client answers, recording starts and the window shows the announcement: **Read this to the client now:**. Read it, then choose **I've read it**. **The recording is kept only once you choose I've read it.** If the call ends before that (you hang up, the client hangs up, or the phone window closes), what was recorded is deleted, and the visit says the announcement wasn't confirmed.

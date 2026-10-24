@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useApp } from "../context";
 import * as engine from "../engine";
 import { useT } from "../i18n";
+import { isIos } from "../visits";
 
 /** The accepted public wording (ADR-0017 owner decisions). */
 export const SYNC_PROMISE =
@@ -28,6 +29,7 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 export function SyncSection() {
   const app = useApp();
   const t = useT();
+  const ios = isIos(app.status);
   const [s, setS] = useState<engine.SyncStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sheet, setSheet] = useState(false);
@@ -166,7 +168,7 @@ export function SyncSection() {
                     </span>
                   </div>
                   <Button variant="ghost" onClick={() => setRemoving(d)}>
-                    {d.this_device ? t("Remove this computer") : t("Remove")}
+                    {d.this_device ? (ios ? t("Remove this iPhone") : t("Remove this computer")) : t("Remove")}
                   </Button>
                 </li>
               ))}
@@ -214,17 +216,25 @@ export function SyncSection() {
           )}
 
           <div className="ask-actions">
-            <Button variant="ghost" disabled={busy} onClick={() => void run(() => engine.syncOff(), t("Sync is off on this computer"))}>
-              {t("Turn off sync on this computer")}
+            <Button
+              variant="ghost"
+              disabled={busy}
+              onClick={() =>
+                void run(() => engine.syncOff(), ios ? t("Sync is off on this iPhone") : t("Sync is off on this computer"))
+              }
+            >
+              {ios ? t("Turn off sync on this iPhone") : t("Turn off sync on this computer")}
             </Button>
             <Button variant="danger" onClick={() => setDeleting(true)}>
               {t("Delete my sync account")}
             </Button>
           </div>
           <p className="small faint measure">
-            {t("Turning sync off keeps every visit on this computer. The sync keys are kept in {where}.", {
-              where: s.keys_in === "keychain" ? t("this computer's keychain") : t("a protected file on this computer"),
-            })}
+            {ios
+              ? t("Turning sync off keeps every visit on this iPhone. The sync keys stay in its protected storage.")
+              : t("Turning sync off keeps every visit on this computer. The sync keys are kept in {where}.", {
+                  where: s.keys_in === "keychain" ? t("this computer's keychain") : t("a protected file on this computer"),
+                })}
           </p>
         </>
       )}
@@ -245,7 +255,9 @@ export function SyncSection() {
             <>
               <h2 id="sync-remove-title">
                 {removing.this_device
-                  ? t("Remove this computer from sync?")
+                  ? ios
+                    ? t("Remove this iPhone from sync?")
+                    : t("Remove this computer from sync?")
                   : t("Remove {name}?", { name: removing.name || t("Unnamed device") })}
               </h2>
               <p>
