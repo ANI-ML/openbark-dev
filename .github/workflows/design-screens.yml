@@ -1,0 +1,127 @@
+name: Design screens
+
+# Screenshots of every main screen as it is today, for design review: phone
+# (WebKit, 390 x 844, as the iPhone profile shows it) and desktop, light and
+# dark. The visits are the synthetic consults in packages/eval/fixtures/audio
+# (invented, text-to-speech), transcribed and one drafted on the runner, so
+# no clinic data is involved.
+#
+# Manual: run it from the Actions tab, or push a commit whose message
+# contains [design-screens] to a feat/, fix/, design/ or chore/ branch.
+# It never runs in the public copy of the source.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["feat/**", "fix/**", "design/**", "chore/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: design-screens-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  NODE_VERSION: "24.22.0"
+
+jobs:
+  screens:
+    name: Screens (phone and desktop)
+    if: github.repository == 'ANI-ML/openbark-dev' && (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[design-screens]'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: System packages (libclang, ALSA)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev cmake libasound2-dev
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-design-screens/${{ github.repository }}/${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-design-screens/${{ github.repository }}/
+            cargo-linux/${{ github.repository }}/
+      - run: cargo build --release -p os-cli
+      - name: Restore models
+        id: models
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/models
+          key: models-${{ hashFiles('engine/os-models/catalog.json') }}-e2b
+      - name: Download models
+        if: steps.models.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/models
+          export OPENBARK_MODELS_DIR=~/models
+          for id in silero-vad parakeet-tdt-0.6b-v3-int8 pyannote-segmentation-3.0 wespeaker-en-resnet34-lm gemma-4-e2b-it-q4_0; do
+            target/release/openbark models pull "$id"
+          done
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: UI
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm --filter @openbark/desktop build
+          (cd apps/desktop && npx playwright install --with-deps webkit chromium)
+      - name: Demo visits and screenshots
+        shell: bash
+        run: |
+          demo="$PWD/target/design-demo"
+          rm -rf "$demo" && mkdir -p "$demo/models" && touch "$demo/OPENBARK-DEMO"
+          cp -r ~/models/. "$demo/models/"
+          export OPENBARK_SESSIONS_DIR="$demo/visits" OPENBARK_TEMPLATES_DIR="$demo/templates" \
+            OPENBARK_USERS_FILE="$demo/users.json" OPENBARK_LOCATIONS_FILE="$demo/locations.json" \
+            OPENBARK_ENGINES_DIR="$demo/engines" OPENBARK_MODELS_DIR="$demo/models" \
+            OPENBARK_CONNECTIONS_DIR="$demo/connections" \
+            OPENBARK_DATA_KEY="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+          port=4339
+          serve() {
+            target/release/openbark serve --port $port --ui-dir apps/desktop/dist >> "$demo/serve.log" 2>&1 &
+            echo $! > "$demo/serve.pid"
+            for _ in $(seq 1 150); do curl -fs http://127.0.0.1:$port/api/status > /dev/null && return; sleep 0.2; done
+            echo "server didn't start"; tail -50 "$demo/serve.log"; exit 1
+          }
+          serve
+          # Three invented consults, each with an invented patient.
+          q="consent_rule=all_parties&consent_method=verbal&consent_by=Dr%20Rivera&diarize=true"
+          import() {
+            curl -fsS -X POST --data-binary @"packages/eval/fixtures/audio/$1.wav" \
+              "http://127.0.0.1:$port/api/sessions?name=$1.wav&patient_name=$2&last_name=$3&species=$4&reason=$5&$q" \
+              | jq -r '.id // .session.id // empty'
+          }
+          wellness=$(import canine-wellness Maple Okonkwo Dog "Annual%20wellness")
+          import dermatology Biscuit Nakamura Dog "Itchy%20skin" > /dev/null
+          import dental Juniper Haddad Cat "Dental%20cleaning" > /dev/null
+          echo "wellness visit: $wellness"
+          # One drafted note, so Review shows a finished note (CPU, a few minutes).
+          if [ -n "$wellness" ]; then
+            curl -fsS -X POST -H 'content-type: application/json' \
+              -d '{"llm":"gemma-4-e2b-it-q4_0"}' "http://127.0.0.1:$port/api/sessions/$wellness/notes" > "$demo/note.json" \
+              || echo "::warning::drafting failed; Review will show the transcript only"
+          fi
+          cd apps/desktop
+          OPENBARK_URL=http://localhost:$port OUT_DIR="$demo/out" VARIANTS=desktop node e2e/design-screens.mjs "$demo"
+          cd ../..
+          # The same visits as an 8 GB iPhone shows them (ADR-0018 section 10).
+          kill "$(cat "$demo/serve.pid")"; sleep 1
+          OPENBARK_PLATFORM=ios OPENBARK_DEVICE_RAM_GB=8 serve
+          cd apps/desktop
+          OPENBARK_URL=http://localhost:$port OUT_DIR="$demo/out" VARIANTS=phone node e2e/design-screens.mjs "$demo" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          # Invented visits and logs only: no patient data exists on CI.
+          name: design-screens
+          path: |
+            target/design-demo/out
+            target/design-demo/serve.log
