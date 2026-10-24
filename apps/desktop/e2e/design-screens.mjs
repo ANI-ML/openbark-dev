@@ -67,7 +67,10 @@ async function context(v, extra = {}) {
       JSON.stringify({ ...current, consentAcknowledgedAt: "2026-10-17T20:00:00Z", uiLanguage: "en" }),
     );
   });
-  return { browser, ctx, page: await ctx.newPage() };
+  const page = await ctx.newPage();
+  // A screen that isn't there is listed as missed, never waited for forever.
+  page.setDefaultTimeout(15000);
+  return { browser, ctx, page };
 }
 
 for (const v of variants) {
