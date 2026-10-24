@@ -52,6 +52,11 @@ export interface NoteViewProps {
   onConfirmTeeth?: (teeth: string[], confirmed: boolean) => void;
   /** A confirmation is being saved. */
   confirming?: boolean;
+  /**
+   * Phones (ADR-0027): a tap on a sentence picks it, so Review can show the
+   * line it came from with "Play this moment", instead of playing at once.
+   */
+  onPick?: (ids: number[]) => void;
 }
 
 type Statement = { text?: string; value?: string | number; unit?: string | null; evidence?: number[]; entered_by?: string } & Record<
@@ -107,7 +112,9 @@ export function NoteView({
   unconfirmedTeeth,
   onConfirmTeeth,
   confirming = false,
+  onPick,
 }: NoteViewProps) {
+  const choose = onPick ?? onPlay;
   const t = useT();
   const lowerInner = useLowerInner();
   const { hard, soft } = flagsFor(run.faithfulness, t);
@@ -137,8 +144,8 @@ export function NoteView({
         onMouseLeave={() => onEvidence(null)}
         onFocus={() => onEvidence(ev)}
         onBlur={() => onEvidence(null)}
-        onClick={() => ev.length && onPlay(ev)}
-        onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && ev.length && (e.preventDefault(), onPlay(ev))}
+        onClick={() => ev.length && choose(ev)}
+        onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && ev.length && (e.preventDefault(), choose(ev))}
       >
         {content}
         {vet && <span className="vet-mark small faint">{` ${t("Edited by {name}", { name: vet })}`}</span>}

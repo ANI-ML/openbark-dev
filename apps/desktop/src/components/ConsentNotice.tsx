@@ -1,6 +1,8 @@
 import { Button, Dialog } from "@openbark/ui";
-import { useState } from "react";
+import { useContext, useState } from "react";
+import { AppContext } from "../context";
 import { useT } from "../i18n";
+import { isIos } from "../visits";
 
 export interface ConsentNoticeProps {
   onAccept: () => void;
@@ -13,6 +15,8 @@ export interface ConsentNoticeProps {
  */
 export function ConsentNotice({ onAccept }: ConsentNoticeProps) {
   const t = useT();
+  // The device's own word (ADR-0027): "this iPhone" on the iPhone profile.
+  const ios = isIos(useContext(AppContext)?.status);
   const [checked, setChecked] = useState(false);
   return (
     <Dialog labelledBy="consent-notice-title" onClose={onAccept} dismissible={false}>
@@ -30,9 +34,13 @@ export function ConsentNotice({ onAccept }: ConsentNoticeProps) {
             )}
           </p>
           <p className="small muted">
-            {t(
-              "Recordings and notes stay on this computer. You can record how each client consented by turning on the consent step in Settings.",
-            )}
+            {ios
+              ? t(
+                  "Recordings and notes stay on this iPhone. You can record how each client consented by turning on the consent step in Settings.",
+                )
+              : t(
+                  "Recordings and notes stay on this computer. You can record how each client consented by turning on the consent step in Settings.",
+                )}
           </p>
           <label className="check">
             <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} />

@@ -23,6 +23,10 @@ INDIRECT = [
     "Bullet points", "Text box", "Sentences that read as a paragraph, each linked to where it was said", "Measurements", "Medications", "Subheadings",
     "Bullet points, each linked to where it was said", "Drug, dose, route, frequency, duration",
     "Record", "Patients", "Templates", "Models", "Settings", "This device", "Web, this computer only",
+    # Redesign (ADR-0027): App NAV, Visits WHEN, Settings TITLE
+    "Visits", "Help", "Today", "This week", "Earlier",
+    "You and your team", "Recording and consent", "Language and appearance", "Phone calls", "PDFs and copying",
+    "Encrypted sync", "Privacy and storage", "Deleted visits", "About",
     # @openbark/ui ThemeToggle (translated through its `translate` prop)
     "Theme", "System", "Light", "Dark",
     # UserPicker ROLE_LABEL
