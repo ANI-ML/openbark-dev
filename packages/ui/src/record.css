@@ -96,6 +96,14 @@
   .ob-record-glyph { width: 28px; height: 28px; }
 }
 
+/* The Record screen's button (ADR-0027, amending §7.1): a 96 px circle on
+   every device, flat (no tile, no shadow), "Record" beneath at 15 px 600. */
+.ob-record-wrap[data-size="large"] { gap: 12px; }
+.ob-record-wrap[data-size="large"] .ob-record { width: 96px; height: 96px; }
+.ob-record-wrap[data-size="large"] .ob-record-glyph { width: 48px; height: 48px; }
+.ob-record-wrap[data-size="large"] .ob-record-label { font-size: 15px; line-height: 24px; font-weight: 600; letter-spacing: 0; color: var(--ink); }
+.ob-record-wrap[data-size="large"] .ob-record-spinner { inset: -6px; border-width: 3px; }
+
 /* Reduced motion (§5.4): a static accent ring instead of the pulse, and a
    static ring for processing. */
 @media (prefers-reduced-motion: reduce) {

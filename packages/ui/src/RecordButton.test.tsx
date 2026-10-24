@@ -22,6 +22,12 @@ it("is a labelled toggle that reflects the recording state", async () => {
   expect(rec.getAttribute("data-state")).toBe("recording");
 });
 
+it("comes in the Record screen's 96 px size, and its clock is a timer", () => {
+  const { container } = render(<RecordButton recording elapsed={5} size="large" onToggle={() => {}} />);
+  expect(container.querySelector(".ob-record-wrap")?.getAttribute("data-size")).toBe("large");
+  expect(screen.getByRole("timer").textContent).toBe("Recording · 00:05");
+});
+
 it("can't be pressed while starting or stopping", () => {
   render(<RecordButton recording={false} busy onToggle={() => {}} levels={createLevelSource()} />);
   expect((screen.getByRole("button") as HTMLButtonElement).disabled).toBe(true);

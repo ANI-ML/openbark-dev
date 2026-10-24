@@ -42,6 +42,11 @@ export interface RecordButtonProps {
   processing?: boolean;
   /** Hide the visible label under the button (the screen shows its own). */
   hideLabel?: boolean;
+  /**
+   * "large": the 96 px circle the Record screen uses, with a 15 px label
+   * (ADR-0027, amending §7.1). Other places keep the default 48/56 px.
+   */
+  size?: "default" | "large";
   className?: string;
 }
 
@@ -72,6 +77,7 @@ export function RecordButton({
   paused,
   processing,
   hideLabel,
+  size = "default",
   className,
 }: RecordButtonProps) {
   const state: RecordState = processing ? "processing" : paused ? "paused" : recording ? "recording" : "idle";
@@ -94,7 +100,11 @@ export function RecordButton({
   const announcement = state === "idle" ? "" : text[state];
 
   return (
-    <div className={className ? `ob-record-wrap ${className}` : "ob-record-wrap"} data-state={state}>
+    <div
+      className={className ? `ob-record-wrap ${className}` : "ob-record-wrap"}
+      data-state={state}
+      data-size={size === "large" ? "large" : undefined}
+    >
       <span className="ob-record-target">
         {state === "recording" && <span className="ob-record-pulse" aria-hidden />}
         {state === "processing" && <span className="ob-record-spinner" aria-hidden />}
@@ -112,15 +122,22 @@ export function RecordButton({
               into place (record.css, @starting-style). */}
           <span className="ob-record-icon" key={state === "recording" ? "stop" : "mark"}>
             {state === "recording" ? (
-              <Square size={20} aria-hidden />
+              <Square size={size === "large" ? 32 : 20} aria-hidden />
             ) : (
-              <MarkMono size={24} className="ob-record-glyph" />
+              <MarkMono size={size === "large" ? 48 : 24} className="ob-record-glyph" />
             )}
           </span>
         </button>
       </span>
       {!hideLabel && (
-        <span className="ob-record-label" data-state={state} key={state}>
+        // While recording the label is a clock: role="timer" is not announced
+        // every second; the state changes are (the live region below).
+        <span
+          className="ob-record-label"
+          data-state={state}
+          key={state}
+          role={state === "recording" ? "timer" : undefined}
+        >
           {visible}
         </span>
       )}
