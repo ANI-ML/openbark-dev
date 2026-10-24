@@ -39,7 +39,7 @@ Schema `clinic`, exposed to the REST API like `sync` (`supabase/config.toml` loc
 - **admin**: a practice manager or medical director. Invites and removes people, changes roles, makes join codes, renames or deletes the clinic, and sees the dashboard.
 - **member**: sees their clinic, their own counts and their sharing choice, and can leave.
 
-Whoever creates a clinic is its first admin. **A clinic always has at least one admin**: the functions refuse to remove, demote or let leave the last admin (`last_admin`), and a trigger refuses any role change that would leave none. An admin who wants to go hands over first (makes someone else an admin), or deletes the clinic (typing its name to confirm).
+Whoever creates a clinic is its first admin. **A clinic always has at least one admin**: the functions refuse to remove, demote or let leave the last admin (`last_admin`), taking the clinic row's lock first so two admins acting at once can't both go, and a trigger refuses any role change that would leave none. An admin who wants to go hands over first (makes someone else an admin), or deletes the clinic (typing its name to confirm).
 
 ### 3. Invites by email, and join codes
 
@@ -123,6 +123,7 @@ Phase 2 sends them from the app; phase 1 builds the table, the function and the 
 - An explicit switch, **"Share usage counts with <clinic>"**, off until the person turns it on; it calls `set_usage_sharing` and starts the reporter. The settings page lists exactly what is sent (section 5) and shows the last report.
 - **The reporter in Rust**: in `os-sync` or a small new crate behind the allow-listed HTTP client (`scripts/ci/check-network.sh`), counting from the local visit list (visits recorded, minutes of audio, notes drafted and signed, calls recorded) per local day, sending the last 7 days' totals once a day. A guard like `os_sync::guard` refuses any body with a field other than the count columns.
 - Joining from the app needs the account's sign-in only; it doesn't need encrypted sync turned on.
+- **"Delete my sync account" in the app warns too.** It calls the same `delete-account` function, so it also deletes any clinic the person is the only admin of. Phase 1 warns only on the portal; phase 2 shows the same warning in the app (from `my_clinics`, `sole_admin`) before it calls the function.
 
 ### 8. Later
 

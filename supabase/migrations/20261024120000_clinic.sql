@@ -522,8 +522,12 @@ set search_path = ''
 as $$
 declare
   uid uuid := clinic.require_user();
-  r text := clinic.role_of(leave_clinic.clinic_id, uid);
+  r text;
 begin
+  -- The clinic row's lock serialises every change to its admins, so two
+  -- admins leaving or demoting each other at once can't leave none.
+  perform 1 from clinic.clinics c where c.id = leave_clinic.clinic_id for update;
+  r := clinic.role_of(leave_clinic.clinic_id, uid);
   if r is null then
     perform clinic.fail('not_member');
   end if;
@@ -545,6 +549,7 @@ declare
   uid uuid := clinic.require_user();
   r text;
 begin
+  perform 1 from clinic.clinics c where c.id = remove_member.clinic_id for update;
   perform clinic.require_admin(remove_member.clinic_id, uid);
   r := clinic.role_of(remove_member.clinic_id, remove_member.user_id);
   if r is null then
@@ -568,6 +573,7 @@ declare
   uid uuid := clinic.require_user();
   r text;
 begin
+  perform 1 from clinic.clinics c where c.id = set_member_role.clinic_id for update;
   perform clinic.require_admin(set_member_role.clinic_id, uid);
   if set_member_role.role is null or set_member_role.role not in ('admin', 'member') then
     perform clinic.fail('bad_role');
