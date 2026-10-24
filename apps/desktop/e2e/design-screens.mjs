@@ -51,7 +51,8 @@ const taken = [];
 
 /** Write the index and exit, whatever is still open (a browser, a stuck page). */
 function finish() {
-  writeFileSync(`${out}/index.json`, JSON.stringify({ taken, missed }, null, 2));
+  // One index per pass (the workflow runs desktop, then phone, into the same folder).
+  writeFileSync(`${out}/index-${want.join("-")}.json`, JSON.stringify({ taken, missed }, null, 2));
   console.log(`${taken.length} screenshots in ${out}`);
   if (missed.length) console.log(`Not reached:\n${missed.join("\n")}`);
   process.exit(0);
@@ -141,7 +142,7 @@ for (const v of variants) {
     // The drafted visit (Maple), so Review shows a note; any visit otherwise.
     const drafted = page.locator(".row-link:visible", { hasText: "Maple" }).first();
     await ((await drafted.count()) ? drafted : page.locator(".row-link:visible").first()).click();
-    await page.locator(".note, .transcript").first().waitFor({ timeout: 20000 });
+    await page.locator(".note:visible, .transcript:visible").first().waitFor({ timeout: 20000 });
     await shot("review");
     await shot("review-full", { fullPage: true });
   });

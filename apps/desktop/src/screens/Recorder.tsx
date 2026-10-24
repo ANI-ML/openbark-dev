@@ -1,5 +1,17 @@
 import { Button, RecordButton, Sheet, StatusDot, Waveform, formatElapsed } from "@openbark/ui";
-import { Check, ChevronRight, ClipboardList, Mic, PawPrint, Phone, Square, Upload, X } from "lucide-react";
+import {
+  Check,
+  ChevronRight,
+  ClipboardList,
+  FileText,
+  Mic,
+  PawPrint,
+  Phone,
+  Square,
+  Upload,
+  Users,
+  X,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "../context";
 import * as engine from "../engine";
@@ -437,9 +449,12 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
         disabled: locked,
       })}
       {checkRow(t("Label speakers"), app.settings.labelSpeakers, (v) => app.setSettings({ labelSpeakers: v }), {
+        icon: phone ? <Users size={20} aria-hidden className="opt-icon" /> : undefined,
         disabled: locked,
       })}
-      {checkRow(t("Draft the note when I stop"), app.settings.draftOnStop, (v) => app.setSettings({ draftOnStop: v }))}
+      {checkRow(t("Draft the note when I stop"), app.settings.draftOnStop, (v) => app.setSettings({ draftOnStop: v }), {
+        icon: phone ? <FileText size={20} aria-hidden className="opt-icon" /> : undefined,
+      })}
     </div>
   );
 

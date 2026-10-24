@@ -1202,7 +1202,7 @@ export function Review({
 
       {phone && run && template && (
         <div className="review-dock">
-          {quoteSeg && (
+          {quoteSeg && tab === "note" && (
             <div className="quote-card" role="region" aria-label={t("Where it was said")}>
               <span className="quote-head">
                 <span className="label">
