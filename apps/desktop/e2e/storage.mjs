@@ -26,7 +26,7 @@ await ctx.addInitScript(() => {
 const page = await ctx.newPage();
 page.on("pageerror", (e) => problems.push(`${e}`));
 const settings = async () => {
-  await page.locator(".nav-item").nth(4).click();
+  await page.locator('.nav-item[data-nav="settings"]').click();
   await page.locator(".storage-row").first().waitFor();
   await page.locator(".storage-row").first().scrollIntoViewIfNeeded();
 };
@@ -56,7 +56,7 @@ check(!existsSync(`${root}/visits`), "the old visits folder should be gone");
 check(existsSync(`${root}/Clinic share/patients.json`), "patients.json should have moved");
 
 // The visits still open from their new place.
-await page.locator(".nav-item").nth(1).click();
+await page.locator('.nav-item[data-nav="patients"]').click();
 await page.locator(".patient-row").first().waitFor();
 const names = await page.locator(".patient-name").allInnerTexts();
 check(

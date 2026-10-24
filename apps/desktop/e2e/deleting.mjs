@@ -21,6 +21,7 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { chromium } from "@playwright/test";
+const OLD_NAV = ["record", "patients", "templates", "models", "settings", "help"]; // nav by name (data-nav, ADR-0027)
 
 const base = process.env.OPENBARK_URL ?? "http://localhost:4325";
 const out = process.env.OUT_DIR ?? "../../target/deleting";
@@ -162,7 +163,7 @@ async function shot(page, v, name) {
 }
 
 const nav = async (page, i) => {
-  await page.locator(".nav-item").nth(i).click();
+  await page.locator(`.nav-item[data-nav="${OLD_NAV[i]}"]`).click();
   await page.locator(".screen h1").first().waitFor();
 };
 async function openPatient(page, name) {
@@ -174,9 +175,17 @@ async function openPatient(page, name) {
 async function openVisit(page, patient, reason) {
   await openPatient(page, patient);
   await page.locator(".visit-row", { hasText: reason }).click();
-  await page.locator(".review .visit-facts").waitFor();
+  await page.locator(".review .review-meta").waitFor();
+  // Delete visit and Delete recording live in Review's More (ADR-0027).
+  await openMore(page);
+}
+async function openMore(page) {
+  if (await page.locator(".more-panel").count()) return;
+  await page.getByRole("button", { name: "More actions" }).first().click();
+  await page.locator(".more-panel").waitFor();
 }
 async function deleteFromReview(page, reasonLabel) {
+  await openMore(page);
   await page.getByRole("button", { name: "Delete visit" }).click();
   await page.getByRole("menu").waitFor();
   await page.getByRole("menuitem", { name: reasonLabel }).click();
@@ -260,9 +269,8 @@ step("single-user: delete a multi-pet visit from Pickles's page, Undo, restore, 
   const { ctx, page } = await open(v);
   await openVisit(page, "Pickles", olive.reason);
 
-  // Keyboard: Tab to Delete visit, Enter opens the menu, arrows move, Escape returns focus.
-  await page.getByRole("button", { name: "Edit details" }).focus();
-  await page.keyboard.press("Tab");
+  // Keyboard: Delete visit in More, Enter opens the menu, arrows move, Escape returns focus.
+  await page.getByRole("button", { name: "Delete visit" }).focus();
   const focused = () => page.evaluate(() => document.activeElement?.textContent?.trim() ?? "");
   check((await focused()) === "Delete visit", `Tab should reach Delete visit, reached "${await focused()}"`);
   const ring = await page.evaluate(() => {
@@ -314,7 +322,7 @@ step("single-user: delete a multi-pet visit from Pickles's page, Undo, restore, 
   await shot(page, v, "1-after-delete");
   await toast.getByRole("button", { name: "Undo" }).click();
   await page.locator(".ob-toast", { hasText: "Visit restored" }).waitFor();
-  await page.locator(".review .visit-facts").waitFor();
+  await page.locator(".review .review-meta").waitFor();
   check((await api("GET", `/api/sessions/${olive.id}`)).status === 200, "Undo should restore the same id");
   check((await api("GET", "/api/deleted?by=Dr%20Rivera")).json?.length === 0, "nothing left in Deleted visits after Undo");
 
@@ -448,6 +456,7 @@ for (const v of variants) {
   await shot(page, v, "3-menu");
   await page.keyboard.press("Escape");
   if (v.isMobile) await page.getByRole("tab", { name: "Transcript" }).click();
+  await openMore(page);
   await page.getByRole("button", { name: "Delete recording" }).click();
   await page.getByRole("dialog").waitFor();
   check((await page.getByRole("dialog").innerText()).includes("The note isn't signed yet."), `${v.name}: the unsigned line`);
@@ -521,10 +530,8 @@ step("team: reception, technician and veterinarian");
     check((await titleOf(del)) === PHASE_1, `its tooltip: ${await titleOf(del)}`);
     const rec = page.getByRole("button", { name: "Delete recording" });
     check(await rec.isDisabled(), "the technician's Delete recording on a signed visit should be disabled");
-    check(
-      (await titleOf(rec)) === "Only a veterinarian can delete the recording of a signed visit.",
-      `its tooltip: ${await titleOf(rec)}`,
-    );
+    const why = await rec.evaluate((el) => document.getElementById(el.getAttribute("aria-describedby") ?? "")?.textContent);
+    check(why === "Only a veterinarian can delete the recording of a signed visit.", `why it can't: ${why}`);
     const r = await api("POST", `/api/sessions/${mine(signedVisit.id)}/recording/delete`, { by: rvt.id });
     check(r.json?.error === "Only a veterinarian can delete the recording of a signed visit.", `technician's recording delete: ${r.text}`);
     await ctx.close();
