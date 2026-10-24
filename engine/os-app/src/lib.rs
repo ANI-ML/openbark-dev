@@ -47,11 +47,11 @@ pub use templates::{
     TemplatesMode,
 };
 
-mod sync;
 #[doc(hidden)]
 pub mod demo;
 mod mic;
 mod phone;
+mod sync;
 mod templates;
 pub use mic::{MicLevel, MicTestStarted};
 pub use os_connect::{ConnectStore, PhonePrefs};
