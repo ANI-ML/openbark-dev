@@ -138,7 +138,9 @@ for (const v of variants) {
     await shot("visits");
   });
   await attempt("review", async () => {
-    await page.locator(".row-link:visible").first().click();
+    // The drafted visit (Maple), so Review shows a note; any visit otherwise.
+    const drafted = page.locator(".row-link:visible", { hasText: "Maple" }).first();
+    await ((await drafted.count()) ? drafted : page.locator(".row-link:visible").first()).click();
     await page.locator(".note, .transcript").first().waitFor({ timeout: 20000 });
     await shot("review");
     await shot("review-full", { fullPage: true });
@@ -210,10 +212,10 @@ for (const v of variants) {
 
 // The recording screen, with a fake microphone (Chromium only).
 if (process.env.RECORDING === "1") {
+  // Phones only: on a computer the demo has no note model (Gemma 4 E4B), so Record waits for it.
   const recs = [
     { ...all[0], name: "phone-light-chromium", engine: chromium },
     { ...all[1], name: "phone-dark-chromium", engine: chromium },
-    { ...all[2], name: "desktop-light" },
   ].filter((v) => want.some((w) => v.name.startsWith(w)));
   for (const v of recs) {
     let browser = null;

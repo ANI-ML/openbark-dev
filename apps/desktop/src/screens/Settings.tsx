@@ -306,8 +306,7 @@ function SectionBody({ section }: { section: SettingsSection }) {
     case "recording":
       return (
         <>
-          <section className="group">
-            <h2>{t("Microphone")}</h2>
+          <section className="group" aria-label={t("Microphone")}>
             <div className="narrow">
               <MicCheck id="settings-mic" />
             </div>

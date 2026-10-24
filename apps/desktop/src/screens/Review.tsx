@@ -600,7 +600,8 @@ export function Review({
         view.call && view.consent
           ? callConsentLine(t, view.call, view.consent)
           : view.consent
-            ? t("Consent: {text}.", { text: engine.consentText(view.consent) })
+            ? // Without the machine timestamp: the meta line already says when (ADR-0027).
+              t("Consent: {text}.", { text: engine.consentText(view.consent).replace(/, \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/, "") })
             : "",
       ]
         .filter(Boolean)

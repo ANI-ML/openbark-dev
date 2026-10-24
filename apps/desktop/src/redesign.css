@@ -223,8 +223,8 @@ body:has(.recording-screen) .frame { padding-bottom: 0; }
 .rec-stop { width: 100%; height: 56px; border-radius: var(--r-xl); }
 
 /* Visits */
-.visits-tools { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.visits-search { flex: 0 1 280px; }
+.visits-tools { display: flex; align-items: center; gap: 12px; flex-wrap: nowrap; }
+.visits-search { flex: 0 1 280px; width: 280px; }
 .visits-when .ob-segment:disabled { opacity: 0.55; cursor: default; }
 .visits-table { min-width: 760px; }
 .visits-table .group-row th { padding: 10px 16px; background: var(--surface-2); border-top: 1px solid var(--border); color: var(--ink-2); font-size: 13px; line-height: 18px; font-weight: 600; text-align: left; }
@@ -233,8 +233,8 @@ body:has(.recording-screen) .frame { padding-bottom: 0; }
 .cell-link:hover { text-decoration: underline; text-underline-offset: 3px; }
 .nowrap { white-space: nowrap; }
 @media (max-width: 640px) {
-  .visits-tools { width: 100%; }
-  .visits-search { flex: 1 1 100%; }
+  .visits-tools { width: 100%; flex-wrap: wrap; }
+  .visits-search { flex: 1 1 100%; width: auto; }
   .visits-when { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; }
 }
 
@@ -286,7 +286,13 @@ body:has(.recording-screen) .frame { padding-bottom: 0; }
 @media (pointer: coarse) { .more-item { min-height: 44px; } }
 .more-why { margin: 0; padding: 0 10px 8px; }
 .more-call .ob-button, .more-panel .delete-visit, .more-panel .delete-visit > .ob-button { width: 100%; justify-content: flex-start; }
+.more-call .ob-button { height: 40px; padding: 8px 10px; gap: 10px; font-size: 15px; font-weight: 400; border-radius: var(--r-sm); }
 .more-panel .delete-visit { margin-top: 4px; padding-top: 6px; border-top: 1px solid var(--border); }
+/* Delete visit reads as a menu row in More (still the danger colour), its reasons open beneath. */
+.more-panel .delete-visit > .ob-button { height: 40px; padding: 8px 10px; gap: 10px; border: 0; background: transparent; font-size: 15px; font-weight: 400; border-radius: var(--r-sm); }
+.more-panel .delete-visit > .ob-button:hover:not(:disabled) { background: var(--surface-2); }
+.more-panel .delete-visit > .ob-button svg { width: 18px; height: 18px; }
+.more-panel .delete-menu { position: static; width: auto; margin-top: 6px; box-shadow: none; }
 .draft-origin-text { display: inline-flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .review-dock {
   position: sticky;
