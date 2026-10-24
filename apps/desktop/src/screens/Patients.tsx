@@ -9,6 +9,7 @@ import * as engine from "../engine";
 import { templateName, useT } from "../i18n";
 import { speciesName } from "../species";
 import { SpeciesIcon, TemplateIcon } from "../templateIcons";
+import { whenLabel } from "../visits";
 
 /**
  * Patients (ADR-0011): one row per animal, most recently seen first, with a
@@ -116,7 +117,7 @@ export function Patients() {
                       </span>
                       <span className="patient-last-text">
                         <span className="small">{r.last_type ? templateName(t, r.last_type) : t("No draft")}</span>
-                        <span className="small faint mono">{r.last_visit}</span>
+                        <span className="small faint">{whenLabel(r.last_visit, new Date(), app.settings.uiLanguage, t)}</span>
                       </span>
                     </span>
                   )}

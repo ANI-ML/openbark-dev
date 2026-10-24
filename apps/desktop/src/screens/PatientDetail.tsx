@@ -8,6 +8,7 @@ import { CallButton } from "../components/CallButton";
 import { ReprocessSheet } from "../components/ReprocessSheet";
 import { formatPhone } from "../phone/format";
 import { SPECIES, speciesName } from "../species";
+import { whenLabel } from "../visits";
 import { SpeciesIcon, TemplateIcon } from "../templateIcons";
 
 /** One patient (ADR-0011): their details, and every visit, newest first. */
@@ -207,7 +208,7 @@ export function PatientDetail({ id }: { id: string }) {
                     </span>
                   </span>
                   <span className="visit-meta">
-                    <span className="small faint mono">{v.created_at}</span>
+                    <span className="small faint">{whenLabel(v.created_at, new Date(), app.settings.uiLanguage, t)}</span>
                     <span className="small faint mono">{fmtTime(v.audio_secs)}</span>
                     {v.signed ? (
                       <StatusDot tone="ok">{t("Signed")}</StatusDot>
