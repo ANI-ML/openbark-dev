@@ -46,7 +46,7 @@ COFFEE = "https://buymeacoffee.com/animlhealth"
 # clean URLs (vercel.json), so features.html is canonically /features.
 SITE_URL = "https://www.openbark.io"
 OG_IMAGE = SITE_URL + "/og-image.png"  # website/public/og-image.png, from docs/brand/images
-PAGES = {"home": "/", "features": "/features", "history": "/history", "portal": "/portal"}
+PAGES = {"home": "/", "features": "/features", "history": "/history", "portal": "/portal", "privacy": "/privacy"}
 
 # The account portal (ADR-0017) signs in with Supabase Auth. supabase-js comes
 # from jsDelivr, pinned to one version and checked with Subresource Integrity:
@@ -187,7 +187,7 @@ FOOTER = f"""<footer class="site-foot">
         <a href="index.html#download">Download</a>
 {FOOT_ACCOUNT}        <a href="mailto:{CONTACT}">{CONTACT}</a>
         <a href="{COFFEE}" rel="noopener">Buy us a coffee</a>
-        <a href="features.html#privacy">Privacy</a>
+        <a href="privacy.html">Privacy</a>
         <a href="https://www.apache.org/licenses/LICENSE-2.0">Licence: Apache-2.0</a>{SOURCE_FOOT}
       </nav>
     </div>
@@ -475,6 +475,16 @@ def main():
         + f'<script src="{SUPABASE_JS}" integrity="{SUPABASE_JS_SRI}" crossorigin="anonymous" referrerpolicy="no-referrer"></script>\n'
         + '<script src="portal.js"></script>\n',
     )
+    privacy = read(SRC, "privacy.html").replace("{{PRODUCT}}", e(PRODUCT)).replace("{{CONTACT}}", e(CONTACT))
+    privacy_doc = document(
+        head(
+            f"{PRODUCT} Privacy",
+            f"What {PRODUCT} sends, and when. Recordings and notes stay on your clinic's devices; with encrypted sync on, "
+            f"only encrypted copies leave them. {CREDIT}",
+            "privacy",
+        ),
+        header("privacy") + '<main id="main">\n' + privacy + "</main>\n" + FOOTER,
+    )
     lost_doc = document(
         head(f"Page not found, {PRODUCT}", f"This page isn't part of the {PRODUCT} website.", "lost"),
         header("lost") + '<main id="main">\n' + LOST + "</main>\n" + FOOTER,
@@ -488,13 +498,14 @@ def main():
     io.open(os.path.join(DIST, "404.html"), "w", encoding="utf-8", newline="\n").write(lost_doc)
     io.open(os.path.join(DIST, "history.html"), "w", encoding="utf-8", newline="\n").write(history_doc)
     io.open(os.path.join(DIST, "portal.html"), "w", encoding="utf-8", newline="\n").write(portal_doc)
+    io.open(os.path.join(DIST, "privacy.html"), "w", encoding="utf-8", newline="\n").write(privacy_doc)
     io.open(os.path.join(ROOT, "CHANGELOG.md"), "w", encoding="utf-8", newline="\n").write(changelog_md(history))
     for name in ("site.css", "site.js", "portal.js"):
         shutil.copy(os.path.join(SRC, name), os.path.join(DIST, name))
     pub = os.path.join(SITE, "public")
     for name in os.listdir(pub):
         shutil.copy(os.path.join(pub, name), os.path.join(DIST, name))
-    print(f"wrote {DIST}: index.html, features.html ({sum(len(c['items']) for c in content['categories'])} features), history.html, portal.html")
+    print(f"wrote {DIST}: index.html, features.html ({sum(len(c['items']) for c in content['categories'])} features), history.html, portal.html, privacy.html")
 
     if preview:
         os.makedirs(preview, exist_ok=True)

@@ -687,3 +687,12 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .pt-dl-files .btn { white-space: normal; }
 .status.pt-mine::before { background: var(--ink); }
 .pt-dl-note { padding: 12px 20px; border-top: 1px solid var(--line); font-size: 13px; line-height: 18px; color: var(--ink-2); }
+
+/* Privacy (and any other long text page): one readable column (DESIGN.md §5.2, 720 px). */
+.legal { padding: 8px 0 80px; }
+.legal .wrap { max-width: 720px; }
+.legal h2 { font-size: 24px; line-height: 30px; letter-spacing: -0.02em; margin: 40px 0 12px; }
+.legal p, .legal li { font-size: 16px; line-height: 26px; }
+.legal p { margin: 0 0 12px; }
+.legal ul { margin: 0 0 12px; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; }
+.legal-date { font-size: 14px; line-height: 20px; }
