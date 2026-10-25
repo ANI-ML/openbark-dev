@@ -50,7 +50,9 @@ os-llm = { workspace = true, features = ["default"] }
 
 # Phones (ADR-0018): recording to the encrypted visit folder first; `stt` and
 # `inference` above add the native libraries once each is proven on iOS.
+# `sync` is the clinic hub client (ADR-0029); it stays hidden unless the
+# build sets OPENBARK_SYNC_PREVIEW. Phones never get os-app's `hub` (the server).
 [target.'cfg(any(target_os = "ios", target_os = "android"))'.dependencies]
-os-app = { workspace = true, features = ["recorder"] }
+os-app = { workspace = true, features = ["recorder", "sync"] }
 os-engine = { workspace = true, features = ["recorder"] }
 os-llm.workspace = true

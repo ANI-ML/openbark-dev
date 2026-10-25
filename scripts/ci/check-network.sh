@@ -1,25 +1,63 @@
 #!/usr/bin/env bash
-# Local-first guard (docs/network.md): only the engine crates listed in
-# `allowed` may have an HTTP client. Fails if any other workspace crate pulls
-# in reqwest, ureq, hyper-based clients or similar.
+# Local-first guard (docs/network.md): only the crates named here may reach
+# the network, and each only in its own way. Fails if any other workspace
+# crate depends directly on an HTTP client, a TLS stack, an HTTP server, mDNS
+# or raw sockets, or opens a socket in its source.
+#
+# HTTP clients:
 #   os-models:  model downloads (R1, R2, R4, R5)
-#   os-sync:    encrypted sync, Supabase Auth and REST only (R12, R13; ADR-0017)
 #   os-connect: the clinic's own Twilio account, REST to api.twilio.com only
-#               (R9; ADR-0023, docs/adr/0023-bring-your-own-telephony.md)
+#               (R9; ADR-0023)
+#   os-sync:    encrypted sync: Supabase Auth and REST (R12, R13; being
+#               retired by ADR-0029 phase D)
+# The clinic hub (ADR-0029; docs/network.md L1 to L3):
+#   os-hub:     the hub's TLS listener (L1) and mDNS advertising (L2);
+#               desktop builds only
+#   os-sync:    the device's pinned-TLS hub client (L3) and mDNS browsing (L2)
+# Web mode:
+#   os-server:  `openbark serve`, bound to 127.0.0.1 only
 set -euo pipefail
 
-allowed="os-models os-connect os-sync"
 violations=0
-for client in reqwest ureq isahc attohttpc surf; do
-  # Workspace crates that depend on the client directly (normal deps only).
-  parents=$(cargo tree --workspace -e normal -i "$client" --prefix none --depth 1 2>/dev/null \
+
+check_dep() {
+  local dep=$1 allowed=$2 parents p
+  # Workspace crates that depend on the crate directly (normal deps only).
+  parents=$(cargo tree --workspace -e normal -i "$dep" --prefix none --depth 1 2>/dev/null \
     | grep -oE '^(os-[a-z]+|openbark-desktop|fixture-tts) v' | sed 's/ v$//' | sort -u || true)
   for p in $parents; do
     if [[ " $allowed " != *" $p "* ]]; then
-      echo "::error::$p depends on HTTP client '$client'; only $allowed may (see docs/network.md)"
+      echo "::error::$p depends on '$dep'; only [$allowed] may (see docs/network.md)"
       violations=$((violations + 1))
     fi
   done
+}
+
+http_clients="os-models os-connect os-sync"
+for client in reqwest ureq isahc attohttpc surf; do
+  check_dep "$client" "$http_clients"
 done
+check_dep rustls "os-sync os-hub"
+check_dep tokio-rustls "os-hub"
+check_dep hyper "os-hub"
+check_dep hyper-util "os-hub"
+check_dep axum "os-server"
+check_dep mdns-sd "os-sync os-hub"
+check_dep socket2 "os-hub"
+check_dep if-addrs "os-hub"
+
+# Sockets in source: only in the crates above (tests included, which use
+# loopback fakes).
+socket_crates="os-models os-connect os-sync os-hub os-server"
+mapfile -t files < <(grep -rlE '\b(TcpListener|TcpStream|UdpSocket)\b|socket2::' \
+  engine/*/src apps/desktop/src-tauri/src tools/*/src 2>/dev/null || true)
+for f in "${files[@]}"; do
+  crate=$(echo "$f" | sed -nE 's#^engine/(os-[a-z]+)/.*#\1#p')
+  if [[ -z "$crate" || " $socket_crates " != *" $crate "* ]]; then
+    echo "::error::$f opens a socket; only [$socket_crates] may (see docs/network.md)"
+    violations=$((violations + 1))
+  fi
+done
+
 if [[ $violations -gt 0 ]]; then exit 1; fi
-echo "network check: only [$allowed] have an HTTP client"
+echo "network check: HTTP clients only in [$http_clients]; TLS, listeners and mDNS only in os-sync, os-hub and os-server (loopback); sockets only in [$socket_crates]"

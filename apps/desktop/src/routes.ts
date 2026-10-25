@@ -13,6 +13,7 @@ export const SETTINGS_SECTIONS = [
   "phone",
   "pdf",
   "sync",
+  "hub",
   "privacy",
   "deleted",
   "about",

@@ -71,6 +71,11 @@
 //!   `{words, by}`, `POST /api/sync/now`, `POST /api/sync/devices/{did}/remove` `{by}`, `POST /api/sync/off`
 //!   `{by}`, `POST /api/sync/delete-account` `{confirm, by}`, `POST /api/sync/visits/{id}/stop` `{by}`.
 //!   The browser never sees a key: this process holds them and makes every sync call.
+//! - The clinic hub (ADR-0029; off until turned on): `POST /api/sync/hub/find` (mDNS, a few seconds),
+//!   `POST /api/sync/hub/join` `{link, address?, check?, device_name, backfill_days?, existing, by}`,
+//!   `GET /api/clinic-hub`, `POST /api/clinic-hub` `{on?, port?, allowed?, quota_mb?, by}`, `POST /api/clinic-hub/code`
+//!   `{by}`, `POST /api/clinic-hub/join-self` `{device_name, existing, by}`, `POST /api/clinic-hub/devices/{did}/remove`
+//!   `{by}`. The hub's own listener is separate (os-hub): this server stays on 127.0.0.1.
 //! - `GET  /api/events`                     server-sent events: segment, token, level, download
 //! - Phone calls through the clinic's own Twilio account (ADR-0023; outgoing
 //!   only): `GET /api/phone`, `GET /api/phone/bin?caller_id=` (the outgoing
@@ -361,6 +366,20 @@ fn router(state: St, ui_dir: &std::path::Path, port: u16) -> Router {
         .route("/api/sync/off", post(sync_off))
         .route("/api/sync/delete-account", post(sync_delete_account))
         .route("/api/sync/visits/{id}/stop", post(sync_stop_visit))
+        .route("/api/sync/hub/find", post(sync_find_hubs))
+        .route("/api/sync/hub/join", post(sync_join_hub))
+        .route(
+            "/api/clinic-hub",
+            get(|State(s): State<St>, Query(q): Query<ByQuery>| async move {
+                Json(s.app().clinic_hub_status(q.by.as_deref()))
+            })
+            .post(clinic_hub_settings),
+        )
+        .route("/api/sync/pair/confirm", post(sync_confirm_pairing))
+        .route("/api/sync/start-over", post(sync_start_over))
+        .route("/api/clinic-hub/code", post(clinic_hub_code))
+        .route("/api/clinic-hub/join-self", post(clinic_hub_join_self))
+        .route("/api/clinic-hub/devices/{did}/remove", post(clinic_hub_remove_device))
         .route("/api/events", get(events_stream))
         .route("/api/phone", get(phone_view))
         .route("/api/phone/bin", get(phone_bin))
@@ -781,6 +800,117 @@ async fn sync_stop_visit(
     Json(r): Json<ByBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     blocking(move || s.app().sync_stop_visit(&id, r.by.as_deref())).await
+}
+
+// ---- the clinic hub (ADR-0029) ----------------------------------------------
+
+#[derive(Deserialize)]
+struct SyncConfirmBody {
+    code: String,
+    #[serde(default)]
+    by: Option<String>,
+}
+
+async fn sync_confirm_pairing(
+    State(s): State<St>,
+    Json(r): Json<SyncConfirmBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().sync_confirm_pairing(&r.code, r.by.as_deref())).await
+}
+
+async fn sync_start_over(State(s): State<St>, Json(r): Json<ByBody>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().sync_start_over(r.by.as_deref())).await
+}
+
+async fn sync_find_hubs(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().sync_find_hubs()).await
+}
+
+#[derive(Deserialize)]
+struct SyncJoinHubBody {
+    /// The QR code's text, or the 8-character join code.
+    link: String,
+    #[serde(default)]
+    address: String,
+    #[serde(default)]
+    check: String,
+    #[serde(default)]
+    device_name: String,
+    #[serde(default)]
+    backfill_days: Option<u32>,
+    /// The person already syncs on another device.
+    #[serde(default)]
+    existing: bool,
+    #[serde(default)]
+    by: Option<String>,
+}
+
+async fn sync_join_hub(
+    State(s): State<St>,
+    Json(r): Json<SyncJoinHubBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || {
+        s.app().sync_join_hub(
+            &r.link,
+            &r.address,
+            &r.check,
+            &r.device_name,
+            r.backfill_days,
+            r.existing,
+            r.by.as_deref(),
+        )
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+struct HubSettingsBody {
+    #[serde(default)]
+    on: Option<bool>,
+    #[serde(default)]
+    port: Option<u16>,
+    #[serde(default)]
+    allowed: Option<Vec<String>>,
+    #[serde(default)]
+    quota_mb: Option<u64>,
+    #[serde(default)]
+    by: Option<String>,
+}
+
+async fn clinic_hub_settings(
+    State(s): State<St>,
+    Json(r): Json<HubSettingsBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().clinic_hub_settings(r.on, r.port, r.allowed, r.quota_mb, r.by.as_deref())).await
+}
+
+async fn clinic_hub_code(State(s): State<St>, Json(r): Json<ByBody>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().clinic_hub_join_code(r.by.as_deref())).await
+}
+
+#[derive(Deserialize)]
+struct HubJoinSelfBody {
+    #[serde(default)]
+    device_name: String,
+    #[serde(default)]
+    existing: bool,
+    #[serde(default)]
+    by: Option<String>,
+}
+
+async fn clinic_hub_join_self(
+    State(s): State<St>,
+    Json(r): Json<HubJoinSelfBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().clinic_hub_join_self(&r.device_name, r.existing, r.by.as_deref())).await
+}
+
+async fn clinic_hub_remove_device(
+    State(s): State<St>,
+    UrlPath(did): UrlPath<String>,
+    Json(r): Json<ByBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().clinic_hub_remove_device(&did, r.by.as_deref())).await
 }
 
 async fn delete_visit(

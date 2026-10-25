@@ -11,7 +11,10 @@
 # the iOS check job on a GitHub macOS runner (.github/workflows/ios.yml).
 #
 # Installs the Rust target with rustup if it's missing. Works in Git Bash on
-# Windows, on Linux and on macOS.
+# Windows, on Linux and on macOS, except for os-sync and os-app with `sync`:
+# since the clinic hub client (ADR-0029) they build ring's C and assembly
+# for iOS, which needs Apple's SDK, so those two only pass on a Mac (the iOS
+# check job runs this script on a macOS runner).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

@@ -35,7 +35,7 @@ fn sealed_kind(field: &str) -> Option<Sealed> {
         "space_key" | "wrapped_dek" => Sealed::Wrapped,
         "pair_blob" => Sealed::Wrapped,
         "x25519_pub" | "ed25519_pub" | "kit_pub" | "pair_mac" | "rebind_verifier" | "kit_verifier"
-        | "rebind_secret" | "kit_token" => Sealed::Key32,
+        | "rebind_secret" | "kit_token" | "pair_tag" => Sealed::Key32,
         _ => return None,
     })
 }

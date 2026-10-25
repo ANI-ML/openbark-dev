@@ -8,6 +8,7 @@ members = [
     "engine/os-engine",
     "engine/os-connect",
     "engine/os-sync",
+    "engine/os-hub",
     "engine/os-app",
     "engine/os-server",
     "engine/os-cli",
@@ -78,6 +79,24 @@ tauri-build = { version = "~2.7.3", features = [] }
 tauri-plugin-dialog = "~2.8.3"
 tauri-plugin-opener = "~2.7.2"
 
+# The clinic hub (ADR-0029), checked live 2026-10-25 (docs/versions.md).
+# TLS with ring, never aws-lc (no NASM or CMake for the crypto, and ring
+# builds for iOS on the macOS runner). TLS 1.3 only: both ends are OpenBark.
+rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std"] }
+tokio-rustls = { version = "=0.26.6", default-features = false, features = ["ring"] }
+# The hub's listener: HTTP/1.1 over tokio-rustls (the versions axum brings).
+hyper = { version = "=1.12.0", features = ["server", "http1"] }
+hyper-util = { version = "=0.1.21", features = ["tokio"] }
+http-body-util = "=0.1.5"
+# The hub's self-signed certificate (ECDSA P-256 with ring).
+rcgen = { version = "=0.14.10", default-features = false, features = ["crypto", "ring"] }
+# mDNS / DNS-SD: the hub advertises _openbark-hub._tcp, devices browse.
+mdns-sd = { version = "=0.21.5", default-features = false }
+# The hub computer's own addresses, for its join code (the version mdns-sd uses).
+if-addrs = "=0.15.0"
+# An IPv6-only listener beside the IPv4 one (the version tokio uses).
+socket2 = "=0.6.5"
+
 # The engine crates with native libraries behind features (ADR-0018 section 1):
 # each member names the features it needs; desktop members take "default".
 os-llm = { path = "engine/os-llm", default-features = false }
@@ -87,6 +106,7 @@ os-models = { path = "engine/os-models" }
 os-engine = { path = "engine/os-engine", default-features = false }
 os-connect = { path = "engine/os-connect" }
 os-sync = { path = "engine/os-sync" }
+os-hub = { path = "engine/os-hub" }
 os-server = { path = "engine/os-server" }
 os-app = { path = "engine/os-app", default-features = false }
 

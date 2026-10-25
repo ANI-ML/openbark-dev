@@ -1327,6 +1327,94 @@ async fn sync_stop_visit(
     work(move || app.sync_stop_visit(&id, by.as_deref())).await
 }
 
+// ---- the clinic hub (ADR-0029) ----------------------------------------------
+
+#[tauri::command]
+async fn sync_confirm_pairing(
+    app: State<'_, AppState>,
+    code: String,
+    by: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let app = app.inner().clone();
+    work(move || app.sync_confirm_pairing(&code, by.as_deref())).await
+}
+
+#[tauri::command]
+async fn sync_start_over(app: State<'_, AppState>, by: Option<String>) -> Result<serde_json::Value, String> {
+    let app = app.inner().clone();
+    work(move || app.sync_start_over(by.as_deref())).await
+}
+
+#[tauri::command]
+async fn sync_find_hubs(app: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let app = app.inner().clone();
+    work(move || app.sync_find_hubs()).await
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+async fn sync_join_hub(
+    app: State<'_, AppState>,
+    link: String,
+    address: String,
+    check: String,
+    device_name: String,
+    backfill_days: Option<u32>,
+    existing: bool,
+    by: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let app = app.inner().clone();
+    work(move || {
+        app.sync_join_hub(&link, &address, &check, &device_name, backfill_days, existing, by.as_deref())
+    })
+    .await
+}
+
+#[tauri::command]
+fn clinic_hub_status(app: State<'_, AppState>, by: Option<String>) -> serde_json::Value {
+    app.clinic_hub_status(by.as_deref())
+}
+
+#[tauri::command]
+async fn clinic_hub_settings(
+    app: State<'_, AppState>,
+    on: Option<bool>,
+    port: Option<u16>,
+    allowed: Option<Vec<String>>,
+    quota_mb: Option<u64>,
+    by: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let app = app.inner().clone();
+    work(move || app.clinic_hub_settings(on, port, allowed, quota_mb, by.as_deref())).await
+}
+
+#[tauri::command]
+async fn clinic_hub_code(app: State<'_, AppState>, by: Option<String>) -> Result<serde_json::Value, String> {
+    let app = app.inner().clone();
+    work(move || app.clinic_hub_join_code(by.as_deref())).await
+}
+
+#[tauri::command]
+async fn clinic_hub_join_self(
+    app: State<'_, AppState>,
+    device_name: String,
+    existing: bool,
+    by: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let app = app.inner().clone();
+    work(move || app.clinic_hub_join_self(&device_name, existing, by.as_deref())).await
+}
+
+#[tauri::command]
+async fn clinic_hub_remove_device(
+    app: State<'_, AppState>,
+    device_id: String,
+    by: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let app = app.inner().clone();
+    work(move || app.clinic_hub_remove_device(&device_id, by.as_deref())).await
+}
+
 /// Pins the command handler to the desktop runtime, so it can be wrapped.
 fn for_wry<F: Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool>(f: F) -> F {
     f
@@ -1400,6 +1488,15 @@ pub fn run() {
         sync_off,
         sync_delete_account,
         sync_stop_visit,
+        sync_find_hubs,
+        sync_join_hub,
+        sync_confirm_pairing,
+        sync_start_over,
+        clinic_hub_status,
+        clinic_hub_settings,
+        clinic_hub_code,
+        clinic_hub_join_self,
+        clinic_hub_remove_device,
         list_templates,
         template,
         preview_template,

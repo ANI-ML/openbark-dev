@@ -96,6 +96,18 @@ Email, sign-in times, IPs and user agents (Supabase logs); device count, platfor
 10. **Fuzzing** is a deterministic mutation fuzzer in the test suite, not coverage-guided (`cargo fuzz` needs nightly); worth a coverage-guided run during review.
 11. Hosted project region and the Pro plan (backups) are owner tasks before the pilot.
 
+## 8a. The clinic hub (ADR-0029, phase A)
+
+ADR-0029 replaces the hosted Supabase project with a hub on the clinic's own computer (`engine/os-hub`); the Supabase transport stays until phase D. Everything above about keys, formats, sealing, the roster, merging and the plaintext guard is unchanged: the hub stores the same ciphertext the project stored and can't open it. What is new, and in the review's scope:
+
+- **The listener** (docs/network.md L1): TLS 1.3 on the local network, only while hub mode is on, only for the allowed client ranges (others closed before the handshake), with body, connection and time limits, rate limits per address and per account, and a storage quota per account.
+- **Identity**: no email, passwords or tokens. Every request is signed with the device's Ed25519 key (time, nonce, method, path, body hash); the hub checks it against the key it registered. Creating an account and registering any device need a single-use hub join code shown on the hub; ten wrong codes lock a client address out for an hour.
+- **Pinning**: devices pin the hub certificate's SHA-256 (from the QR code, or after comparing a 10-character check typed from the hub's screen: an HMAC of the fingerprint keyed by the join code, so it can't be forged without the code) and check its self-signature; any other certificate is refused.
+- **New devices wait in a lobby**, filed under an Argon2id tag of their 6 words, until a device of the person's account (or the Recovery Kit) approves them. A device approved through the hub then syncs nothing until the person types the code their approving device shows, which names the account (another account's device that saw the words can't take it over).
+- **The hub computer's own accounts** are readable by whoever controls that computer, as on any of the account's devices.
+
+The SQL-to-Rust mapping of every function's checks is in [hub-authorization.md](hub-authorization.md).
+
 ## 9. Questions for the reviewers
 
 1. The typed 6-word pairing (section 4): sufficient? Should the approving device also show a code for the new device to confirm?
@@ -103,3 +115,4 @@ Email, sign-in times, IPs and user agents (Supabase logs); device count, platfor
 3. RLS policies and the `security definer` functions: any path for A2 or A4 to read or write another account's rows, or for a pending device to self-approve?
 4. The plaintext guard's rules: anything that could carry plaintext through a structural field?
 5. Recovery Kit derivations and the server-side kit verifier.
+6. The clinic hub (section 8a, [hub-authorization.md](hub-authorization.md)): any call whose hub check is weaker than its SQL original? Is the lobby (new devices unassigned until approved, found by an Argon2id tag of their words) sound? Are the join-code-keyed certificate check and the pairing confirmation code (both 40 to 50 bits, typed by people) enough on a clinic network?
