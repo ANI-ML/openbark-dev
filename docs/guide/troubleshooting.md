@@ -29,7 +29,7 @@
 
 ## Microphone problems
 
-Start with **Test microphone** on **Record** (or in **Settings → Recording**): speak, and the bar should move and say **Hearing you**.
+Start with **Test microphone** in **Settings → Recording and consent** (**Change** beside the microphone on **Record** opens it): speak, and the bar should move and say **Hearing you**.
 
 ### OpenBark isn't allowed to use the microphone
 

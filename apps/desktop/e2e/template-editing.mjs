@@ -19,6 +19,7 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { chromium } from "@playwright/test";
+const OLD_NAV = ["record", "patients", "templates", "models", "settings", "help"]; // nav by name (data-nav, ADR-0027)
 
 const base = process.env.OPENBARK_URL ?? "http://localhost:4327";
 const phase = process.env.PHASE ?? "1";
@@ -118,7 +119,7 @@ async function shot(page, v, name) {
   check(!wide, `${v.name} ${name}: the page scrolls sideways`);
 }
 const nav = async (page, i) => {
-  await page.locator(".nav-item").nth(i).click();
+  await page.locator(`.nav-item[data-nav="${OLD_NAV[i]}"]`).click();
   await page.locator(".screen h1").first().waitFor();
 };
 async function openTemplate(page, name) {
@@ -238,7 +239,7 @@ if (phase === "1") {
 
   // Review label as the technician (their version), with Ask's scope choice.
   ({ ctx, page } = await open(L, tech));
-  await page.locator(".nav-item").nth(1).click();
+  await page.locator('.nav-item[data-nav="patients"]').click();
   await page.locator(".patient-row", { hasText: "Biscuit" }).first().click();
   await page.locator(".visit-row").first().click();
   await page.locator(".draft-origin").waitFor();

@@ -211,6 +211,7 @@ Build on shadcn/ui primitives for accessibility, then restyle every one to these
 - Patients: one row per animal (species icon, name with the family name muted, species and visit count, last visit's type icon and date), most recently seen first, with a name filter. A segmented control switches to **Recent visits**, the day's list as a table (not cards): patient, time, template, status chip.
 - A patient's page: species icon, name, **Edit details** and **New visit** at the right, then every visit newest first with its type icon, reason, date, length and status. New visit opens Record with the patient filled in.
 - Record starts with **Find a patient**; choosing one fills the name, family name and species and links the visit. Typing a new name makes a new patient.
+- Amended by ADR-0027 (2026-10-24): Visits is its own destination (side menu and phone tab), grouped into Needs you and Done; Patients keeps animals and families, and "New visit" is gone (Record does it).
 
 **Model manager / Settings**
 - Left settings nav (list), right content with hairline-separated groups. Advanced model knobs live under a disclosure, never on the primary path.
@@ -223,6 +224,7 @@ Build on shadcn/ui primitives for accessibility, then restyle every one to these
 
 **Mobile**
 - Bottom tab bar: Record, Patients, Templates, Settings. The Record screen is one-handed: Record button in the lower third, transcript above. Review is tabbed (Transcript | Note) with a thumb-reachable Sign action. All targets ≥ 44px. No horizontal scrolling anywhere.
+- Amended by ADR-0027 (2026-10-24): the tabs are Record, Visits, Patients, Settings (Templates, Models and Help are rows in Settings); Record is centred in the main area with a full recording screen while recording; Review switches Note and Transcript, and there is no signing on the phone during the pilot ("Sign it on your computer.").
 
 ---
 

@@ -26,6 +26,7 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "@playwright/test";
+const OLD_NAV = ["record", "patients", "templates", "models", "settings", "help"]; // nav by name (data-nav, ADR-0027)
 
 const here = dirname(fileURLToPath(import.meta.url));
 const base = process.env.OPENBARK_URL ?? "http://localhost:4329";
@@ -142,7 +143,7 @@ async function open(v) {
   return { ctx, page };
 }
 const nav = async (page, i) => {
-  await page.locator(".nav-item").nth(i).click();
+  await page.locator(`.nav-item[data-nav="${OLD_NAV[i]}"]`).click();
   await page.locator(".screen h1").first().waitFor();
 };
 async function openVisit(page, v, patient, reason) {
@@ -150,7 +151,7 @@ async function openVisit(page, v, patient, reason) {
   await page.locator(".patient-row", { hasText: patient }).first().click();
   await page.locator(".patient-page .visit-list, .patient-page .empty-state").first().waitFor();
   await page.locator(".visit-row", { hasText: reason }).first().click();
-  await page.locator(".review .visit-facts").waitFor();
+  await page.locator(".review .review-meta").waitFor();
   if (v.isMobile) await page.getByRole("tab", { name: "Note" }).click();
   await page.locator("#note-dental_chart").waitFor();
 }

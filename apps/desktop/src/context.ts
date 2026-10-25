@@ -1,6 +1,6 @@
 import type { LevelSource } from "@openbark/ui";
 import { createContext, useContext } from "react";
-import type { Route } from "./App";
+import type { Route } from "./routes";
 import type { Role, Status, User } from "./engine";
 
 /** Per-device preferences (conveniences only; safe to lose). */
@@ -36,6 +36,8 @@ export interface Settings {
   /** What Copy note puts on the clipboard. */
   copyFormat: "plain" | "formatted" | "markdown";
   copyCitations: boolean;
+  /** iPhone profile: draft notes on the phone itself, or leave drafting to a computer (ADR-0027). */
+  writeNotesHere: boolean;
 }
 
 /** The app language to start in: the browser's, if we have it. */
@@ -72,6 +74,7 @@ const DEFAULTS: Settings = {
   pageSize: "letter",
   copyFormat: "plain",
   copyCitations: false,
+  writeNotesHere: true,
 };
 
 const KEY = "openbark.settings";

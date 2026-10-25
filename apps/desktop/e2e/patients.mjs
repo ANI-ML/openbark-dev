@@ -5,6 +5,7 @@
 // The demo should hold a patient with two visits (Juniper).
 import { mkdirSync } from "node:fs";
 import { chromium } from "@playwright/test";
+const OLD_NAV = ["record", "patients", "templates", "models", "settings", "help"]; // nav by name (data-nav, ADR-0027)
 
 const base = process.env.OPENBARK_URL ?? "http://localhost:4321";
 const out = process.env.OUT_DIR ?? "../../target/patients";
@@ -48,7 +49,7 @@ for (const v of variants) {
       const menu = page.locator(".nav-toggle, [aria-label='Menu']");
       if (await menu.count()) await menu.first().click();
     }
-    await page.locator(".nav-item").nth(i).click();
+    await page.locator(`.nav-item[data-nav="${OLD_NAV[i]}"]`).click();
     await page.locator(".screen h1").first().waitFor();
   };
 
@@ -58,7 +59,7 @@ for (const v of variants) {
   // 1. The patient list.
   await nav(1);
   await page.locator(".patient-list").waitFor();
-  check((await page.locator(".nav-item").nth(1).innerText()).includes("Patients"), `${v.name}: nav says Patients`);
+  check((await page.locator('.nav-item[data-nav="patients"]').innerText()).includes("Patients"), `${v.name}: nav says Patients`);
   const rows = await page.locator(".patient-row").count();
   check(rows > 0, `${v.name}: no patient rows`);
   await shot("patients", { fullPage: !v.isMobile });
@@ -71,10 +72,10 @@ for (const v of variants) {
   await page.locator(".patient-filter input").fill("");
 
   // Recent visits: the day's table (stacked rows on phones).
-  await page.locator(".patients-bar .ob-segment").nth(1).click();
+  await page.locator('.nav-item[data-nav="visits"]').click();
   await page.locator(".row-link").first().waitFor();
   await shot("recent-visits");
-  await page.locator(".patients-bar .ob-segment").nth(0).click();
+  await page.locator('.nav-item[data-nav="patients"]').click();
 
   // 2. A patient's page.
   await page.locator(".patient-row", { hasText: "Juniper" }).first().click();
@@ -100,7 +101,7 @@ for (const v of variants) {
     // Drafting starts by itself (the button turns to its busy state or tokens stream in).
     await page.waitForTimeout(1500);
     await shot("reprocess-drafting");
-    await page.locator(".nav-item").nth(1).click();
+    await page.locator('.nav-item[data-nav="patients"]').click();
     await page.locator(".patient-row", { hasText: "Juniper" }).first().click();
     await page.locator(".visit-list").waitFor();
   } else {

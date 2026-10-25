@@ -123,7 +123,7 @@ const mlxCard = () => page.locator(".mlx-card");
 
 async function goModels() {
   await page.goto(base);
-  await page.locator(".nav-item").nth(3).click();
+  await page.locator('.nav-item[data-nav="models"]').click();
   await page.locator(".screen h1", { hasText: "Models" }).waitFor();
 }
 

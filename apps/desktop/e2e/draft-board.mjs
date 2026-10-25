@@ -55,8 +55,8 @@ page.on("pageerror", (e) => problems.push(`${e}`));
 
 // 1. Draft again on a visit that has a draft: the old note dims under the board.
 await page.goto(base);
-await page.locator(".nav-item").nth(1).click();
-await page.locator(".patients-bar .ob-segment").nth(1).click();
+await page.locator('.nav-item[data-nav="patients"]').click();
+await page.locator('.nav-item[data-nav="visits"]').click();
 await page.locator('tr.row-link:has(.ob-dot[data-tone="warn"])').first().click();
 await page.locator(".note").first().waitFor({ timeout: 20000 });
 await page.getByRole("button", { name: /^Draft again|^Draft as/ }).first().click();
@@ -66,8 +66,8 @@ await watch(page, "redraft");
 check((await page.locator(".note-under-redraft").count()) === 0, "the new draft replaces the dimmed one");
 
 // 2. A first draft: a visit with no draft yet (Recent visits, "Transcribed").
-await page.locator(".nav-item").nth(1).click();
-await page.locator(".patients-bar .ob-segment").nth(1).click();
+await page.locator('.nav-item[data-nav="patients"]').click();
+await page.locator('.nav-item[data-nav="visits"]').click();
 const fresh = page.locator('tr.row-link:not(:has(.ob-dot[data-tone="warn"])):not(:has(.ob-dot[data-tone="ok"]))').first();
 if (await fresh.count()) {
   await fresh.click();

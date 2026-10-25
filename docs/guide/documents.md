@@ -26,7 +26,7 @@ Under a note in Review, choose **Discharge instructions** or **Client summary**:
 
 ## Save a PDF
 
-**Save PDF** saves the note, or a client document, as a PDF. It includes:
+**Save PDF** (in Review's **More** menu, or in a client document's panel) saves the note, or a client document, as a PDF. It includes:
 - your clinic's name and address from Settings, as a letterhead;
 - the patient, reason for visit and date;
 - the signature, or a clear "draft" line if it isn't signed;

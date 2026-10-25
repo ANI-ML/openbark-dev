@@ -1,0 +1,359 @@
+/* Redesign (ADR-0027, owner-approved 2026-10-24).
+   Phone tabs Record, Visits, Patients, Settings; Visits as a destination;
+   the 96 px Record button in the main area; Settings as sections; Review
+   with a slim header and More. Tokens only, hairlines, no shadows except on
+   floating layers (brand guide §5.3). Loaded after app.css. */
+
+/* Icon rail and tab bar: the Visits count sits on the icon's corner. */
+@media (max-width: 1199px) {
+  .nav-badge { position: absolute; top: -2px; right: -6px; min-width: 18px; padding: 0 4px; margin: 0; }
+}
+@media (max-width: 640px) {
+  .nav-badge { top: 4px; right: calc(50% - 24px); }
+}
+
+/* A pushed screen's way back (phones, and Review everywhere): a 44 px target. */
+.back-top {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 44px;
+  padding: 0 8px 0 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 15px;
+  line-height: 24px;
+  font-weight: 500;
+  cursor: pointer;
+  align-self: flex-start;
+  -webkit-tap-highlight-color: transparent;
+}
+.back-top:hover { color: var(--ink); }
+@media (max-width: 640px) {
+  .ob-button.back-to-settings { min-height: 44px; }
+}
+.ob-button.icon-only { width: 44px; padding: 0; justify-content: center; }
+
+/* Inset grouped lists (phones, the template picker, Settings rows). */
+.inset-group { display: flex; flex-direction: column; gap: 8px; }
+.inset-title { margin: 0; padding-left: 4px; font-size: 13px; line-height: 18px; font-weight: 600; letter-spacing: 0; color: var(--ink-2); }
+.inset-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); overflow: hidden; }
+.inset-list > li + li > .inset-row { border-top: 1px solid var(--border); }
+.inset-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 12px 16px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+  line-height: 24px;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+.inset-row:hover { background: var(--fill); }
+.inset-row:active { background: var(--fill-strong); }
+.inset-row[aria-checked="true"] { font-weight: 600; }
+.inset-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.inset-name { font-weight: 600; overflow-wrap: anywhere; }
+.inset-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inset-value { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+.inset-icon { display: inline-flex; flex: none; color: var(--ink-2); }
+.inset-chevron { flex: none; color: var(--ink-3); }
+.visits .inset-row { min-height: 72px; }
+.visits .inset-sub { white-space: normal; }
+.inset-row > .ob-chip { flex: none; white-space: nowrap; }
+.recorder-phone .sheet-foot .ob-button { width: 100%; justify-content: center; }
+
+/* Options list (Record, Settings): rows on a hairline surface. */
+.opt-list { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); overflow: hidden; }
+.opt-list > * + * { border-top: 1px solid var(--border); }
+.opt-item { display: flex; flex-direction: column; }
+.opt-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 8px 16px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+  line-height: 24px;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+/* Only the button row needs its border reset; label rows keep the list's hairline. */
+button.opt-row { border: 0; }
+button.opt-row:active:not(:disabled) { background: var(--fill-strong); }
+.opt-row:has(:disabled), button.opt-row:disabled { cursor: not-allowed; opacity: 0.55; }
+.opt-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.opt-value { flex: none; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+.opt-icon { flex: none; color: var(--ink-2); }
+.opt-chevron { flex: none; color: var(--ink-3); }
+.opt-select { width: auto; max-width: 60%; height: 32px; font-size: 13px; font-weight: 500; }
+.opt-hint { display: block; padding: 0 16px 12px; }
+.opt-switch { flex: none; width: 18px; height: 18px; margin: 0; accent-color: var(--ink); cursor: pointer; }
+/* Phones: the same checkbox drawn as a switch (still a checkbox to assistive tech). */
+@media (max-width: 640px) {
+  .opt-switch {
+    appearance: none;
+    -webkit-appearance: none;
+    position: relative;
+    width: 51px;
+    height: 31px;
+    border-radius: var(--r-full);
+    background: var(--fill-strong);
+    transition: background-color var(--dur-fast) var(--ease);
+  }
+  .opt-switch::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 27px;
+    height: 27px;
+    border-radius: var(--r-full);
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    box-sizing: border-box;
+    transition: transform var(--dur-fast) var(--ease);
+  }
+  .opt-switch:checked { background: var(--primary); }
+  .opt-switch:checked::after { transform: translateX(20px); border-color: transparent; }
+  .opt-switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+}
+
+/* Record (desktop): the stage in the main area, options and what needs you beside it. */
+.record-layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 24px; align-items: start; }
+@media (max-width: 1023px) { .record-layout { grid-template-columns: minmax(0, 1fr); } }
+.record-main, .record-side { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.record-side { gap: 16px; }
+.patient-strip { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px; padding: 16px; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); }
+.patient-strip-find { flex: 2 1 220px; min-width: 0; }
+.patient-strip-reason { flex: 3 1 240px; }
+.patient-strip-help { flex: 1 1 100%; margin: 0; }
+.patient-strip-more { flex: 1 1 100%; }
+.patient-strip-new { display: flex; align-items: center; gap: 12px; min-height: 40px; }
+.record-stage {
+  min-height: 420px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 32px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  text-align: center;
+}
+.record-stage .stage-wave { flex: none; width: min(100%, 480px); }
+.record-stage .processing { width: min(100%, 480px); flex: none; text-align: left; }
+.stage-lines { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.stage-lines .link { align-self: auto; }
+.stage-mic { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.stage-mic-name { overflow-wrap: anywhere; }
+.mic-bars { height: 14px; width: 26px; gap: 2px; }
+.needs-today { display: flex; flex-direction: column; gap: 8px; }
+.needs-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.needs-row { width: 100%; display: flex; flex-direction: column; gap: 2px; padding: 12px 16px; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); color: var(--ink); font: inherit; text-align: left; cursor: pointer; transition: background-color var(--dur-fast) var(--ease); }
+.needs-row:hover { background: var(--fill); }
+.setup-notice { align-items: center; }
+.setup-notice > span { flex: 1 1 auto; }
+
+/* Record (phones): one patient row, the button in thumb reach above the options. */
+.screen.recorder-phone { min-height: calc(100dvh - 64px - env(safe-area-inset-bottom)); }
+.recorder-phone .record-stage { flex: 1 0 auto; min-height: 260px; border: 0; padding: 16px 0; background: transparent; }
+.patient-row-button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.patient-row-button:active:not(:disabled) { background: var(--fill-strong); }
+.patient-row-title { font-size: 15px; line-height: 24px; font-weight: 600; }
+
+/* The phone's recording screen: the whole screen, the tab bar out of the way. */
+body:has(.recording-screen) .sidebar { display: none; }
+body:has(.recording-screen) .frame { padding-bottom: 0; }
+.recording-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: calc(16px + env(safe-area-inset-top)) 16px 0;
+  background: var(--surface);
+  color: var(--ink);
+}
+.recording-screen:focus { outline: none; }
+.rec-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.rec-who { display: flex; flex-direction: column; min-width: 0; }
+.rec-reason { font-size: 18px; line-height: 24px; font-weight: 600; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.rec-stage { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 20px 0 12px; }
+.rec-indicator { position: relative; display: grid; place-items: center; width: 120px; height: 120px; isolation: isolate; }
+.rec-indicator .ob-record-pulse { inset: 12px; }
+/* Ink in both themes (brand §7.1: recording is an ink fill), with a hairline that shows on dark. */
+.rec-disc { position: relative; display: grid; place-items: center; width: 96px; height: 96px; border-radius: var(--r-full); background: var(--ob-ink); border: 1px solid var(--border); }
+.rec-dot { width: 14px; height: 14px; border-radius: var(--r-full); background: var(--record); }
+.rec-indicator[data-state="stopping"] .rec-dot { background: var(--on-record); }
+.rec-time { margin: 0; font-size: 15px; line-height: 26px; font-variant-numeric: tabular-nums; }
+.rec-wave { width: 120px; height: 28px; flex: none; }
+.rec-transcript { flex: 1 1 auto; min-height: 0; overflow: hidden; border-top: 1px solid var(--border); padding-top: 16px; display: flex; flex-direction: column; }
+.rec-transcript .transcript li { grid-template-columns: minmax(0, 1fr); padding: 2px 0; }
+.rec-transcript .turn-time { display: none; }
+.rec-bar { margin: 0 -16px; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); border-top: 1px solid var(--border); background: var(--surface); }
+.rec-stop { width: 100%; height: 56px; border-radius: var(--r-xl); }
+
+/* Visits */
+.visits-tools { display: flex; align-items: center; gap: 12px; flex-wrap: nowrap; }
+.visits-search { flex: 0 1 280px; width: 280px; }
+.visits-when .ob-segment:disabled { opacity: 0.55; cursor: default; }
+.visits-table { min-width: 760px; }
+.visits-table .group-row th { padding: 10px 16px; background: var(--surface-2); border-top: 1px solid var(--border); color: var(--ink-2); font-size: 13px; line-height: 18px; font-weight: 600; text-align: left; }
+.visits-table tbody:first-of-type .group-row th { border-top: 0; }
+.cell-link { padding: 0; border: 0; background: none; color: var(--ink); font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
+.cell-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+.nowrap { white-space: nowrap; }
+@media (max-width: 640px) {
+  .visits-tools { width: 100%; flex-wrap: wrap; }
+  .visits-search { flex: 1 1 100%; width: auto; }
+  .visits-when { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; }
+}
+
+/* Review: a slim header, More, and the phone's bottom bar. */
+.review-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: -16px; padding-top: 16px; }
+.review .review-bar { align-items: flex-end; padding-top: 12px; }
+.review-title { flex: 1 1 360px; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
+.review .review-actions { flex: none; }
+@media (max-width: 640px) { .review .review-actions { flex: 1 1 100%; } }
+.review-title h1 { overflow-wrap: anywhere; }
+.review-meta { margin: 0; max-width: 80ch; text-wrap: pretty; }
+.more-menu { position: relative; display: inline-flex; }
+.more-button { width: 40px; padding: 0; justify-content: center; }
+.more-panel {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 300px;
+  max-width: calc(100vw - 32px);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-raised);
+}
+.more-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+  line-height: 22px;
+  text-align: left;
+  cursor: pointer;
+}
+.more-item svg { flex: none; color: var(--ink-2); }
+.more-item:hover:not(:disabled), .more-item:focus-visible { background: var(--surface-2); }
+.more-item:disabled { opacity: 0.45; cursor: not-allowed; }
+.more-item.danger, .more-item.danger svg { color: var(--danger); }
+@media (pointer: coarse) { .more-item { min-height: 44px; } }
+.more-why { margin: 0; padding: 0 10px 8px; }
+.more-call .ob-button, .more-panel .delete-visit, .more-panel .delete-visit > .ob-button { width: 100%; justify-content: flex-start; }
+.more-call .ob-button { height: 40px; padding: 8px 10px; gap: 10px; font-size: 15px; font-weight: 400; border-radius: var(--r-sm); }
+.more-panel .delete-visit { margin-top: 4px; padding-top: 6px; border-top: 1px solid var(--border); }
+/* Delete visit reads as a menu row in More (still the danger colour), its reasons open beneath. */
+.more-panel .delete-visit > .ob-button { height: 40px; padding: 8px 10px; gap: 10px; border: 0; background: transparent; font-size: 15px; font-weight: 400; border-radius: var(--r-sm); }
+.more-panel .delete-visit > .ob-button:hover:not(:disabled) { background: var(--surface-2); }
+.more-panel .delete-visit > .ob-button svg { width: 18px; height: 18px; }
+.more-panel .delete-menu { position: static; width: auto; margin-top: 6px; box-shadow: none; }
+.draft-origin-text { display: inline-flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.review-dock {
+  position: sticky;
+  bottom: 0;
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 calc(-1 * var(--gutter)) -24px;
+  padding: 12px var(--gutter) calc(12px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.dock-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0; }
+.dock-actions { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 12px; }
+.dock-actions .ob-button { height: 48px; justify-content: center; }
+.quote-card { display: flex; flex-direction: column; gap: 4px; padding: 12px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-2); }
+.quote-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.quote-head .label { color: var(--ink-2); font-size: 12px; line-height: 16px; font-weight: 600; }
+.quote-text { font-family: var(--font-mono); font-size: 13px; line-height: 20px; color: var(--ink); }
+@media (max-width: 640px) {
+  /* Review is a pushed screen on phones: back at the top, the bar at the bottom. */
+  body:has(.screen.review) .sidebar { display: none; }
+  body:has(.screen.review) .frame { padding-bottom: 0; }
+  .review-top { margin: 0 0 -12px; padding-top: calc(8px + env(safe-area-inset-top)); }
+  .review .review-bar { border-bottom: 0; padding-bottom: 0; }
+  .review-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+}
+
+/* Settings: a section list and one section at a time (desktop); rows (phones). */
+.settings-layout { display: grid; grid-template-columns: 220px minmax(0, 720px); gap: 40px; align-items: start; }
+.settings-nav ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.settings-nav-item { position: relative; width: 100%; display: flex; align-items: center; min-height: 36px; padding: 6px 12px; border: 0; border-radius: var(--r-md); background: transparent; color: var(--ink-2); font: inherit; font-size: 15px; line-height: 24px; text-align: left; cursor: pointer; }
+.settings-nav-item:hover { background: var(--fill); color: var(--ink); }
+.settings-nav-item[aria-current="page"] { background: var(--surface-2); color: var(--ink); font-weight: 600; }
+.settings-pane { display: flex; flex-direction: column; gap: 24px; min-width: 0; max-width: 720px; }
+.settings-title { margin: 0; font-size: 24px; line-height: 30px; font-weight: 800; letter-spacing: -0.02em; }
+.settings-pane .group { padding: 0; border: 0; border-radius: 0; background: transparent; }
+.settings-pane .group > h2 { font-size: 15px; line-height: 24px; font-weight: 600; letter-spacing: 0; color: var(--ink); }
+/* A section that is one card: its own title would repeat the section's. */
+.settings-pane:is([data-section="phone"], [data-section="sync"], [data-section="deleted"], [data-section="about"], [data-section="pdf"]) > .group > h2:first-child {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.settings-pane .opt-row { min-height: 56px; }
+@media (max-width: 1023px) {
+  .settings-layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .settings-nav ul { flex-direction: row; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .settings-nav-item { white-space: nowrap; width: auto; }
+}
+.settings-list { gap: 24px; }
+.sub-head { flex-direction: column; align-items: flex-start; gap: 0; }
+.settings-row .opt-switch { margin-left: auto; }

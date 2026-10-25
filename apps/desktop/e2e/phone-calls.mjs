@@ -284,8 +284,8 @@ try {
   check(visits().length === before + 1, "one new visit");
 
   // The main window opens the visit and drafts it with the Phone call template.
-  await main.locator(".visit-facts").getByText("Phone call", { exact: true }).waitFor({ timeout: 30000 });
-  const facts = await main.locator(".visit-facts").textContent();
+  await main.locator(".review-meta").getByText("Phone call", { exact: true }).waitFor({ timeout: 30000 });
+  const facts = await main.locator(".review-meta").textContent();
   check(/Outgoing · 0:\d\d · \+1 555 555 0142/.test(facts), `the call's line: ${facts.match(/Outgoing[^A-Z]*/)?.[0]}`);
   check(facts.includes("Announcement read by Dr Lee at 0:00. Client agreed."), "the consent line with the client's answer");
   const speakers = await main.locator(".turn-speaker").allTextContents();
@@ -384,7 +384,7 @@ try {
   await phone.waitForTimeout(4000);
   await phone.getByRole("button", { name: "Hang up" }).click();
   await phone.getByText(/^Call ended · /).waitFor({ timeout: 60000 });
-  await main.locator(".visit-facts").getByText("Phone call", { exact: true }).waitFor({ timeout: 30000 });
+  await main.locator(".review-meta").getByText("Phone call", { exact: true }).waitFor({ timeout: 30000 });
   const noPatient = newest();
   check(noPatient.endsWith("_call"), `the visit folder is named "call": ${noPatient}`);
   for (const v of visits()) {

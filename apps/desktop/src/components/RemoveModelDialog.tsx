@@ -1,7 +1,8 @@
 import { Button, Dialog } from "@openbark/ui";
 import { Trash2 } from "lucide-react";
-import { useState } from "react";
-import { fmtBytes } from "../context";
+import { useContext, useState } from "react";
+import { AppContext, fmtBytes } from "../context";
+import { isIos } from "../visits";
 import * as engine from "../engine";
 import { useT } from "../i18n";
 
@@ -58,7 +59,8 @@ export function RemoveModelDialog({
   const [error, setError] = useState<string | null>(null);
   const [forget, setForget] = useState(false);
 
-  const words = copy(t, target);
+  const ios = isIos(useContext(AppContext)?.status);
+  const words = copy(t, target, ios);
 
   async function confirm(close: () => void) {
     setBusy(true);
@@ -121,7 +123,7 @@ export function RemoveModelDialog({
 type T = ReturnType<typeof useT>;
 
 /** The plan's copy for each case (docs/plans/mlx-models.md, Remove dialog). */
-function copy(t: T, target: RemoveTarget): { title: string; body: string; confirm: string; hub: boolean } {
+function copy(t: T, target: RemoveTarget, ios = false): { title: string; body: string; confirm: string; hub: boolean } {
   if (target.kind === "mlx") {
     return {
       title: t("Remove the MLX engine?"),
@@ -184,7 +186,9 @@ function copy(t: T, target: RemoveTarget): { title: string; body: string; confir
   }
   return {
     title: t("Remove {name}?", { name }),
-    body: t("This frees {size} on this computer. You can download it again from the catalog.", { size }),
+    body: ios
+      ? t("This frees {size} on this iPhone. You can download it again from the catalog.", { size })
+      : t("This frees {size} on this computer. You can download it again from the catalog.", { size }),
     confirm: t("Remove"),
     hub: r.origin === "hub",
   };
