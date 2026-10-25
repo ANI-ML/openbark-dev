@@ -104,6 +104,17 @@ export function App() {
     );
   }, [route]);
 
+  // Back in the foreground (the phone opened again on the clinic's Wi-Fi):
+  // sync now rather than at the next poll (ADR-0029 section 6). Does nothing
+  // while sync is off.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") engine.syncNow().catch(() => {});
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []);
+
   const refreshStatus = useCallback(() => {
     engine.status().then(setStatus, () => setStatus(null));
   }, []);

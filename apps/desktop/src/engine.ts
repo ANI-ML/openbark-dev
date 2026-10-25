@@ -1551,7 +1551,19 @@ export const encryptExisting = () =>
 // Rust makes every sync call (the desktop app's commands, or `openbark serve`
 // in web mode). This screen never sees a key, a token or the server.
 
-export type SyncPhase = "off" | "code_sent" | "pending" | "kit_check" | "active" | "signed_out" | "revoked";
+/**
+ * `confirm`: joined through a clinic hub and approved, but nothing syncs
+ * until the person types the code the approving device showed.
+ */
+export type SyncPhase =
+  | "off"
+  | "code_sent"
+  | "pending"
+  | "confirm"
+  | "kit_check"
+  | "active"
+  | "signed_out"
+  | "revoked";
 
 export interface SyncDevice {
   id: string;
@@ -1605,6 +1617,14 @@ export interface SyncStatus {
   kit_check?: [number, number] | null;
   keys_in?: string;
   busy?: boolean;
+  /** The clinic hub this device syncs with (ADR-0029). */
+  hub?: SyncHub | null;
+}
+
+export interface SyncHub {
+  address: string;
+  /** The start of the pinned certificate fingerprint ("ab12 cd34 ef56 7890"). Not a security check. */
+  fingerprint: string;
 }
 
 export type SyncNext =
@@ -1616,6 +1636,8 @@ export interface SyncPending {
   device_id: string;
   name: string;
   platform: string;
+  /** After approving through a clinic hub: the code to type on the new device ("XXXX-XXXX"). */
+  confirm?: string;
 }
 
 export const syncStatus = () => (isDesktop ? invoke<SyncStatus>("sync_status") : api<SyncStatus>("/api/sync"));
@@ -1643,6 +1665,16 @@ export const syncPair = (words: string, approve: boolean) =>
   isDesktop
     ? invoke<SyncPending>("sync_pair", { words, approve, by: actor })
     : api<SyncPending>("/api/sync/pair", post({ words, approve, by: actor }));
+/** Joined through a clinic hub: the code the approving device showed. Only then does this device sync. */
+export const syncConfirmPairing = (code: string) =>
+  isDesktop
+    ? invoke<SyncStatus>("sync_confirm_pairing", { code, by: actor })
+    : api<SyncStatus>("/api/sync/pair/confirm", post({ code, by: actor }));
+/** Give up joining: this device leaves any account it was put in and starts again. */
+export const syncStartOver = () =>
+  isDesktop
+    ? invoke<SyncStatus>("sync_start_over", { by: actor })
+    : api<SyncStatus>("/api/sync/start-over", post({ by: actor }));
 export const syncRecover = (words: string) =>
   isDesktop
     ? invoke<SyncStatus>("sync_recover", { words, by: actor })
@@ -1662,6 +1694,113 @@ export const syncStopVisit = (id: string) =>
   isDesktop
     ? invoke<SyncStatus>("sync_stop_visit", { id, by: actor })
     : api<SyncStatus>(`/api/sync/visits/${enc(id)}/stop`, post({ by: actor }));
+
+// ---- the clinic hub (ADR-0029) --------------------------------------------
+// A computer at the clinic is the sync hub; devices join it with a join code.
+
+/** A hub found on the local network: a hint only, the join code and check decide. */
+export interface FoundHub {
+  name: string;
+  host: string;
+  port: number;
+  addresses: string[];
+  fingerprint_prefix: string;
+}
+
+export interface ClinicHubJoin {
+  /** "ABCD-EFGH" */
+  code: string;
+  check: string;
+  address: string;
+  expires_at: string;
+  used: boolean;
+  /** The QR code's text. */
+  link: string;
+  qr_svg: string;
+}
+
+export interface ClinicHubDevice {
+  id: string;
+  account: string | null;
+  platform: string;
+  status: "pending" | "approved" | "revoked";
+  created_at: string;
+  last_seen_at: string | null;
+}
+
+export interface ClinicHubStatus {
+  available: boolean;
+  on: boolean;
+  listening?: boolean;
+  port?: number;
+  allowed?: string[];
+  quota_mb?: number;
+  addresses?: string[];
+  error?: string | null;
+  fingerprint?: string;
+  /** Whoever asked may manage the hub (see its join codes, change it, remove devices). */
+  can_manage?: boolean;
+  /** Only for whoever may manage the hub. */
+  join?: ClinicHubJoin | null;
+  devices?: ClinicHubDevice[];
+  accounts?: number;
+  used_mb?: number;
+}
+
+export interface ClinicHubChange {
+  on?: boolean;
+  port?: number;
+  allowed?: string[];
+  quotaMb?: number;
+}
+
+/** Look for clinic hubs on the local network (a few seconds). */
+export const syncFindHubs = () =>
+  isDesktop ? invoke<FoundHub[]>("sync_find_hubs") : api<FoundHub[]>("/api/sync/hub/find", post({}));
+/**
+ * Join a clinic hub. `link` is the QR code's text, or the 8-character code
+ * (then `address` and `check` are needed). `existing`: the person already
+ * syncs on another device, which approves this one.
+ */
+export const syncJoinHub = (
+  link: string,
+  address: string,
+  check: string,
+  deviceName: string,
+  backfillDays: number | null,
+  existing: boolean,
+) =>
+  isDesktop
+    ? invoke<SyncNext>("sync_join_hub", { link, address, check, deviceName, backfillDays, existing, by: actor })
+    : api<SyncNext>(
+        "/api/sync/hub/join",
+        post({ link, address, check, device_name: deviceName, backfill_days: backfillDays, existing, by: actor }),
+      );
+export const clinicHubStatus = () =>
+  isDesktop
+    ? invoke<ClinicHubStatus>("clinic_hub_status", { by: actor })
+    : api<ClinicHubStatus>(`/api/clinic-hub${actor ? `?by=${enc(actor)}` : ""}`);
+export const clinicHubSettings = (change: ClinicHubChange) =>
+  isDesktop
+    ? invoke<ClinicHubStatus>("clinic_hub_settings", { ...change, by: actor })
+    : api<ClinicHubStatus>(
+        "/api/clinic-hub",
+        post({ on: change.on, port: change.port, allowed: change.allowed, quota_mb: change.quotaMb, by: actor }),
+      );
+/** A new single-use join code on the hub's screen (30 minutes). */
+export const clinicHubCode = () =>
+  isDesktop
+    ? invoke<ClinicHubStatus>("clinic_hub_code", { by: actor })
+    : api<ClinicHubStatus>("/api/clinic-hub/code", post({ by: actor }));
+/** The hub computer's own device joins its hub. */
+export const clinicHubJoinSelf = (deviceName: string, existing: boolean) =>
+  isDesktop
+    ? invoke<SyncNext>("clinic_hub_join_self", { deviceName, existing, by: actor })
+    : api<SyncNext>("/api/clinic-hub/join-self", post({ device_name: deviceName, existing, by: actor }));
+export const clinicHubRemoveDevice = (deviceId: string) =>
+  isDesktop
+    ? invoke<ClinicHubStatus>("clinic_hub_remove_device", { deviceId, by: actor })
+    : api<ClinicHubStatus>(`/api/clinic-hub/devices/${enc(deviceId)}/remove`, post({ by: actor }));
 
 export const recoveryKey = () =>
   isDesktop ? invoke<string>("recovery_key") : api<string>("/api/encryption/recovery-key");

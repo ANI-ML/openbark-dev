@@ -116,3 +116,15 @@ The server's authorization is reviewed call by call: `docs/security/hub-authoriz
 - **A relay ANI.ML runs.** Cheaper than Supabase but still a service to pay for and operate.
 - **Phone to computer without a hub (each computer syncs with each phone).** Simpler for one vet and one laptop, but every device pair needs its own link and merges multiply. The hub is the same code with one server, and a single-vet clinic simply makes their own computer the hub.
 - **CloudKit for Apple devices.** Free for users, but Apple-only; clinics run Windows.
+
+## Implementation notes (phase A, 2026-10-25)
+
+How phase A built sections 2 to 6, 10 and 11, where the text above left a choice open:
+
+- **Crates.** `os-hub` (desktop only, os-app's `hub` feature) owns the listener, the store, the certificate and mDNS advertising. `os-sync` owns the device's side: the hub transport (pinned TLS 1.3 with rustls and ring, one request per connection), request signing, join codes and mDNS browsing. Phones link `os-sync` (os-app's `sync` feature) and never `os-hub`. `scripts/ci/check-network.sh` names which crate may have which network capability.
+- **A person's next device** can't name its account without email, so it waits in the hub's lobby, filed under an Argon2id tag of its 6 words; the approving device finds it with the same tag (`find_pending`) and the device joins the approver's account. Because any account's device that saw the words could approve it, the new device then syncs nothing until the person types the code their approving device shows (a MAC under the pairing key over the account and AMK version); it shows the account's devices and can start over (security review, 2026-10-25). Recovery with the kit finds the account by the kit verifier.
+- **Typing a join code** (no QR code) also needs a 10-character certificate check shown beside it: an HMAC of the hub certificate's fingerprint keyed by that join code, so nobody without the code can forge a matching certificate. The device also checks the certificate's self-signature. A new code retires older unused ones; twenty wrong codes from anywhere stop codes until the hub makes a new one.
+- **Loopback** is in the default allowed ranges, so the hub computer's own device can join its hub (Settings, Clinic hub, Use this computer with its hub). 100.64.0.0/10 (Tailscale) is opt-in, not default: within the allowed ranges the join code is the only gate.
+- **The preview gate** is the build-time `OPENBARK_SYNC_PREVIEW` only (development, TestFlight and the end-to-end builds); nothing at run time turns sync or hub mode on in a release installer.
+- **The listener** checks the address, call, signature headers, time and device before reading a body; bodies are 128 KB except `push` and `rotate` (12 MB) and blob parts (2 MB); the signature is checked over the raw body before any JSON is parsed; calls, large bodies and connections per address (IPv6 /64) are bounded (security review, 2026-10-25; the table is in docs/security/hub-authorization.md).
+- docs/security/hub-authorization.md maps every SQL function to the hub's check and lists where the hub is stricter.

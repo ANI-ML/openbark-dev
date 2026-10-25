@@ -1,0 +1,37 @@
+[package]
+name = "os-hub"
+description = "OpenBark clinic hub (ADR-0029): the sync server a clinic's own computer runs for its other devices"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+# Desktop only: os-app links it behind its `hub` feature, never on phones.
+# The one crate allowed a network listener besides os-server's loopback web
+# mode (scripts/ci/check-network.sh, docs/network.md L1 and L2).
+
+[dependencies]
+# The vault (the store is sealed under the hub's data key, ADR-0008).
+os-engine.workspace = true
+# Keys, signatures and the request format shared with the client.
+os-sync.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+uuid = { workspace = true, features = ["v4"] }
+hex.workspace = true
+tokio = { workspace = true, features = ["time"] }
+rustls.workspace = true
+tokio-rustls.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+http-body-util.workspace = true
+rcgen.workspace = true
+mdns-sd.workspace = true
+if-addrs.workspace = true
+socket2.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

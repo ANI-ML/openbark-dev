@@ -91,7 +91,7 @@ impl SyncService {
     /// One sync run. Does nothing while sync is off.
     pub fn sync_once(&self, host: &dyn Host) -> Result<SyncReport, SyncError> {
         let mut inner = self.lock();
-        if !matches!(inner.state.phase, Phase::Active | Phase::Pending | Phase::KitCheck) {
+        if !matches!(inner.state.phase, Phase::Active | Phase::Pending | Phase::KitCheck | Phase::Confirm) {
             return Ok(SyncReport::default());
         }
         self.publish(&inner, true);
@@ -133,14 +133,21 @@ impl SyncService {
     fn was_revoked(&self, inner: &Inner) -> bool {
         let Ok(Some(device)) = inner.secrets.device_keys() else { return false };
         let args = json!({"device_id": self.me().id, "rebind_secret": keys::b64(device.rebind_secret())});
-        matches!(self.client(&inner.state).rpc("device_status", args, None), Ok(Value::String(s)) if s == "revoked")
+        let answer = match inner.state.hub.clone() {
+            Some(link) => self.hub_rpc(inner, &link, "device_status", args),
+            None => self.client(&inner.state).rpc("device_status", args, None),
+        };
+        matches!(answer, Ok(Value::String(s)) if s == "revoked")
     }
 
     fn run(&self, inner: &mut Inner, host: &dyn Host, report: &mut SyncReport) -> Result<(), SyncError> {
         if inner.state.phase == Phase::Pending && !self.poll_pending(inner)? {
             return Ok(());
         }
-        if inner.state.phase == Phase::KitCheck {
+        // Waiting for the kit check, or for the person to confirm which
+        // account this device joined: only the device list (to show whose
+        // devices these are); nothing is pulled, sealed or pushed.
+        if matches!(inner.state.phase, Phase::KitCheck | Phase::Confirm) {
             self.load_devices(inner);
             return Ok(());
         }
@@ -540,17 +547,26 @@ impl SyncService {
             .clone()
             .filter(|(id, v, _)| *id == row.id && *v == row.version)
             .ok_or(SyncError::NoKeys)?;
-        let v = self.rpc(
-            inner,
-            "get_blobs",
-            json!({"space_id": space, "object_id": row.id, "object_version": row.version}),
-        )?;
-        let parts: Vec<Vec<u8>> = v
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(|p| keys::unb64(p["body"].as_str().unwrap_or_default()))
-            .collect::<Result<_, _>>()?;
+        // A hub answers in pages (a byte budget per answer); Supabase in one.
+        let mut parts: Vec<Vec<u8>> = Vec::new();
+        loop {
+            let mut args = json!({"space_id": space, "object_id": row.id, "object_version": row.version});
+            if inner.state.hub.is_some() {
+                args["from_part"] = json!(parts.len());
+            }
+            let v = self.rpc(inner, "get_blobs", args)?;
+            let page: Vec<Vec<u8>> = v
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|p| keys::unb64(p["body"].as_str().unwrap_or_default()))
+                .collect::<Result<_, _>>()?;
+            let got = page.len();
+            parts.extend(page);
+            if inner.state.hub.is_none() || got == 0 || parts.len() >= hashes.len() {
+                break;
+            }
+        }
         let roster = inner.roster.clone();
         let signer = move |dev: &str| roster.as_ref().and_then(|r| r.get(dev)).and_then(|e| e.ed_pub());
         let plain = seal::open_blob(&parts, hashes, &row.id, &space, row.version as u32, &dek, &signer)?;

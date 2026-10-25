@@ -9,6 +9,7 @@ import {
   Languages,
   Lock,
   Mic,
+  Network,
   NotebookText,
   PenLine,
   Phone,
@@ -20,6 +21,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { DEFAULT_CONSENT_SCRIPT, useApp } from "../context";
 import * as engine from "../engine";
 import { NOTE_LANGUAGES, UI_LANGUAGES, useT } from "../i18n";
+import { ClinicHubSection } from "../components/ClinicHubSection";
 import { DeletedVisits } from "../components/DeletedVisits";
 import { MicCheck } from "../components/MicCheck";
 import { PhoneSettings } from "../components/PhoneSettings";
@@ -38,6 +40,7 @@ const TITLE: Record<SettingsSection, string> = {
   phone: "Phone calls",
   pdf: "PDFs and copying",
   sync: "Encrypted sync",
+  hub: "Clinic hub",
   privacy: "Privacy and storage",
   deleted: "Deleted visits",
   about: "About",
@@ -55,8 +58,9 @@ export function SettingsScreen({ section }: { section?: SettingsSection } = {}) 
   const t = useT();
   const phone = useMediaQuery(PHONE);
   const ios = isIos(app.status);
+  const hub = useHubAvailable();
   const sections = (Object.keys(TITLE) as SettingsSection[]).filter(
-    (s) => !(ios && s === "phone") && !(s === "deleted" && !app.can.notes),
+    (s) => !(ios && s === "phone") && !(s === "deleted" && !app.can.notes) && !(s === "hub" && (ios || !hub)),
   );
   const title = (s: SettingsSection) => (ios && s === "pdf" ? t("Copying") : t(TITLE[s]));
 
@@ -113,6 +117,18 @@ export function SettingsScreen({ section }: { section?: SettingsSection } = {}) 
   );
 }
 
+/** Whether this install can be the clinic hub (a desktop build where sync is offered; ADR-0029). */
+function useHubAvailable(): boolean {
+  const [available, setAvailable] = useState(false);
+  useEffect(() => {
+    engine.clinicHubStatus().then(
+      (s) => setAvailable(s.available),
+      () => setAvailable(false),
+    );
+  }, []);
+  return available;
+}
+
 /** One row of the phone list: an icon, a label, an optional value or subtitle, a chevron. */
 function Row({
   icon,
@@ -150,6 +166,7 @@ function PhoneList({ title }: { title: (s: SettingsSection) => string }) {
   const app = useApp();
   const t = useT();
   const ios = isIos(app.status);
+  const hub = useHubAvailable();
   const [sync, setSync] = useState<engine.SyncStatus | null>(null);
   useEffect(() => {
     engine.syncStatus().then(setSync, () => {});
@@ -201,6 +218,7 @@ function PhoneList({ title }: { title: (s: SettingsSection) => string }) {
           <Row icon={<Box size={20} />} label={t("Models and storage")} to={{ screen: "models" }} />
           <Row icon={<Mic size={20} />} label={t("Microphone and consent")} to={s("recording")} />
           <Row icon={<RefreshCw size={20} />} label={t("Encrypted sync")} sub={syncSub} to={s("sync")} />
+          {hub && !ios && <Row icon={<Network size={20} />} label={title("hub")} to={s("hub")} />}
           <Row icon={<Lock size={20} />} label={title("privacy")} to={s("privacy")} />
         </ul>
       </section>
@@ -511,6 +529,9 @@ function SectionBody({ section }: { section: SettingsSection }) {
 
     case "sync":
       return <SyncSection />;
+
+    case "hub":
+      return <ClinicHubSection />;
 
     case "privacy":
       return (
