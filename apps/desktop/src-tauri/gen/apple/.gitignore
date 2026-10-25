@@ -1,3 +1,5 @@
 xcuserdata/
 build/
 Externals/
+# bundle > resources (the speech models, scripts/ci/ios-models.py), copied here by the Tauri CLI at build time
+assets/

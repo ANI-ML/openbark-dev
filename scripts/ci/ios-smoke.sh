@@ -68,3 +68,33 @@ if [ "$ok" -ne 1 ]; then
   exit 1
 fi
 echo "WebView smoke test passed: the interface loaded and reached the engine (version $(cat "$marker"))."
+
+# The speech models come with the app (ADR-0018 section 10): the engine must
+# find all four in the app bundle, read-only, with nothing downloaded into the
+# app's data container.
+models_json="$data/Library/Application Support/OpenBark/smoke-models.json"
+cp "$models_json" "$out/models.json" 2>/dev/null || true
+python3 - "$models_json" "$app" "$data" <<'EOF'
+import json, os, sys
+want = ["silero-vad", "parakeet-tdt-0.6b-v3-int8", "pyannote-segmentation-3.0", "wespeaker-en-resnet34-lm"]
+status_file, app, data = sys.argv[1:4]
+try:
+    models = {m["id"]: m for m in json.load(open(status_file))}
+except (OSError, ValueError) as e:
+    sys.exit(f"the app didn't report its models ({e})")
+problems = []
+for mid in want:
+    m = models.get(mid)
+    if not m:
+        problems.append(f"{mid}: not reported")
+    elif not (m.get("installed") and m.get("bundled")):
+        problems.append(f"{mid}: installed={m.get('installed')} bundled={m.get('bundled')}")
+    if not os.path.isdir(os.path.join(app, "assets", "models", mid)):
+        problems.append(f"{mid}: not in {app}/assets/models")
+downloaded = [os.path.join(d, f) for d, _, files in os.walk(data) for f in files if any(w in d for w in want)]
+if downloaded:
+    problems.append("downloaded into the data container: " + ", ".join(downloaded[:5]))
+if problems:
+    sys.exit("Bundled speech models: " + "; ".join(problems))
+print("Bundled speech models: all four found in the app, read-only; nothing downloaded.")
+EOF

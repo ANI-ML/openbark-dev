@@ -102,6 +102,17 @@ jobs:
             target
           key: cargo-ios-release/${{ github.repository }}/${{ hashFiles('Cargo.lock') }}
           restore-keys: cargo-ios-release-
+      # The speech models the app ships (ADR-0018 section 10), checked against
+      # the catalog's sizes and SHA-256 (Tauri refuses to build without them).
+      - name: Restore the bundled speech models
+        if: steps.secrets.outputs.ok == 'true'
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: build/ios-models
+          key: ios-models-${{ hashFiles('engine/os-models/catalog.json', 'scripts/ci/ios-models.py') }}
+      - name: The bundled speech models (pinned sizes and SHA-256)
+        if: steps.secrets.outputs.ok == 'true'
+        run: python3 scripts/ci/ios-models.py build/ios-models
       - name: App Store Connect API key on disk
         if: steps.secrets.outputs.ok == 'true'
         run: |
@@ -119,11 +130,15 @@ jobs:
           [ -n "$features" ] && args+=(--features "$features")
           pnpm "${args[@]}"
           ls -la src-tauri/gen/apple/build/arm64/
+          echo "IPA: $(du -k src-tauri/gen/apple/build/arm64/*.ipa | cut -f1) KB, with the speech models inside" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Upload to TestFlight
         if: steps.secrets.outputs.ok == 'true'
         run: |
           ipa="$(ls apps/desktop/src-tauri/gen/apple/build/arm64/*.ipa | head -1)"
           xcrun altool --upload-app --type ios --file "$ipa" --apiKey "$APPLE_API_KEY" --apiIssuer "$APPLE_API_ISSUER"
+      - name: Drop the resource copies from target/
+        if: always() && steps.secrets.outputs.ok == 'true'
+        run: find target -maxdepth 3 -type d -name models -path '*apple-ios*' -prune -exec rm -rf {} + || true
       - name: Remove the key and the certificate
         if: always() && steps.secrets.outputs.ok == 'true'
         run: |
