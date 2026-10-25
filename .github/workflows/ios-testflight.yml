@@ -25,7 +25,7 @@ on:
   workflow_dispatch:
     inputs:
       features:
-        description: "Extra cargo features for the build (for example stt)"
+        description: "Cargo features for the build (default: stt, so the phone transcribes)"
         type: string
         default: ""
 
@@ -113,6 +113,11 @@ jobs:
       - name: The bundled speech models (pinned sizes and SHA-256)
         if: steps.secrets.outputs.ok == 'true'
         run: python3 scripts/ci/ios-models.py build/ios-models
+      # sherpa-onnx's iOS library (v1.13.8, pinned) linked into the Xcode
+      # project, so the phone transcribes (ADR-0018 sections 1 and 10).
+      - name: sherpa-onnx for iOS and the Xcode project
+        if: steps.secrets.outputs.ok == 'true'
+        run: bash scripts/ci/ios-prepare.sh
       - name: App Store Connect API key on disk
         if: steps.secrets.outputs.ok == 'true'
         run: |
@@ -126,6 +131,8 @@ jobs:
         working-directory: apps/desktop
         run: |
           features="${{ inputs.features }}"
+          # The phone records and transcribes: stt unless other features are named.
+          [ -n "$features" ] || features=stt
           args=(tauri ios build --export-method app-store-connect --ci --build-number "${{ github.run_number }}")
           [ -n "$features" ] && args+=(--features "$features")
           pnpm "${args[@]}"

@@ -77,6 +77,12 @@ targets:
     dependencies:
       - framework: libapp.a
         embed: false
+      # sherpa-onnx (speech recognition, ADR-0018 sections 1 and 10): the
+      # official v1.13.8 xcframework, put here by scripts/ci/ios-sherpa.py.
+      # Linked and embedded, so libapp.a's sherpa-onnx calls resolve.
+      - framework: Frameworks/SherpaOnnxC.xcframework
+        embed: true
+        codeSign: true
       - sdk: CoreGraphics.framework
       - sdk: Metal.framework
       - sdk: MetalKit.framework

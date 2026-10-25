@@ -20,7 +20,7 @@ on:
         options: [check, init]
         default: check
       features:
-        description: "Extra cargo features for the check build (for example stt)"
+        description: "Cargo features for the check build (default: stt, so the phone transcribes)"
         type: string
         default: ""
   push:
@@ -36,6 +36,7 @@ on:
       - ".github/workflows/ios.yml"
       - "scripts/ci/ios-*.sh"
       - "scripts/ci/ios-models.py"
+      - "scripts/ci/ios-sherpa.py"
 
 permissions:
   contents: read

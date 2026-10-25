@@ -106,6 +106,28 @@ fn status(app: State<'_, AppState>) -> os_app::Status {
         {
             tracing::warn!(error = %e, "couldn't write the smoke-test marker");
         }
+        // The transcription check: the smoke test puts a short synthetic clip
+        // in the data folder; transcribe it once with the built-in models and
+        // write "ok: <first words>" or "error: <why>" for the script.
+        static TRANSCRIBING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        let clip = base.join("smoke-input.wav");
+        if clip.is_file() && !TRANSCRIBING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            let app = app.inner().clone();
+            let out = base.join("smoke-transcript.txt");
+            std::thread::spawn(move || {
+                let line = match app.smoke_transcribe(&clip) {
+                    Ok(text) if !text.trim().is_empty() => {
+                        format!("ok: {}", text.split_whitespace().take(12).collect::<Vec<_>>().join(" "))
+                    }
+                    Ok(_) => "error: the transcript is empty".to_string(),
+                    Err(e) => format!("error: {}", e.0),
+                };
+                tracing::info!(result = %line, "smoke-test transcription");
+                if let Err(e) = std::fs::write(&out, line) {
+                    tracing::warn!(error = %e, "couldn't write the smoke-test transcript");
+                }
+            });
+        }
     }
     status
 }

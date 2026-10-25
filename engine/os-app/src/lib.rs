@@ -1336,6 +1336,29 @@ impl App {
         });
     }
 
+    /// The iOS check's transcription smoke test (ADR-0018 sections 8 and
+    /// 10): transcribe a WAV file with this device's speech models (on a
+    /// phone, the ones built into the app), without speaker labels, and
+    /// return the text. Fails when this build can't transcribe (no `stt`).
+    pub fn smoke_transcribe(&self, wav: &Path) -> Result<String> {
+        let stt = if Profile::current().is_mobile() {
+            os_models::platform::MOBILE_STT
+        } else {
+            os_engine::models::DEFAULT_STT
+        };
+        let transcriber = os_engine::models::transcriber(&self.store, stt, false, None, None, None, false)
+            .map_err(|e| AppError(e.to_string()))?;
+        let audio = os_asr::Audio::load(wav).map_err(|e| AppError(e.to_string()))?;
+        let (transcript, _) = transcriber.run(&audio, &mut |_| {}).map_err(|e| AppError(e.to_string()))?;
+        Ok(transcript
+            .segments
+            .iter()
+            .map(|s| s.text.trim())
+            .filter(|t| !t.is_empty())
+            .collect::<Vec<_>>()
+            .join(" "))
+    }
+
     pub fn status(&self) -> Status {
         let catalog = os_models::Catalog::builtin();
         let models = os_engine::models::required_status_for(&self.store, Profile::current())
