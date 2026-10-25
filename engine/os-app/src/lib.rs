@@ -1367,12 +1367,27 @@ impl App {
     /// model the script copies in; no model ships in the app), on the
     /// processor, and return how many sections came back. Fails when this
     /// build can't draft (no `inference`) or no note comes back.
-    pub fn smoke_draft(&self, gguf: &Path, transcript: &Transcript) -> Result<usize> {
+    /// `progress` hears each stage ("loaded") and every 32 tokens, so a
+    /// slow or stuck draft shows where it is.
+    pub fn smoke_draft(
+        &self,
+        gguf: &Path,
+        transcript: &Transcript,
+        progress: &mut dyn FnMut(&str),
+    ) -> Result<usize> {
         let llm = open_llm(&self.store, &gguf.to_string_lossy(), Some(0))?;
+        progress("loaded");
         let template = LoadedTemplate::resolve("soap").map_err(|e| AppError(e.to_string()))?;
         let options = NoteOptions { max_tokens: 2048, ..Default::default() };
-        let result = os_engine::generate_note(&*llm, &template, transcript, &options, &mut |_| true)
-            .map_err(|e| AppError(e.to_string()))?;
+        let mut tokens = 0u32;
+        let result = os_engine::generate_note(&*llm, &template, transcript, &options, &mut |_| {
+            tokens += 1;
+            if tokens % 32 == 0 {
+                progress(&format!("{tokens} tokens"));
+            }
+            true
+        })
+        .map_err(|e| AppError(e.to_string()))?;
         let sections = result.note.as_object().map_or(0, |o| o.len());
         if sections == 0 {
             return Err(AppError("the note came back empty".into()));

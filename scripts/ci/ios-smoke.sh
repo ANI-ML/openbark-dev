@@ -104,8 +104,11 @@ fi
 # simulator's processor.
 drafted=0
 if [ "$heard" -eq 1 ] && [ "$draft" = 1 ]; then
-  for _ in $(seq 1 300); do
+  for i in $(seq 1 600); do
     if [ -f "$note" ]; then drafted=1; break; fi
+    if [ $((i % 60)) -eq 0 ]; then
+      echo "draft after $i s: $(cat "$support/smoke-note.progress" 2>/dev/null || echo 'no progress yet')"
+    fi
     sleep 1
   done
 fi
@@ -119,6 +122,7 @@ find "$data" -maxdepth 5 -print > "$out/container.txt" 2>/dev/null || true
 cp "$support/smoke-models.json" "$out/models.json" 2>/dev/null || true
 cp "$transcript" "$out/transcript.txt" 2>/dev/null || true
 cp "$note" "$out/note.txt" 2>/dev/null || true
+cp "$support/smoke-note.progress" "$out/note.progress" 2>/dev/null || true
 
 if [ "$ok" -ne 1 ]; then
   # What the simulator said about the app (launch refusals, crashes).
@@ -176,6 +180,7 @@ esac
 if [ "$draft" = 1 ]; then
   if [ "$drafted" -ne 1 ]; then
     echo "The app never wrote $note (drafting a note with the test model)." >&2
+    echo "Last progress: $(cat "$out/note.progress" 2>/dev/null || echo none)" >&2
     tail -50 "$out/app.log" >&2 || true
     exit 1
   fi

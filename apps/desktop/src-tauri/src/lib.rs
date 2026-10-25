@@ -138,7 +138,13 @@ fn status(app: State<'_, AppState>) -> os_app::Status {
                     tracing::warn!(error = %e, "couldn't write the smoke-test transcript");
                 }
                 if let (Ok(t), true) = (&transcript, gguf.is_file()) {
-                    let note = match app.smoke_draft(&gguf, t) {
+                    // Where the draft is, for the script when it runs long.
+                    let progress_file = note_out.with_extension("progress");
+                    let mut progress = |stage: &str| {
+                        let _ = std::fs::write(&progress_file, stage);
+                    };
+                    progress("loading");
+                    let note = match app.smoke_draft(&gguf, t, &mut progress) {
                         Ok(n) => format!("ok: {n} sections"),
                         Err(e) => format!("error: {}", e.0),
                     };
