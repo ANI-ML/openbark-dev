@@ -28,7 +28,9 @@ print(best[1] if best else "")
 echo "simulator $udid, app $bundle"
 xcrun simctl boot "$udid" || true
 xcrun simctl bootstatus "$udid" -b
+started_install=$(date +%s)
 xcrun simctl install "$udid" "$app"
+echo "installed in $(($(date +%s) - started_install)) s ($(du -sk "$app" | cut -f1) KB, the speech models included)"
 
 data="$(xcrun simctl get_app_container "$udid" "$bundle" data)"
 marker="$data/Library/Application Support/OpenBark/smoke-webview.txt"
@@ -41,15 +43,18 @@ launch() {
 }
 
 # Right after a first boot, Springboard can drop the launch without a word
-# (no process id, nothing in the log): if nothing started within 30 s, launch
-# once more. An app that started and then failed is not retried.
+# (no process id, nothing in the log): if nothing started, launch again, at
+# 60 s and 150 s. With the speech models inside, the app is about 0.7 GB, and
+# a busy runner's simulator can take minutes over a first launch. An app
+# that started and then failed is not retried.
 : > "$out/app.log"
 launch
 ok=0
-for i in $(seq 1 120); do
+wait_secs=300
+for i in $(seq 1 $wait_secs); do
   if [ -f "$marker" ]; then ok=1; break; fi
-  if [ "$i" -eq 30 ] && [ ! -s "$out/app.log" ]; then
-    echo "the first launch didn't start the app; launching again"
+  if { [ "$i" -eq 60 ] || [ "$i" -eq 150 ]; } && [ ! -s "$out/app.log" ]; then
+    echo "no sign of the app after $i s; launching again"
     kill "$launcher" 2>/dev/null || true
     launch
   fi
@@ -58,12 +63,16 @@ done
 sleep 3
 xcrun simctl io "$udid" screenshot "$out/simulator.png" || true
 kill "$launcher" 2>/dev/null || true
-xcrun simctl terminate "$udid" "$bundle" || true
+# At most a minute (macOS has no timeout command; perl's alarm stands in).
+perl -e 'alarm 60; exec @ARGV' xcrun simctl terminate "$udid" "$bundle" 2>/dev/null || true
 # Anything the app left in its container (names only).
 find "$data" -maxdepth 5 -print > "$out/container.txt" 2>/dev/null || true
 
 if [ "$ok" -ne 1 ]; then
-  echo "The WebView never loaded the interface (no $marker after 120 s)." >&2
+  # What the simulator said about the app (launch refusals, crashes).
+  xcrun simctl spawn "$udid" log show --last 10m --style compact     --predicate 'process CONTAINS "OpenBark" OR eventMessage CONTAINS "health.animl.openbark"'     > "$out/system.log" 2>&1 || true
+  tail -40 "$out/system.log" >&2 || true
+  echo "The WebView never loaded the interface (no $marker after $wait_secs s)." >&2
   tail -50 "$out/app.log" >&2 || true
   exit 1
 fi
