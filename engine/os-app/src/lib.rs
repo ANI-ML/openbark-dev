@@ -1408,7 +1408,7 @@ impl App {
         let mut tokens = 0u32;
         let result = os_engine::generate_note(&*llm, &template, transcript, &options, &mut |_| {
             tokens += 1;
-            if tokens % 32 == 0 {
+            if tokens.is_multiple_of(32) {
                 progress(&format!("note: {tokens} tokens in {:.0} s", started.elapsed().as_secs_f64()));
             }
             true
