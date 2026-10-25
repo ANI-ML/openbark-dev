@@ -108,16 +108,27 @@ fn status(app: State<'_, AppState>) -> os_app::Status {
         }
         // The transcription check: the smoke test puts a short synthetic clip
         // in the data folder; transcribe it once with the built-in models and
-        // write "ok: <first words>" or "error: <why>" for the script.
+        // write "ok: <first words>" or "error: <why>" for the script. When it
+        // also put a tiny test GGUF there, draft a SOAP note from that
+        // transcript and write "ok: <n> sections" or "error: <why>".
         static TRANSCRIBING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
         let clip = base.join("smoke-input.wav");
         if clip.is_file() && !TRANSCRIBING.swap(true, std::sync::atomic::Ordering::SeqCst) {
             let app = app.inner().clone();
             let out = base.join("smoke-transcript.txt");
+            let gguf = base.join("smoke-llm.gguf");
+            let note_out = base.join("smoke-note.txt");
             std::thread::spawn(move || {
-                let line = match app.smoke_transcribe(&clip) {
-                    Ok(text) if !text.trim().is_empty() => {
-                        format!("ok: {}", text.split_whitespace().take(12).collect::<Vec<_>>().join(" "))
+                let transcript = app.smoke_transcript(&clip);
+                let words: Vec<String> = transcript
+                    .as_ref()
+                    .map(|t| {
+                        t.segments.iter().flat_map(|s| s.text.split_whitespace()).map(String::from).collect()
+                    })
+                    .unwrap_or_default();
+                let line = match &transcript {
+                    Ok(_) if !words.is_empty() => {
+                        format!("ok: {}", words.iter().take(12).cloned().collect::<Vec<_>>().join(" "))
                     }
                     Ok(_) => "error: the transcript is empty".to_string(),
                     Err(e) => format!("error: {}", e.0),
@@ -125,6 +136,25 @@ fn status(app: State<'_, AppState>) -> os_app::Status {
                 tracing::info!(result = %line, "smoke-test transcription");
                 if let Err(e) = std::fs::write(&out, line) {
                     tracing::warn!(error = %e, "couldn't write the smoke-test transcript");
+                }
+                if let (Ok(t), true) = (&transcript, gguf.is_file()) {
+                    // Where the draft is, for the script when it runs long.
+                    let progress_file = note_out.with_extension("progress");
+                    let mut lines = String::new();
+                    let mut progress = |stage: &str| {
+                        lines.push_str(stage);
+                        lines.push('\n');
+                        let _ = std::fs::write(&progress_file, &lines);
+                    };
+                    progress("loading");
+                    let note = match app.smoke_draft(&gguf, t, &mut progress) {
+                        Ok(n) => format!("ok: {n} sections"),
+                        Err(e) => format!("error: {}", e.0),
+                    };
+                    tracing::info!(result = %note, "smoke-test draft");
+                    if let Err(e) = std::fs::write(&note_out, note) {
+                        tracing::warn!(error = %e, "couldn't write the smoke-test note");
+                    }
                 }
             });
         }

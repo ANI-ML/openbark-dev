@@ -122,7 +122,12 @@ export function PhoneWalkthrough({ onDone }: { onDone?: () => void } = {}) {
 
         {step === 0 && (
           <>
-            <p>{t("OpenBark records the consult and writes the note, here on this iPhone.")}</p>
+            <p>
+              {/* What this iPhone does: drafting only on 8 GB and up, in a build with llama.cpp. */}
+              {phoneCanDraft(app.status)
+                ? t("OpenBark records the consult and writes the note, here on this iPhone.")
+                : t("OpenBark records and transcribes the consult here on this iPhone. Your computer writes the note.")}
+            </p>
             <p className="walkthrough-promise">
               <Lock size={20} aria-hidden />
               <span>{t("Recordings stay on this iPhone.")}</span>

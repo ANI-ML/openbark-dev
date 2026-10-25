@@ -83,6 +83,10 @@ targets:
       - framework: Frameworks/SherpaOnnxC.xcframework
         embed: true
         codeSign: true
+      # llama.cpp (drafting on 8 GB iPhones, the `inference` feature): ggml's
+      # CPU code uses Accelerate, and it is C++ (libc++). Metal is below.
+      - sdk: Accelerate.framework
+      - sdk: libc++.tbd
       - sdk: CoreGraphics.framework
       - sdk: Metal.framework
       - sdk: MetalKit.framework
