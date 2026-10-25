@@ -1,6 +1,6 @@
 [package]
 name = "os-sync"
-description = "OpenBark end-to-end encrypted sync (ADR-0017): keys, the OBS1 and OBB1 formats, merging, the outbox and the Supabase REST client"
+description = "OpenBark end-to-end encrypted sync (ADR-0017, ADR-0029): keys, the OBS1 and OBB1 formats, merging, the outbox, and the clients for the clinic hub and Supabase"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -38,6 +38,12 @@ ed25519-dalek = { version = "=3.0.0", default-features = false, features = ["fas
 bip39 = { version = "=3.0.0", default-features = false, features = ["std"] }
 # The pairing and Recovery Kit QR codes, as SVG.
 qrcode = { version = "=0.14.1", default-features = false, features = ["svg"] }
+# The clinic hub client (ADR-0029, docs/network.md L2 and L3): TLS 1.3 to the
+# hub's self-signed certificate, pinned by its SHA-256 (src/hub.rs), and
+# browsing for _openbark-hub._tcp on the local network. Allowed by
+# scripts/ci/check-network.sh.
+rustls.workspace = true
+mdns-sd.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

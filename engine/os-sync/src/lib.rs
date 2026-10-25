@@ -23,6 +23,7 @@
 //! docs/security/sync-threat-model.md.
 
 pub mod guard;
+pub mod hub;
 pub mod keys;
 pub mod map;
 pub mod merge;
@@ -71,6 +72,9 @@ pub enum SyncError {
     User(String),
     #[error("No connection to the sync service.")]
     Offline,
+    /// The clinic hub didn't answer (ADR-0029 section 6).
+    #[error("Hub not reachable: syncs when you're back on the clinic network.")]
+    HubOffline,
     #[error("Network error: {0}")]
     Network(String),
     /// The server refused, with one of the sync functions' codes.

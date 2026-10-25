@@ -117,6 +117,10 @@ impl Drop for HttpTransport {
 
 impl Transport for HttpTransport {
     fn send(&self, req: &Request) -> Result<Response, SyncError> {
+        // A clinic hub (ADR-0029): pinned TLS, not reqwest.
+        if req.url.starts_with(crate::hub::SCHEME) {
+            return crate::hub::HubTransport.send(req);
+        }
         let client = self.client()?;
         let mut r = match req.method {
             "GET" => client.get(&req.url),

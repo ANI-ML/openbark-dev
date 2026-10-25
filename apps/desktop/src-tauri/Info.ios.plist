@@ -9,6 +9,12 @@
   <string>OpenBark uses the camera only to scan the code another of your devices shows when you add it.</string>
   <key>NSFaceIDUsageDescription</key>
   <string>OpenBark uses Face ID to open the app, so only you can see your visits.</string>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>OpenBark finds your clinic's hub computer on this network to sync your visits with it. Nothing goes to the internet.</string>
+  <key>NSBonjourServices</key>
+  <array>
+    <string>_openbark-hub._tcp</string>
+  </array>
   <key>UIBackgroundModes</key>
   <array>
     <string>audio</string>
