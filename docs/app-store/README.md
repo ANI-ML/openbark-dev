@@ -115,7 +115,7 @@ Free apps don't need the Paid Apps agreement, tax or banking.
 
 ## 8. Before submitting for review
 
-- [ ] TestFlight build installed on the owner's iPhone: recording survives locking, backgrounding and a phone call (M3 phase 1).
+- [ ] TestFlight build installed on a test iPhone: recording survives locking, backgrounding and a phone call (M3 phase 1).
 - [ ] Redesigned phone screens merged (ADR-0027).
 - [ ] Decide whether the first App Store version includes encrypted sync. If yes: the hosted Supabase is set up (`supabase/README.md`), the external security review is done, and the privacy label above is updated.
 - [ ] Privacy policy reviewed by the owner and counsel, live at /privacy.
