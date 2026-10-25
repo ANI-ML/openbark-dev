@@ -438,6 +438,38 @@ struct Score {
     /// "reference" (`--from-ref`) or "audio".
     llm: String,
     transcript: String,
+    /// The draft failed: why. Every check of the fixture counts as missed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+/// The score of a fixture whose draft failed: every declared check missed
+/// (and every expected tooth finding, when the template has a chart).
+fn failed_score(script: &Script, chart: bool, why: &str) -> Score {
+    let e = &script.expected;
+    let checks = e.vitals.len()
+        + e.medications.len()
+        + e.must_mention.len()
+        + e.must_not_mention.len()
+        + e.vitals_by_patient.values().map(BTreeMap::len).sum::<usize>();
+    Score {
+        fixture: script.id.clone(),
+        checks: checks as u32,
+        misses: vec![format!("draft failed: {why}")],
+        chart: chart.then(|| ChartScore {
+            expected: e.chart.len() as u32,
+            teeth_expected: e
+                .chart
+                .iter()
+                .filter_map(|w| w.get("tooth").and_then(Value::as_str))
+                .collect::<std::collections::BTreeSet<_>>()
+                .len() as u32,
+            flags_expected: e.chart_flags.len() as u32,
+            ..Default::default()
+        }),
+        error: Some(why.to_string()),
+        ..Default::default()
+    }
 }
 
 struct Quiet;
@@ -766,7 +798,10 @@ pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
         }
         .for_species(script.species.as_deref());
         let options = script_options(&args, &script);
-        let s = if script.expected.vitals_by_patient.is_empty() {
+        let draft = || -> Result<Score> {
+            if !script.expected.vitals_by_patient.is_empty() {
+                return score_pets(&*llm, &template, &transcript, &script, &args.llm);
+            }
             let result = generate_note(&*llm, &template, &transcript, &options, &mut |_| true)?;
             std::fs::write(
                 format!("target/eval/{}.note.json", script.id),
@@ -783,11 +818,15 @@ pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
                 s.misses.extend(c.misses.iter().cloned());
                 s.chart = Some(c);
             }
-            s
-        } else {
-            score_pets(&*llm, &template, &transcript, &script, &args.llm)?
+            Ok(s)
         };
-        let mut s = s;
+        let drafted = draft();
+        // A draft that fails (past the token limit, or not the template's
+        // JSON) is scored as every check missed, and the run goes on.
+        let mut s = match drafted {
+            Ok(s) => s,
+            Err(e) => failed_score(&script, template.chart().is_some(), &format!("{e:#}")),
+        };
         s.category = script.category.clone().unwrap_or_else(|| MAIN.into());
         s.context = options.context.clone();
         s.template = template.label();
@@ -998,6 +1037,27 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_failed_draft_misses_every_check() {
+        let script: Script = serde_yaml_ng::from_str(
+            "id: x
+expected:
+  vitals: {weight: '4.2'}
+  must_mention: [otitis]
+  must_not_mention: [x-ray]
+  chart:
+    - { tooth: '101', finding: missing }
+",
+        )
+        .unwrap();
+        let s = failed_score(&script, true, "model output is not valid JSON (output hit max_tokens)");
+        assert_eq!((s.checks, s.passed), (3, 0));
+        assert_eq!(s.chart.as_ref().map(|c| (c.expected, c.found, c.teeth_expected)), Some((1, 0, 1)));
+        assert!(s.error.as_deref().unwrap().contains("max_tokens"));
+        let json = serde_json::to_value(&s).unwrap();
+        assert_eq!(json["misses"][0], "draft failed: model output is not valid JSON (output hit max_tokens)");
     }
 
     #[test]

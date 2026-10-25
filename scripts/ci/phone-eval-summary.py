@@ -85,6 +85,7 @@ def main():
             "size": m["size"],
             "params_b": m["params_b"],
             "fixtures": len(s),
+            "drafts_failed": [f"{x['fixture']}: {x['error']}" for x in s if x.get("error")],
             "facts_passed": passed,
             "facts_checked": checks,
             "invented_numbers": invented,
@@ -128,7 +129,7 @@ def main():
     out.append("Runner hardware: " + (" / ".join(sorted(hardware)) or "not recorded"))
     out.append("")
     out.append(
-        "| Model | Tiers | Size | Licence | Fixtures | Facts found | Invented numbers | Citation errors | Word flags | Chart recall | Chart precision | Invented teeth | s per note (mean / median) | tokens/s | Peak RSS | Runs |"
+        "| Model | Tiers | Size | Licence | Fixtures (drafts failed) | Facts found | Invented numbers | Citation errors | Word flags | Chart recall | Chart precision | Invented teeth | s per note (mean / median) | tokens/s | Peak RSS | Runs |"
     )
     out.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     for r in summary:
@@ -137,7 +138,7 @@ def main():
         tps = f"{r['tokens_per_sec']:.1f}" if r["tokens_per_sec"] else "-"
         rss = f"{r['peak_rss_mb'] / 1024:.1f} GB" if r["peak_rss_mb"] else "-"
         out.append(
-            f"| {r['name']} | {', '.join(str(t) for t in r['tiers'])} GB | {r['size'] / 1e9:.2f} GB | {r['license']} | {r['fixtures']} "
+            f"| {r['name']} | {', '.join(str(t) for t in r['tiers'])} GB | {r['size'] / 1e9:.2f} GB | {r['license']} | {r['fixtures']} ({len(r['drafts_failed'])}) "
             f"| {r['facts_passed']}/{r['facts_checked']} ({pct(r['facts_passed'], r['facts_checked'])}) "
             f"| {r['invented_numbers']} | {r['citation_errors']} | {r['word_flags']} "
             f"| {pct(r['chart_found'], r['chart_expected'])} | {pct(r['chart_matched'], r['chart_charted'])} | {r['chart_invented_teeth']} "
@@ -145,6 +146,8 @@ def main():
         )
     out.append("")
     for r in summary:
+        if r["drafts_failed"]:
+            out.append(f"Drafts that failed, {r['name']}: " + "; ".join(d[:160] for d in r["drafts_failed"]))
         if r["invented"]:
             out.append(f"Invented numbers, {r['name']}: " + "; ".join(r["invented"]))
     print("\n".join(out))

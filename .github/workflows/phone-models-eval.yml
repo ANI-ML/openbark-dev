@@ -8,7 +8,8 @@
 # Linux CPU runners: timings are CPU timings, not iPhone timings.
 #
 # Runs by hand, or on a push whose head commit message contains
-# [phone-eval]. Hours of Linux minutes: never on every push.
+# [phone-eval] (every candidate) or [phone-eval: id,id] (those only).
+# Hours of Linux minutes: never on every push.
 name: Phone models eval
 
 on:
@@ -32,7 +33,7 @@ jobs:
     name: Plan (candidates x shards)
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      contains(github.event.head_commit.message, '[phone-eval]')
+      contains(github.event.head_commit.message, '[phone-eval')
     runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
@@ -41,11 +42,16 @@ jobs:
       - id: plan
         env:
           MODELS: ${{ inputs.models }}
+          HEAD_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           python3 - <<'EOF' >> "$GITHUB_OUTPUT"
-          import json, os
+          import json, os, re
           plan = json.load(open("packages/eval/phone-models.json"))
-          want = [m.strip() for m in os.environ.get("MODELS", "").split(",") if m.strip()]
+          named = os.environ.get("MODELS", "")
+          tag = re.search(r"\[phone-eval:\s*([^\]]+)\]", os.environ.get("HEAD_MESSAGE", ""))
+          if tag:
+              named = tag.group(1)
+          want = [m.strip() for m in named.split(",") if m.strip()]
           ids = [c["id"] for c in plan["candidates"] if not want or c["id"] in want]
           unknown = set(want) - set(ids)
           assert not unknown, f"unknown candidates: {unknown}"
