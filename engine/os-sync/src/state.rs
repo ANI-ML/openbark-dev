@@ -34,6 +34,10 @@ pub enum Phase {
     CodeSent,
     /// This device asked to join an account and waits for approval.
     Pending,
+    /// A clinic hub device was approved into an account: nothing syncs until
+    /// the person types the code the approving device shows (ADR-0029), so a
+    /// device of another account that saw the 6 words can't take it over.
+    Confirm,
     /// The account was just created: the Recovery Kit must be checked
     /// (two of its words typed back) before anything syncs.
     KitCheck,
@@ -181,6 +185,10 @@ pub struct State {
     /// When this device asked to join (its code lasts 10 minutes).
     #[serde(default)]
     pub pending_since: Option<DateTime<Utc>>,
+    /// The AMK version this device's approval envelope was for (bound into
+    /// the confirmation code; hub only).
+    #[serde(default)]
+    pub joined_amk: Option<u32>,
     /// This device's counter for the objects it seals.
     #[serde(default)]
     pub counter: u64,

@@ -28,6 +28,8 @@ import http.client
 HUB = os.environ.get("OPENBARK_HUB_E2E_HUB", "http://127.0.0.1:4335")
 A = os.environ.get("OPENBARK_HUB_E2E_A", "http://127.0.0.1:4336")
 B = os.environ.get("OPENBARK_HUB_E2E_B", "http://127.0.0.1:4337")
+# A colleague's new laptop, for the attack where another account sees its words.
+LAPTOP = os.environ.get("OPENBARK_HUB_E2E_LAPTOP", "http://127.0.0.1:4338")
 WAV = os.environ.get("OPENBARK_HUB_E2E_WAV", "")
 STATE = os.environ.get("OPENBARK_HUB_E2E_STATE", os.path.join(os.getcwd(), "target", "hub-e2e-state.json"))
 LLM = os.environ.get("OPENBARK_HUB_E2E_LLM", "gemma-4-e2b-it-q4_0")
@@ -112,15 +114,18 @@ def setup():
     assert s["available"] and not s["on"], s
     s = hub_mode(True, port=PORT, allowed=["127.0.0.0/25"])
     assert s["listening"], s
-    st["fingerprint"], st["check"] = s["fingerprint"], s["check"]
-    log("hub: on, port", PORT, "check", st["check"])
+    st["fingerprint"] = s["fingerprint"]
+    log("hub: on, port", PORT, "fingerprint", st["fingerprint"][:16])
     # Finding the hub on the network (mDNS): logged only, runners may block multicast.
     try:
         log("found on the network:", [(h["name"], h["host"], h["port"]) for h in call(A, "/api/sync/hub/find", {})])
     except RuntimeError as e:
         log("mDNS search not available here:", str(e)[:120])
     # A wrong hub certificate is refused, before the code is used.
-    code, _ = new_code()
+    code, s = new_code()
+    # The certificate check is keyed by the join code: a new code, a new check.
+    assert s["join"]["check"] != new_code()[1]["join"]["check"]
+    code, s = new_code()
     bad = st["fingerprint"][:-2] + ("00" if not st["fingerprint"].endswith("00") else "11")
     try:
         call(A, "/api/sync/hub/join", {"link": link_for(code, bad), "device_name": A_NAME, "existing": False})
@@ -145,18 +150,38 @@ def setup():
     assert call(A, "/api/sync")["phase"] == "active"
     assert hub_status()["join"]["used"], "the code is used up"
     log("A: account created on the hub, kit checked")
-    # B: the same person's second device, the code typed by hand with the check.
-    code, _ = new_code()
+    # B: the same person's second device, the code typed by hand with its check.
+    code, s = new_code()
+    check = s["join"]["check"]
+    other_code, _ = new_code()  # retires `code`: only the code on screen works
+    try:
+        call(B, "/api/sync/hub/join", {"link": code, "address": f"127.0.0.1:{PORT}", "check": check,
+                                      "device_name": B_NAME, "existing": True})
+        raise AssertionError("a code retired by a newer one was accepted")
+    except RuntimeError as e:
+        assert "doesn't work" in str(e), e
+    log("ok: making a new join code retires the older unused one")
+    code, s = new_code()
     nxt = call(B, "/api/sync/hub/join", {"link": code[:4] + "-" + code[4:].lower(), "address": f"127.0.0.1:{PORT}",
-                                        "check": st["check"], "device_name": B_NAME, "backfill_days": 30,
+                                        "check": s["join"]["check"], "device_name": B_NAME, "backfill_days": 30,
                                         "existing": True})
     assert nxt["next"] == "pair", nxt
     words = " ".join(nxt["words"])
     found = call(A, "/api/sync/pair", {"words": words, "approve": False})
     assert found["name"] == B_NAME, found
-    call(A, "/api/sync/pair", {"words": words, "approve": True})
+    approved = call(A, "/api/sync/pair", {"words": words, "approve": True})
+    confirm = approved["confirm"]
+    # B is approved but syncs nothing until the person types A's code.
+    wait("B approved, waiting for the confirmation code", lambda: call(B, "/api/sync")["phase"] == "confirm", 60)
+    assert any(d["name"] == A_NAME for d in call(B, "/api/sync")["devices"]), "B shows whose account it joined"
+    try:
+        call(B, "/api/sync/pair/confirm", {"code": "AAAA-AAAA"})
+        raise AssertionError("a wrong confirmation code was accepted")
+    except RuntimeError as e:
+        assert "doesn't match" in str(e), e
+    call(B, "/api/sync/pair/confirm", {"code": confirm})
     wait("B joined", lambda: call(B, "/api/sync")["phase"] == "active", 60)
-    assert call(B, "/api/sync")["hub"]["check"] == st["check"]
+    assert st["fingerprint"].startswith(call(B, "/api/sync")["hub"]["fingerprint"].replace(" ", ""))
     save(st)
 
 
@@ -375,6 +400,110 @@ def check():
 
 # ---- attacks: a client of our own, straight to the hub's listener -------------------------------
 
+def cross_account(st):
+    """Review finding 1: another account on the hub sees a colleague's 6 words
+    and approves their new laptop first. The laptop syncs nothing (it asks
+    for the code only the person's own device shows), starts over, and joins
+    the person's account."""
+    spaces_before = set(inspect()["spaces"])
+    # The hub computer's own device makes a second account: the "other" one.
+    nxt = call(HUB, "/api/clinic-hub/join-self", {"device_name": "Hub front desk", "existing": False})
+    assert nxt["next"] == "kit", nxt
+    a, b = nxt["check"]
+    call(HUB, "/api/sync/kit/confirm", {"answers": [[a, nxt["words"][a - 1]], [b, nxt["words"][b - 1]]]})
+    other_space = next(iter(set(inspect()["spaces"]) - spaces_before))
+    log("hub's own device: a second account, joined through its own hub")
+    # The laptop has a visit of its own, then asks to join the person's account.
+    q = urllib.parse.urlencode({"name": "laptop visit", "patient_name": "Juniper", "last_name": "Ashdown",
+                                "reason": "vaccines", "species": "Cat", "consent_rule": "all_parties",
+                                "consent_method": "verbal", "consent_by": "Dr. A. Rivera"})
+    call(LAPTOP, f"/api/sessions?{q}", raw=open(WAV, "rb").read())
+    code, _ = new_code()
+    nxt = call(LAPTOP, "/api/sync/hub/join", {"link": link_for(code, st["fingerprint"]), "device_name": "Colleague laptop",
+                                             "existing": True})
+    assert nxt["next"] == "pair", nxt
+    words = " ".join(nxt["words"])
+    # The other account approves first.
+    stolen = call(HUB, "/api/sync/pair", {"words": words, "approve": True})
+    assert stolen.get("confirm"), stolen
+    try:
+        call(A, "/api/sync/pair", {"words": words, "approve": True})
+        raise AssertionError("the person's device could approve a device already taken")
+    except RuntimeError:
+        pass
+    wait("the laptop approved into the other account, waiting for a code",
+         lambda: call(LAPTOP, "/api/sync")["phase"] == "confirm", 60)
+    names = [d["name"] for d in call(LAPTOP, "/api/sync")["devices"]]
+    assert "Hub front desk" in names, names
+    for _ in range(3):
+        call(LAPTOP, "/api/sync/now", {})
+    seen = inspect()
+    assert not seen["objects"].get(other_space), "the laptop uploaded before it was confirmed"
+    assert "Juniper" not in json.dumps(seen)
+    try:
+        call(LAPTOP, "/api/sync/pair/confirm", {"code": "AAAA-AAAA"})
+        raise AssertionError("a wrong confirmation code was accepted")
+    except RuntimeError as e:
+        assert "doesn't match" in str(e), e
+    log("ok: another account with the words can't make the laptop sync into it")
+    # The laptop starts over (and leaves that account), then joins the person's.
+    call(LAPTOP, "/api/sync/start-over", {})
+    assert call(LAPTOP, "/api/sync")["phase"] == "off"
+    code, _ = new_code()
+    nxt = call(LAPTOP, "/api/sync/hub/join", {"link": link_for(code, st["fingerprint"]), "device_name": "Colleague laptop",
+                                             "existing": True})
+    approved = call(A, "/api/sync/pair", {"words": " ".join(nxt["words"]), "approve": True})
+    wait("the laptop approved by the person's device", lambda: call(LAPTOP, "/api/sync")["phase"] == "confirm", 60)
+    call(LAPTOP, "/api/sync/pair/confirm", {"code": approved["confirm"]})
+    call(LAPTOP, "/api/sync/now", {})
+    wait("the laptop's visit reached the person's phone",
+         lambda: (call(A, "/api/sync/now", {}) or True) and find(A, lambda s: s["patient"] == "Juniper Ashdown"), 90)
+    assert not seen["objects"].get(other_space)
+    log("ok: after starting over, the laptop joined the right account")
+
+
+def flood(tls):
+    """Review finding 3: oversized and unsigned bodies, and many connections,
+    are refused without the hub reading them; the hub stays up."""
+    def raw(src, head, body=b"", read=True):
+        try:
+            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            s = ctx.wrap_socket(socket.create_connection(("127.0.0.1", PORT), timeout=10, source_address=(src, 0)))
+            s.sendall(head.encode() + body)
+            return s.recv(4096).decode(errors="replace") if read else s
+        except (OSError, ssl.SSLError) as e:
+            return f"closed: {type(e).__name__}"
+    t0 = time.time()
+    # Claims 12 MB from a device the hub doesn't know: refused from the headers.
+    r = raw("127.0.0.13", f"POST /rpc/push HTTP/1.1\r\nHost: hub\r\nContent-Length: {12 << 20}\r\n"
+                          "x-openbark-device: 00000000-0000-4000-8000-000000000000\r\nx-openbark-time: "
+                          f"{int(time.time())}\r\nx-openbark-nonce: AAAAAAAAAAAAAAAAAAAAAAAA\r\n"
+                          "x-openbark-signature: AAAA\r\n\r\n")
+    assert " 401 " in r or " 413 " in r or r.startswith("closed"), r
+    # Unsigned, with a body far over any limit, sent in full.
+    r = raw("127.0.0.13", f"POST /rpc/push HTTP/1.1\r\nHost: hub\r\nContent-Length: {20 << 20}\r\n\r\n", b"x" * (1 << 20))
+    assert " 401 " in r or r.startswith("closed"), r
+    # A new device's request over 128 KB.
+    r = raw("127.0.0.13", f"POST /rpc/create_account HTTP/1.1\r\nHost: hub\r\nContent-Length: {1 << 20}\r\n"
+                          "x-openbark-device: 00000000-0000-4000-8000-000000000001\r\nx-openbark-time: "
+                          f"{int(time.time())}\r\nx-openbark-nonce: BBBBBBBBBBBBBBBBBBBBBBBB\r\n"
+                          "x-openbark-signature: AAAA\r\n\r\n")
+    assert " 413 " in r, r
+    # Forty connections at once from one address: sixteen at most are kept.
+    held = [raw("127.0.0.14", "POST /rpc/push HTTP/1.1\r\nHost: hub\r\n", read=False) for _ in range(40)]
+    open_ = [h for h in held if not isinstance(h, str)]
+    for h in open_:
+        try:
+            h.close()
+        except OSError:
+            pass
+    log(f"flood: {len(open_)} of 40 connections from one address got through TLS")
+    assert hub_status()["listening"]
+    wait("A still syncs after the flood", lambda: call(A, "/api/sync/now", {})["last_error"] is None, 60)
+    log(f"ok: oversized and unsigned bodies refused before reading, connections capped ({time.time() - t0:.1f} s)")
+
 def attacks():
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
@@ -436,6 +565,9 @@ def attacks():
         return {"join_code": join_code, "device_id": dev.id, "platform": "ios", "x25519_pub": b64(os.urandom(32)),
                 "ed25519_pub": b64(dev.pub), "rebind_verifier": b64(hashlib.sha256(dev.secret).digest()),
                 "pair_mac": b64(os.urandom(32)), "pair_blob": fake(b"OBW1", 80), "pair_tag": b64(tag)}
+
+    cross_account(st)
+    flood(tls)
 
     c = tls("127.0.0.10")
     log("ok: the listener presents the hub's certificate (TLS 1.3)")

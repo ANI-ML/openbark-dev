@@ -58,7 +58,11 @@ jobs:
             cargo-hub-e2e/${{ github.repository }}/
             cargo-sync-e2e/${{ github.repository }}/
             cargo-linux/${{ github.repository }}/
+      # Sync and hub mode are offered only by builds made with this set
+      # (release installers never are); nothing at run time turns them on.
       - run: cargo build --release -p os-cli
+        env:
+          OPENBARK_SYNC_PREVIEW: "1"
       - name: Restore models
         id: models
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
@@ -104,6 +108,8 @@ jobs:
           start_hub
           start phone 4336 OPENBARK_PLATFORM=ios OPENBARK_DEVICE_RAM_GB=8
           start computer 4337
+          # A colleague's new laptop, for the attack where another account sees its words.
+          start laptop 4338
           curl -fs http://127.0.0.1:4336/api/status | jq -e '.profile == "ios"' > /dev/null
           curl -fs http://127.0.0.1:4337/api/status | jq -e '.profile != "ios"' > /dev/null
           export OPENBARK_HUB_E2E_WAV="$PWD/packages/eval/fixtures/audio/smoke.wav" \

@@ -1302,6 +1302,22 @@ async fn sync_stop_visit(
 // ---- the clinic hub (ADR-0029) ----------------------------------------------
 
 #[tauri::command]
+async fn sync_confirm_pairing(
+    app: State<'_, AppState>,
+    code: String,
+    by: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let app = app.inner().clone();
+    work(move || app.sync_confirm_pairing(&code, by.as_deref())).await
+}
+
+#[tauri::command]
+async fn sync_start_over(app: State<'_, AppState>, by: Option<String>) -> Result<serde_json::Value, String> {
+    let app = app.inner().clone();
+    work(move || app.sync_start_over(by.as_deref())).await
+}
+
+#[tauri::command]
 async fn sync_find_hubs(app: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let app = app.inner().clone();
     work(move || app.sync_find_hubs()).await
@@ -1327,8 +1343,8 @@ async fn sync_join_hub(
 }
 
 #[tauri::command]
-fn clinic_hub_status(app: State<'_, AppState>) -> serde_json::Value {
-    app.clinic_hub_status()
+fn clinic_hub_status(app: State<'_, AppState>, by: Option<String>) -> serde_json::Value {
+    app.clinic_hub_status(by.as_deref())
 }
 
 #[tauri::command]
@@ -1446,6 +1462,8 @@ pub fn run() {
         sync_stop_visit,
         sync_find_hubs,
         sync_join_hub,
+        sync_confirm_pairing,
+        sync_start_over,
         clinic_hub_status,
         clinic_hub_settings,
         clinic_hub_code,

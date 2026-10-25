@@ -178,9 +178,19 @@ fn devices_join_sync_and_are_removed_through_the_hub() {
     };
     assert!(a.svc.check_pairing("abandon ability able about above absent").is_err());
     assert_eq!(a.svc.check_pairing(&pair.words.join(" ")).unwrap().name, "Exam room laptop");
-    a.svc.approve_pairing(&pair.words.join(" ")).unwrap();
+    let approved = a.svc.approve_pairing(&pair.words.join(" ")).unwrap();
+    let confirm = approved.confirm.expect("a hub approval shows a confirmation code");
     b.sync();
-    assert_eq!(b.svc.status().phase, Phase::Active, "{:?}", b.svc.status().last_error);
+    // Approved, but nothing syncs until the person types A's code.
+    assert_eq!(b.svc.status().phase, Phase::Confirm, "{:?}", b.svc.status().last_error);
+    assert!(
+        b.svc.status().devices.iter().any(|d| d.name == "Front desk PC"),
+        "B shows whose account it joined"
+    );
+    assert!(b.svc.confirm_pairing("AAAA-AAAA").is_err());
+    b.svc.confirm_pairing(&confirm.to_lowercase()).unwrap();
+    assert_eq!(b.svc.status().phase, Phase::Active);
+    b.sync();
 
     // A visit from A arrives on B transcribed, with its draft, never its audio.
     let s = make_visit(a.root(), "Biscuit", "Fairweather");
@@ -220,4 +230,75 @@ fn devices_join_sync_and_are_removed_through_the_hub() {
     a.sync();
     let v: Value = serde_json::to_value(a.svc.status()).unwrap();
     assert_eq!(v["phase"], "active");
+}
+
+/// The review's finding 1: a device of another account that sees a person's
+/// 6 words approves their new device first. The new device ends up in the
+/// wrong account but syncs nothing, because only the person's own device
+/// shows the code it asks for; it starts over and joins the right account.
+#[test]
+fn another_account_with_the_words_cant_take_a_new_device() {
+    vault_on();
+    let hub_dir = tempfile::tempdir().unwrap();
+    let hub = Arc::new(Hub::open(hub_dir.path(), &Settings::default(), Limits::default()).unwrap());
+    let first = |c: &Computer, name: &str| {
+        let code = hub.new_join_code().unwrap().code;
+        let NextStep::Kit(kit) = c.svc.join_hub(&join(&code), name, None, None, false).unwrap() else {
+            panic!("expected a new account")
+        };
+        let answers: Vec<(usize, String)> =
+            kit.check.iter().map(|p| (*p, kit.words[p - 1].clone())).collect();
+        c.svc.confirm_kit(&answers).unwrap();
+    };
+    let a = Computer::new(&hub);
+    first(&a, "Front desk PC");
+    let x = Computer::new(&hub);
+    first(&x, "Someone else's laptop");
+
+    // The person's new device, with a visit of its own.
+    let b = Computer::new(&hub);
+    let local = make_visit(b.root(), "Juniper", "Ashdown");
+    let objects_before = Hub::inspect(hub_dir.path()).unwrap()["object_bodies"].as_array().unwrap().len();
+    let code = hub.new_join_code().unwrap().code;
+    let NextStep::Pair(pair) = b.svc.join_hub(&join(&code), "Exam room laptop", None, None, true).unwrap()
+    else {
+        panic!("expected to wait for approval")
+    };
+    let words = pair.words.join(" ");
+    // X saw the words and approves first, into its own account.
+    let x_code = x.svc.approve_pairing(&words).unwrap().confirm.unwrap();
+    assert!(a.svc.approve_pairing(&words).is_err(), "already taken");
+    for _ in 0..3 {
+        b.sync();
+    }
+    assert_eq!(b.svc.status().phase, Phase::Confirm);
+    assert!(
+        b.svc.status().devices.iter().any(|d| d.name == "Someone else's laptop"),
+        "B shows it was put in someone else's account"
+    );
+    // Nothing of B's left B.
+    let objects_now = Hub::inspect(hub_dir.path()).unwrap()["object_bodies"].as_array().unwrap().len();
+    assert_eq!(objects_now, objects_before, "B uploaded before it was confirmed");
+    // The person has no code that matches X's account (A never approved).
+    assert!(b.svc.confirm_pairing("AAAA-AAAA").is_err());
+    assert!(b.svc.turn_off().is_err(), "can't skip the check by turning sync off and on");
+    // (X's own code would match: X would have to give it to the person.)
+    assert_eq!(x_code.len(), 9);
+    // B starts over: it leaves X's account and joins the person's.
+    let old_id = b.svc.device_id();
+    b.svc.start_over().unwrap();
+    assert_eq!(b.svc.status().phase, Phase::Off);
+    assert!(hub.devices().iter().any(|d| d.id == old_id && d.status == "revoked"), "B left X's account");
+    let code = hub.new_join_code().unwrap().code;
+    let NextStep::Pair(pair) = b.svc.join_hub(&join(&code), "Exam room laptop", None, None, true).unwrap()
+    else {
+        panic!("expected to wait for approval")
+    };
+    let a_code = a.svc.approve_pairing(&pair.words.join(" ")).unwrap().confirm.unwrap();
+    b.sync();
+    b.svc.confirm_pairing(&a_code).unwrap();
+    b.sync();
+    a.sync();
+    assert!(a.visits().iter().any(|v| v.meta.id == local.meta.id), "{:?}", b.svc.status().last_error);
+    assert!(x.visits().iter().all(|v| v.meta.id != local.meta.id));
 }

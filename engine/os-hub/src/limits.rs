@@ -9,8 +9,9 @@ use std::time::Instant;
 pub const MAX_CODE_FAILURES: u32 = 10;
 /// How long a lockout lasts, and the window the failures count in.
 pub const LOCKOUT_SECS: i64 = 3600;
-/// Nonces kept per device (more in five minutes is refused as a replay storm).
-const MAX_NONCES: usize = 20_000;
+/// Wrong join codes from all addresses together before every code stops
+/// working, until the hub's screen makes a new one.
+pub const MAX_HUB_CODE_FAILURES: u32 = 20;
 
 struct Bucket {
     tokens: f64,
@@ -30,6 +31,8 @@ pub struct Guard {
     buckets: HashMap<String, Bucket>,
     failures: HashMap<String, Failures>,
     last_prune: i64,
+    /// Wrong join codes from anywhere since the hub last made a code.
+    pub hub_code_failures: u32,
 }
 
 impl Guard {
@@ -51,11 +54,12 @@ impl Guard {
     }
 
     /// Record a request's nonce; false when this device used it already in
-    /// the window (a replay).
-    pub fn nonce(&mut self, device: &str, nonce: &str, now: i64, window: i64) -> bool {
+    /// the window (a replay), or already holds `max` nonces (more requests
+    /// than its rate limit allows in that time).
+    pub fn nonce(&mut self, device: &str, nonce: &str, now: i64, window: i64, max: usize) -> bool {
         self.prune(now, window);
         let seen = self.nonces.entry(device.to_string()).or_default();
-        if seen.contains_key(nonce) || seen.len() >= MAX_NONCES {
+        if seen.contains_key(nonce) || seen.len() >= max {
             return false;
         }
         seen.insert(nonce.to_string(), now);
@@ -110,9 +114,11 @@ mod tests {
     #[test]
     fn a_nonce_is_used_once() {
         let mut g = Guard::default();
-        assert!(g.nonce("d1", "n1", 1000, 300));
-        assert!(!g.nonce("d1", "n1", 1001, 300));
-        assert!(g.nonce("d2", "n1", 1001, 300), "per device");
+        assert!(g.nonce("d1", "n1", 1000, 300, 10));
+        assert!(!g.nonce("d1", "n1", 1001, 300, 10));
+        assert!(g.nonce("d2", "n1", 1001, 300, 10), "per device");
+        assert!(g.nonce("d3", "a", 1001, 300, 1));
+        assert!(!g.nonce("d3", "b", 1001, 300, 1), "over its cap");
     }
 
     #[test]

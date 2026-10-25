@@ -20,13 +20,12 @@ use crate::{App, AppError, Result};
 
 /// Encrypted sync (and the clinic hub, ADR-0029) is a preview until the
 /// independent security review is done: only builds made with
-/// `OPENBARK_SYNC_PREVIEW` set (development and TestFlight builds) offer
-/// it, or a run with `OPENBARK_SYNC_PREVIEW=1` in its environment (the
-/// end-to-end tests). Release installers set neither.
+/// `OPENBARK_SYNC_PREVIEW` set at build time offer it (development,
+/// TestFlight and the end-to-end tests' builds). Nothing at run time can
+/// switch it on in a release installer, which is built without it.
 #[cfg(feature = "sync")]
 pub(crate) fn preview_enabled() -> bool {
     option_env!("OPENBARK_SYNC_PREVIEW").is_some()
-        || std::env::var("OPENBARK_SYNC_PREVIEW").is_ok_and(|v| v.trim() == "1")
 }
 
 /// The sync service for a visits folder, or why there is none.
@@ -209,6 +208,39 @@ impl App {
         #[cfg(not(feature = "sync"))]
         {
             let _ = (link, address, check, device_name, backfill_days, existing, by);
+            Err(AppError(NOT_BUILT.into()))
+        }
+    }
+
+    /// Joined through a clinic hub: the code the approving device showed.
+    /// Only after it does this device sync.
+    pub fn sync_confirm_pairing(&self, code: &str, by: Option<&str>) -> Result<Value> {
+        #[cfg(feature = "sync")]
+        {
+            self.sync_actor(by, false)?;
+            self.sync_service()?.confirm_pairing(code).map_err(err)?;
+            self.sync_soon();
+            Ok(self.sync_status())
+        }
+        #[cfg(not(feature = "sync"))]
+        {
+            let _ = (code, by);
+            Err(AppError(NOT_BUILT.into()))
+        }
+    }
+
+    /// Give up joining (waiting, or approved into an account the person
+    /// didn't confirm): this device leaves it and starts again.
+    pub fn sync_start_over(&self, by: Option<&str>) -> Result<Value> {
+        #[cfg(feature = "sync")]
+        {
+            self.sync_actor(by, false)?;
+            self.sync_service()?.start_over().map_err(err)?;
+            Ok(self.sync_status())
+        }
+        #[cfg(not(feature = "sync"))]
+        {
+            let _ = by;
             Err(AppError(NOT_BUILT.into()))
         }
     }

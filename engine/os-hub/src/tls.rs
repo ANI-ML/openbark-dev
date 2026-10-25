@@ -43,9 +43,9 @@ impl Identity {
         hex::encode(self.fingerprint())
     }
 
-    /// The certificate check shown beside a join code.
-    pub fn check_code(&self) -> String {
-        os_sync::hub::check_code(&self.fingerprint())
+    /// The certificate check shown beside one join code (keyed by the code).
+    pub fn check_code(&self, code: &str) -> String {
+        os_sync::hub::check_code(code, &self.fingerprint())
     }
 
     pub fn server_config(&self) -> Result<Arc<rustls::ServerConfig>, HubError> {

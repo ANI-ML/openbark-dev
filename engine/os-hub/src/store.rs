@@ -60,6 +60,10 @@ pub struct Device {
     pub revoked_at: Option<DateTime<Utc>>,
     #[serde(default)]
     pub last_seen_at: Option<DateTime<Utc>>,
+    /// The client address (or IPv6 /64) a lobby device asked from: each
+    /// address may keep only a few waiting at once.
+    #[serde(default)]
+    pub lobby_peer: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -167,30 +171,80 @@ pub fn split_blob_key(key: &str) -> Option<(&str, i64, i64)> {
     Some((o, v, p))
 }
 
+/// Bytes counted toward the quota for each object the index lists (its
+/// metadata), besides its body.
+pub const OBJECT_OVERHEAD: u64 = 512;
+
 pub struct Store {
     dir: PathBuf,
     pub ix: Index,
     /// Per space: seq to object id (rebuilt on load).
     pub by_seq: HashMap<String, BTreeMap<i64, String>>,
+    /// The index as last saved, kept as `index.json.bak` at the next save.
+    last_saved: Option<Vec<u8>>,
+    /// Files and folders no longer referenced, removed only once the index
+    /// that no longer names them is safely on disk.
+    garbage: Vec<PathBuf>,
+}
+
+fn io(e: impl std::fmt::Display) -> HubError {
+    HubError::Io(e.to_string())
+}
+
+/// Write a sealed file, then flush it to the disk.
+fn write_synced(path: &Path, bytes: &[u8]) -> Result<(), HubError> {
+    if let Some(d) = path.parent() {
+        std::fs::create_dir_all(d).map_err(io)?;
+    }
+    os_engine::vault::write(path, bytes).map_err(io)?;
+    std::fs::OpenOptions::new().write(true).open(path).and_then(|f| f.sync_all()).map_err(io)
+}
+
+/// Flush a folder's entries (the renames) to the disk, where the system allows it.
+fn sync_dir(dir: &Path) {
+    #[cfg(unix)]
+    if let Ok(d) = std::fs::File::open(dir) {
+        let _ = d.sync_all();
+    }
+    #[cfg(not(unix))]
+    let _ = dir;
+}
+
+fn read_index(path: &Path) -> std::io::Result<(Index, Vec<u8>)> {
+    let bytes = os_engine::vault::read(path)?;
+    let ix = serde_json::from_slice::<Index>(&bytes)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    Ok((ix, bytes))
 }
 
 impl Store {
     pub fn open(dir: &Path) -> Result<Self, HubError> {
-        std::fs::create_dir_all(dir).map_err(|e| HubError::Io(e.to_string()))?;
+        std::fs::create_dir_all(dir).map_err(io)?;
         let path = dir.join("index.json");
-        let ix = match os_engine::vault::read(&path) {
-            Ok(bytes) => serde_json::from_slice::<Index>(&bytes)
-                .map_err(|e| HubError::Io(format!("the hub's index is damaged: {e}")))?,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Index {
-                format: 1,
-                code_key: os_sync::keys::b64(
-                    &os_sync::keys::random32().map_err(|e| HubError::Io(e.to_string()))?,
-                ),
-                ..Default::default()
+        let (ix, last_saved) = match read_index(&path) {
+            Ok((ix, bytes)) => (ix, Some(bytes)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (
+                Index {
+                    format: 1,
+                    code_key: os_sync::keys::b64(&os_sync::keys::random32().map_err(io)?),
+                    ..Default::default()
+                },
+                None,
+            ),
+            // A damaged index: the copy from the save before.
+            Err(e) => match read_index(&dir.join("index.json.bak")) {
+                Ok((ix, bytes)) => {
+                    tracing::warn!(error = %e, "the hub's index was damaged; using the previous copy");
+                    (ix, Some(bytes))
+                }
+                Err(_) => return Err(HubError::Io(format!("the hub's index is damaged: {e}"))),
             },
-            Err(e) => return Err(HubError::Io(e.to_string())),
         };
-        let mut s = Self { dir: dir.to_path_buf(), ix, by_seq: HashMap::new() };
+        if os_sync::keys::unb64_32(&ix.code_key).is_err() {
+            return Err(HubError::Io("the hub's join code key is damaged".into()));
+        }
+        let mut s =
+            Self { dir: dir.to_path_buf(), ix, by_seq: HashMap::new(), last_saved, garbage: Vec::new() };
         s.reindex();
         if !path.is_file() {
             s.save()?;
@@ -208,9 +262,31 @@ impl Store {
         }
     }
 
-    pub fn save(&self) -> Result<(), HubError> {
-        let bytes = serde_json::to_vec(&self.ix).map_err(|e| HubError::Io(e.to_string()))?;
-        os_engine::vault::write(&self.dir.join("index.json"), &bytes).map_err(|e| HubError::Io(e.to_string()))
+    /// Write the index (the previous one kept as `index.json.bak`), flushed
+    /// to the disk, then remove what it no longer names.
+    pub fn save(&mut self) -> Result<(), HubError> {
+        let bytes = serde_json::to_vec(&self.ix).map_err(io)?;
+        if let Some(prev) = &self.last_saved {
+            write_synced(&self.dir.join("index.json.bak"), prev)?;
+        }
+        write_synced(&self.dir.join("index.json"), &bytes)?;
+        sync_dir(&self.dir);
+        self.last_saved = Some(bytes);
+        for p in std::mem::take(&mut self.garbage) {
+            let _ = if p.is_dir() { std::fs::remove_dir_all(&p) } else { std::fs::remove_file(&p) };
+        }
+        Ok(())
+    }
+
+    /// The number of objects an account's spaces list (deleted ones too,
+    /// until purged).
+    pub fn object_count(&self, account: &str) -> usize {
+        self.ix
+            .spaces
+            .iter()
+            .filter(|(_, s)| s.owner == account)
+            .map(|(id, _)| self.ix.objects.get(id).map_or(0, |m| m.len()))
+            .sum()
     }
 
     fn object_path(&self, space: &str, id: &str, version: i64) -> PathBuf {
@@ -221,23 +297,18 @@ impl Store {
         self.dir.join("blobs").join(space).join(format!("{object}.v{version}.p{part}.obb"))
     }
 
-    fn write_file(path: &Path, bytes: &[u8]) -> Result<(), HubError> {
-        if let Some(d) = path.parent() {
-            std::fs::create_dir_all(d).map_err(|e| HubError::Io(e.to_string()))?;
-        }
-        os_engine::vault::write(path, bytes).map_err(|e| HubError::Io(e.to_string()))
-    }
-
     pub fn write_object(&self, space: &str, id: &str, version: i64, body: &[u8]) -> Result<(), HubError> {
-        Self::write_file(&self.object_path(space, id, version), body)
+        write_synced(&self.object_path(space, id, version), body)
     }
 
     pub fn read_object(&self, space: &str, id: &str, version: i64) -> Result<Vec<u8>, HubError> {
         os_engine::vault::read(&self.object_path(space, id, version)).map_err(|e| HubError::Io(e.to_string()))
     }
 
-    pub fn remove_object(&self, space: &str, id: &str, version: i64) {
-        let _ = std::fs::remove_file(self.object_path(space, id, version));
+    /// Remove an object version's file once the next index save succeeds.
+    pub fn remove_object(&mut self, space: &str, id: &str, version: i64) {
+        let p = self.object_path(space, id, version);
+        self.garbage.push(p);
     }
 
     pub fn write_blob(
@@ -248,7 +319,7 @@ impl Store {
         part: i64,
         body: &[u8],
     ) -> Result<(), HubError> {
-        Self::write_file(&self.blob_path(space, object, version, part), body)
+        write_synced(&self.blob_path(space, object, version, part), body)
     }
 
     pub fn read_blob(&self, space: &str, object: &str, version: i64, part: i64) -> Result<Vec<u8>, HubError> {
@@ -256,8 +327,10 @@ impl Store {
             .map_err(|e| HubError::Io(e.to_string()))
     }
 
-    pub fn remove_blob(&self, space: &str, object: &str, version: i64, part: i64) {
-        let _ = std::fs::remove_file(self.blob_path(space, object, version, part));
+    /// Remove a blob part's file once the next index save succeeds.
+    pub fn remove_blob(&mut self, space: &str, object: &str, version: i64, part: i64) {
+        let p = self.blob_path(space, object, version, part);
+        self.garbage.push(p);
     }
 
     /// Remove every part of `object` whose version is below `below` (all of
@@ -273,7 +346,7 @@ impl Store {
             parts.remove(&k);
             if let Some((o, v, p)) = split_blob_key(&k) {
                 let path = self.dir.join("blobs").join(space).join(format!("{o}.v{v}.p{p}.obb"));
-                let _ = std::fs::remove_file(path);
+                self.garbage.push(path);
             }
         }
     }
@@ -285,7 +358,12 @@ impl Store {
             if sp.owner != account {
                 continue;
             }
-            total += self.ix.objects.get(id).map(|m| m.values().map(|o| o.size).sum::<u64>()).unwrap_or(0);
+            total += self
+                .ix
+                .objects
+                .get(id)
+                .map(|m| m.values().map(|o| o.size + OBJECT_OVERHEAD).sum::<u64>())
+                .unwrap_or(0);
             total += self.ix.blobs.get(id).map(|m| m.values().map(|b| b.size).sum::<u64>()).unwrap_or(0);
         }
         total
@@ -306,8 +384,8 @@ impl Store {
             self.ix.blobs.remove(sp);
             self.by_seq.remove(sp);
             self.ix.space_keys.retain(|k| &k.space != sp);
-            let _ = std::fs::remove_dir_all(self.dir.join("objects").join(sp));
-            let _ = std::fs::remove_dir_all(self.dir.join("blobs").join(sp));
+            self.garbage.push(self.dir.join("objects").join(sp));
+            self.garbage.push(self.dir.join("blobs").join(sp));
         }
         self.ix.devices.retain(|_, d| d.account.as_deref() != Some(account));
         self.ix.envelopes.retain(|e| e.account != account);

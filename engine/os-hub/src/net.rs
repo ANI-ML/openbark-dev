@@ -4,10 +4,11 @@
 use std::net::IpAddr;
 
 /// The default allowed ranges: this computer (loopback, for the hub
-/// computer's own device), RFC 1918, link-local, IPv6 unique local
-/// addresses, and 100.64.0.0/10 (carrier-grade NAT, which VPNs such as
-/// Tailscale use).
-pub const DEFAULT_RANGES: [&str; 9] = [
+/// computer's own device), RFC 1918, link-local and IPv6 unique local
+/// addresses. 100.64.0.0/10 (carrier-grade NAT, which VPNs such as Tailscale
+/// use) is opt-in: add [`CGNAT`] in the hub's settings. Within the allowed
+/// ranges, the join code is the only gate for a new device.
+pub const DEFAULT_RANGES: [&str; 8] = [
     "127.0.0.0/8",
     "::1/128",
     "10.0.0.0/8",
@@ -16,8 +17,10 @@ pub const DEFAULT_RANGES: [&str; 9] = [
     "169.254.0.0/16",
     "fe80::/10",
     "fc00::/7",
-    "100.64.0.0/10",
 ];
+
+/// Carrier-grade NAT (Tailscale and similar VPNs): not allowed unless added.
+pub const CGNAT: &str = "100.64.0.0/10";
 
 /// One address range, `address/prefix`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -144,8 +147,6 @@ mod tests {
             "172.16.0.1",
             "172.31.255.255",
             "169.254.1.1",
-            "100.64.0.1",
-            "100.127.255.255",
             "127.0.0.1",
             "::1",
             "fd12::1",
@@ -154,9 +155,15 @@ mod tests {
         ] {
             assert!(allowed(&r, ip(ok)), "{ok}");
         }
-        for no in ["8.8.8.8", "172.32.0.1", "100.128.0.1", "2001:db8::1", "::ffff:8.8.8.8", "1.1.1.1"] {
+        for no in ["8.8.8.8", "172.32.0.1", "100.64.0.1", "2001:db8::1", "::ffff:8.8.8.8", "1.1.1.1"] {
             assert!(!allowed(&r, ip(no)), "{no}");
         }
+        // Carrier-grade NAT (Tailscale) only when added.
+        let mut with = default_ranges();
+        with.push(CGNAT.into());
+        let r = parse_ranges(&with).unwrap();
+        assert!(allowed(&r, ip("100.64.0.1")) && allowed(&r, ip("100.127.255.255")));
+        assert!(!allowed(&r, ip("100.128.0.1")));
     }
 
     #[test]

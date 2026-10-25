@@ -61,9 +61,29 @@ pub const REVOKED_OK: [&str; 2] = ["device_status", "rebind_device"];
 
 const PLATFORMS: [&str; 7] = ["windows", "macos", "linux", "ios", "android", "web", "other"];
 const KINDS: [&str; 7] = ["visit", "run", "event", "checks", "transcript", "patient", "tombstone"];
-/// Pending devices waiting in the lobby at once (the SQL allowed 5 per account).
-const MAX_LOBBY: usize = 50;
+/// Pending devices waiting in the lobby at once, from everyone together.
+const MAX_LOBBY: usize = 200;
+/// Pending devices waiting in the lobby at once from one client address (or
+/// IPv6 /64); the SQL allowed 5 per account.
+const MAX_LOBBY_PER_PEER: usize = 5;
 const PENDING_MINUTES: i64 = 10;
+/// Objects (deleted ones too, until purged) one account may hold.
+pub const MAX_OBJECTS: usize = 250_000;
+/// The raw bytes of blob parts one `get_blobs` answer carries (at least one
+/// part): well under the client's 64 MB answer limit once in base64.
+const BLOB_PAGE_BYTES: u64 = 16 << 20;
+
+/// Body sizes, by call: read no more than this before the signature is checked.
+pub const SMALL_BODY: usize = 128 * 1024;
+pub fn body_limit(name: &str) -> usize {
+    match name {
+        // 100 objects of up to 72 KiB, or every wrapped key of a rotation.
+        "push" | "rotate" => crate::MAX_BODY,
+        // One blob part of up to 1.1 MB, in base64.
+        "put_blob" => 2 << 20,
+        _ => SMALL_BODY,
+    }
+}
 
 /// What a call works with.
 pub struct Ctx<'a> {
@@ -175,16 +195,20 @@ impl Ctx<'_> {
 
     /// Redeem a hub join code (ADR-0029 section 3): single use, unexpired,
     /// compared as keyed hashes against every live code. Ten wrong codes
-    /// from one address lock it out for an hour.
+    /// from one address lock it out for an hour; twenty from anywhere stop
+    /// every code until the hub's screen makes a new one.
     fn redeem(&mut self, code: Option<&str>) -> Res<()> {
         let now = self.now.timestamp();
         let mut g = self.guard.lock().unwrap_or_else(|p| p.into_inner());
         if g.locked(&self.peer, now) {
             return Err(deny(403, "locked"));
         }
+        if g.hub_code_failures >= crate::limits::MAX_HUB_CODE_FAILURES {
+            return Err(deny(403, "codes_disabled"));
+        }
         let code = code.map(os_sync::hub::normalise_code).filter(|c| !c.is_empty());
         let Some(code) = code else { return Err(fail("join_code_required")) };
-        let h = crate::code_hash(&self.st.ix.code_key, &code);
+        let h = crate::code_hash(&self.st.ix.code_key, &code).map_err(|_| deny(500, "internal"))?;
         let mut hit = None;
         for (i, c) in self.st.ix.codes.iter().enumerate() {
             let same = os_sync::hub::ct_eq(c.hash.as_bytes(), h.as_bytes());
@@ -200,16 +224,27 @@ impl Ctx<'_> {
             }
             _ => {
                 g.fail(&self.peer, now);
+                g.hub_code_failures += 1;
                 Err(fail("bad_join_code"))
             }
         }
     }
 }
 
-/// Add a join code's record (the hub's own screen asks for it).
-pub fn add_code(st: &mut Store, code: &str, now: DateTime<Utc>, ttl: chrono::Duration) {
-    let hash = crate::code_hash(&st.ix.code_key, code);
+/// Add a join code's record (the hub's own screen asks for it). Older codes
+/// nobody used stop working: only the code on screen is live.
+pub fn add_code(
+    st: &mut Store,
+    code: &str,
+    now: DateTime<Utc>,
+    ttl: chrono::Duration,
+) -> Result<(), crate::HubError> {
+    let hash = crate::code_hash(&st.ix.code_key, code)?;
+    for c in st.ix.codes.iter_mut().filter(|c| c.used_at.is_none() && c.expires_at > now) {
+        c.expires_at = now;
+    }
     st.ix.codes.push(CodeRec { hash, created_at: now, expires_at: now + ttl, used_at: None });
+    Ok(())
 }
 
 pub fn dispatch(cx: &mut Ctx, name: &str, a: &Value) -> Res<Value> {
@@ -333,6 +368,7 @@ fn create_account(cx: &mut Ctx, a: &Value) -> Res<Value> {
             approved_at: Some(now),
             revoked_at: None,
             last_seen_at: Some(now),
+            lobby_peer: None,
         },
     );
     for (recipient, dev, env) in
@@ -383,6 +419,10 @@ fn register_device(cx: &mut Ctx, a: &Value) -> Res<Value> {
         if !eq_b64(&existing.ed25519_pub, &ed) || !eq_b64(&existing.x25519_pub, &x) {
             return Err(fail("keys_changed"));
         }
+        // A request that lapsed needs a new join code to come back.
+        if existing.pending_expires_at.is_none_or(|t| t <= now) {
+            cx.redeem(s(a, "join_code"))?;
+        }
         let d = cx.st.ix.devices.get_mut(&device_id).expect("checked above");
         d.platform = platform;
         d.rebind_verifier = enc(&rebind);
@@ -392,17 +432,19 @@ fn register_device(cx: &mut Ctx, a: &Value) -> Res<Value> {
         d.pending_expires_at = Some(expires);
         return account_state(cx);
     }
-    let waiting = cx
+    let waiting: Vec<&Device> = cx
         .st
         .ix
         .devices
         .values()
         .filter(|d| d.status == "pending" && d.pending_expires_at.is_some_and(|t| t > now))
-        .count();
-    if waiting >= MAX_LOBBY {
+        .collect();
+    let from_here = waiting.iter().filter(|d| d.lobby_peer.as_deref() == Some(cx.peer.as_str())).count();
+    if waiting.len() >= MAX_LOBBY || from_here >= MAX_LOBBY_PER_PEER {
         return Err(fail("too_many_pending"));
     }
     cx.redeem(s(a, "join_code"))?;
+    let peer = cx.peer.clone();
     cx.st.ix.devices.insert(
         device_id,
         Device {
@@ -420,6 +462,7 @@ fn register_device(cx: &mut Ctx, a: &Value) -> Res<Value> {
             approved_at: None,
             revoked_at: None,
             last_seen_at: None,
+            lobby_peer: Some(peer),
         },
     );
     account_state(cx)
@@ -914,8 +957,14 @@ fn push(cx: &mut Ctx, a: &Value) -> Res<Value> {
         fresh_bodies.insert(id.clone(), body.clone());
         plan.push(Planned::Put { id, obj, body, old: now_obj.map(|o| o.version) });
     }
+    // New objects count toward the quota (their index entry) and the cap.
+    let new_objects = plan.iter().filter(|p| matches!(p, Planned::Put { old: None, .. })).count();
+    delta += (new_objects as u64 * crate::store::OBJECT_OVERHEAD) as i64;
     if delta > 0 && cx.st.used_bytes(&account) + delta as u64 > cx.quota {
         return Err(deny(507, "quota_exceeded"));
+    }
+    if new_objects > 0 && cx.st.object_count(&account) + new_objects > MAX_OBJECTS {
+        return Err(deny(507, "too_many_objects"));
     }
     // Apply: bodies first, then the index.
     for p in &plan {
@@ -1002,43 +1051,63 @@ fn pull(cx: &mut Ctx, a: &Value) -> Res<Value> {
     let mut rows = Vec::with_capacity(ids.len());
     for id in ids {
         let Some(o) = cx.st.ix.objects.get(&space).and_then(|m| m.get(&id)) else { continue };
-        let body = if o.deleted {
-            Value::Null
+        // A body the hub can't read is flagged, not allowed to fail the page
+        // (the device sets that one object aside and carries on).
+        let (body, missing) = if o.deleted {
+            (Value::Null, false)
         } else {
-            json!(enc(&cx.st.read_object(&space, &id, o.version).map_err(|_| deny(500, "internal"))?))
+            match cx.st.read_object(&space, &id, o.version) {
+                Ok(b) => (json!(enc(&b)), false),
+                Err(e) => {
+                    tracing::error!(error = %e, "the hub couldn't read a stored object");
+                    (Value::Null, true)
+                }
+            }
         };
-        rows.push(json!({
+        let mut row = json!({
             "id": id, "kind": o.kind, "version": o.version, "seq": o.seq, "body": body,
             "wrapped_dek": o.wrapped_dek, "key_version": o.key_version, "deleted": o.deleted,
-        }));
+        });
+        if missing {
+            row["missing"] = json!(true);
+        }
+        rows.push(row);
     }
     Ok(json!({"head": head, "rows": rows}))
 }
 
-/// One object version's blob parts, in order.
+/// One object version's blob parts, in order, from part `from_part` on (0
+/// when absent), as many as fit in one answer's byte budget (at least one).
+/// The device asks again from where the answer stopped.
 fn get_blobs(cx: &mut Ctx, a: &Value) -> Res<Value> {
     let account = cx.require_device()?;
     let space = uuid_arg(a, "space_id")?;
     let object = uuid_arg(a, "object_id")?;
     let version = int(a, "object_version")?;
+    let from = a.get("from_part").and_then(Value::as_i64).unwrap_or(0);
     cx.member_space(&account, &space)?;
-    let mut parts: Vec<i64> = cx
+    let mut parts: Vec<(i64, u64)> = cx
         .st
         .ix
         .blobs
         .get(&space)
         .map(|m| {
-            m.keys()
-                .filter_map(|k| crate::store::split_blob_key(k.as_str()))
-                .filter(|(o, v, _)| *o == object && *v == version)
-                .map(|(_, _, p)| p)
+            m.iter()
+                .filter_map(|(k, b)| crate::store::split_blob_key(k.as_str()).map(|key| (key, b.size)))
+                .filter(|((o, v, p), _)| *o == object && *v == version && *p >= from)
+                .map(|((_, _, p), size)| (p, size))
                 .collect()
         })
         .unwrap_or_default();
     parts.sort_unstable();
     let mut out = Vec::with_capacity(parts.len());
-    for p in parts {
+    let mut bytes = 0u64;
+    for (p, size) in parts {
+        if !out.is_empty() && bytes + size > BLOB_PAGE_BYTES {
+            break;
+        }
         let body = cx.st.read_blob(&space, &object, version, p).map_err(|_| deny(500, "internal"))?;
+        bytes += size;
         out.push(json!({"part": p, "body": enc(&body)}));
     }
     Ok(Value::Array(out))

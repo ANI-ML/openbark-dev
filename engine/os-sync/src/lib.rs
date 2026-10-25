@@ -176,8 +176,8 @@ pub struct SyncStatus {
 #[derive(Debug, Clone, Serialize)]
 pub struct HubView {
     pub address: String,
-    /// The certificate check, as the hub shows it.
-    pub check: String,
+    /// The start of the pinned certificate fingerprint (not a security check).
+    pub fingerprint: String,
 }
 
 /// Sync for one visits folder.
@@ -409,7 +409,10 @@ impl SyncService {
             since: st.since,
             linked_user: st.linked_user.clone(),
             busy,
-            hub: st.hub.as_ref().map(|h| HubView { address: h.address(), check: h.check_code() }),
+            hub: st
+                .hub
+                .as_ref()
+                .map(|h| HubView { address: h.address(), fingerprint: h.short_fingerprint() }),
         };
         *self.snapshot.lock().expect("snapshot") = status;
     }

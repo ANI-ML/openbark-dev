@@ -21,7 +21,7 @@
 use base64::Engine as _;
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
-use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
@@ -220,7 +220,7 @@ impl DeviceKeys {
 pub fn verify(ed_pub: &[u8; 32], msg: &[u8], sig: &[u8]) -> bool {
     let Ok(key) = VerifyingKey::from_bytes(ed_pub) else { return false };
     let Ok(sig) = <[u8; 64]>::try_from(sig) else { return false };
-    key.verify(msg, &Signature::from_bytes(&sig)).is_ok()
+    key.verify_strict(msg, &Signature::from_bytes(&sig)).is_ok()
 }
 
 /// A device's public keys as one 32-byte fingerprint (carried in the
@@ -524,6 +524,30 @@ impl PairingCode {
             .map_err(|e| SyncError::Crypto(e.to_string()))?;
         Ok(hkdf(&out, b"openbark", b"pair tag v1"))
     }
+}
+
+/// The code the approving device shows after adding a device through a clinic
+/// hub (8 characters, `XXXX-XXXX`): a MAC under the pairing key over the
+/// account the device was added to and the AMK version it was given. The new
+/// device asks for it before it syncs anything, so a device of another
+/// account that saw the 6 words can't take it over (only the person's own
+/// device shows the code that matches the account the new device ended up in).
+pub fn pair_confirm(pair_key: &[u8; 32], account: &str, amk_version: u32) -> String {
+    let mac =
+        hmac(pair_key, &[b"openbark pair confirm v1|", account.as_bytes(), b"|", &amk_version.to_be_bytes()]);
+    let mut v: u64 = 0;
+    for b in &mac[..8] {
+        v = (v << 8) | *b as u64;
+    }
+    let mut s = String::with_capacity(9);
+    for i in 0..8 {
+        let idx = (v >> (64 - 5 * (i + 1))) & 31;
+        s.push(crate::hub::CODE_ALPHABET[idx as usize] as char);
+        if i == 3 {
+            s.push('-');
+        }
+    }
+    s
 }
 
 /// The HMAC a pending device posts over its id and public keys.

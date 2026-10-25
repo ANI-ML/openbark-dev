@@ -81,11 +81,17 @@ pub fn fingerprint(cert_der: &[u8]) -> [u8; 32] {
     keys::sha256(&[cert_der])
 }
 
-/// The certificate check shown beside a join code: the fingerprint's first
-/// 50 bits in the code alphabet, as `XXXXX-XXXXX`.
-pub fn check_code(fp: &[u8; 32]) -> String {
+/// The certificate check shown beside one join code: 50 bits of an HMAC of
+/// the certificate's fingerprint, keyed by that join code, in the code
+/// alphabet as `XXXXX-XXXXX`. Keyed by the code (which only the hub's screen
+/// shows), so nobody can make a certificate that matches it offline: a
+/// forger would have to know the code, and each code is single use. It
+/// changes with every join code.
+pub fn check_code(code: &str, fp: &[u8; 32]) -> String {
+    let key = keys::sha256(&[b"openbark hub check key v1|", normalise_code(code).as_bytes()]);
+    let mac = keys::hmac(&key, &[b"openbark hub check v1|", fp]);
     let mut v: u64 = 0;
-    for b in &fp[..8] {
+    for b in &mac[..8] {
         v = (v << 8) | *b as u64;
     }
     let mut s = String::with_capacity(CHECK_LEN + 1);
@@ -156,9 +162,15 @@ impl HubLink {
         parse_fp(&self.fingerprint)
     }
 
-    /// The certificate check, as the hub shows it.
-    pub fn check_code(&self) -> String {
-        self.fp().map(|f| check_code(&f)).unwrap_or_default()
+    /// The start of the pinned fingerprint, for the settings screen
+    /// (`ab12 cd34 ef56 7890`). Not a security check.
+    pub fn short_fingerprint(&self) -> String {
+        let hex: String = self.fingerprint.chars().take(16).collect();
+        hex.as_bytes()
+            .chunks(4)
+            .map(|c| String::from_utf8_lossy(c).into_owned())
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 }
 
@@ -317,7 +329,11 @@ impl Transport for HubTransport {
 #[derive(Debug)]
 enum Expect {
     Pin([u8; 32]),
-    Check(String),
+    /// A join code and the certificate check typed with it (both normalised).
+    Check {
+        code: String,
+        check: String,
+    },
 }
 
 #[derive(Debug)]
@@ -334,15 +350,34 @@ impl ServerCertVerifier for Verifier {
         _intermediates: &[CertificateDer<'_>],
         _server_name: &ServerName<'_>,
         _ocsp_response: &[u8],
-        _now: UnixTime,
+        now: UnixTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
         let fp = fingerprint(end_entity.as_ref());
         let ok = match &self.expect {
             Expect::Pin(pin) => keys::eq32(pin, &fp),
-            Expect::Check(c) => ct_eq(normalise_code(&check_code(&fp)).as_bytes(), c.as_bytes()),
+            Expect::Check { code, check } => {
+                ct_eq(normalise_code(&check_code(code, &fp)).as_bytes(), check.as_bytes())
+            }
         };
         *self.seen.lock().unwrap_or_else(|p| p.into_inner()) = Some(fp);
-        if ok { Ok(ServerCertVerified::assertion()) } else { Err(rustls::Error::General(MISMATCH.into())) }
+        if !ok {
+            return Err(rustls::Error::General(MISMATCH.into()));
+        }
+        // And the certificate must be validly self-signed (its own key signs
+        // it, and it is within its dates), not just carry the right bytes.
+        let mut roots = rustls::RootCertStore::empty();
+        roots.add(end_entity.clone()).map_err(|_| rustls::Error::General(MISMATCH.into()))?;
+        let parsed = rustls::server::ParsedCertificate::try_from(end_entity)
+            .map_err(|_| rustls::Error::General(MISMATCH.into()))?;
+        rustls::client::verify_server_cert_signed_by_trust_anchor(
+            &parsed,
+            &roots,
+            &[],
+            now,
+            self.provider.signature_verification_algorithms.all,
+        )
+        .map_err(|_| rustls::Error::General(MISMATCH.into()))?;
+        Ok(ServerCertVerified::assertion())
     }
 
     fn verify_tls12_signature(
@@ -418,10 +453,11 @@ fn connect(host: &str, port: u16, expect: Expect) -> Result<(Tls, Arc<Verifier>)
 }
 
 /// Connect once to read the hub's certificate, accepting it only if its
-/// check matches `check` (what the person typed from the hub's screen).
-/// Returns the fingerprint to pin.
-pub fn probe(host: &str, port: u16, check: &str) -> Result<[u8; 32], SyncError> {
-    let (mut tls, verifier) = connect(host, port, Expect::Check(normalise_code(check)))?;
+/// check for `code` matches `check` (both typed from the hub's screen).
+/// Returns the fingerprint to pin. Nothing is sent before the check passes.
+pub fn probe(host: &str, port: u16, code: &str, check: &str) -> Result<[u8; 32], SyncError> {
+    let expect = Expect::Check { code: normalise_code(code), check: normalise_code(check) };
+    let (mut tls, verifier) = connect(host, port, expect)?;
     while tls.conn.is_handshaking() {
         tls.conn.complete_io(&mut tls.sock).map_err(io_err)?;
     }
@@ -631,12 +667,13 @@ mod tests {
             (j.host.as_str(), j.port, j.fingerprint, j.code.as_str()),
             ("192.168.1.20", 47110, Some(fp), "ABCD2345")
         );
-        let j = parse_join("abcd-2345", "hub.local", &check_code(&fp)).unwrap();
+        let check = check_code("ABCD2345", &fp);
+        let j = parse_join("abcd-2345", "hub.local", &check).unwrap();
         assert_eq!((j.host.as_str(), j.port), ("hub.local", DEFAULT_PORT));
-        assert_eq!(j.check.as_deref(), Some(normalise_code(&check_code(&fp)).as_str()));
-        assert!(parse_join("abcd", "hub.local", &check_code(&fp)).is_err(), "too short");
+        assert_eq!(j.check.as_deref(), Some(normalise_code(&check).as_str()));
+        assert!(parse_join("abcd", "hub.local", &check).is_err(), "too short");
         assert!(parse_join("abcd2345", "hub.local", "").is_err(), "no certificate check");
-        assert!(parse_join("abcd2345", "", &check_code(&fp)).is_err(), "no address");
+        assert!(parse_join("abcd2345", "", &check).is_err(), "no address");
         assert!(parse_join("openbark-hub:1?h=x&p=1&f=00", "", "").is_err(), "bad fingerprint");
     }
 
@@ -652,12 +689,30 @@ mod tests {
     }
 
     #[test]
-    fn the_check_is_ten_characters_of_the_fingerprint() {
-        let c = check_code(&[0xff; 32]);
-        assert_eq!(c, "ZZZZZ-ZZZZZ");
+    fn the_check_is_keyed_by_the_join_code() {
+        let c = check_code("ABCD2345", &[0xff; 32]);
+        assert_eq!(c.len(), 11);
+        assert_eq!(&c[5..6], "-");
+        assert!(in_alphabet(&normalise_code(&c)));
+        // Another code, or another certificate, gives another check; the
+        // code is normalised first, as typed.
+        assert_ne!(check_code("ABCD2345", &[1; 32]), check_code("ABCD2345", &[2; 32]));
+        assert_ne!(check_code("ABCD2345", &[1; 32]), check_code("ABCD2346", &[1; 32]));
+        assert_eq!(check_code("abcd-2345", &[1; 32]), check_code("ABCD2345", &[1; 32]));
+        // It isn't the fingerprint's own bits (which anyone sees in the handshake).
+        assert_ne!(normalise_code(&check_code("ABCD2345", &[0xff; 32])), "ZZZZZZZZZZ");
         assert_eq!(normalise_code("zzzzz zzzzz"), "ZZZZZZZZZZ");
         assert_eq!(normalise_code("o1-Il"), "0111");
-        assert_ne!(check_code(&[1; 32]), check_code(&[2; 32]));
+    }
+
+    #[test]
+    fn the_pairing_confirmation_names_the_account() {
+        let pk = [5u8; 32];
+        let a = keys::pair_confirm(&pk, "account-a", 1);
+        assert_eq!(a.len(), 9);
+        assert_ne!(a, keys::pair_confirm(&pk, "account-b", 1), "another account");
+        assert_ne!(a, keys::pair_confirm(&pk, "account-a", 2), "another AMK version");
+        assert_ne!(a, keys::pair_confirm(&[6; 32], "account-a", 1), "another pairing key");
     }
 
     #[test]

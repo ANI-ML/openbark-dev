@@ -113,10 +113,13 @@ impl App {
         self.hub.lock().unwrap_or_else(|p| p.into_inner())
     }
 
-    /// Settings > Clinic hub.
-    pub fn clinic_hub_status(&self) -> Value {
+    /// Settings > Clinic hub. The live join code only for whoever may manage
+    /// the hub (`by`: with a team, a veterinarian who manages it; anyone
+    /// single-user): anyone else at the screen sees the hub without it.
+    pub fn clinic_hub_status(&self, by: Option<&str>) -> Value {
         #[cfg(feature = "hub")]
         if self.clinic_hub_available() {
+            let manager = self.who(by, Need::Team).is_ok();
             let dir = hub_dir(&self.sessions_root);
             let guard = self.hub_lock();
             let settings =
@@ -135,15 +138,17 @@ impl App {
                 "error": guard.as_ref().and_then(|r| r.error.clone()),
                 "join": null,
                 "devices": [],
+                "can_manage": manager,
             });
             if let Some(rt) = guard.as_ref() {
                 let fp = rt.identity.fingerprint();
-                let check = rt.identity.check_code();
                 let host = addresses.first().cloned().unwrap_or_else(|| "127.0.0.1".into());
                 let fp_hex = rt.identity.fingerprint_hex();
                 v["fingerprint"] = json!(fp_hex);
-                v["check"] = json!(check);
-                if let Some(code) = rt.hub.shown_code() {
+                if let Some(code) = rt.hub.shown_code().filter(|_| manager) {
+                    // The check is keyed by this code: typed with it, it proves
+                    // the certificate is this hub's.
+                    let check = rt.identity.check_code(&code.code);
                     let link = os_sync::hub::join_link(&host, settings.port, &fp, &code.code);
                     v["join"] = json!({
                         "code": format!("{}-{}", &code.code[..4], &code.code[4..]),
@@ -215,7 +220,7 @@ impl App {
                 }
             }
             drop(guard);
-            Ok(self.clinic_hub_status())
+            Ok(self.clinic_hub_status(by))
         }
         #[cfg(not(feature = "hub"))]
         {
@@ -237,7 +242,7 @@ impl App {
                     .ok_or_else(|| AppError("Turn on hub mode first.".into()))?;
                 rt.hub.new_join_code().map_err(|e| AppError(e.to_string()))?;
             }
-            Ok(self.clinic_hub_status())
+            Ok(self.clinic_hub_status(by))
         }
         #[cfg(not(feature = "hub"))]
         {
@@ -257,7 +262,7 @@ impl App {
                 let rt = guard.as_ref().ok_or_else(|| AppError("Turn on hub mode first.".into()))?;
                 rt.hub.remove_device(device_id).map_err(|e| AppError(e.to_string()))?;
             }
-            Ok(self.clinic_hub_status())
+            Ok(self.clinic_hub_status(by))
         }
         #[cfg(not(feature = "hub"))]
         {
@@ -272,6 +277,8 @@ impl App {
     pub fn clinic_hub_join_self(&self, device_name: &str, existing: bool, by: Option<&str>) -> Result<Value> {
         #[cfg(feature = "hub")]
         {
+            // It makes a join code: only whoever may manage the hub.
+            self.who(by, Need::Team)?;
             let link = {
                 let guard = self.hub_lock();
                 let rt = guard

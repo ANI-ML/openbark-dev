@@ -3,11 +3,17 @@
 //!
 //! - A connection from an address outside the allowed ranges is closed
 //!   before the TLS handshake.
-//! - At most 256 connections at once, 16 from one address; 10 seconds for
-//!   the handshake and for a request's headers, 60 for its body, 5 minutes
-//!   for a whole connection; bodies over 12 MB are refused.
-//! - HTTP/1.1 only, `POST /rpc/<name>` only. The calls run on blocking
-//!   threads ([`Hub::handle`]).
+//! - At most 256 connections at once, 16 from one address (an IPv6 /64
+//!   counts as one); 5 seconds for the handshake and for a request's
+//!   headers, 20 for its body, 2 minutes for a whole connection.
+//! - Before any body is read, [`Hub::admit`] checks the address and its rate
+//!   limit, the call, the signature headers and their time, the device and
+//!   the body's size for that call: 128 KB, 2 MB for a blob part, 12 MB only
+//!   for `push` and `rotate` from a device the hub knows (at most 4 of those
+//!   bodies are read at once). The signature is checked over the raw body
+//!   before any JSON is parsed ([`Hub::finish`]).
+//! - HTTP/1.1 only, `POST /rpc/<name>` only. At most 16 calls run at once,
+//!   on blocking threads; more wait up to 10 seconds, then are told to retry.
 //!
 //! Its own tokio runtime on its own thread: the desktop app and web mode
 //! start and stop it from ordinary threads.
@@ -25,10 +31,25 @@ use hyper_util::rt::{TokioIo, TokioTimer};
 use tokio::sync::{Semaphore, oneshot};
 
 use crate::tls::Identity;
-use crate::{Hub, HubError, HubRequest, HubResponse, MAX_BODY, net};
+use crate::{Head, Hub, HubError, HubResponse, calls, net};
 
 const MAX_CONNECTIONS: usize = 256;
 const MAX_PER_ADDRESS: usize = 16;
+/// Bodies over the small size being read at once.
+const MAX_BIG_BODIES: usize = 4;
+/// Calls running at once.
+const MAX_WORKING: usize = 16;
+const HANDSHAKE: Duration = Duration::from_secs(5);
+const HEADERS: Duration = Duration::from_secs(5);
+const BODY: Duration = Duration::from_secs(20);
+const CONNECTION: Duration = Duration::from_secs(120);
+const WAIT_FOR_WORK: Duration = Duration::from_secs(10);
+
+/// What bounds the memory and threads requests can take.
+struct Gates {
+    big_bodies: Arc<Semaphore>,
+    working: Arc<Semaphore>,
+}
 
 /// A running listener. Dropping it (or [`Listener::stop`]) closes the port.
 pub struct Listener {
@@ -113,7 +134,8 @@ impl Drop for Listener {
     }
 }
 
-type PerAddress = Arc<Mutex<HashMap<IpAddr, usize>>>;
+/// Open connections per client address key (an IPv6 /64 counts as one).
+type PerAddress = Arc<Mutex<HashMap<String, usize>>>;
 
 async fn serve(
     hub: Arc<Hub>,
@@ -123,6 +145,10 @@ async fn serve(
 ) {
     let slots = Arc::new(Semaphore::new(MAX_CONNECTIONS));
     let per: PerAddress = Arc::new(Mutex::new(HashMap::new()));
+    let gates = Arc::new(Gates {
+        big_bodies: Arc::new(Semaphore::new(MAX_BIG_BODIES)),
+        working: Arc::new(Semaphore::new(MAX_WORKING)),
+    });
     let mut tasks = Vec::new();
     for s in sockets {
         match tokio::net::TcpListener::from_std(s) {
@@ -132,6 +158,7 @@ async fn serve(
                 acceptor.clone(),
                 slots.clone(),
                 per.clone(),
+                gates.clone(),
             ))),
             Err(e) => tracing::warn!(error = %e, "a hub socket couldn't start"),
         }
@@ -154,20 +181,31 @@ async fn serve(
 
 /// Counts a connection against its address while it lives.
 struct Slot {
-    ip: IpAddr,
+    key: String,
     per: PerAddress,
 }
 
 impl Drop for Slot {
     fn drop(&mut self) {
         let mut m = self.per.lock().unwrap_or_else(|p| p.into_inner());
-        if let Some(n) = m.get_mut(&self.ip) {
+        if let Some(n) = m.get_mut(&self.key) {
             *n -= 1;
             if *n == 0 {
-                m.remove(&self.ip);
+                m.remove(&self.key);
             }
         }
     }
+}
+
+/// Take a connection slot for `key`, unless it holds `MAX_PER_ADDRESS` already.
+fn take_slot(per: &PerAddress, key: String) -> Option<Slot> {
+    let mut m = per.lock().unwrap_or_else(|p| p.into_inner());
+    let n = m.entry(key.clone()).or_insert(0);
+    if *n >= MAX_PER_ADDRESS {
+        return None;
+    }
+    *n += 1;
+    Some(Slot { key, per: per.clone() })
 }
 
 async fn accept_loop(
@@ -176,6 +214,7 @@ async fn accept_loop(
     acceptor: tokio_rustls::TlsAcceptor,
     slots: Arc<Semaphore>,
     per: PerAddress,
+    gates: Arc<Gates>,
 ) {
     loop {
         let (tcp, addr) = match listener.accept().await {
@@ -192,15 +231,9 @@ async fn accept_loop(
             drop(tcp);
             continue;
         }
-        let slot = {
-            let mut m = per.lock().unwrap_or_else(|p| p.into_inner());
-            let n = m.entry(ip).or_insert(0);
-            if *n >= MAX_PER_ADDRESS {
-                drop(tcp);
-                continue;
-            }
-            *n += 1;
-            Slot { ip, per: per.clone() }
+        let Some(slot) = take_slot(&per, net::limit_key(ip)) else {
+            drop(tcp);
+            continue;
         };
         let Ok(permit) = slots.clone().try_acquire_owned() else {
             drop(tcp);
@@ -208,19 +241,20 @@ async fn accept_loop(
         };
         let hub = hub.clone();
         let acceptor = acceptor.clone();
+        let gates = gates.clone();
         tokio::spawn(async move {
             let _permit = permit;
             let _slot = slot;
             let _ = tcp.set_nodelay(true);
-            let tls = match tokio::time::timeout(Duration::from_secs(10), acceptor.accept(tcp)).await {
+            let tls = match tokio::time::timeout(HANDSHAKE, acceptor.accept(tcp)).await {
                 Ok(Ok(s)) => s,
                 _ => return,
             };
-            let service = hyper::service::service_fn(move |req| respond(hub.clone(), ip, req));
+            let service = hyper::service::service_fn(move |req| respond(hub.clone(), gates.clone(), ip, req));
             let mut builder = hyper::server::conn::http1::Builder::new();
-            builder.timer(TokioTimer::new()).header_read_timeout(Duration::from_secs(10)).keep_alive(true);
+            builder.timer(TokioTimer::new()).header_read_timeout(HEADERS).keep_alive(true);
             let conn = builder.serve_connection(TokioIo::new(tls), service);
-            let _ = tokio::time::timeout(Duration::from_secs(300), conn).await;
+            let _ = tokio::time::timeout(CONNECTION, conn).await;
         });
     }
 }
@@ -237,42 +271,81 @@ fn reply(r: HubResponse) -> Response<Full<Bytes>> {
 }
 
 fn refused(status: u16, code: &str) -> Response<Full<Bytes>> {
-    reply(HubResponse::refusal(&crate::calls::deny(status, code)))
+    reply(HubResponse::refusal(&calls::deny(status, code)))
 }
 
 async fn respond(
     hub: Arc<Hub>,
+    gates: Arc<Gates>,
     ip: IpAddr,
     req: Request<Incoming>,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
-    let method = req.method().as_str().to_string();
-    let path = req.uri().path().to_string();
-    let headers: Vec<(String, String)> = req
-        .headers()
-        .iter()
-        .filter_map(|(k, v)| v.to_str().ok().map(|v| (k.as_str().to_string(), v.to_string())))
-        .collect();
-    let declared = req
-        .headers()
-        .get(hyper::header::CONTENT_LENGTH)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.parse::<usize>().ok());
-    if declared.is_some_and(|n| n > MAX_BODY) {
-        return Ok(refused(413, "too_large"));
-    }
-    let body = match tokio::time::timeout(
-        Duration::from_secs(60),
-        Limited::new(req.into_body(), MAX_BODY).collect(),
-    )
-    .await
+    let head = Head {
+        method: req.method().as_str().to_string(),
+        path: req.uri().path().to_string(),
+        headers: req
+            .headers()
+            .iter()
+            .filter_map(|(k, v)| v.to_str().ok().map(|v| (k.as_str().to_string(), v.to_string())))
+            .collect(),
+        content_length: req
+            .headers()
+            .get(hyper::header::CONTENT_LENGTH)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<usize>().ok()),
+    };
+    // Who, when, which call and how much body: before reading any of it.
+    let h = hub.clone();
+    let admitted = match tokio::task::spawn_blocking(move || h.admit(ip, &head)).await {
+        Ok(Ok(a)) => a,
+        Ok(Err(r)) => return Ok(reply(HubResponse::refusal(&r))),
+        Err(_) => return Ok(refused(500, "internal")),
+    };
+    // Few large bodies at once.
+    let big = if admitted.body_limit > calls::SMALL_BODY {
+        match gates.big_bodies.clone().try_acquire_owned() {
+            Ok(p) => Some(p),
+            Err(_) => return Ok(refused(503, "busy")),
+        }
+    } else {
+        None
+    };
+    let body = match tokio::time::timeout(BODY, Limited::new(req.into_body(), admitted.body_limit).collect())
+        .await
     {
         Ok(Ok(c)) => c.to_bytes().to_vec(),
         Ok(Err(_)) => return Ok(refused(413, "too_large")),
         Err(_) => return Ok(refused(408, "timeout")),
     };
-    let request = HubRequest { method, path, headers, body };
-    let out = tokio::task::spawn_blocking(move || hub.handle(ip, &request))
+    drop(big);
+    // Few calls at once.
+    let Ok(Ok(_working)) = tokio::time::timeout(WAIT_FOR_WORK, gates.working.clone().acquire_owned()).await
+    else {
+        return Ok(refused(503, "busy"));
+    };
+    let out = tokio::task::spawn_blocking(move || hub.finish(admitted, &body))
         .await
-        .unwrap_or_else(|_| HubResponse::refusal(&crate::calls::deny(500, "internal")));
+        .unwrap_or_else(|_| HubResponse::refusal(&calls::deny(500, "internal")));
     Ok(reply(out))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn connections_count_per_address_and_per_ipv6_64() {
+        let per: PerAddress = Arc::new(Mutex::new(HashMap::new()));
+        let a: IpAddr = "fd00:1:2:3::1".parse().unwrap();
+        let b: IpAddr = "fd00:1:2:3::ffff".parse().unwrap();
+        let mut held = Vec::new();
+        for i in 0..MAX_PER_ADDRESS {
+            let ip = if i % 2 == 0 { a } else { b };
+            held.push(take_slot(&per, net::limit_key(ip)).expect("room"));
+        }
+        assert!(take_slot(&per, net::limit_key(a)).is_none(), "the /64 is full");
+        assert!(take_slot(&per, net::limit_key("fd00:1:2:4::1".parse().unwrap())).is_some());
+        held.pop();
+        assert!(take_slot(&per, net::limit_key(b)).is_some(), "a slot came back");
+    }
 }

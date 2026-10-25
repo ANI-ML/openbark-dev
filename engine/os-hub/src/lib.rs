@@ -179,6 +179,16 @@ impl HubResponse {
     }
 }
 
+fn respond(r: Res<Value>) -> HubResponse {
+    match r {
+        Ok(v) => HubResponse::json(200, &v),
+        Err(r) => {
+            tracing::debug!(code = %r.code, status = r.status, "hub refused a request");
+            HubResponse::refusal(&r)
+        }
+    }
+}
+
 /// The join code on the hub's screen. Kept in memory only; the store has
 /// its keyed hash.
 #[derive(Debug, Clone, Serialize)]
@@ -201,11 +211,45 @@ pub struct DeviceSummary {
     pub last_seen_at: Option<DateTime<Utc>>,
 }
 
-/// The keyed hash a join code is kept as.
-pub fn code_hash(key_b64: &str, code: &str) -> String {
-    let key = keys::unb64_32(key_b64).unwrap_or([0; 32]);
-    hex::encode(keys::hmac(&key, &[b"openbark hub join code v1|", wire::normalise_code(code).as_bytes()]))
+/// The keyed hash a join code is kept as. A damaged key is an error, never
+/// a default.
+pub fn code_hash(key_b64: &str, code: &str) -> Result<String, HubError> {
+    let key =
+        keys::unb64_32(key_b64).map_err(|_| HubError::Io("the hub's join code key is damaged".into()))?;
+    Ok(hex::encode(keys::hmac(&key, &[b"openbark hub join code v1|", wire::normalise_code(code).as_bytes()])))
 }
+
+/// A request's line and headers, before its body is read.
+#[derive(Debug, Clone)]
+pub struct Head {
+    pub method: String,
+    pub path: String,
+    pub headers: Vec<(String, String)>,
+    /// The declared Content-Length, when there is one.
+    pub content_length: Option<usize>,
+}
+
+/// A request that passed the checks that need no body: what to read next,
+/// and what the signature must then cover.
+#[derive(Debug)]
+pub struct Admitted {
+    name: String,
+    method: String,
+    path: String,
+    device: String,
+    dev_h: String,
+    time: i64,
+    nonce: String,
+    sig: Vec<u8>,
+    known: Option<store::Device>,
+    peer_key: String,
+    /// Read at most this many body bytes.
+    pub body_limit: usize,
+}
+
+/// Requests from the future are refused, beyond this, while the hub has run
+/// for less than one window (it remembers no nonces from before it started).
+const EARLY_SKEW_SECS: i64 = 30;
 
 pub struct Hub {
     dir: PathBuf,
@@ -271,44 +315,49 @@ impl Hub {
         net::allowed(&self.ranges.read().unwrap_or_else(|p| p.into_inner()), ip)
     }
 
-    /// Answer one request from `peer`.
+    /// Answer one request from `peer` (its body already read). The listener
+    /// calls [`Hub::admit`] before reading a body and [`Hub::finish`] after.
     pub fn handle(&self, peer: IpAddr, req: &HubRequest) -> HubResponse {
-        match self.handle_inner(peer, req) {
-            Ok(v) => HubResponse::json(200, &v),
-            Err(r) => {
-                tracing::debug!(code = %r.code, status = r.status, "hub refused a request");
-                HubResponse::refusal(&r)
-            }
+        let head = Head {
+            method: req.method.clone(),
+            path: req.path.clone(),
+            headers: req.headers.clone(),
+            content_length: Some(req.body.len()),
+        };
+        match self.admit(peer, &head) {
+            Ok(a) => self.finish(a, &req.body),
+            Err(r) => respond(Err(r)),
         }
     }
 
-    fn handle_inner(&self, peer: IpAddr, req: &HubRequest) -> Res<Value> {
+    /// The checks that need no body, in this order: the client address, its
+    /// rate limit, the call, the signature headers and their time, the
+    /// device (known, or a call that creates one), a removed device, and the
+    /// body's size for this call. Nothing here reads the body or parses JSON.
+    pub fn admit(&self, peer: IpAddr, head: &Head) -> Res<Admitted> {
         let peer = net::canonical(peer);
         if !self.allows(peer) {
             return Err(deny(403, "address_not_allowed"));
         }
         let peer_key = net::limit_key(peer);
-        let now = Utc::now();
-        let unix = now.timestamp();
+        let unix = Utc::now().timestamp();
         if !self.guard().allow(&format!("ip:{peer_key}"), self.limits.per_ip_per_min) {
             return Err(deny(429, "rate_limited"));
         }
-        if req.method != "POST" {
+        if head.method != "POST" {
             return Err(deny(405, "method_not_allowed"));
         }
-        let name = req
+        let name = head
             .path
             .strip_prefix("/rpc/")
             .filter(|n| {
                 !n.is_empty() && n.len() <= 32 && n.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
             })
-            .ok_or_else(|| deny(404, "unknown_call"))?;
-        if req.body.len() > MAX_BODY {
-            return Err(deny(413, "too_large"));
-        }
+            .ok_or_else(|| deny(404, "unknown_call"))?
+            .to_string();
         // The signature: who, when, which nonce.
         let header =
-            |k: &str| req.headers.iter().find(|(n, _)| n.eq_ignore_ascii_case(k)).map(|(_, v)| v.as_str());
+            |k: &str| head.headers.iter().find(|(n, _)| n.eq_ignore_ascii_case(k)).map(|(_, v)| v.as_str());
         let (Some(dev_h), Some(time_h), Some(nonce), Some(sig_h)) =
             (header(wire::H_DEVICE), header(wire::H_TIME), header(wire::H_NONCE), header(wire::H_SIGNATURE))
         else {
@@ -318,63 +367,122 @@ impl Hub {
         let time: i64 = time_h.trim().parse().map_err(|_| deny(401, "unsigned"))?;
         let nonce_ok = (16..=64).contains(&nonce.len())
             && nonce.bytes().all(|b| b.is_ascii_alphanumeric() || b"+/=-_".contains(&b));
-        if !nonce_ok {
+        if !nonce_ok || sig_h.len() > 128 {
             return Err(deny(401, "unsigned"));
         }
         let sig = keys::unb64(sig_h).map_err(|_| deny(401, "unsigned"))?;
-        if (unix - time).abs() > WINDOW_SECS || time < self.started {
+        let young = unix.saturating_sub(self.started) < WINDOW_SECS;
+        if unix.abs_diff(time) > WINDOW_SECS as u64
+            || time < self.started
+            || (young && time > unix.saturating_add(EARLY_SKEW_SECS))
+        {
             return Err(deny(401, "stale_request"));
         }
-        let args: Value = serde_json::from_slice(&req.body).map_err(|_| fail("bad_request"))?;
-        if !args.is_object() {
-            return Err(fail("bad_request"));
+        let known = self.store().ix.devices.get(&device).cloned();
+        let bootstrap = calls::BOOTSTRAP.contains(&name.as_str());
+        if known.is_none() && !bootstrap {
+            return Err(deny(401, "unknown_device"));
         }
-        let msg = wire::canonical(&req.method, &req.path, &req.body, time, nonce, dev_h);
-        let mut st = self.store();
-        // The registered key, or for a device the hub doesn't know yet (only
-        // creating an account or asking to join) the key it brings.
-        let known = st.ix.devices.get(&device).cloned();
-        let key = match &known {
+        if known.as_ref().is_some_and(|d| d.status == "revoked")
+            && !calls::REVOKED_OK.contains(&name.as_str())
+        {
+            return Err(deny(403, "revoked"));
+        }
+        // A device the hub doesn't know yet sends a small body only.
+        let body_limit = if known.is_none() { calls::SMALL_BODY } else { calls::body_limit(&name) };
+        if head.content_length.is_some_and(|n| n > body_limit) {
+            return Err(deny(413, "too_large"));
+        }
+        Ok(Admitted {
+            name,
+            method: head.method.clone(),
+            path: head.path.clone(),
+            device,
+            dev_h: dev_h.to_string(),
+            time,
+            nonce: nonce.to_string(),
+            sig,
+            known,
+            peer_key,
+            body_limit,
+        })
+    }
+
+    /// The rest, once the body is read: the signature over the raw body
+    /// (before any JSON is parsed), the nonce, the account's rate limit,
+    /// then the call.
+    pub fn finish(&self, a: Admitted, body: &[u8]) -> HubResponse {
+        respond(self.finish_inner(a, body))
+    }
+
+    fn finish_inner(&self, a: Admitted, body: &[u8]) -> Res<Value> {
+        if body.len() > a.body_limit {
+            return Err(deny(413, "too_large"));
+        }
+        let msg = wire::canonical(&a.method, &a.path, body, a.time, &a.nonce, &a.dev_h);
+        // The registered key; for a device the hub doesn't know yet (only
+        // creating an account or asking to join, small bodies) the key it brings.
+        let mut parsed: Option<Value> = None;
+        let key = match &a.known {
             Some(d) => keys::unb64(&d.ed25519_pub).ok(),
-            None if calls::BOOTSTRAP.contains(&name) => {
+            None => {
+                let args: Value = serde_json::from_slice(body).map_err(|_| deny(401, "bad_signature"))?;
                 let body_dev = args.get("device_id").and_then(Value::as_str).and_then(calls::canonical_uuid);
-                if body_dev.as_deref() != Some(device.as_str()) {
+                if body_dev.as_deref() != Some(a.device.as_str()) {
                     return Err(deny(401, "unknown_device"));
                 }
-                args.get("ed25519_pub").and_then(Value::as_str).and_then(|t| keys::unb64(t).ok())
+                let k = args.get("ed25519_pub").and_then(Value::as_str).and_then(|t| keys::unb64(t).ok());
+                parsed = Some(args);
+                k
             }
-            None => return Err(deny(401, "unknown_device")),
         };
         let key: [u8; 32] = key.and_then(|k| k.try_into().ok()).ok_or_else(|| deny(401, "bad_signature"))?;
-        if !keys::verify(&key, &msg, &sig) {
+        if !keys::verify(&key, &msg, &a.sig) {
             return Err(deny(401, "bad_signature"));
         }
+        let now = Utc::now();
         {
             let mut g = self.guard();
-            if !g.nonce(&device, nonce, unix, WINDOW_SECS) {
+            // Enough room for every request the account's rate limit allows
+            // while a nonce is remembered.
+            let max = self.limits.per_account_per_min as usize * 12 + 100;
+            if !g.nonce(&a.device, &a.nonce, now.timestamp(), WINDOW_SECS, max) {
                 return Err(deny(401, "replayed"));
             }
-            let who = match known.as_ref().and_then(|d| d.account.as_deref()) {
-                Some(a) => format!("acct:{a}"),
-                None => format!("dev:{device}"),
+            let who = match a.known.as_ref().and_then(|d| d.account.as_deref()) {
+                Some(acct) => format!("acct:{acct}"),
+                None => format!("dev:{}", a.device),
             };
             if !g.allow(&who, self.limits.per_account_per_min) {
                 return Err(deny(429, "rate_limited"));
             }
         }
-        if known.as_ref().is_some_and(|d| d.status == "revoked") && !calls::REVOKED_OK.contains(&name) {
+        let args = match parsed {
+            Some(v) => v,
+            None => serde_json::from_slice(body).map_err(|_| fail("bad_request"))?,
+        };
+        if !args.is_object() {
+            return Err(fail("bad_request"));
+        }
+        let mut st = self.store();
+        // The device may have been removed (or created) while the body arrived.
+        let now_known = st.ix.devices.get(&a.device);
+        if now_known.is_some_and(|d| d.status == "revoked") && !calls::REVOKED_OK.contains(&a.name.as_str()) {
             return Err(deny(403, "revoked"));
+        }
+        if now_known.is_some() != a.known.is_some() && !calls::BOOTSTRAP.contains(&a.name.as_str()) {
+            return Err(deny(401, "unknown_device"));
         }
         let mut cx = Ctx {
             st: &mut st,
-            me: device,
+            me: a.device,
             now,
             quota: self.quota.load(Ordering::Relaxed),
             guard: &self.guard,
-            peer: peer_key,
+            peer: a.peer_key,
         };
-        let out = calls::dispatch(&mut cx, name, &args)?;
-        if !calls::READ_ONLY.contains(&name) {
+        let out = calls::dispatch(&mut cx, &a.name, &args)?;
+        if !calls::READ_ONLY.contains(&a.name.as_str()) {
             st.save().map_err(|e| {
                 tracing::error!(error = %e, "the hub couldn't save its index");
                 deny(500, "internal")
@@ -391,8 +499,11 @@ impl Hub {
         let now = Utc::now();
         let ttl = chrono::Duration::seconds(self.limits.code_ttl_secs);
         let mut st = self.store();
-        calls::add_code(&mut st, &code, now, ttl);
+        calls::add_code(&mut st, &code, now, ttl)?;
         st.save()?;
+        drop(st);
+        // A new code on screen: wrong guesses at the old ones no longer count.
+        self.guard().hub_code_failures = 0;
         let shown = ShownCode { code, expires_at: now + ttl, used: false };
         *self.shown.lock().unwrap_or_else(|p| p.into_inner()) = Some(shown.clone());
         Ok(shown)
@@ -405,7 +516,7 @@ impl Hub {
             return None;
         }
         let st = self.store();
-        let h = code_hash(&st.ix.code_key, &shown.code);
+        let h = code_hash(&st.ix.code_key, &shown.code).ok()?;
         shown.used = st.ix.codes.iter().any(|c| c.hash == h && c.used_at.is_some());
         Some(shown)
     }

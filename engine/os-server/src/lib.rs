@@ -370,9 +370,13 @@ fn router(state: St, ui_dir: &std::path::Path, port: u16) -> Router {
         .route("/api/sync/hub/join", post(sync_join_hub))
         .route(
             "/api/clinic-hub",
-            get(|State(s): State<St>| async move { Json(s.app().clinic_hub_status()) })
-                .post(clinic_hub_settings),
+            get(|State(s): State<St>, Query(q): Query<ByQuery>| async move {
+                Json(s.app().clinic_hub_status(q.by.as_deref()))
+            })
+            .post(clinic_hub_settings),
         )
+        .route("/api/sync/pair/confirm", post(sync_confirm_pairing))
+        .route("/api/sync/start-over", post(sync_start_over))
         .route("/api/clinic-hub/code", post(clinic_hub_code))
         .route("/api/clinic-hub/join-self", post(clinic_hub_join_self))
         .route("/api/clinic-hub/devices/{did}/remove", post(clinic_hub_remove_device))
@@ -799,6 +803,24 @@ async fn sync_stop_visit(
 }
 
 // ---- the clinic hub (ADR-0029) ----------------------------------------------
+
+#[derive(Deserialize)]
+struct SyncConfirmBody {
+    code: String,
+    #[serde(default)]
+    by: Option<String>,
+}
+
+async fn sync_confirm_pairing(
+    State(s): State<St>,
+    Json(r): Json<SyncConfirmBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().sync_confirm_pairing(&r.code, r.by.as_deref())).await
+}
+
+async fn sync_start_over(State(s): State<St>, Json(r): Json<ByBody>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().sync_start_over(r.by.as_deref())).await
+}
 
 async fn sync_find_hubs(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
     blocking(move || s.app().sync_find_hubs()).await

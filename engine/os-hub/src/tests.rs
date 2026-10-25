@@ -294,7 +294,7 @@ fn creating_an_account_or_joining_needs_a_valid_unused_unexpired_code() {
     // An expired code.
     {
         let mut st = hub.store();
-        calls::add_code(&mut st, "EXP1RED0", chrono::Utc::now(), chrono::Duration::seconds(-1));
+        calls::add_code(&mut st, "EXP1RED0", chrono::Utc::now(), chrono::Duration::seconds(-1)).unwrap();
     }
     let d3 = Dev::new();
     assert_eq!(code(&call(&hub, &d3, "create_account", create_args(&d3, Some("EXP1RED0")))), "bad_join_code");
@@ -751,12 +751,226 @@ fn over_tls_the_pinned_certificate_decides() {
     // Another certificate: refused before anything is sent.
     let e = send_tls([0; 32]).unwrap_err();
     assert!(e.to_string().contains("Pair again"), "{e}");
-    // The check typed by hand, and a wrong one.
-    assert_eq!(os_sync::hub::probe("127.0.0.1", port, &id.check_code()).unwrap(), id.fingerprint());
-    assert!(os_sync::hub::probe("127.0.0.1", port, "00000-00000").is_err());
+    // The check typed by hand with its code; a wrong check, or the right
+    // check with another code, is refused.
+    let code = hub.new_join_code().unwrap().code;
+    let check = id.check_code(&code);
+    assert_eq!(os_sync::hub::probe("127.0.0.1", port, &code, &check).unwrap(), id.fingerprint());
+    assert!(os_sync::hub::probe("127.0.0.1", port, &code, "00000-00000").is_err());
+    assert!(os_sync::hub::probe("127.0.0.1", port, "ZZZZZZZZ", &check).is_err());
+    // A certificate with the same check bits but not this hub's can't be
+    // made without the code: another hub's certificate fails the same check.
+    let other = tls::generate().unwrap();
+    assert_ne!(other.check_code(&code), check);
     // A client address outside the ranges is closed before the handshake.
     hub.apply(&Settings { allowed: vec!["10.0.0.0/8".into()], ..settings }).unwrap();
     let e = send_tls(id.fingerprint()).unwrap_err();
     assert!(!e.to_string().contains("Pair again"), "{e}");
     listener.stop();
+}
+
+fn head_for(r: &HubRequest, declared: Option<usize>) -> Head {
+    Head {
+        method: r.method.clone(),
+        path: r.path.clone(),
+        headers: r.headers.clone(),
+        content_length: declared,
+    }
+}
+
+#[test]
+fn bodies_are_bounded_before_they_are_read() {
+    let (_d, hub) = new_hub();
+    let a = create(&hub);
+    // A device the hub doesn't know: only the calls that create one, and a
+    // small body, refused from the headers alone.
+    let stranger = Dev::new();
+    let r = req(&stranger, "push", &json!({}));
+    assert_eq!(hub.admit(local(), &head_for(&r, Some(2))).unwrap_err().code, "unknown_device");
+    let r = req(&stranger, "create_account", &json!({}));
+    assert_eq!(hub.admit(local(), &head_for(&r, Some(calls::SMALL_BODY + 1))).unwrap_err().code, "too_large");
+    // A known device: 12 MB only for push and rotate, 2 MB for a blob part.
+    let r = req(&a.dev, "pull", &json!({}));
+    assert_eq!(hub.admit(local(), &head_for(&r, Some(calls::SMALL_BODY + 1))).unwrap_err().code, "too_large");
+    let r = req(&a.dev, "push", &json!({}));
+    assert_eq!(hub.admit(local(), &head_for(&r, Some(5 << 20))).unwrap().body_limit, MAX_BODY);
+    let r = req(&a.dev, "put_blob", &json!({}));
+    assert_eq!(hub.admit(local(), &head_for(&r, Some(3 << 20))).unwrap_err().code, "too_large");
+    // A body longer than declared is refused when it arrives.
+    let r = req(&a.dev, "pull", &json!({}));
+    let admitted = hub.admit(local(), &head_for(&r, None)).unwrap();
+    let out = hub.finish(admitted, &vec![b' '; calls::SMALL_BODY + 1]);
+    assert_eq!(out.status, 413);
+    // Unsigned junk is refused from its headers, whatever its size.
+    let junk = Head {
+        method: "POST".into(),
+        path: "/rpc/push".into(),
+        headers: vec![],
+        content_length: Some(MAX_BODY),
+    };
+    assert_eq!(hub.admit(local(), &junk).unwrap_err().code, "unsigned");
+}
+
+#[test]
+fn the_signature_is_checked_before_any_json_is_parsed() {
+    let (_d, hub) = new_hub();
+    let a = create(&hub);
+    // Not JSON, signed correctly: a bad request (the signature passed first).
+    let body = b"not json at all".to_vec();
+    let headers = os_sync::hub::sign(&a.dev.k, &a.dev.id, "POST", "/rpc/pull", &body).unwrap();
+    let r = HubRequest { method: "POST".into(), path: "/rpc/pull".into(), headers: headers.clone(), body };
+    assert_eq!(code(&send(&hub, local(), &r)), "bad_request");
+    // Not JSON, and not what was signed: the signature fails.
+    let r = HubRequest {
+        method: "POST".into(),
+        path: "/rpc/pull".into(),
+        headers,
+        body: b"{also not json".to_vec(),
+    };
+    assert_eq!(code(&send(&hub, local(), &r)), "bad_signature");
+}
+
+#[test]
+fn requests_from_the_future_are_refused_while_the_hub_is_young() {
+    let (_d, hub) = new_hub();
+    let a = create(&hub);
+    let signed_at = |t: i64| {
+        let body = b"{}".to_vec();
+        let nonce = keys::b64(&keys::random::<18>().unwrap());
+        let sig =
+            a.dev.k.sign(&os_sync::hub::canonical("POST", "/rpc/account_state", &body, t, &nonce, &a.dev.id));
+        HubRequest {
+            method: "POST".into(),
+            path: "/rpc/account_state".into(),
+            headers: vec![
+                (os_sync::hub::H_DEVICE.into(), a.dev.id.clone()),
+                (os_sync::hub::H_TIME.into(), t.to_string()),
+                (os_sync::hub::H_NONCE.into(), nonce),
+                (os_sync::hub::H_SIGNATURE.into(), keys::b64(&sig)),
+            ],
+            body,
+        }
+    };
+    let now = chrono::Utc::now().timestamp();
+    assert_eq!(code(&send(&hub, local(), &signed_at(now + 200))), "stale_request");
+    assert_eq!(send(&hub, local(), &signed_at(now + 10)).0, 200);
+    assert_eq!(code(&send(&hub, local(), &signed_at(i64::MIN))), "stale_request");
+    assert_eq!(code(&send(&hub, local(), &signed_at(i64::MAX))), "stale_request");
+}
+
+#[test]
+fn a_new_code_retires_the_old_ones_and_too_many_wrong_codes_stop_them_all() {
+    let (_d, hub) = new_hub();
+    let old = hub.new_join_code().unwrap().code;
+    let new = hub.new_join_code().unwrap().code;
+    let d = Dev::new();
+    assert_eq!(code(&call(&hub, &d, "create_account", create_args(&d, Some(&old)))), "bad_join_code");
+    assert_eq!(call(&hub, &d, "create_account", create_args(&d, Some(&new))).0, 200);
+    // Twenty wrong codes from many addresses: every code stops working,
+    // until the hub's screen makes a new one.
+    let live = hub.new_join_code().unwrap().code;
+    for i in 0..limits::MAX_HUB_CODE_FAILURES {
+        let peer: IpAddr = format!("10.0.{}.{}", i / 200, i % 200 + 1).parse().unwrap();
+        let d = Dev::new();
+        let r = send(&hub, peer, &req(&d, "create_account", &create_args(&d, Some("WR0NGWR0"))));
+        assert_eq!(code(&r), "bad_join_code");
+    }
+    let d = Dev::new();
+    assert_eq!(code(&call(&hub, &d, "create_account", create_args(&d, Some(&live)))), "codes_disabled");
+    let fresh = hub.new_join_code().unwrap().code;
+    assert_eq!(call(&hub, &d, "create_account", create_args(&d, Some(&fresh))).0, 200);
+}
+
+#[test]
+fn the_lobby_is_bounded_per_address_and_a_lapsed_request_needs_a_new_code() {
+    let (_d, hub) = new_hub();
+    let crowd: IpAddr = "192.168.7.7".parse().unwrap();
+    for i in 0..5u8 {
+        let c = hub.new_join_code().unwrap().code;
+        let d = Dev::new();
+        let r = send(&hub, crowd, &req(&d, "register_device", &register_args(&d, Some(&c), &[i; 32])));
+        assert_eq!(r.0, 200, "{r:?}");
+    }
+    let c = hub.new_join_code().unwrap().code;
+    let d = Dev::new();
+    let r = send(&hub, crowd, &req(&d, "register_device", &register_args(&d, Some(&c), &[9; 32])));
+    assert_eq!(code(&r), "too_many_pending");
+    // Another address still can, with the same code (it wasn't used).
+    assert_eq!(call(&hub, &d, "register_device", register_args(&d, Some(&c), &[9; 32])).0, 200);
+    // Its request lapses: asking again needs a new code.
+    {
+        let mut st = hub.store();
+        st.ix.devices.get_mut(&d.id).unwrap().pending_expires_at =
+            Some(chrono::Utc::now() - chrono::Duration::minutes(1));
+    }
+    assert_eq!(
+        code(&call(&hub, &d, "register_device", register_args(&d, None, &[9; 32]))),
+        "join_code_required"
+    );
+    let c = hub.new_join_code().unwrap().code;
+    assert_eq!(call(&hub, &d, "register_device", register_args(&d, Some(&c), &[9; 32])).0, 200);
+}
+
+#[test]
+fn large_blobs_come_back_in_pages() {
+    let (_d, hub) = new_hub();
+    let a = create(&hub);
+    let oid = uuid::Uuid::new_v4().to_string();
+    for part in 0..16 {
+        let r = call(
+            &hub,
+            &a.dev,
+            "put_blob",
+            json!({"space_id": a.space, "object_id": oid, "object_version": 1, "part": part,
+                   "body": fake(b"OBB1", 1_050_000)}),
+        );
+        assert_eq!(r.0, 200, "{r:?}");
+    }
+    let page = |from: usize| -> Vec<i64> {
+        let r = call(
+            &hub,
+            &a.dev,
+            "get_blobs",
+            json!({"space_id": a.space, "object_id": oid, "object_version": 1, "from_part": from}),
+        );
+        r.1.as_array().unwrap().iter().map(|p| p["part"].as_i64().unwrap()).collect()
+    };
+    let first = page(0);
+    assert!(first.len() < 16 && !first.is_empty(), "{first:?}");
+    let rest = page(first.len());
+    assert_eq!(first.len() + rest.len(), 16);
+    assert_eq!(rest[0], first.len() as i64);
+}
+
+#[test]
+fn the_index_survives_damage_and_a_missing_body_is_flagged() {
+    let dir = tempfile::tempdir().unwrap();
+    let (space, dev, oid) = {
+        let hub = open(dir.path(), Settings::default(), Limits::default());
+        let a = create(&hub);
+        let oid = uuid::Uuid::new_v4().to_string();
+        call(&hub, &a.dev, "push", json!({"space_id": a.space, "items": [put_item(&oid, "visit", None)]}));
+        call(&hub, &a.dev, "push", json!({"space_id": a.space, "items": [put_item(&oid, "visit", Some(1))]}));
+        // The superseded version's file is gone once the index no longer names it.
+        let names: Vec<String> = std::fs::read_dir(dir.path().join("objects").join(&a.space))
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, vec![format!("{oid}.v2.obs")]);
+        (a.space, a.dev, oid)
+    };
+    assert!(dir.path().join("index.json.bak").is_file());
+    // A damaged index: the hub opens with the copy from the save before.
+    std::fs::write(dir.path().join("index.json"), b"OBK1 damaged").unwrap();
+    let hub = open(dir.path(), Settings::default(), Limits::default());
+    assert_eq!(call(&hub, &dev, "account_state", json!({})).0, 200);
+    // A body file lost from the disk: the page still comes, that row flagged.
+    for e in std::fs::read_dir(dir.path().join("objects").join(&space)).unwrap().flatten() {
+        std::fs::remove_file(e.path()).unwrap();
+    }
+    let p = call(&hub, &dev, "pull", json!({"space_id": space, "after": 0, "max_rows": 10}));
+    assert_eq!(p.0, 200, "{p:?}");
+    let rows = p.1["rows"].as_array().unwrap();
+    assert!(rows.iter().filter(|r| r["id"] == json!(oid)).all(|r| r["missing"] == json!(true)));
 }
