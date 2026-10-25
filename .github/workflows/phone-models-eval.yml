@@ -72,10 +72,19 @@ jobs:
           key: cargo-linux/${{ github.repository }}/${{ hashFiles('Cargo.lock') }}
           restore-keys: cargo-linux/${{ github.repository }}/
       - run: cargo build --release -p os-cli
+      # The binary and the shared libraries it loads from target/ (sherpa-onnx's
+      # C API and ONNX Runtime), so the eval jobs run it without building.
+      - name: Package the binary with its libraries
+        run: |
+          mkdir -p target/phone-eval-bin
+          cp target/release/openbark target/phone-eval-bin/
+          ldd target/release/openbark | awk '/=>/ {print $3}' | grep "^$PWD/target" | xargs -r -I{} cp -L {} target/phone-eval-bin/
+          ls -la target/phone-eval-bin
+          LD_LIBRARY_PATH=target/phone-eval-bin ldd target/phone-eval-bin/openbark | grep -i "not found" && exit 1 || true
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: openbark-linux
-          path: target/release/openbark
+          path: target/phone-eval-bin
           retention-days: 3
 
   eval:
@@ -91,6 +100,7 @@ jobs:
       OPENBARK_MODELS_DIR: ${{ github.workspace }}/target/phone-eval/store
       OPENBARK_SESSIONS_DIR: ${{ github.workspace }}/target/phone-eval/sessions
       OPENBARK_LOG: warn
+      LD_LIBRARY_PATH: ${{ github.workspace }}/target/bin
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
