@@ -23,6 +23,10 @@ Attributions required by models in the default catalog:
 - Qwen3 1.7B, by the Qwen team (Alibaba Cloud), licensed under Apache-2.0.
   GGUF conversion by Unsloth. Offered on iPhones with 6 GB of memory.
 
+- Qwen3 4B Instruct 2507, by the Qwen team (Alibaba Cloud), licensed under
+  Apache-2.0. GGUF conversion by Unsloth. The default note model on iPhones
+  with 8 GB of memory or more (docs/eval/phone-models.md).
+
 - Nemotron 3 Nano 4B, by NVIDIA, offered on iPhones with 8 GB of memory or
   more, downloaded from NVIDIA's own Hugging Face repository.
   Licensed by NVIDIA Corporation under the NVIDIA Nemotron Model License.

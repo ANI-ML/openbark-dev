@@ -1490,10 +1490,9 @@ fn a_computer_keeps_every_model_and_its_defaults() {
     assert!(rows.iter().any(|r| r.id == "gemma-4-12b-it-q4_0"));
     assert!(rows.iter().any(|r| r.id == "whisper-large-v3-turbo-int8"));
     assert!(!rows.iter().any(|r| r.id == "qwen3-1.7b-q4_k_m"), "phone-only models stay off computers");
-    assert!(
-        !rows.iter().any(|r| r.id == "nemotron-3-nano-4b-q4_k_m"),
-        "phone-only models stay off computers"
-    );
+    for id in ["nemotron-3-nano-4b-q4_k_m", "qwen3-4b-instruct-2507-q4_k_m"] {
+        assert!(!rows.iter().any(|r| r.id == id), "phone-only models stay off computers");
+    }
     assert!(rows.iter().all(|r| r.phone_note.is_none()));
     let json = serde_json::to_value(&rows[0]).unwrap();
     assert!(json.get("phone_note").is_none(), "desktop rows are as before");
@@ -1508,7 +1507,7 @@ fn a_phone_lists_mobile_models_and_picks_its_tier_default() {
     assert_eq!(status.profile, Profile::Ios);
     assert_eq!(status.mobile_tier, Some(8));
     assert_eq!(status.hardware.summary, "This iPhone, 8 GB memory", "no graphics-card line on a phone");
-    assert_eq!(status.default_llm, "gemma-4-e2b-it-q4_0");
+    assert_eq!(status.default_llm, "qwen3-4b-instruct-2507-q4_k_m", "the eval's 8 GB default");
     // Drafting is opt-in on a phone: only the speech models are needed to start.
     let needed: Vec<&str> = status.models.iter().map(|m| m.id.as_str()).collect();
     assert_eq!(
@@ -1521,6 +1520,7 @@ fn a_phone_lists_mobile_models_and_picks_its_tier_default() {
     for id in [
         "gemma-4-e2b-it-q4_0",
         "qwen3-1.7b-q4_k_m",
+        "qwen3-4b-instruct-2507-q4_k_m",
         "nemotron-3-nano-4b-q4_k_m",
         "gemma-4-e4b-it-q4_0",
         "parakeet-tdt-0.6b-v3-int8",
@@ -1626,7 +1626,7 @@ fn phone_tiers_change_the_default_and_what_fits() {
     {
         let _twelve = os_models::platform::override_for_tests(Profile::Ios, Some(11.4));
         let s = app.status();
-        assert_eq!((s.mobile_tier, s.default_llm.as_str()), (Some(12), "gemma-4-e2b-it-q4_0"));
+        assert_eq!((s.mobile_tier, s.default_llm.as_str()), (Some(12), "qwen3-4b-instruct-2507-q4_k_m"));
         let e4b = app.models().into_iter().find(|r| r.id == "gemma-4-e4b-it-q4_0").unwrap();
         assert_eq!((e4b.fit, e4b.phone_note), (Fit::Fits, None));
     }

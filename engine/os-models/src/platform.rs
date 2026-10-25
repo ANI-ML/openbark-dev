@@ -98,19 +98,26 @@ const GB: u64 = 1_000_000_000;
 
 /// Phones with 6, 8 and 12 GB. Below 6 GB OpenBark can't run on the phone
 /// (ADR-0018 section 3).
+///
+/// Defaults from the phone note-model comparison (docs/eval/phone-models.md,
+/// 2026-10-25): Qwen3 4B Instruct 2507 was the only phone candidate with no
+/// invented number once the checker's known gaps on reference transcripts
+/// are set aside, and it found the most facts, so it writes notes on 8 and
+/// 12 GB phones. No 6 GB candidate met the bar; Qwen3 1.7B stays there, and
+/// drafting on those phones isn't recommended yet.
 pub const TIERS: [Tier; 3] = [
     Tier { ram_gb: 6, llm_budget_bytes: 1_300_000_000, max_params_b: 2.0, default_llm: "qwen3-1.7b-q4_k_m" },
     Tier {
         ram_gb: 8,
         llm_budget_bytes: 3_500_000_000,
         max_params_b: 4.5,
-        default_llm: "gemma-4-e2b-it-q4_0",
+        default_llm: "qwen3-4b-instruct-2507-q4_k_m",
     },
     Tier {
         ram_gb: 12,
         llm_budget_bytes: 5_300_000_000,
         max_params_b: 8.5,
-        default_llm: "gemma-4-e2b-it-q4_0",
+        default_llm: "qwen3-4b-instruct-2507-q4_k_m",
     },
 ];
 
@@ -320,6 +327,11 @@ mod tests {
         let e4b = ("gemma-4-E4B_q4_0-it.gguf", 5_154_941_280);
         assert!(check_gguf(Some(t8), e4b.0, e4b.1, None).is_err());
         assert_eq!(check_gguf(Some(t12), e4b.0, e4b.1, None), Ok(()));
+        // Qwen3 4B Instruct 2507 Q4_K_M (2.5 GB, 4.02B): 8 and 12 GB, not 6.
+        let q4b = ("Qwen3-4B-Instruct-2507-Q4_K_M.gguf", 2_497_281_120);
+        assert!(check_gguf(Some(t6), q4b.0, q4b.1, None).is_err());
+        assert_eq!(check_gguf(Some(t8), q4b.0, q4b.1, Some(4.02)), Ok(()));
+        assert_eq!(check_gguf(Some(t12), q4b.0, q4b.1, Some(4.02)), Ok(()));
         // Qwen3 1.7B Q4_K_M (1.1 GB): every tier.
         for t in TIERS {
             assert_eq!(check_gguf(Some(t), "Qwen3-1.7B-Q4_K_M.gguf", 1_107_409_472, None), Ok(()));
