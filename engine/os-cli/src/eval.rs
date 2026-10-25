@@ -17,6 +17,12 @@
 //!
 //! Transcripts are cached in target/eval-cache so prompt changes re-run only
 //! the note step (`--retranscribe` to refresh).
+//!
+//! `--from-ref` drafts from each fixture's ground truth instead
+//! (`audio/<id>.ref.json`: speaker, start, end and text per line), with the
+//! speakers numbered and the timings kept as the app would have them. It
+//! needs no audio and no speech models, so it compares note models alone
+//! (docs/eval/phone-models.md).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -32,7 +38,8 @@ use crate::{LlmArgs, load_llm, note_options};
 
 #[derive(clap::Args)]
 pub struct EvalArgs {
-    /// Fixture ids (default: every script with audio present).
+    /// Fixture ids (default: every script with audio present, or with a
+    /// reference transcript under `--from-ref`).
     pub fixtures: Vec<String>,
     #[arg(long, default_value = "packages/eval/fixtures")]
     pub dir: PathBuf,
@@ -51,8 +58,66 @@ pub struct EvalArgs {
     /// the clinic: name, reason for visit and species.
     #[arg(long)]
     pub no_patient: bool,
+    /// Draft from the fixture's reference transcript (`audio/<id>.ref.json`)
+    /// instead of transcribing its audio: the same lines, speakers and
+    /// timings, with no recognition errors, so only the note model differs.
+    #[arg(long)]
+    pub from_ref: bool,
+    /// Run one share of the fixtures, `K/N` (for example `2/3`): every N-th
+    /// fixture in id order, starting at the K-th. For parallel CI jobs.
+    #[arg(long, value_parser = parse_shard)]
+    pub shard: Option<(usize, usize)>,
     #[command(flatten)]
     pub llm: LlmArgs,
+}
+
+/// `K/N` with 1 <= K <= N.
+fn parse_shard(s: &str) -> Result<(usize, usize), String> {
+    let (k, n) = s.split_once('/').ok_or("expected K/N, for example 2/3")?;
+    let k: usize = k.trim().parse().map_err(|_| "K must be a number")?;
+    let n: usize = n.trim().parse().map_err(|_| "N must be a number")?;
+    if n == 0 || k == 0 || k > n {
+        return Err("expected 1 <= K <= N".into());
+    }
+    Ok((k, n))
+}
+
+/// One line of a reference transcript (`audio/<id>.ref.json`), as
+/// tools/fixture-tts writes it.
+#[derive(Deserialize)]
+struct RefLine {
+    speaker: String,
+    start: f32,
+    end: f32,
+    text: String,
+}
+
+/// A transcript from a reference: one segment per line, ids from 0, and the
+/// speakers numbered in the order they first speak, as the app numbers them
+/// after diarization (whoever speaks first is Speaker 1).
+fn transcript_from_ref(json: &str) -> Result<Transcript> {
+    let lines: Vec<RefLine> = serde_json::from_str(json).context("reading the reference transcript")?;
+    let mut speakers: Vec<String> = Vec::new();
+    let segments = lines
+        .into_iter()
+        .enumerate()
+        .map(|(i, l)| {
+            let n = speakers.iter().position(|s| *s == l.speaker).unwrap_or_else(|| {
+                speakers.push(l.speaker.clone());
+                speakers.len() - 1
+            });
+            Segment {
+                id: i as u32,
+                start: l.start,
+                end: l.end,
+                speaker: Some(n as u32),
+                text: l.text,
+                hints: Vec::new(),
+                check: None,
+            }
+        })
+        .collect();
+    Ok(Transcript { segments })
 }
 
 /// The category of scripts that declare none.
@@ -369,6 +434,10 @@ struct Score {
     /// (none with `--no-patient`, or when the script declares none).
     #[serde(skip_serializing_if = "Option::is_none")]
     context: Option<String>,
+    /// The note model (`--llm`), and where the transcript came from:
+    /// "reference" (`--from-ref`) or "audio".
+    llm: String,
+    transcript: String,
 }
 
 struct Quiet;
@@ -650,18 +719,30 @@ fn score_pets(
 pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
     let scripts_dir = args.dir.join("scripts");
     let audio_dir = args.dir.join("audio");
+    // The input each fixture needs: its audio, or its reference transcript.
+    let input_name = |id: &str| if args.from_ref { format!("{id}.ref.json") } else { format!("{id}.wav") };
     let mut scripts: Vec<(Script, PathBuf)> = std::fs::read_dir(&scripts_dir)
         .with_context(|| format!("reading {}", scripts_dir.display()))?
         .flatten()
         .filter(|e| e.path().extension().is_some_and(|x| x == "yaml"))
         .filter_map(|e| {
             let s: Script = serde_yaml_ng::from_str(&std::fs::read_to_string(e.path()).ok()?).ok()?;
-            let wav = audio_dir.join(format!("{}.wav", s.id));
-            wav.is_file().then_some((s, wav))
+            let input = audio_dir.join(input_name(&s.id));
+            input.is_file().then_some((s, input))
         })
         .filter(|(s, _)| args.fixtures.is_empty() || args.fixtures.contains(&s.id))
         .collect();
     scripts.sort_by(|a, b| a.0.id.cmp(&b.0.id));
+    if let Some((k, n)) = args.shard {
+        scripts = scripts.into_iter().enumerate().filter(|(i, _)| i % n == k - 1).map(|(_, s)| s).collect();
+    }
+    if scripts.is_empty() {
+        anyhow::bail!(
+            "no fixtures to run in {}: each needs {}",
+            args.dir.display(),
+            if args.from_ref { "audio/<id>.ref.json" } else { "audio/<id>.wav" }
+        );
+    }
 
     let default_template = LoadedTemplate::resolve(&args.llm.template)?;
     let llm = load_llm(store, &args.llm)?;
@@ -670,9 +751,14 @@ pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
         "{:<18} {:>9} {:>9} {:>10} {:>8}  misses",
         "fixture", "facts", "invented", "citations", "note s"
     );
-    for (script, wav) in scripts {
-        let cache = PathBuf::from("target/eval-cache").join(format!("{}.jsonl", script.id));
-        let transcript = transcript_for(store, &wav, &cache, args.retranscribe, script.phone.is_some())?;
+    for (script, input) in scripts {
+        let transcript = if args.from_ref {
+            transcript_from_ref(&std::fs::read_to_string(&input)?)
+                .with_context(|| input.display().to_string())?
+        } else {
+            let cache = PathBuf::from("target/eval-cache").join(format!("{}.jsonl", script.id));
+            transcript_for(store, &input, &cache, args.retranscribe, script.phone.is_some())?
+        };
         std::fs::create_dir_all("target/eval")?;
         let template = match &script.template {
             Some(id) if !args.force_template => LoadedTemplate::resolve(id)?,
@@ -706,6 +792,8 @@ pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
         s.context = options.context.clone();
         s.template = template.label();
         s.fingerprint = os_engine::template::fingerprint(&template.template);
+        s.llm = args.llm.llm.clone();
+        s.transcript = if args.from_ref { "reference" } else { "audio" }.into();
         println!(
             "{:<18} {:>4}/{:<4} {:>9} {:>10} {:>8.1}  {}",
             s.fixture,
@@ -755,6 +843,11 @@ pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
             );
         }
         report.push(s);
+        // After every fixture, so a run stopped part-way (a CI time limit)
+        // still leaves what it finished.
+        if let Some(path) = &args.json {
+            std::fs::write(path, serde_json::to_string_pretty(&report)?)?;
+        }
     }
     let (p, c): (u32, u32) = report.iter().fold((0, 0), |a, s| (a.0 + s.passed, a.1 + s.checks));
     let invented: usize = report.iter().map(|s| s.invented_numbers).sum();
@@ -823,6 +916,94 @@ mod tests {
         assert!(mentions("Grade three out of five lame", "3/5"));
         assert!(mentions("a 6mm pocket", "6 mm"));
         assert!(mentions("Cone on for 14 days", "fourteen days"));
+    }
+
+    #[test]
+    fn reference_transcripts_number_speakers_as_the_app_does() {
+        let t = transcript_from_ref(
+            r#"[
+              {"speaker": "client", "start": 0.0, "end": 2.5, "text": "She started vomiting on Monday."},
+              {"speaker": "dvm", "start": 3.0, "end": 4.0, "text": "Three days, then."},
+              {"speaker": "tech", "start": 4.5, "end": 5.0, "text": "Weight is 4.2 kilos."},
+              {"speaker": "client", "start": 5.5, "end": 6.0, "text": "Yes."}
+            ]"#,
+        )
+        .unwrap();
+        let ids: Vec<u32> = t.segments.iter().map(|s| s.id).collect();
+        assert_eq!(ids, [0, 1, 2, 3]);
+        // Whoever speaks first is Speaker 1, whatever the label.
+        let speakers: Vec<Option<u32>> = t.segments.iter().map(|s| s.speaker).collect();
+        assert_eq!(speakers, [Some(0), Some(1), Some(2), Some(0)]);
+        assert_eq!(t.speaker_count(), 3);
+        assert_eq!((t.segments[1].start, t.segments[1].end), (3.0, 4.0));
+        assert!(t.for_prompt().starts_with("[0] Speaker 1 (00:00): She started vomiting on Monday.\n"));
+        assert!(transcript_from_ref("{}").is_err());
+    }
+
+    #[test]
+    fn every_fixture_has_a_reference_transcript() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages/eval/fixtures");
+        let mut n = 0;
+        for e in std::fs::read_dir(dir.join("scripts")).unwrap().flatten() {
+            let script: Script =
+                serde_yaml_ng::from_str(&std::fs::read_to_string(e.path()).unwrap()).unwrap();
+            let r = dir.join("audio").join(format!("{}.ref.json", script.id));
+            let t = transcript_from_ref(&std::fs::read_to_string(&r).unwrap()).unwrap();
+            assert!(!t.is_empty(), "{}", r.display());
+            n += 1;
+        }
+        assert!(n > 10, "only {n} fixtures found");
+    }
+
+    /// packages/eval/phone-models.json: every candidate is pinned, fits the
+    /// tiers it is compared for, and those also in the catalog match it.
+    #[test]
+    fn phone_candidates_are_pinned_fit_their_tiers_and_match_the_catalog() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages/eval/phone-models.json");
+        let plan: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let catalog = os_models::Catalog::builtin();
+        let candidates = plan["candidates"].as_array().unwrap();
+        assert!(candidates.len() >= 3);
+        for c in candidates {
+            let id = c["id"].as_str().unwrap();
+            let file = c["file"].as_str().unwrap();
+            let size = c["size"].as_u64().unwrap();
+            let sha = c["sha256"].as_str().unwrap();
+            assert!(sha.len() == 64 && sha.chars().all(|ch| ch.is_ascii_hexdigit()), "{id}");
+            assert_eq!(c["revision"].as_str().unwrap().len(), 40, "{id} must pin a full commit");
+            let params = c["params_b"].as_f64();
+            for tier in c["tiers"].as_array().unwrap() {
+                let tier = tier.as_u64().unwrap() as u32;
+                let t = os_models::platform::TIERS.iter().find(|t| t.ram_gb == tier).copied();
+                assert!(t.is_some(), "{id}: no {tier} GB tier");
+                assert_eq!(
+                    os_models::platform::check_gguf(t, file, size, params),
+                    Ok(()),
+                    "{id} on {tier} GB"
+                );
+            }
+            if c["catalog"].as_bool() == Some(true) {
+                let m = catalog.get(id).unwrap_or_else(|| panic!("{id} isn't in catalog.json"));
+                assert_eq!(m.files.len(), 1, "{id}");
+                assert_eq!(
+                    (m.files[0].path.as_str(), m.files[0].size, m.files[0].sha256.as_str()),
+                    (file, size, sha)
+                );
+                match &m.source {
+                    os_models::Source::Huggingface { repo, revision } => {
+                        assert_eq!(repo, c["repo"].as_str().unwrap(), "{id}");
+                        assert_eq!(revision, c["revision"].as_str().unwrap(), "{id}");
+                    }
+                    _ => panic!("{id} isn't from Hugging Face"),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn shards_split_the_fixtures() {
+        assert_eq!(parse_shard("2/3"), Ok((2, 3)));
+        assert!(parse_shard("0/3").is_err() && parse_shard("4/3").is_err() && parse_shard("3").is_err());
     }
 
     #[test]
