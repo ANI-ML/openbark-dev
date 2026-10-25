@@ -591,6 +591,9 @@ pub struct ModelStatus {
     pub id: String,
     pub name: String,
     pub installed: bool,
+    /// Came with the app (the iPhone app's speech models, ADR-0018 section
+    /// 10): used from the app itself, never downloaded or removed.
+    pub bundled: bool,
 }
 
 #[derive(Serialize)]
@@ -881,6 +884,13 @@ pub struct ModelRow {
     pub installed: bool,
     pub fit: Fit,
     pub builtin: bool,
+    /// Came with the app (the iPhone app's speech models): shown as Built in,
+    /// with nothing to download or remove.
+    pub bundled: bool,
+    /// The credit the model's licence asks for (CC-BY-4.0, NVIDIA's
+    /// statement), shown with the model, downloaded or built in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attribution: Option<String>,
     /// Bytes on disk that are OpenBark's alone, so removing them frees that
     /// much (0 when used in place).
     pub disk_bytes: u64,
@@ -1327,9 +1337,13 @@ impl App {
     }
 
     pub fn status(&self) -> Status {
+        let catalog = os_models::Catalog::builtin();
         let models = os_engine::models::required_status_for(&self.store, Profile::current())
             .into_iter()
-            .map(|(id, name, installed)| ModelStatus { id, name, installed })
+            .map(|(id, name, installed)| {
+                let bundled = catalog.get(&id).is_some_and(|m| self.store.is_bundled(m));
+                ModelStatus { id, name, installed, bundled }
+            })
             .collect();
         Status {
             product: os_engine::PRODUCT_NAME,
@@ -3173,6 +3187,8 @@ impl App {
                 Fit::Fits
             },
             builtin,
+            bundled: self.store.is_bundled(m),
+            attribution: m.attribution.clone(),
             disk_bytes: self.store.disk_usage(m),
             shared_bytes: self.store.shared_bytes(m),
             partial_bytes: self.store.partial_bytes(m),

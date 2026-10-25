@@ -77,6 +77,11 @@ pub fn download(
     if entry.is_local() {
         return Err(DownloadError::Local(entry.display_name.clone()));
     }
+    // It came with the app (ADR-0018 section 10): nothing to fetch, and its
+    // folder is read-only.
+    if store.is_bundled(entry) {
+        return Ok(());
+    }
     // Every path is checked before anything is written.
     for file in &entry.files {
         safe_rel_path(&file.path)?;
@@ -457,6 +462,24 @@ mod tests {
         let err = download(&store, &entry, None, &mut no_progress()).unwrap_err();
         assert!(matches!(err, DownloadError::Local(_)));
         assert_eq!(err.to_string(), "Some model was added from this computer, so it can't be downloaded.");
+    }
+
+    #[test]
+    fn a_bundled_model_is_never_downloaded_again() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bundled = tmp.path().join("bundle");
+        // Port 9 (discard): any request would fail.
+        let entry = url_entry("http://127.0.0.1:9", &[("vad.onnx", "/files/vad", b"weights")]);
+        let dir = bundled.join(crate::dir_name(&entry.id));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("vad.onnx"), b"weights").unwrap();
+        let store = ModelStore::new(tmp.path().join("store")).with_bundled(Some(bundled));
+        download(&store, &entry, None, &mut no_progress()).unwrap();
+        assert!(!tmp.path().join("store").exists(), "nothing is written to the store");
+        // And it can't be removed.
+        let err = crate::remove::remove_files(&store, &entry).unwrap_err();
+        assert_eq!(err.to_string(), "Some model comes with the app, so it can't be removed.");
+        assert!(dir.join("vad.onnx").is_file());
     }
 
     #[test]

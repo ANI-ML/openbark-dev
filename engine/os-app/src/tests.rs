@@ -1560,6 +1560,55 @@ fn a_phone_lists_mobile_models_and_picks_its_tier_default() {
     assert_eq!(app.inspect_import("C:/models/x.gguf", None).unwrap_err().0, NO_IMPORT_ON_PHONE);
 }
 
+/// The iPhone app ships its speech models (ADR-0018 section 10): found in the
+/// app's own folder, shown as built in with their credits, never downloaded
+/// again and never removed. Two small ones stand in for all four here.
+#[test]
+fn bundled_speech_models_are_built_in_on_a_phone() {
+    let tmp = tempfile::tempdir().unwrap();
+    test_env();
+    let bundle = tmp.path().join("OpenBark.app/assets/models");
+    let catalog = os_models::Catalog::builtin();
+    for id in ["silero-vad", "pyannote-segmentation-3.0"] {
+        let m = catalog.get(id).unwrap();
+        for f in &m.files {
+            let path = bundle.join(os_models::dir_name(id)).join(&f.path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::File::create(&path).unwrap().set_len(f.size).unwrap();
+        }
+    }
+    let mut app = App::new(
+        ModelStore::new(tmp.path().join("models")).with_bundled(Some(bundle)),
+        tmp.path().join("sessions"),
+    );
+    app.users = UserStore::new(tmp.path().join("users.json"));
+    app.templates = TemplateStore::new(tmp.path().join("templates"));
+    let _phone = os_models::platform::override_for_tests(Profile::Ios, Some(7.6));
+
+    let status = app.status();
+    let vad = status.models.iter().find(|m| m.id == "silero-vad").unwrap();
+    assert!(vad.installed && vad.bundled, "found in the app, nothing downloaded");
+    let parakeet = status.models.iter().find(|m| m.id == "parakeet-tdt-0.6b-v3-int8").unwrap();
+    assert!(!parakeet.installed && !parakeet.bundled);
+
+    let rows = app.models();
+    let vad = rows.iter().find(|r| r.id == "silero-vad").unwrap();
+    assert!(vad.bundled && vad.installed);
+    assert_eq!((vad.disk_bytes, vad.partial_bytes, vad.remove), (0, 0, RowRemove::Needed));
+    assert!(vad.attribution.as_deref().is_some_and(|a| a.contains("Silero")), "credits still shown");
+    let parakeet = rows.iter().find(|r| r.id == "parakeet-tdt-0.6b-v3-int8").unwrap();
+    assert!(parakeet.attribution.as_deref().is_some_and(|a| a.contains("CC-BY-4.0")));
+    assert!(!parakeet.bundled);
+
+    // Downloading it again does nothing and writes nothing.
+    app.download_model("silero-vad", None, &Quiet).unwrap();
+    assert!(!tmp.path().join("models").join("silero-vad").exists());
+    // And it can't be removed.
+    assert!(app.remove_model("silero-vad", None, false, None).is_err());
+    let json = serde_json::to_value(&status.models[0]).unwrap();
+    assert_eq!(json["bundled"], true);
+}
+
 #[test]
 fn phone_tiers_change_the_default_and_what_fits() {
     let tmp = tempfile::tempdir().unwrap();
