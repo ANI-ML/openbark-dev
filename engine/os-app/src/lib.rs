@@ -3876,8 +3876,9 @@ pub struct HeldFile {
     pub reason: String,
 }
 
-/// Note models made for 6 GB phones: a computer doesn't list them.
-const PHONE_ONLY: &[&str] = &["qwen3-1.7b-q4_k_m"];
+/// Note models in the catalog for phones only (ADR-0018 section 10): a
+/// computer doesn't list them, so its catalog stays as it was.
+const PHONE_ONLY: &[&str] = &["qwen3-1.7b-q4_k_m", "nemotron-3-nano-4b-q4_k_m"];
 
 /// The repo sheet on a phone: offered files only, the rest listed with why,
 /// and MLX never shown.

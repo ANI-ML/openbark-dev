@@ -6,8 +6,15 @@ This product is licensed under the Apache License, Version 2.0 (see LICENSE).
 
 Third-party models that OpenBark can download are not distributed in this
 repository. When a model is offered in the app's catalog, its license and any
-required attribution are shown before download. Attributions required by
-models in the default catalog:
+required attribution are shown before download.
+
+The iPhone app ships four speech models inside the app, so it can record and
+transcribe right after install: Silero VAD (MIT), Parakeet TDT 0.6B v3 int8
+(CC-BY-4.0), pyannote/segmentation-3.0 (MIT) and WeSpeaker VoxCeleb
+ResNet34-LM (CC-BY-4.0), each credited below and on the app's Models screen.
+They are the files pinned in engine/os-models/catalog.json, unchanged.
+
+Attributions required by models in the default catalog:
 
 - Gemma 4 models, by Google, licensed under Apache-2.0.
   "Gemma" is a trademark of Google LLC. OpenBark is not affiliated with or
@@ -16,9 +23,17 @@ models in the default catalog:
 - Qwen3 1.7B, by the Qwen team (Alibaba Cloud), licensed under Apache-2.0.
   GGUF conversion by Unsloth. Offered on iPhones with 6 GB of memory.
 
+- Nemotron 3 Nano 4B, by NVIDIA, offered on iPhones with 8 GB of memory or
+  more, downloaded from NVIDIA's own Hugging Face repository.
+  Licensed by NVIDIA Corporation under the NVIDIA Nemotron Model License.
+  A copy of the NVIDIA Nemotron Open Model License ships with the app in
+  licenses/nvidia-nemotron-open-model-license.txt
+  (apps/desktop/public/licenses/nvidia-nemotron-open-model-license.txt).
+
 - Parakeet TDT 0.6B v3, by NVIDIA, licensed under CC-BY-4.0.
   https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3
-  ONNX export by the k2-fsa/sherpa-onnx project.
+  https://creativecommons.org/licenses/by/4.0/
+  ONNX export and int8 quantisation by the k2-fsa/sherpa-onnx project.
 
 - Whisper large-v3-turbo, by OpenAI, licensed under MIT.
   ONNX export by the k2-fsa/sherpa-onnx project.
@@ -29,7 +44,8 @@ models in the default catalog:
   ONNX export by the k2-fsa/sherpa-onnx project.
 
 - WeSpeaker VoxCeleb ResNet34-LM, by the WeNet community, licensed under
-  CC-BY-4.0.
+  CC-BY-4.0. https://creativecommons.org/licenses/by/4.0/
+  The ONNX file is the one the k2-fsa/sherpa-onnx project publishes.
 
 The optional GPU speech pack (Windows, NVIDIA) is downloaded on the user's
 request and is not distributed here: ONNX Runtime (MIT, by Microsoft, in the

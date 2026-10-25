@@ -246,11 +246,25 @@ mod tests {
     #[test]
     fn only_redistributable_licenses_in_builtin_catalog() {
         // HAI-DEF (MedGemma) and similar must never be in the built-in catalog.
-        let allowed = ["Apache-2.0", "MIT", "CC-BY-4.0"];
+        // The NVIDIA Nemotron Open Model License allows use and redistribution
+        // provided recipients get a copy of it and the statement "Licensed by
+        // NVIDIA Corporation under the NVIDIA Nemotron Model License."
+        // (NOTICE, apps/desktop/public/licenses/), so it is allowed here with
+        // that statement as its attribution.
+        const NEMOTRON: &str = "NVIDIA Nemotron Open Model License";
+        let allowed = ["Apache-2.0", "MIT", "CC-BY-4.0", NEMOTRON];
         for m in Catalog::builtin().models {
             assert!(allowed.contains(&m.license.as_str()), "{} has license {}", m.id, m.license);
             if m.license == "CC-BY-4.0" {
                 assert!(m.attribution.is_some(), "{} needs attribution", m.id);
+            }
+            if m.license == NEMOTRON {
+                let a = m.attribution.as_deref().unwrap_or_default();
+                assert!(
+                    a.contains("Licensed by NVIDIA Corporation under the NVIDIA Nemotron Model License"),
+                    "{} needs NVIDIA's statement",
+                    m.id
+                );
             }
         }
     }

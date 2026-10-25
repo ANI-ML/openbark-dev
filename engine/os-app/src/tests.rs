@@ -1490,6 +1490,10 @@ fn a_computer_keeps_every_model_and_its_defaults() {
     assert!(rows.iter().any(|r| r.id == "gemma-4-12b-it-q4_0"));
     assert!(rows.iter().any(|r| r.id == "whisper-large-v3-turbo-int8"));
     assert!(!rows.iter().any(|r| r.id == "qwen3-1.7b-q4_k_m"), "phone-only models stay off computers");
+    assert!(
+        !rows.iter().any(|r| r.id == "nemotron-3-nano-4b-q4_k_m"),
+        "phone-only models stay off computers"
+    );
     assert!(rows.iter().all(|r| r.phone_note.is_none()));
     let json = serde_json::to_value(&rows[0]).unwrap();
     assert!(json.get("phone_note").is_none(), "desktop rows are as before");
@@ -1514,8 +1518,13 @@ fn a_phone_lists_mobile_models_and_picks_its_tier_default() {
 
     let rows = app.models();
     let ids: Vec<&str> = rows.iter().map(|r| r.id.as_str()).collect();
-    for id in ["gemma-4-e2b-it-q4_0", "qwen3-1.7b-q4_k_m", "gemma-4-e4b-it-q4_0", "parakeet-tdt-0.6b-v3-int8"]
-    {
+    for id in [
+        "gemma-4-e2b-it-q4_0",
+        "qwen3-1.7b-q4_k_m",
+        "nemotron-3-nano-4b-q4_k_m",
+        "gemma-4-e4b-it-q4_0",
+        "parakeet-tdt-0.6b-v3-int8",
+    ] {
         assert!(ids.contains(&id), "{id} missing from {ids:?}");
     }
     for id in ["gemma-4-12b-it-q4_0", "whisper-large-v3-turbo-int8", "parakeet-tdt-0.6b-v3-fp32"] {
@@ -1530,6 +1539,9 @@ fn a_phone_lists_mobile_models_and_picks_its_tier_default() {
     );
     let e2b = rows.iter().find(|r| r.id == "gemma-4-e2b-it-q4_0").unwrap();
     assert_eq!((e2b.fit, e2b.phone_note.as_deref()), (Fit::Fits, None));
+    // Nemotron 3 Nano 4B (2.84 GB, 4B) fits the 8 GB tier too, and carries NVIDIA's statement.
+    let nemotron = rows.iter().find(|r| r.id == "nemotron-3-nano-4b-q4_k_m").unwrap();
+    assert_eq!((nemotron.fit, nemotron.phone_note.as_deref()), (Fit::Fits, None));
 
     // Downloading the too-large one is refused before any network call.
     let err = app.download_model("gemma-4-e4b-it-q4_0", None, &Quiet).unwrap_err();
@@ -1559,6 +1571,8 @@ fn phone_tiers_change_the_default_and_what_fits() {
         let rows = app.models();
         let e2b = rows.iter().find(|r| r.id == "gemma-4-e2b-it-q4_0").unwrap();
         assert_eq!(e2b.fit, Fit::WontFit, "3.35 GB is over a 6 GB phone's budget");
+        let nemotron = rows.iter().find(|r| r.id == "nemotron-3-nano-4b-q4_k_m").unwrap();
+        assert_eq!(nemotron.fit, Fit::WontFit, "4B and 2.84 GB are over a 6 GB phone's caps");
     }
     {
         let _twelve = os_models::platform::override_for_tests(Profile::Ios, Some(11.4));
