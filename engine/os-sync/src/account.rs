@@ -15,6 +15,7 @@ use chrono::{Duration, Utc};
 use serde::Serialize;
 use serde_json::{Value, json};
 
+use crate::hub::{self, HubLink};
 use crate::keys::{self, DeviceKeys, Kit, PairingCode, SymKey};
 use crate::roster::{Entry, Roster};
 use crate::state::{self, AccountKeys, Phase, State};
@@ -99,6 +100,8 @@ impl SyncService {
         if matches!(inner.state.phase, Phase::Active | Phase::Pending | Phase::KitCheck) {
             return Err(SyncError::User("Sync is already on.".into()));
         }
+        // Supabase, not a clinic hub.
+        inner.state.hub = None;
         self.client(&inner.state).send_code(&email)?;
         inner.state.email = Some(email);
         if inner.state.phase != Phase::SignedOut {
@@ -161,7 +164,7 @@ impl SyncService {
         }
         let acct = self.rpc(&mut inner, "account_state", json!({}))?;
         let step = if !acct["account"].as_bool().unwrap_or(false) {
-            self.create_account(&mut inner)?
+            self.create_account(&mut inner, None)?
         } else if let Some(device) = inner.secrets.device.clone().filter(|_| inner.state.space_id.is_some()) {
             // This device was in the account before: bind it to this session.
             let keys = DeviceKeys::from_text(&device)?;
@@ -180,11 +183,11 @@ impl SyncService {
                     self.handle_revoked(&mut inner);
                     return Err(SyncError::Revoked);
                 }
-                Ok(_) | Err(SyncError::Refused(_)) => self.register_pending(&mut inner)?,
+                Ok(_) | Err(SyncError::Refused(_)) => self.register_pending(&mut inner, None)?,
                 Err(e) => return Err(e),
             }
         } else {
-            self.register_pending(&mut inner)?
+            self.register_pending(&mut inner, None)?
         };
         inner.state.last_error = None;
         self.persist(&mut inner)?;
@@ -192,7 +195,115 @@ impl SyncService {
         Ok(step)
     }
 
-    fn create_account(&self, inner: &mut Inner) -> Result<NextStep, SyncError> {
+    /// Join a clinic hub (ADR-0029 section 3) with what the person brought
+    /// from the hub's screen. `existing`: the person already syncs on
+    /// another device, which approves this one (its 6 words, as with
+    /// ADR-0017's pairing); otherwise this device creates the person's
+    /// account and Recovery Kit. Either way the hub needs its join code. A
+    /// device that turned sync off comes back to the same hub without one.
+    pub fn join_hub(
+        &self,
+        join: &hub::Join,
+        device_name: &str,
+        backfill_days: Option<u32>,
+        linked_user: Option<String>,
+        existing: bool,
+    ) -> Result<NextStep, SyncError> {
+        let mut inner = self.lock();
+        if matches!(inner.state.phase, Phase::Active | Phase::Pending | Phase::KitCheck) {
+            return Err(SyncError::User("Sync is already on.".into()));
+        }
+        // The certificate: from the QR code, or checked against what was typed.
+        let fp = match join.fingerprint {
+            Some(f) => f,
+            None => hub::probe(&join.host, join.port, join.check.as_deref().unwrap_or_default())?,
+        };
+        let link = HubLink { host: join.host.clone(), port: join.port, fingerprint: hex::encode(fp) };
+        link.check()?;
+        let same_hub = inner.state.hub.as_ref().is_some_and(|h| h.fingerprint == link.fingerprint);
+        if inner.secrets.keys.is_some() && !same_hub {
+            return Err(SyncError::User(
+                "This device already has sync keys for another account. Delete that account's link first."
+                    .into(),
+            ));
+        }
+        let before = inner.state.clone();
+        let had_keys = inner.secrets.keys.is_some();
+        inner.state.hub = Some(link);
+        inner.state.email = None;
+        let name = device_name.trim();
+        if !name.is_empty() {
+            inner.state.device_name = name.chars().take(60).collect();
+        } else if inner.state.device_name.is_empty() {
+            inner.state.device_name = default_device_name();
+        }
+        if inner.state.since.is_none() {
+            inner.state.since = Some(match backfill_days {
+                Some(d) => Utc::now() - Duration::days(d as i64),
+                None => chrono::DateTime::<Utc>::MIN_UTC,
+            });
+        }
+        if linked_user.is_some() {
+            inner.state.linked_user = linked_user;
+        }
+        match self.join_steps(&mut inner, &join.code, existing, same_hub) {
+            Ok(step) => {
+                inner.state.last_error = None;
+                self.persist(&mut inner)?;
+                self.publish(&inner, false);
+                Ok(step)
+            }
+            Err(e) => {
+                // Nothing half-joined stays behind; the device keys may (they
+                // are reused next time).
+                inner.state = before;
+                if !had_keys {
+                    inner.secrets.keys = None;
+                    inner.secrets.kit_unchecked = None;
+                    inner.secrets.pairing = None;
+                    inner.secrets_dirty = true;
+                }
+                if let Err(pe) = self.persist(&mut inner) {
+                    tracing::warn!(error = %pe, "couldn't save after a failed join");
+                }
+                self.publish(&inner, false);
+                Err(e)
+            }
+        }
+    }
+
+    fn join_steps(
+        &self,
+        inner: &mut Inner,
+        code: &str,
+        existing: bool,
+        same_hub: bool,
+    ) -> Result<NextStep, SyncError> {
+        if same_hub && inner.secrets.keys.is_some() && inner.state.space_id.is_some() {
+            let acct = self.rpc(inner, "account_state", json!({}))?;
+            if acct["device"]["status"] != "approved" {
+                return Err(SyncError::User(
+                    "The clinic hub no longer lists this device. Join again with a new code from the hub."
+                        .into(),
+                ));
+            }
+            if let Some(id) = acct["account_id"].as_str() {
+                inner.state.user_id = Some(id.to_string());
+            }
+            inner.state.phase = Phase::Active;
+            self.refresh_keys(inner)?;
+            return Ok(NextStep::Active);
+        }
+        if existing {
+            self.register_pending(inner, Some(code))
+        } else {
+            // The account's id is made here; the hub refuses one it has.
+            inner.state.user_id = Some(uuid::Uuid::new_v4().to_string());
+            self.create_account(inner, Some(code))
+        }
+    }
+
+    fn create_account(&self, inner: &mut Inner, join_code: Option<&str>) -> Result<NextStep, SyncError> {
         let device = match inner.secrets.device_keys()? {
             Some(d) => d,
             None => DeviceKeys::generate()?,
@@ -206,7 +317,7 @@ impl SyncService {
         let roster =
             Roster { kit_pub: keys::b64(&kit.x_pub()), devices: vec![self.self_entry(inner, &device)] };
         let sealed_roster = roster.seal(&amk, &account, 1, &device, &self.me().id)?;
-        let args = json!({
+        let mut args = json!({
             "device_id": self.me().id,
             "platform": platform_ok(platform()),
             "x25519_pub": keys::b64(&device.x_pub()),
@@ -220,6 +331,10 @@ impl SyncService {
             "space_key": keys::b64(&keys::wrap_space_key(&amk, &space, 1, 1, &space_key, &naming)?),
             "roster": keys::b64(&sealed_roster),
         });
+        if inner.state.hub.is_some() {
+            args["account_id"] = json!(account);
+            args["join_code"] = json!(join_code);
+        }
         // Keep the keys before the server has them, so a lost reply never
         // leaves an account this device can't open.
         inner.secrets.device = Some(device.to_text());
@@ -299,7 +414,7 @@ impl SyncService {
         Ok(())
     }
 
-    fn register_pending(&self, inner: &mut Inner) -> Result<NextStep, SyncError> {
+    fn register_pending(&self, inner: &mut Inner, join_code: Option<&str>) -> Result<NextStep, SyncError> {
         let device = match inner.secrets.device_keys()? {
             Some(d) => d,
             None => {
@@ -320,19 +435,24 @@ impl SyncService {
         inner.secrets_dirty = true;
         self.store.save(&inner.secrets)?;
         inner.secrets_dirty = false;
-        self.rpc(
-            inner,
-            "register_device",
-            json!({
-                "device_id": self.me().id,
-                "platform": platform_ok(platform()),
-                "x25519_pub": keys::b64(&device.x_pub()),
-                "ed25519_pub": keys::b64(&device.ed_pub()),
-                "rebind_verifier": keys::b64(&device.rebind_verifier()),
-                "pair_mac": keys::b64(&keys::pair_mac(&pk, &self.me().id, &device.x_pub(), &device.ed_pub())),
-                "pair_blob": keys::b64(&blob),
-            }),
-        )?;
+        let mut args = json!({
+            "device_id": self.me().id,
+            "platform": platform_ok(platform()),
+            "x25519_pub": keys::b64(&device.x_pub()),
+            "ed25519_pub": keys::b64(&device.ed_pub()),
+            "rebind_verifier": keys::b64(&device.rebind_verifier()),
+            "pair_mac": keys::b64(&keys::pair_mac(&pk, &self.me().id, &device.x_pub(), &device.ed_pub())),
+            "pair_blob": keys::b64(&blob),
+        });
+        if inner.state.hub.is_some() {
+            // The hub files the device under a tag from its words, in its
+            // lobby until a device of the person's account approves it.
+            args["pair_tag"] = json!(keys::b64(&code.tag()?));
+            if let Some(c) = join_code {
+                args["join_code"] = json!(c);
+            }
+        }
+        self.rpc(inner, "register_device", args)?;
         inner.state.phase = Phase::Pending;
         inner.state.pending_since = Some(Utc::now());
         Ok(NextStep::Pair(self.pairing_view(inner).ok_or(SyncError::NoKeys)?))
@@ -355,7 +475,7 @@ impl SyncService {
         if inner.state.phase != Phase::Pending {
             return Err(SyncError::User("This device isn't waiting to be added.".into()));
         }
-        match self.register_pending(&mut inner)? {
+        match self.register_pending(&mut inner, None)? {
             NextStep::Pair(v) => {
                 self.persist(&mut inner)?;
                 self.publish(&inner, false);
@@ -368,17 +488,34 @@ impl SyncService {
     /// A pending device: has it been approved? Opens its envelope when it
     /// has, and starts syncing.
     pub(crate) fn poll_pending(&self, inner: &mut Inner) -> Result<bool, SyncError> {
-        let acct = self.rpc(inner, "account_state", json!({}))?;
+        let hub = inner.state.hub.is_some();
+        let acct = match self.rpc(inner, "account_state", json!({})) {
+            Err(SyncError::Refused(c)) if hub && c == "unknown_device" => {
+                // The hub let an old request go: joining again needs a new code.
+                inner.state.phase = Phase::Off;
+                inner.secrets.pairing = None;
+                inner.secrets_dirty = true;
+                return Err(SyncError::User(
+                    "This device's request to join expired. Join again with a new code from the clinic hub."
+                        .into(),
+                ));
+            }
+            other => other?,
+        };
         match acct["device"]["status"].as_str() {
             Some("approved") => {}
             Some("pending") | None => {
-                if acct["device"].is_null() {
+                if acct["device"].is_null() && !hub {
                     // Expired and purged, or never registered on this session.
-                    self.register_pending(inner)?;
+                    self.register_pending(inner, None)?;
                 }
                 return Ok(false);
             }
             _ => return Ok(false),
+        }
+        // On a hub, approval names the account (the roster is sealed to it).
+        if let Some(id) = acct["account_id"].as_str() {
+            inner.state.user_id = Some(id.to_string());
         }
         let code = PairingCode::parse(inner.secrets.pairing.as_deref().ok_or(SyncError::NoKeys)?)?;
         let bind = keys::pair_bind(&code.key(&self.me().id)?);
@@ -535,15 +672,23 @@ impl SyncService {
         let code = PairingCode::parse(words)?;
         let mut inner = self.lock();
         self.require_active(&inner)?;
-        self.find_pending(&mut inner, &code).map(|(v, _, _)| v)
+        self.find_pending(&mut inner, &code).map(|(v, _, _, _)| v)
     }
 
+    /// The pending device whose words these are: its view, X25519 key,
+    /// pairing key and Ed25519 key (base64).
     fn find_pending(
         &self,
         inner: &mut Inner,
         code: &PairingCode,
-    ) -> Result<(PendingView, [u8; 32], [u8; 32]), SyncError> {
-        let devices = self.rpc(inner, "list_devices", json!({}))?;
+    ) -> Result<(PendingView, [u8; 32], [u8; 32], String), SyncError> {
+        // A hub keeps a person's new device in its lobby, filed under a tag
+        // from the words; Supabase lists the account's pending devices.
+        let devices = if inner.state.hub.is_some() {
+            self.rpc(inner, "find_pending", json!({"pair_tag": keys::b64(&code.tag()?)}))?
+        } else {
+            self.rpc(inner, "list_devices", json!({}))?
+        };
         let now = Utc::now();
         for d in devices.as_array().into_iter().flatten() {
             if d["status"] != "pending" {
@@ -556,7 +701,7 @@ impl SyncService {
             if expired {
                 continue;
             }
-            let (Some(id), Some(x), Some(ed), Some(mac)) = (
+            let (Some(id), Some(x), Some(ed_text), Some(mac)) = (
                 d["id"].as_str(),
                 d["x25519_pub"].as_str(),
                 d["ed25519_pub"].as_str(),
@@ -564,7 +709,7 @@ impl SyncService {
             ) else {
                 continue;
             };
-            let (x, ed, mac) = (keys::unb64_32(x)?, keys::unb64_32(ed)?, keys::unb64_32(mac)?);
+            let (x, ed, mac) = (keys::unb64_32(x)?, keys::unb64_32(ed_text)?, keys::unb64_32(mac)?);
             let pk = code.key(id)?;
             if !keys::eq32(&keys::pair_mac(&pk, id, &x, &ed), &mac) {
                 continue;
@@ -583,6 +728,7 @@ impl SyncService {
                 },
                 x,
                 pk,
+                ed_text.to_string(),
             ));
         }
         Err(SyncError::User(
@@ -596,7 +742,7 @@ impl SyncService {
         let code = PairingCode::parse(words)?;
         let mut inner = self.lock();
         self.require_active(&inner)?;
-        let (view, x, pk) = self.find_pending(&mut inner, &code)?;
+        let (view, x, pk, ed) = self.find_pending(&mut inner, &code)?;
         let keys_now = self.account_keys(&inner)?.clone();
         let amk = keys_now.amk()?;
         let envelope = keys::seal_to(
@@ -605,14 +751,7 @@ impl SyncService {
             &keys::amk_aad(keys_now.amk_version, &view.device_id),
             Some(&keys::pair_bind(&pk)),
         )?;
-        let devices = self.rpc(&mut inner, "list_devices", json!({}))?;
-        let ed = devices
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|d| d["id"].as_str() == Some(view.device_id.as_str()))
-            .and_then(|d| d["ed25519_pub"].as_str().map(String::from))
-            .ok_or(SyncError::NoKeys)?;
+        let tag = if inner.state.hub.is_some() { Some(keys::b64(&code.tag()?)) } else { None };
         let entry = Entry {
             id: view.device_id.clone(),
             name: view.name.clone(),
@@ -629,17 +768,17 @@ impl SyncService {
             roster.devices.push(entry.clone());
             let version = inner.state.roster_version + 1;
             let sealed = self.seal_roster(&inner, &roster, version)?;
-            let r = self.rpc(
-                &mut inner,
-                "approve_device",
-                json!({
-                    "device_id": view.device_id,
-                    "envelope": keys::b64(&envelope),
-                    "amk_version": keys_now.amk_version,
-                    "roster": keys::b64(&sealed),
-                    "roster_version": version,
-                }),
-            );
+            let mut args = json!({
+                "device_id": view.device_id,
+                "envelope": keys::b64(&envelope),
+                "amk_version": keys_now.amk_version,
+                "roster": keys::b64(&sealed),
+                "roster_version": version,
+            });
+            if let Some(t) = &tag {
+                args["pair_tag"] = json!(t);
+            }
+            let r = self.rpc(&mut inner, "approve_device", args);
             match r {
                 Ok(_) => {
                     inner.state.roster_version = version;
@@ -663,10 +802,20 @@ impl SyncService {
     pub fn recover_with_kit(&self, words: &str) -> Result<(), SyncError> {
         let kit = Kit::from_words(words)?;
         let mut inner = self.lock();
+        let hub = inner.state.hub.is_some();
         if inner.state.phase != Phase::Pending {
-            return Err(SyncError::User("Sign in on this device first.".into()));
+            return Err(SyncError::User(
+                if hub {
+                    "Join the clinic hub on this device first."
+                } else {
+                    "Sign in on this device first."
+                }
+                .into(),
+            ));
         }
-        let v = self.rpc(&mut inner, "my_keys", json!({}))?;
+        // On a hub this device isn't in an account yet: the kit names it.
+        let ask = if hub { json!({"kit_token": keys::b64(&kit.token())}) } else { json!({}) };
+        let v = self.rpc(&mut inner, "my_keys", ask)?;
         let (version, amk) = v["envelopes"]
             .as_array()
             .into_iter()
@@ -683,11 +832,14 @@ impl SyncService {
             .ok_or_else(|| SyncError::User("This Recovery Kit doesn't open this account's keys.".into()))?;
         let device = self.device_keys(&inner)?;
         let envelope = keys::seal_to(&device.x_pub(), &amk.0, &keys::amk_aad(version, &self.me().id), None)?;
-        self.rpc(
+        let r = self.rpc(
             &mut inner,
             "approve_with_kit",
             json!({"kit_token": keys::b64(&kit.token()), "envelope": keys::b64(&envelope), "amk_version": version}),
         )?;
+        if let Some(id) = r["account_id"].as_str() {
+            inner.state.user_id = Some(id.to_string());
+        }
         inner.secrets.keys =
             Some(AccountKeys { amk_version: version, amk: keys::b64(&amk.0), ..Default::default() });
         inner.secrets.pairing = None;
@@ -869,6 +1021,7 @@ impl SyncService {
         inner.roster = None;
         inner.devices.clear();
         let server = inner.state.server.clone();
+        let hub = inner.state.hub.clone();
         let email = inner.state.email.clone();
         // A removed id never rejoins: if this device asks again, it does so
         // as a new device, with new keys and a new id.
@@ -876,7 +1029,7 @@ impl SyncService {
         *self.device.write().unwrap_or_else(|p| p.into_inner()) = os_engine::device::Device::from_id(&fresh);
         inner.clock = os_engine::hlc::Clock::new(fresh.clone());
         inner.state =
-            State { phase: Phase::Revoked, server, email, device_id: Some(fresh), ..Default::default() };
+            State { phase: Phase::Revoked, server, hub, email, device_id: Some(fresh), ..Default::default() };
         state::audit(&self.paths, "revoked_here", json!({"erased_visits": erased}));
         let _ = state::save(&self.paths, &inner.state);
     }
@@ -903,19 +1056,28 @@ impl SyncService {
     /// email address.
     pub fn delete_account(&self, confirm: &str) -> Result<(), SyncError> {
         let mut inner = self.lock();
-        let email = inner.state.email.clone().unwrap_or_default();
-        if confirm.trim().to_ascii_lowercase() != email {
-            return Err(SyncError::User("Type your account's email address to confirm.".into()));
+        if inner.state.hub.is_some() {
+            // No email on a hub: the word "delete" confirms.
+            if confirm.trim().to_ascii_lowercase() != "delete" {
+                return Err(SyncError::User("Type delete to confirm.".into()));
+            }
+            self.rpc(&mut inner, "delete_account", json!({}))?;
+        } else {
+            let email = inner.state.email.clone().unwrap_or_default();
+            if confirm.trim().to_ascii_lowercase() != email {
+                return Err(SyncError::User("Type your account's email address to confirm.".into()));
+            }
+            let access = self.access(&mut inner)?;
+            self.client(&inner.state).delete_account(&access, confirm.trim())?;
         }
-        let access = self.access(&mut inner)?;
-        self.client(&inner.state).delete_account(&access, confirm.trim())?;
         let _ = self.store.erase();
         let server = inner.state.server.clone();
+        let hub = inner.state.hub.clone();
         inner.secrets = state::Secrets::default();
         inner.session = None;
         inner.roster = None;
         inner.devices.clear();
-        inner.state = State { server, ..Default::default() };
+        inner.state = State { server, hub, ..Default::default() };
         state::audit(&self.paths, "account_deleted", json!({}));
         self.persist(&mut inner)?;
         self.publish(&inner, false);

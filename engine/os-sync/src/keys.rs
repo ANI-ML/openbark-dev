@@ -510,6 +510,22 @@ impl PairingCode {
     }
 }
 
+impl PairingCode {
+    /// The tag a clinic hub files a pending device under (ADR-0029): from
+    /// the words alone (Argon2id with a fixed salt, as slow as [`Self::key`]),
+    /// so only a device that was given the words can find it, and the hub
+    /// can't list waiting devices to anyone else.
+    pub fn tag(&self) -> Result<[u8; 32], SyncError> {
+        use argon2::{Algorithm, Argon2, Params, Version};
+        let params = Params::new(19 * 1024, 2, 1, Some(32)).map_err(|e| SyncError::Crypto(e.to_string()))?;
+        let mut out = [0u8; 32];
+        Argon2::new(Algorithm::Argon2id, Version::V0x13, params)
+            .hash_password_into(self.text().as_bytes(), b"openbark pair tag v1", &mut out)
+            .map_err(|e| SyncError::Crypto(e.to_string()))?;
+        Ok(hkdf(&out, b"openbark", b"pair tag v1"))
+    }
+}
+
 /// The HMAC a pending device posts over its id and public keys.
 pub fn pair_mac(pair_key: &[u8; 32], device_id: &str, x_pub: &[u8; 32], ed_pub: &[u8; 32]) -> [u8; 32] {
     hmac(pair_key, &[b"openbark pair mac v1|", device_id.as_bytes(), x_pub, ed_pub])

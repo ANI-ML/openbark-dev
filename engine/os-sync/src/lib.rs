@@ -168,6 +168,16 @@ pub struct SyncStatus {
     pub linked_user: Option<String>,
     /// A sync run is going on now.
     pub busy: bool,
+    /// The clinic hub this device syncs with (ADR-0029).
+    pub hub: Option<HubView>,
+}
+
+/// The clinic hub, for the settings screen.
+#[derive(Debug, Clone, Serialize)]
+pub struct HubView {
+    pub address: String,
+    /// The certificate check, as the hub shows it.
+    pub check: String,
 }
 
 /// Sync for one visits folder.
@@ -195,6 +205,37 @@ struct Inner {
     devices: Vec<serde_json::Value>,
     /// The key of the row just opened, for its blob parts.
     last_dek: Option<(String, i64, keys::SymKey)>,
+}
+
+/// A hub refusal in plain words where the person can act on it; the code
+/// otherwise (the account and sync logic handles those).
+fn hub_error(body: &serde_json::Value) -> SyncError {
+    let code = body
+        .get("message")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|m| m.strip_prefix("openbark:"))
+        .unwrap_or("unexpected")
+        .to_string();
+    let user = |s: &str| SyncError::User(s.into());
+    match code.as_str() {
+        "revoked" => SyncError::Revoked,
+        "rate_limited" => user("The clinic hub is busy. Sync tries again shortly."),
+        "quota_exceeded" => user(
+            "Your space on the clinic hub is full. Ask whoever runs the hub to raise the limit (Settings, Clinic hub).",
+        ),
+        "locked" => user("Too many wrong join codes came from this device. Wait an hour, then try again."),
+        "bad_join_code" => user(
+            "That join code doesn't work: it may be mistyped, used already, or more than 30 minutes old. Ask the hub for a new one.",
+        ),
+        "join_code_required" => user("Enter a join code from the clinic hub."),
+        "address_not_allowed" => user(
+            "The clinic hub doesn't accept this device's network. Ask whoever runs the hub to check its allowed addresses.",
+        ),
+        "stale_request" => user(
+            "This device's clock is more than 5 minutes off the hub's. Set the date and time automatically, then try again.",
+        ),
+        _ => SyncError::Refused(code),
+    }
 }
 
 /// This platform's name for the device list.
@@ -348,8 +389,8 @@ impl SyncService {
         let status = SyncStatus {
             phase: st.phase,
             email: st.email.clone(),
-            server: server.host(),
-            custom_server: server.url != HOSTED_URL,
+            server: st.hub.as_ref().map(|h| h.address()).unwrap_or_else(|| server.host()),
+            custom_server: st.hub.is_none() && server.url != HOSTED_URL,
             device_id: self.me().id.clone(),
             device_name: st.device_name.clone(),
             devices,
@@ -368,6 +409,7 @@ impl SyncService {
             since: st.since,
             linked_user: st.linked_user.clone(),
             busy,
+            hub: st.hub.as_ref().map(|h| HubView { address: h.address(), check: h.check_code() }),
         };
         *self.snapshot.lock().expect("snapshot") = status;
     }
@@ -422,6 +464,9 @@ impl SyncService {
         name: &str,
         args: serde_json::Value,
     ) -> Result<serde_json::Value, SyncError> {
+        if let Some(link) = inner.state.hub.clone() {
+            return self.hub_rpc(inner, &link, name, args);
+        }
         let access = self.access(inner)?;
         match self.client(&inner.state).rpc(name, args.clone(), Some(&access)) {
             Err(SyncError::Unauthorized) => {
@@ -430,6 +475,32 @@ impl SyncService {
             }
             other => other,
         }
+    }
+
+    /// Call the clinic hub (ADR-0029): the same calls, signed with this
+    /// device's Ed25519 key instead of a sign-in token, over pinned TLS. The
+    /// body passes the plaintext guard first.
+    fn hub_rpc(
+        &self,
+        inner: &Inner,
+        link: &hub::HubLink,
+        name: &str,
+        args: serde_json::Value,
+    ) -> Result<serde_json::Value, SyncError> {
+        guard::check_request(&args)?;
+        let dk = self.device_keys(inner)?;
+        let body = serde_json::to_vec(&args).expect("json serialises");
+        let mut headers = hub::sign(&dk, &self.me().id, "POST", &format!("/rpc/{name}"), &body)?;
+        headers.push(("Content-Type".into(), "application/json".into()));
+        headers.push((hub::H_PIN.into(), link.fingerprint.clone()));
+        let resp = self.transport.send(&supabase::Request {
+            method: "POST",
+            url: link.url(name),
+            headers,
+            body: Some(body),
+        })?;
+        let parsed: serde_json::Value = serde_json::from_slice(&resp.body).unwrap_or(serde_json::Value::Null);
+        if (200..300).contains(&resp.status) { Ok(parsed) } else { Err(hub_error(&parsed)) }
     }
 
     fn device_keys(&self, inner: &Inner) -> Result<keys::DeviceKeys, SyncError> {

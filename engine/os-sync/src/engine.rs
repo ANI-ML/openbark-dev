@@ -133,7 +133,11 @@ impl SyncService {
     fn was_revoked(&self, inner: &Inner) -> bool {
         let Ok(Some(device)) = inner.secrets.device_keys() else { return false };
         let args = json!({"device_id": self.me().id, "rebind_secret": keys::b64(device.rebind_secret())});
-        matches!(self.client(&inner.state).rpc("device_status", args, None), Ok(Value::String(s)) if s == "revoked")
+        let answer = match inner.state.hub.clone() {
+            Some(link) => self.hub_rpc(inner, &link, "device_status", args),
+            None => self.client(&inner.state).rpc("device_status", args, None),
+        };
+        matches!(answer, Ok(Value::String(s)) if s == "revoked")
     }
 
     fn run(&self, inner: &mut Inner, host: &dyn Host, report: &mut SyncReport) -> Result<(), SyncError> {

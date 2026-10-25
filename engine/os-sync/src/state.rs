@@ -148,6 +148,10 @@ pub struct State {
     pub phase: Phase,
     #[serde(default)]
     pub server: Option<Server>,
+    /// The clinic hub this device syncs with (ADR-0029), when it does: its
+    /// address and pinned certificate. Takes the place of `server`.
+    #[serde(default)]
+    pub hub: Option<crate::hub::HubLink>,
     #[serde(default)]
     pub email: Option<String>,
     #[serde(default)]
