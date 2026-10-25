@@ -12,7 +12,7 @@ To uninstall, choose **Uninstall OpenBark**: in the Start menu on Windows, or on
 
 ## The consent notice
 
-The first time OpenBark opens on a computer, it shows a short notice. Recording laws differ by place, and many require everyone in a conversation to agree to be recorded. Your clinic is responsible for telling clients that you record and for getting their consent, as your local rules require. Tick the box and choose **Accept and continue**. The notice won't come back on that computer unless you ask for it again in **Settings → Consent to record**.
+The first time OpenBark opens on a computer, it shows a short notice. Recording laws differ by place, and many require everyone in a conversation to agree to be recorded. Your clinic is responsible for telling clients that you record and for getting their consent, as your local rules require. Tick the box and choose **Accept and continue**. The notice won't come back on that computer unless you ask for it again in **Settings → Recording and consent**.
 
 If you want OpenBark to record how each client consented (out loud, a signed form, or consent on file), turn on **Record how the client consented, each time I record** in Settings. The consent is then saved with each encounter and shown in Review.
 
@@ -41,7 +41,7 @@ As a rule of thumb: older laptops, Gemma 4 E2B (about 3 GB); most laptops, E4B (
 
 ## Where visits and models are kept
 
-**Settings > Storage** shows the two folders OpenBark uses, how much each holds and how much room is left on its drive:
+**Settings → Privacy and storage** shows the two folders OpenBark uses, how much each holds and how much room is left on its drive:
 - **Visits**: recordings, transcripts, notes and the patient list. Your clinic's data, encrypted.
 - **Models**: the speech and note models. Large, and can be downloaded again.
 
@@ -55,9 +55,12 @@ A folder that already holds other files gets an **OpenBark visits** or **OpenBar
 
 | Screen | What it's for |
 |---|---|
-| Record | Start a visit, or import a recording. **Find a patient** picks an animal you've seen before |
-| Patients | Every animal, and each one's visits with their type and status (Transcribed, Draft, Signed). **Recent visits** lists the day's recordings |
+| Record | Start a visit, or import a recording (**Import a recording**, at the top). **Patient** is optional: add it now or after the visit |
+| Visits | Every visit, in **Needs you** (not signed yet) and **Done** (signed), with a search and Today, This week or Earlier. The number beside Visits counts the ones that need you |
+| Patients | Every animal and family, and each animal's visits |
 | Templates | Your clinic's note templates |
 | Models | The speech and note models |
-| Settings | You, your team, languages, consent, PDFs, encryption |
+| Settings | One section at a time: you and your team, recording and consent, languages, phone calls, PDFs, encrypted sync, privacy and storage, deleted visits |
 | Help | These walkthroughs, with videos |
+
+On a computer these are in the side menu: Record, Visits, Patients and Templates at the top, Models, Settings and Help at the bottom. On a phone the tabs are **Record**, **Visits**, **Patients** and **Settings**; Templates, Models and Help are rows in Settings, and each opens with a **Settings** back link at the top left.

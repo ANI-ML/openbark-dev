@@ -30,7 +30,9 @@ for (const v of variants) {
     if (await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)) problems.push(`${v.name} ${what}: horizontal scroll`);
   };
   await page.goto(`${base}/`);
-  await page.locator(".nav-item").nth(4).click();
+  await page.locator('.nav-item[data-nav="settings"]').click();
+  // Encrypted sync is its own section (ADR-0027).
+  await page.locator(".settings-nav-item, .settings-row", { hasText: "Encrypted sync" }).first().click();
   const section = page.locator(".sync-section");
   await section.waitFor();
   await section.scrollIntoViewIfNeeded();
@@ -39,7 +41,7 @@ for (const v of variants) {
   await overflow("settings");
   if (visit) {
     // Patients, then the visit's row in the recent visits list.
-    await page.locator(".nav-item").nth(1).click();
+    await page.locator('.nav-item[data-nav="patients"]').click();
     await page.getByText(visit, { exact: false }).first().click();
     // A patient's page lists their visits: open the latest.
     await page.getByText("SOAP note").first().click();

@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppContext, loadSettings, type Ctx } from "../context";
 import * as engine from "../engine";
-import { Models } from "./Models";
+import { Models, plainModelName } from "./Models";
 
 vi.mock("../engine", async (importOriginal) => {
   const real = await importOriginal<typeof import("../engine")>();
@@ -702,5 +702,56 @@ describe("Models on a phone", () => {
     // Held files can't be downloaded, and no "GGUF builds of this model" are fetched for them.
     expect(screen.queryByRole("button", { name: "Download" })).toBeNull();
     expect(mocked.hubAlternatives).not.toHaveBeenCalled();
+  });
+});
+
+// ---- phone width (ADR-0027): stacked rows, plain names ---------------------------
+
+describe("plainModelName", () => {
+  it("keeps the name a person picks a model by, and the build details apart", () => {
+    expect(plainModelName("Gemma 4 E4B instruct (QAT Q4_0)")).toEqual({ name: "Gemma 4 E4B", detail: "QAT Q4_0" });
+    expect(plainModelName("Qwen3 235B Q4_K_M")).toEqual({ name: "Qwen3 235B", detail: "Q4_K_M" });
+    expect(plainModelName("Qwen3 0.6B 4bit")).toEqual({ name: "Qwen3 0.6B", detail: "4bit" });
+    expect(plainModelName("Qwen3-1.7B-4bit")).toEqual({ name: "Qwen3-1.7B", detail: "4bit" });
+    expect(plainModelName("Parakeet TDT 0.6B v3 (int8)")).toEqual({ name: "Parakeet TDT 0.6B v3", detail: "int8" });
+    expect(plainModelName("llama-3.2-3b")).toEqual({ name: "llama-3.2-3b", detail: "" });
+    expect(plainModelName("Silero VAD")).toEqual({ name: "Silero VAD", detail: "" });
+    expect(plainModelName("Q4_K_M")).toEqual({ name: "Q4_K_M", detail: "" });
+  });
+});
+
+describe("Models at phone width", () => {
+  beforeEach(() => {
+    vi.stubGlobal("matchMedia", (q: string) => ({
+      matches: q === "(max-width: 640px)",
+      media: q,
+      addEventListener() {},
+      removeEventListener() {},
+    }));
+    mocked.models.mockResolvedValue([
+      ...PHONE_ROWS,
+      row({ id: "qwen3-q4km", name: "Qwen3 4B instruct (Q4_K_M)", size_bytes: 2_500_000_000, publisher: "unsloth" }),
+    ]);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("stacks the catalog with plain names and sizes, no table", async () => {
+    show(phoneCtx());
+    const name = await screen.findByText("Qwen3 4B", { selector: ".model-item-name" });
+    expect(document.querySelector(".ob-table")).toBeNull();
+    const item = name.closest("li") as HTMLElement;
+    expect(within(item).getByText("Q4_K_M")).toBeTruthy();
+    expect(within(item).getByText("2.5 GB")).toBeTruthy();
+    expect(within(item).getByRole("button", { name: "Download (2.5 GB)" })).toBeTruthy();
+    // A too-large model still says why, and still can't download.
+    const e4b = screen.getByText("Gemma 4 E4B", { selector: ".model-item-name" }).closest("li") as HTMLElement;
+    expect(within(e4b).getByText("Too large for this iPhone (8 GB): 5.2 GB. Models up to 3.5 GB fit.")).toBeTruthy();
+    expect((within(e4b).getByRole("button", { name: /Download/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("makes Browse Hugging Face a secondary button", async () => {
+    show(phoneCtx());
+    const browse = await screen.findByRole("button", { name: "Browse Hugging Face" });
+    expect(browse.getAttribute("data-variant")).toBe("default");
   });
 });

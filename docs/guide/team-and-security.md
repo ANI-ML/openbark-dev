@@ -6,7 +6,7 @@ Video: **Help → Team and security** in the app.
 
 Working alone? You don't need a team. Your name in Settings is used for signing.
 
-To keep track of who did what, add your team in **Settings → Team**:
+To keep track of who did what, add your team in **Settings → You and your team**:
 
 1. The first team member must be a veterinarian. Enter a name and a PIN of 4 to 8 digits, then choose **Add the first veterinarian**.
 2. OpenBark now asks **Who's using OpenBark?** Pick your name and enter your PIN.
@@ -33,11 +33,11 @@ Only an admin changes what the whole team drafts with, and **each change needs a
 | Save or remove a standard for the hospital | Yes | An admin's PIN |
 | Templates: each person's own, or shared by the hospital | Not needed | An admin, with their PIN |
 
-**Settings → Team → Templates** chooses whether each person keeps their own versions (the default; the hospital's templates are the defaults) or everyone drafts with the hospital's templates. Switching to the hospital's keeps everyone's versions on disk, and they come back when you switch back. The PIN is sent only inside the request and never written to a log.
+**Settings → You and your team → Templates** chooses whether each person keeps their own versions (the default; the hospital's templates are the defaults) or everyone drafts with the hospital's templates. Switching to the hospital's keeps everyone's versions on disk, and they come back when you switch back. The PIN is sent only inside the request and never written to a log.
 
 Each encounter keeps who recorded it, who drafted, asked for or edited each version, and who signed it and added each addendum, with their role.
 
-To switch person, choose your name at the bottom of the sidebar. Change your own PIN in Settings; a veterinarian can **Reset PIN** for anyone in **Settings → Team**. Don't remove and re-add someone to reset their PIN: removing a team member also removes their own template versions and standards (the confirmation says how many). Notes keep the version that drafted them.
+To switch person, choose your name at the bottom of the sidebar. Change your own PIN in Settings; a veterinarian can **Reset PIN** for anyone in **Settings → You and your team**. Don't remove and re-add someone to reset their PIN: removing a team member also removes their own template versions and standards (the confirmation says how many). Notes keep the version that drafted them.
 
 This keeps an honest record on a shared computer. It isn't a security boundary against someone with access to the computer's account. Clinic-wide accounts and audit come with the Clinic Hub.
 
@@ -82,7 +82,7 @@ Its limits, honestly:
 
 ## Encryption
 
-Recordings, transcripts and notes are encrypted on the computer. If an encounter folder is copied, backed up or synced elsewhere, it can't be read without the key. **Settings → Encryption** shows where the key is kept:
+Recordings, transcripts and notes are encrypted on the computer. If an encounter folder is copied, backed up or synced elsewhere, it can't be read without the key. **Settings → Privacy and storage** shows where the key is kept:
 - **This computer's keychain** (Windows Credential Manager or macOS Keychain). This is the usual case.
 - **A file in your user folder**, when the keychain isn't available, such as on a server reached over a remote connection. Visits copied off the computer are still protected, but anyone using your account on that computer can read them. The setting says so.
 
@@ -94,7 +94,7 @@ Choose **Show the recovery key** once. Print it, or store it in your clinic's pa
 
 ## Moving to a new computer
 
-1. Copy the encounters folder (shown in **Settings → Storage**) to the new computer, in the same place.
+1. Copy the encounters folder (shown in **Settings → Privacy and storage**) to the new computer, in the same place.
 2. Install OpenBark, then enter the recovery key, either:
    - with `openbark key import <recovery key>`, or
    - by setting `OPENBARK_DATA_KEY` to the key before starting OpenBark.

@@ -49,13 +49,13 @@ for (const v of variants) {
       const menu = page.locator(".nav-toggle, [aria-label='Menu']");
       if (await menu.count()) await menu.first().click();
     }
-    // Phones show four tabs (DESIGN.md §9); Models and Help are rows under Settings.
-    const more = { Models: 0, Help: 1 };
+    // Phones show four tabs (ADR-0027); Templates, Models and Help are rows under Settings.
+    const more = { Templates: "Templates", Models: "Models and storage", Help: "Guides and videos" };
     if (v.viewport.width <= 640 && screen in more) {
-      await page.locator(".nav-item").nth(NAV.Settings).click();
-      await page.locator(".phone-more-row").nth(more[screen]).click();
+      await page.locator('.nav-item[data-nav="settings"]').click();
+      await page.locator(".settings-row", { hasText: more[screen] }).first().click();
     } else {
-      await page.locator(".nav-item").nth(NAV[screen]).click();
+      await page.locator(`.nav-item[data-nav="${screen.toLowerCase()}"]`).click();
     }
     await page.locator(".screen h1").first().waitFor();
   };
@@ -83,7 +83,7 @@ for (const v of variants) {
 
   // 3. Ask on a dental heading shows that heading's examples.
   await nav("Patients");
-  await page.locator(".patients-bar .ob-segment").nth(1).click();
+  await page.locator('.nav-item[data-nav="visits"]').click();
   await page.locator("tr.row-link", { hasText: "Biscuit" }).first().click();
   await page.locator(".note").first().waitFor({ timeout: 20000 });
   const ask = page.getByRole("button", { name: "Ask for changes to Findings by tooth" });
@@ -95,7 +95,7 @@ for (const v of variants) {
 
   // 4. A multi-pet visit: one tab per animal.
   await nav("Patients");
-  await page.locator(".patients-bar .ob-segment").nth(1).click();
+  await page.locator('.nav-item[data-nav="visits"]').click();
   await page.locator("tr.row-link", { hasText: "Olive" }).first().click();
   await page.locator(".pet-tabs").waitFor({ timeout: 20000 });
   await shot("multi-pet");

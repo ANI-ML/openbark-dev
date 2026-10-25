@@ -1,6 +1,6 @@
 # Models
 
-OpenBark writes notes and transcribes with models that run on your computer. The **Models** screen (in **Settings** on a phone) lists them, with their size, licence and whether they fit your computer's memory. Decisions behind this page: [ADR-0025](../adr/0025-mlx-and-models-of-your-choice.md).
+OpenBark writes notes and transcribes with models that run on your computer. The **Models** screen (on a phone, **Settings → Models and storage**) lists them, with their size, licence and whether they fit your computer's memory. Decisions behind this page: [ADR-0025](../adr/0025-mlx-and-models-of-your-choice.md).
 
 ## Choosing a note model
 

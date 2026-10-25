@@ -2,7 +2,7 @@
 
 OpenBark records a consultation, transcribes it, and drafts the medical record for a veterinarian to check and sign. Everything runs on your computer. Recordings and notes stay on your devices unless you turn on encrypted sync. Even then, only encrypted copies leave, and our servers can't read them.
 
-The same walkthroughs are in the app under **Help**, each with a short video.
+The same walkthroughs are in the app under **Help** (on a phone, **Settings → Guides and videos**), each with a short video.
 
 | | Guide | What it covers |
 |---|---|---|
@@ -23,8 +23,8 @@ The same walkthroughs are in the app under **Help**, each with a short video.
 1. Open OpenBark. Read the consent notice and accept it.
 2. On **Record**, choose **Download everything** if it's offered. This happens once.
 3. In **Settings**, enter your name for signing notes.
-4. Back on **Record**, enter the patient, press the red button, and talk as usual. Press it again to stop.
-5. In **Review**, check the draft against the recording, fix anything, and choose **Sign note**.
+4. Back on **Record**, add the patient if you like (it's optional), press the large round Record button, and talk as usual. Press it again (on a phone, **Stop and save**) to stop.
+5. In **Review**, check the draft against the recording, fix anything, and choose **Sign note** (on a computer: during the pilot the iPhone doesn't sign). Visits still to check and sign wait in **Visits**, under **Needs you**.
 
 Drafts are never final until a veterinarian signs them.
 

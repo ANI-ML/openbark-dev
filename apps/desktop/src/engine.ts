@@ -189,6 +189,11 @@ export interface SessionSummary {
   sync?: SyncVisitState | null;
   /** A visit from another device: the device that holds its audio. */
   audio_on?: string | null;
+  /** The animal's name and the family name, apart (ADR-0027); absent from older engines. */
+  animal?: string;
+  family?: string;
+  /** Who signed the latest signed note, by name. */
+  signed_by?: string | null;
 }
 
 export type SyncVisitState = "synced" | "pending" | "stopped";

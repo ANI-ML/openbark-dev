@@ -2,11 +2,13 @@
 
 Video: **Help → Recording a consult** in the app.
 
-1. On **Record**, choose **Find a patient** and type a few letters of a name to pick an animal you've seen before; its name, family name and species fill in, and the visit is added to its page under **Patients**. For a new animal, enter the patient's name and species, the client's last name and the reason for the visit. The species decides headings that only apply to some animals, such as FeLV/FIV status for cats. They're optional and can be added or changed later in Review. They're saved with the visit and time-stamped. A new name makes a new patient.
-2. Choose the **template** on the right, for example SOAP note or your clinic's own.
-3. Press the red button, or the Space bar, to start.
-4. Talk as you normally would. Each sentence appears in the live transcript once it's finished, with the speaker labelled (Speaker 1, Speaker 2). The waveform shows that the microphone is hearing you.
-5. Press the button again to stop. The transcript is finished within seconds. With **Draft the note when I stop** ticked, the note is drafted straight away and opens in Review.
+1. **Patient** is optional: add it now or after the visit. On a computer, type a few letters of a name in **Patient** to pick an animal you've seen before (its name, family name and species fill in, and the visit is added to its page under **Patients**), and add the **Reason for visit**; **More details** has the species and other animals. On a phone, tap the **Patient** row to open the same form. For a new animal, enter the patient's name and species, the client's last name and the reason for the visit. The species decides headings that only apply to some animals, such as FeLV/FIV status for cats. Everything here can be added or changed later in Review. It's saved with the visit and time-stamped. A new name makes a new patient.
+2. Choose the **Template**, for example SOAP note or your clinic's own: a list beside the Record button on a computer, a row under it on a phone.
+3. Press the Record button (the large round one in the middle), or the Space bar, to start.
+4. Talk as you normally would. Each sentence appears in the live transcript once it's finished, with the speaker labelled. The level meter shows that the microphone is hearing you. On a phone, recording fills the screen: the patient at the top, the time, the level meter and the latest lines of the transcript.
+5. Press the button again (on a phone, **Stop and save**) to stop. There's no pause: stop, and record again if you need to. The transcript is finished within seconds. With **Draft the note when I stop** ticked, the note is drafted straight away and opens in Review.
+
+Under the Record button, a line says how consent is handled (**Change** opens the consent settings), and another names the microphone, with its level and **Change**.
 
 While recording and drafting, the computer doesn't go to sleep. The recording is saved as it happens, encrypted, so a power cut keeps everything up to that moment.
 
@@ -16,7 +18,7 @@ When you use OpenBark in a browser on this computer, the browser asks for permis
 
 ## Checking the microphone
 
-On **Record**, the right-hand column has a **Microphone** list and **Test microphone**. Choose a microphone (or leave **System default**), press **Test microphone** and speak: the bar moves with your voice, and a line underneath says **Hearing you**, or what's wrong. The test stops when you press **Stop test**, start recording, or after a minute. The same check is in **Settings → Recording**.
+The microphone list and **Test microphone** are in **Settings → Recording and consent** (on a phone, **Settings → Microphone and consent**); **Change**, beside the microphone's name under the Record button, opens it. Choose a microphone (or leave **System default**), press **Test microphone** and speak: the bar moves with your voice, and a line underneath says **Hearing you**, or what's wrong. The test stops when you press **Stop test**, start recording, or after a minute.
 
 While you record, OpenBark keeps an eye on the microphone and says so on the Record screen when:
 
@@ -31,7 +33,7 @@ Opening Record also loads the speech models in the background (when the computer
 
 ## Importing a recording
 
-**Import a recording** creates a visit from an audio file. The file goes through the same transcription as a live recording. These work:
+**Import a recording**, at the top of the Record screen, creates a visit from an audio file. The file goes through the same transcription as a live recording. These work:
 
 - WAV (including ADPCM from dictaphones), AIFF, MP3 and MP2, FLAC;
 - phone recordings: M4A, MOV, CAF;
@@ -62,7 +64,7 @@ If your clinic has set up [phone calls](phone-and-email.md) (your own Twilio acc
 
 ### Phone on speaker
 
-When the client is on a phone on speaker in the room, tick **Phone on speaker** on **Record** (in the right-hand column) before you press Record. It's remembered on this computer until you untick it. The same option applies when you import a recording of such a visit.
+When the client is on a phone on speaker in the room, turn on **Phone on speaker** on **Record** (in the options beside the Record button, or under it on a phone) before you press Record. It's remembered on this computer until you untick it. The same option applies when you import a recording of such a visit.
 
 With it ticked, OpenBark listens harder for the quieter voice: speech detection hears a copy of the sound with quiet passages lifted, it separates a quiet voice from a louder one that answers it, and each quiet sentence is brought up to a normal level before it's transcribed. Sentences that sound like a phone line go to the second speech recogniser (the one that checks numbers), which hears phone audio better. The recording itself is kept exactly as the microphone heard it. Leave the option off for ordinary consults in the room: lifting quiet sound can also pick up voices from the corridor.
 

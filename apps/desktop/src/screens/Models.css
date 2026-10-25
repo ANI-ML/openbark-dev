@@ -1,0 +1,28 @@
+/* Models on a phone (ADR-0027): the catalog as stacked rows with plain
+   names, no columns that wrap. Hairlines, no shadows; tokens only. */
+.model-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  overflow: hidden;
+}
+.model-item { display: flex; flex-direction: column; gap: 12px; padding: 12px 16px; }
+.model-item + .model-item { border-top: 1px solid var(--border); }
+.model-item-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.model-item-name { font-weight: 600; overflow-wrap: anywhere; }
+.model-item-detail { overflow-wrap: anywhere; }
+.model-item-state { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 4px 12px; }
+.model-item-state > .mono { font-variant-numeric: tabular-nums; line-height: 24px; }
+.model-item-actions:has(> .row-actions:empty) { display: none; }
+/* Actions sit under the text, left-aligned, at full touch height. */
+.model-item-actions .row-actions { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }
+.model-item-actions .row-help { max-width: none; text-align: left; }
+.model-item-actions .dl { width: 100%; }
+
+/* The way back to Settings: a 44 px touch target on phones (§9). */
+@media (max-width: 640px) {
+  .screen.models .ob-button.back-to-settings { min-height: 44px; }
+}

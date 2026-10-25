@@ -1,5 +1,21 @@
 import { Button, MarkMono, Sheet, Skeleton, StatusDot } from "@openbark/ui";
-import { Copy, FileDown, FolderOpen, RotateCw, Signature, Trash2, X } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Copy,
+  FileDown,
+  FileText,
+  FolderOpen,
+  NotebookText,
+  PenLine,
+  RotateCw,
+  Signature,
+  Trash2,
+  X,
+} from "lucide-react";
+import { MoreMenu } from "../components/MoreMenu";
+import { PHONE, useMediaQuery } from "../useMediaQuery";
+import { animalFamily, isIos, recordedLine, thisDevice } from "../visits";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DeleteRecordingDialog } from "../components/DeleteRecordingDialog";
 import { DeleteVisitMenu } from "../components/DeleteVisitMenu";
@@ -83,6 +99,15 @@ export function Review({
   const [askRecording, setAskRecording] = useState(false);
   /** "Show the template": the latest draft's template, read-only. */
   const [shownTemplate, setShownTemplate] = useState<engine.TemplateView | null>(null);
+  /** Phones: the sentence tapped (its transcript lines), and the Ask for changes sheet. */
+  const [quote, setQuote] = useState<number[] | null>(null);
+  const [askSheet, setAskSheet] = useState(false);
+  const phone = useMediaQuery(PHONE);
+  const ios = isIos(app.status);
+  /** No signing on the phone during the pilot (ADR-0027): Sign, addenda and tooth confirmations. */
+  const canSignHere = app.can.sign && !ios;
+  /** An iPhone set to leave drafting to a computer (Settings, Write notes on this iPhone). */
+  const draftsHere = !(ios && !app.settings.writeNotesHere);
 
   /** In a multi-pet visit, the animal whose note is shown (M2 item 2). */
   const [pet, setPet] = useState<string | null>(initialPet ?? null);
@@ -474,7 +499,7 @@ export function Review({
         },
       });
       app.announce(t("Visit deleted"));
-      app.navigate(back ? { screen: "patient", id: back } : { screen: "patients" });
+      app.navigate(back ? { screen: "patient", id: back } : { screen: "visits" });
     } catch (e) {
       resumePlayer();
       setError(errorText(e));
@@ -563,12 +588,196 @@ export function Review({
     />
   );
 
+  /** "Maple · Okonkwo", or when it was recorded for a visit with no patient. */
+  const title = (p && animalFamily({ animal: p.name, family: p.last_name })) || t("Visit");
+  /** One meta line in plain words: reason and species, when and where, consent. */
+  const recordedWhere = view?.audio_on?.device_name || thisDevice(app.status, t);
+  const metaLine = view
+    ? [
+        [p?.reason, p?.species ? t(speciesName(p.species)) : ""].filter(Boolean).join(", "),
+        recordedLine(view.created_at, new Date(), app.settings.uiLanguage, recordedWhere, t),
+        view.call ? callLine(t, view.call) : "",
+        view.call && view.consent
+          ? callConsentLine(t, view.call, view.consent)
+          : view.consent
+            ? // Without the machine timestamp: the meta line already says when (ADR-0027).
+              t("Consent: {text}.", { text: engine.consentText(view.consent).replace(/, \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/, "") })
+            : "",
+      ]
+        .filter(Boolean)
+        .map((s) => (/[.!?]$/.test(s) ? s : `${s}.`))
+        .join(" ")
+    : "";
+
+  /** More: everything off the main path, and every destructive action (ADR-0027). */
+  const moreMenu = view && (
+    <MoreMenu>
+      {(close) => (
+        <>
+          <button
+            type="button"
+            className="more-item"
+            onClick={() => {
+              close();
+              setEditing(p ? { ...p } : engine.emptyPatient());
+            }}
+          >
+            <PenLine size={18} aria-hidden />
+            {p ? t("Edit details") : t("Add patient details")}
+          </button>
+          {p?.patient_id && (
+            <span className="more-call">
+              <CallButton patientId={p.patient_id} variant="ghost" />
+            </span>
+          )}
+          {run && !ios && (
+            <button
+              type="button"
+              className="more-item"
+              onClick={() => {
+                close();
+                void savePdf();
+              }}
+            >
+              <FileDown size={18} aria-hidden />
+              {t("Save PDF")}
+            </button>
+          )}
+          {run && template && (
+            <>
+              <button
+                type="button"
+                className="more-item"
+                onClick={() => {
+                  close();
+                  engine.runTemplateView(id, pet).then(setShownTemplate, (e) => setError(String(e?.message ?? e)));
+                }}
+              >
+                <FileText size={18} aria-hidden />
+                {t("Show the template")}
+              </button>
+              <button
+                type="button"
+                className="more-item"
+                onClick={() => {
+                  close();
+                  app.navigate({ screen: "templates", open: template.id });
+                }}
+              >
+                <NotebookText size={18} aria-hidden />
+                {t("Edit template")}
+              </button>
+            </>
+          )}
+          {engine.canReveal && (
+            <button
+              type="button"
+              className="more-item"
+              onClick={() => {
+                close();
+                void engine.reveal(view.dir);
+              }}
+            >
+              <FolderOpen size={18} aria-hidden />
+              {t("Show files")}
+            </button>
+          )}
+          {app.can.notes && (canPlay || view.has_audio) && view.has_audio !== false && (
+            <>
+              <button
+                type="button"
+                className="more-item danger"
+                disabled={(signedVisit && !app.can.sign) || generating || refining}
+                aria-describedby={signedVisit && !app.can.sign ? "delete-recording-why" : undefined}
+                onClick={() => {
+                  close();
+                  setAskRecording(true);
+                }}
+              >
+                <Trash2 size={18} aria-hidden />
+                {t("Delete recording")}
+              </button>
+              {signedVisit && !app.can.sign && (
+                <p className="small muted more-why" id="delete-recording-why">
+                  {t("Only a veterinarian can delete the recording of a signed visit.")}
+                </p>
+              )}
+            </>
+          )}
+          {app.can.notes && (
+            <>
+              <DeleteVisitMenu
+                others={otherPets.length > 0 ? listNames(app.settings.uiLanguage, otherPets) : undefined}
+                busy={deleting || generating || refining}
+                disabledReason={
+                  signedVisit ? t("Signed visits can't be deleted yet. Add an addendum to correct the note.") : null
+                }
+                onDelete={(kind) => void deleteVisit(kind)}
+              />
+              {signedVisit && (
+                <p className="small muted more-why">
+                  {t("Signed visits can't be deleted yet. Add an addendum to correct the note.")}
+                </p>
+              )}
+            </>
+          )}
+        </>
+      )}
+    </MoreMenu>
+  );
+
+  /** The model line: where the note was written (§7.6). */
+  const modelChip = run && (
+    <span className="ob-chip model-chip" title={run.model}>
+      <span className="ob-dot" data-tone="ok" aria-hidden />
+      {`${shortModel(run.model)} · ${inferenceHost(t)}`}
+    </span>
+  );
+  const signButton =
+    run && canSignHere && !signed ? (
+      <Button
+        variant="primary"
+        onClick={sign}
+        disabled={generating || refining || confirming || hardFails > 0 || toothBlocks > 0 || unconfirmed.length > 0}
+      >
+        <Signature size={20} aria-hidden />
+        {t("Sign note")}
+      </Button>
+    ) : null;
+  const copyButton = run && template && (
+    <Button
+      variant={phone && !signButton ? "primary" : "default"}
+      onClick={() => void copyNote(template, run, t("Note"), true)}
+    >
+      <Copy size={20} aria-hidden />
+      {t("Copy note")}
+    </Button>
+  );
+  /** The sentence picked on a phone, with the line it came from. */
+  const quoteSeg = quote ? segments.find((s) => quote.includes(s.id)) : undefined;
+  const speakerOf = (s: engine.Segment) =>
+    s.speaker == null
+      ? t("Speaker")
+      : view?.call
+        ? [t(view.call.clinic_label), t("Client")][s.speaker] ?? t("Speaker {n}", { n: s.speaker + 1 })
+        : t("Speaker {n}", { n: s.speaker + 1 });
+  const noteHeadings = template
+    ? template.sections.map((s) => ({ id: s.id, title: engine.headingTitle(template, s.id) }))
+    : [];
+
   return (
     <div className="screen review">
+      <div className="review-top">
+        <button type="button" className="back-top" onClick={() => app.navigate({ screen: "visits" })}>
+          <ChevronLeft size={20} aria-hidden />
+          {t("Visits")}
+        </button>
+        {phone && moreMenu}
+      </div>
       <header className="review-bar">
         <div className="review-title">
-          <h1>{patientName || (view ? view.created_at : t("Visit"))}</h1>
-          {view?.stats && <span className="mono faint">{fmtTime(view.stats.audio_secs)}</span>}
+          <h1>{title}</h1>
+          {view && <p className="small muted review-meta">{metaLine}</p>}
         </div>
         <div className="review-actions">
           {signed || templates.length === 0 ? (
@@ -578,7 +787,7 @@ export function Review({
               className="ob-select template-pick"
               aria-label={t("Template for the next draft")}
               value={chosen}
-              disabled={generating || refining}
+              disabled={generating || refining || !draftsHere}
               onChange={(e) => setPicked(e.target.value)}
             >
               {templates
@@ -590,32 +799,22 @@ export function Review({
                 ))}
             </select>
           )}
-          {run && (
-            <span className="ob-chip model-chip" title={run.model}>
-              <span className="ob-dot" data-tone="ok" aria-hidden />
-              {`${shortModel(run.model)} · ${inferenceHost(t)}`}
-            </span>
-          )}
+          {!phone && moreMenu}
+          {!phone && copyButton}
           {signed ? (
             <StatusDot tone="ok">
               {t("Signed by {name}, {at}", { name: view?.signed_by ?? "", at: view?.signed_at ?? "" })}
             </StatusDot>
-          ) : run && app.can.sign ? (
-            <Button
-              variant="primary"
-              onClick={sign}
-              disabled={generating || refining || confirming || hardFails > 0 || toothBlocks > 0 || unconfirmed.length > 0}
-            >
-              <Signature size={20} aria-hidden />
-              {t("Sign note")}
-            </Button>
-          ) : run || tab === "note" ? null : (
-            // Secondary: the empty note carries the one primary "Draft note" (§7.7). This one
-            // shows only on the phone and tablet Transcript tab, where the note pane is hidden
-            // (CSS hides it from 1024 px, where both panes show).
-            <Button className="draft-head" onClick={draft} disabled={!app.can.notes || generating || segments.length === 0}>
-              {t("Draft note")}
-            </Button>
+          ) : (
+            signButton ??
+            (run || tab === "note" || !draftsHere ? null : (
+              // Secondary: the empty note carries the one primary "Draft note" (§7.7). This one
+              // shows only on the phone and tablet Transcript tab, where the note pane is hidden
+              // (CSS hides it from 1024 px, where both panes show).
+              <Button className="draft-head" onClick={draft} disabled={!app.can.notes || generating || segments.length === 0}>
+                {t("Draft note")}
+              </Button>
+            ))
           )}
         </div>
       </header>
@@ -626,8 +825,8 @@ export function Review({
         </p>
       )}
 
-      <section className="visit" aria-label={t("Visit details")}>
-        {editing ? (
+      {editing && (
+        <section className="visit" aria-label={t("Visit details")}>
           <form
             className="visit-edit"
             onSubmit={(e) => {
@@ -636,6 +835,12 @@ export function Review({
             }}
           >
             <PatientFields value={editing} onChange={setEditing} idPrefix="edit-patient" />
+            {p?.entered_at && (
+              <p className="small faint">
+                {t("Details entered")} <span className="mono">{engine.fmtStamp(p.entered_at)}</span>
+                {p.updated_at ? `, ${t("changed")} ${engine.fmtStamp(p.updated_at)}` : ""}
+              </p>
+            )}
             <div className="visit-actions">
               <Button type="submit">{t("Save details")}</Button>
               <Button variant="ghost" onClick={() => setEditing(null)}>
@@ -643,68 +848,8 @@ export function Review({
               </Button>
             </div>
           </form>
-        ) : (
-          <dl className="visit-facts">
-            <div>
-              <dt className="label muted">{t("Reason for visit")}</dt>
-              <dd>{p?.reason || <span className="faint">{t("Not entered")}</span>}</dd>
-            </div>
-            {p?.species && (
-              <div>
-                <dt className="label muted">{t("Species")}</dt>
-                <dd>{t(speciesName(p.species))}</dd>
-              </div>
-            )}
-            <div>
-              <dt className="label muted">{t("Recorded")}</dt>
-              <dd className="mono">{view?.created_at}</dd>
-            </div>
-            {view?.call && (
-              <div>
-                <dt className="label muted">{t("Phone call")}</dt>
-                <dd className="mono">{callLine(t, view.call)}</dd>
-              </div>
-            )}
-            <div>
-              <dt className="label muted">{t("Consent to record")}</dt>
-              <dd>
-                {view?.call && view.consent ? (
-                  callConsentLine(t, view.call, view.consent)
-                ) : view?.consent ? (
-                  engine.consentText(view.consent)
-                ) : (
-                  <span className="faint">{t("Not recorded")}</span>
-                )}
-              </dd>
-            </div>
-            {p?.entered_at && (
-              <div>
-                <dt className="label muted">{t("Details entered")}</dt>
-                <dd className="mono">
-                  {engine.fmtStamp(p.entered_at)}
-                  {p.updated_at ? `, ${t("changed")} ${engine.fmtStamp(p.updated_at)}` : ""}
-                </dd>
-              </div>
-            )}
-            <div className="visit-edit-btn">
-              <Button variant="ghost" onClick={() => setEditing(p ? { ...p } : engine.emptyPatient())} disabled={!view}>
-                {p ? t("Edit details") : t("Add patient details")}
-              </Button>
-              {p?.patient_id && <CallButton patientId={p.patient_id} variant="ghost" />}
-              {view && app.can.notes && (
-                <DeleteVisitMenu
-                  others={otherPets.length > 0 ? listNames(app.settings.uiLanguage, otherPets) : undefined}
-                  busy={deleting || generating || refining}
-                  disabledReason={
-                    signedVisit ? t("Signed visits can't be deleted yet. Add an addendum to correct the note.") : null
-                  }
-                  onDelete={(kind) => void deleteVisit(kind)}
-                />
-              )}
-            </div>
-          </dl>
-        )}
-      </section>
+        </section>
+      )}
 
       {(view?.pets.length ?? 0) > 1 && (
         <div className="pet-tabs ob-segmented" role="tablist" aria-label={t("Animals in this visit")}>
@@ -727,7 +872,10 @@ export function Review({
         </div>
       )}
 
-      <div className="review-tabs ob-segmented" role="tablist">
+      <div className="review-tabs ob-segmented" role="tablist" aria-label={t("View")}>
+        <button className="ob-segment" role="tab" aria-selected={tab === "note"} onClick={() => setTab("note")}>
+          {t("Note")}
+        </button>
         <button
           className="ob-segment"
           role="tab"
@@ -736,48 +884,21 @@ export function Review({
         >
           {t("Transcript")}
         </button>
-        <button className="ob-segment" role="tab" aria-selected={tab === "note"} onClick={() => setTab("note")}>
-          {t("Note")}
-        </button>
       </div>
 
       <div className="review-split" data-tab={tab}>
         <section className="pane pane-transcript" aria-label={t("Transcript")}>
           {canPlay && audioSrc && (
-            <>
-              <audio
-                ref={audio}
-                className="player"
-                controls
-                preload="metadata"
-                src={audioSrc}
-                onError={onAudioError}
-                onTimeUpdate={onTime}
-                onPause={() => setPlayingId(null)}
-              />
-              {app.can.notes && (
-                <div className="player-actions">
-                  <span
-                    className="delete-recording"
-                    title={
-                      signedVisit && !app.can.sign
-                        ? t("Only a veterinarian can delete the recording of a signed visit.")
-                        : undefined
-                    }
-                  >
-                    <Button
-                      variant="ghost"
-                      size="compact"
-                      disabled={(signedVisit && !app.can.sign) || generating || refining}
-                      onClick={() => setAskRecording(true)}
-                    >
-                      <Trash2 size={16} aria-hidden />
-                      {t("Delete recording")}
-                    </Button>
-                  </span>
-                </div>
-              )}
-            </>
+            <audio
+              ref={audio}
+              className="player"
+              controls
+              preload="metadata"
+              src={audioSrc}
+              onError={onAudioError}
+              onTimeUpdate={onTime}
+              onPause={() => setPlayingId(null)}
+            />
           )}
           {view?.audio_on && !view.has_audio && (
             <p className="recording-gone small muted">
@@ -821,22 +942,11 @@ export function Review({
                 const label = draftLabel(t, template, app.user?.id ?? null, app.status?.templates ?? "alone");
                 return (
                   <div className="draft-origin">
-                    {label && <span className="small muted">{t("Drafted with {label}", { label })}</span>}
-                    <span className="draft-origin-actions">
-                      <Button
-                        variant="ghost"
-                        size="compact"
-                        onClick={() => app.navigate({ screen: "templates", open: template.id })}
-                      >
-                        {t("Edit template")}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="compact"
-                        onClick={() => engine.runTemplateView(id, pet).then(setShownTemplate, (e) => setError(String(e?.message ?? e)))}
-                      >
-                        {t("Show the template")}
-                      </Button>
+                    <span className="draft-origin-text">
+                      {!phone && modelChip}
+                      {/* An iPhone wider than the phone layout (landscape) still says where to sign. */}
+                      {!phone && ios && !signed && <span className="small muted">{t("Sign it on your computer.")}</span>}
+                      {label && <span className="small muted">{t("Drafted with {label}", { label })}</span>}
                     </span>
                   </div>
                 );
@@ -853,7 +963,7 @@ export function Review({
                     `${disputed === 1 ? t("1 number was heard differently by the second recogniser; listen before signing.") : t("{n} numbers were heard differently by the second recogniser; listen before signing.", { n: disputed })} `}
                   {softFlags > 0 &&
                     `${softFlags === 1 ? t("1 item needs checking against the transcript.") : t("{n} items need checking against the transcript.", { n: softFlags })} `}
-                  {t("Rest on a sentence to see its evidence.")}
+                  {phone ? t("Tap a sentence to see where it was said.") : t("Rest on a sentence to see its evidence.")}
                 </p>
               )}
               <NoteView
@@ -861,6 +971,7 @@ export function Review({
                 run={run}
                 onEvidence={(ids) => setLit(new Set(ids ?? []))}
                 onPlay={playIds}
+                onPick={phone ? (ids) => setQuote(ids) : undefined}
                 onCopySection={(title, text) => copy(`${title}\n${text}`, title)}
                 onAsk={
                   signed || generating || !app.can.notes
@@ -883,7 +994,7 @@ export function Review({
                 suggestedDentition={!pet || pet === view?.pets[0] ? dentitionOf(p?.species) : null}
                 chartChecks={view?.chart_checks ?? []}
                 unconfirmedTeeth={signed ? [] : unconfirmed}
-                onConfirmTeeth={signed || generating || refining || !app.can.sign ? undefined : (teeth, ok) => void confirmTeeth(teeth, ok)}
+                onConfirmTeeth={signed || generating || refining || !canSignHere ? undefined : (teeth, ok) => void confirmTeeth(teeth, ok)}
                 confirming={confirming}
                 onChooseDentition={(heading, dentition) => {
                   const [sec, part] = heading.split("/");
@@ -959,15 +1070,7 @@ export function Review({
                 }
               />
               <footer className="output-row">
-                <Button onClick={() => void copyNote(template, run, t("Note"), true)}>
-                  <Copy size={20} aria-hidden />
-                  {t("Copy note")}
-                </Button>
-                <Button variant="ghost" onClick={() => void savePdf()}>
-                  <FileDown size={20} aria-hidden />
-                  {t("Save PDF")}
-                </Button>
-                {!signed && app.can.notes && (
+                {!signed && app.can.notes && draftsHere && (
                   <Button variant="ghost" onClick={draft} disabled={generating || refining}>
                     <RotateCw size={20} aria-hidden />
                     {chosen === template?.id
@@ -977,27 +1080,22 @@ export function Review({
                         })}
                   </Button>
                 )}
-                {templates
-                  .filter((x) => x.document === "client")
-                  .map((x) => {
-                    const has = view?.documents.some((d) => d.template_id === x.id);
-                    return (
-                      <Button
-                        key={x.id}
-                        variant="ghost"
-                        disabled={drafting != null || generating}
-                        onClick={() => (has ? setOpenDoc(x.id) : void draftDocument(x.id))}
-                      >
-                        {templateName(t, x.name)}
-                      </Button>
-                    );
-                  })}
-                {engine.canReveal && view && (
-                  <Button variant="ghost" onClick={() => engine.reveal(view.dir)}>
-                    <FolderOpen size={20} aria-hidden />
-                    {t("Show files")}
-                  </Button>
-                )}
+                {draftsHere &&
+                  templates
+                    .filter((x) => x.document === "client")
+                    .map((x) => {
+                      const has = view?.documents.some((d) => d.template_id === x.id);
+                      return (
+                        <Button
+                          key={x.id}
+                          variant="ghost"
+                          disabled={drafting != null || generating}
+                          onClick={() => (has ? setOpenDoc(x.id) : void draftDocument(x.id))}
+                        >
+                          {templateName(t, x.name)}
+                        </Button>
+                      );
+                    })}
                 <span className="small faint output-meta">
                   {t("{statements} statements, {numbers} numbers checked against the transcript.", {
                     statements: run.faithfulness.statements_checked,
@@ -1024,7 +1122,7 @@ export function Review({
                             })
                           : t("Signed at {time}. Add this as an addendum?", { time: r.signed_at })}
                       </p>
-                      {app.can.sign && r.markdown && (
+                      {canSignHere && r.markdown && (
                         <Button variant="ghost" onClick={() => setAddendum(r.markdown ?? "")}>
                           {t("Add as an addendum")}
                         </Button>
@@ -1043,7 +1141,7 @@ export function Review({
                       <p>{a.text}</p>
                     </article>
                   ))}
-                  {!app.can.sign ? null : addendum === null ? (
+                  {!canSignHere ? null : addendum === null ? (
                     <Button variant="ghost" onClick={() => setAddendum("")}>
                       {t("Add addendum")}
                     </Button>
@@ -1088,15 +1186,94 @@ export function Review({
               <div className="pane-pad empty-state">
                 <MarkMono size={48} className="faint" />
                 <h3>{t("No draft yet")}</h3>
-                <p className="muted">{t("Each line links back to the moment it was said.")}</p>
-                <Button variant="primary" onClick={draft} disabled={!app.can.notes || segments.length === 0}>
-                  {t("Draft note")}
-                </Button>
+                {draftsHere ? (
+                  <>
+                    <p className="muted">{t("Each line links back to the moment it was said.")}</p>
+                    <Button variant="primary" onClick={draft} disabled={!app.can.notes || segments.length === 0}>
+                      {t("Draft note")}
+                    </Button>
+                  </>
+                ) : (
+                  <p className="muted">{t("Notes are written on your computer. Turn on Write notes on this iPhone in Settings to write them here.")}</p>
+                )}
               </div>
             )
           )}
         </section>
       </div>
+
+      {phone && run && template && (
+        <div className="review-dock">
+          {quoteSeg && tab === "note" && (
+            <div className="quote-card" role="region" aria-label={t("Where it was said")}>
+              <span className="quote-head">
+                <span className="label">
+                  {t("{speaker}, at {time}", { speaker: speakerOf(quoteSeg), time: fmtTime(quoteSeg.start) })}
+                </span>
+                <button type="button" className="icon-btn" aria-label={t("Close")} onClick={() => setQuote(null)}>
+                  <X size={18} aria-hidden />
+                </button>
+              </span>
+              <q className="quote-text">{quoteSeg.text}</q>
+              {canPlay && (
+                <button type="button" className="link small" onClick={() => seek(quoteSeg)}>
+                  {t("Play this moment")}
+                </button>
+              )}
+            </div>
+          )}
+          <p className="dock-line small muted">
+            {modelChip}
+            {ios && !signed && <span>{t("Sign it on your computer.")}</span>}
+          </p>
+          <div className="dock-actions">
+            {!signed && app.can.notes && noteHeadings.length > 0 && (
+              <Button onClick={() => setAskSheet(true)} disabled={generating || refining}>
+                {t("Ask for changes")}
+              </Button>
+            )}
+            {copyButton}
+          </div>
+        </div>
+      )}
+
+      {askSheet && template && (
+        <Sheet label={t("Ask for changes")} onClose={() => setAskSheet(false)}>
+          {(close) => (
+            <>
+              <header className="sheet-head">
+                <h2>{t("Which part should change?")}</h2>
+                <button type="button" className="icon-btn" aria-label={t("Close")} onClick={close}>
+                  <X size={20} aria-hidden />
+                </button>
+              </header>
+              <div className="sheet-body">
+                <ul className="inset-list">
+                  {noteHeadings.map((h) => (
+                    <li key={h.id}>
+                      <button
+                        type="button"
+                        className="inset-row"
+                        onClick={() => {
+                          close();
+                          setTab("note");
+                          setEditingHeading(null);
+                          setAsking(h.id);
+                        }}
+                      >
+                        <span className="inset-text">
+                          <span className="inset-name">{h.title}</span>
+                        </span>
+                        <ChevronRight size={18} aria-hidden className="inset-chevron" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </>
+          )}
+        </Sheet>
+      )}
       {shownTemplate && (
         <Sheet label={t("The template this draft was written with")} onClose={() => setShownTemplate(null)}>
           {(close) => (
@@ -1205,9 +1382,9 @@ function inferenceHost(t: ReturnType<typeof useT>): string {
 
 type Translate = (text: string, vars?: Record<string, string | number>) => string;
 
-/** "Outgoing · 4:12 · +1 555 555 0142" (ADR-0023 section 8). */
+/** "Outgoing, 4:12, +1 555 555 0142" (ADR-0023 section 8). */
 function callLine(t: Translate, call: engine.CallInfo): string {
-  return [t(call.direction === "outgoing" ? "Outgoing" : "Incoming"), callLength(call.duration_secs), formatPhone(call.number)].join(" · ");
+  return [t(call.direction === "outgoing" ? "Outgoing" : "Incoming"), callLength(call.duration_secs), formatPhone(call.number)].join(", ");
 }
 
 /** The announcement and the client's answer, as Review shows them. */
