@@ -371,9 +371,9 @@ impl App {
         false
     }
 
-    /// Run a sync soon (after turning it on), off this thread.
+    /// Run a sync soon (after turning it on, after Stop and save), off this thread.
     #[cfg(feature = "sync")]
-    fn sync_soon(&self) {
+    pub(crate) fn sync_soon(&self) {
         self.sync_wake.store(true, std::sync::atomic::Ordering::SeqCst);
     }
 

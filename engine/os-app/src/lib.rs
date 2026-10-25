@@ -2069,6 +2069,9 @@ impl App {
         let result = recorder.stop()?;
         let mut s = Session::open(&result.session_dir)?;
         self.link_visit(&mut s)?;
+        // Stop and save syncs at once (ADR-0029 section 6), not at the next poll.
+        #[cfg(feature = "sync")]
+        self.sync_soon();
         Ok(view(&s, Some(result.transcript)))
     }
 
@@ -2099,6 +2102,8 @@ impl App {
         }
         s.set_patient(patient)?;
         self.link_visit(&mut s)?;
+        #[cfg(feature = "sync")]
+        self.sync_soon();
         Ok(view(&s, None))
     }
 
