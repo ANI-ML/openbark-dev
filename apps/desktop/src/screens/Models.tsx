@@ -395,6 +395,9 @@ function RowState({ row: r, progress: p }: { row: engine.ModelRow; progress?: { 
     <div className="row-state">
       {p ? (
         <StatusDot tone="warn">{t("Downloading")}</StatusDot>
+      ) : r.bundled ? (
+        // The iPhone app's speech models come inside the app (ADR-0018 section 10).
+        <StatusDot tone="ok">{t("Built in")}</StatusDot>
       ) : r.missing ? (
         <StatusDot tone="danger">{t("Not found")}</StatusDot>
       ) : r.installed ? (
@@ -425,6 +428,13 @@ function RowActions({ row: r, progress: p, noteModel, onDownload, onRemove, onRe
   const files = hasFiles(r);
   const removable = files && r.remove !== "needed" && r.remove !== "with_gpu_pack";
   const noteHelpId = `note-model-${r.id}`;
+  if (r.bundled) {
+    return (
+      <div className="row-actions">
+        <span className="small faint row-help">{t("Comes with the app")}</span>
+      </div>
+    );
+  }
   if (p) {
     return (
       <div className="dl">
@@ -483,6 +493,7 @@ function CatalogRow(props: RowProps) {
         <RowChips row={r} />
         {r.slot === "llm" && <ModelTags name={r.id} />}
         {r.phone_note && <div className="small muted row-help">{r.phone_note}</div>}
+        {r.attribution && <div className="small faint row-credit">{r.attribution}</div>}
       </td>
       <td>{t(SLOT_LABEL[r.slot])}</td>
       <td className="num">{fmtBytes(r.size_bytes)}</td>
@@ -529,6 +540,7 @@ function CatalogItem(props: RowProps) {
         </span>
         <RowChips row={r} />
         {r.phone_note && <span className="small muted">{r.phone_note}</span>}
+        {r.attribution && <span className="small faint row-credit">{r.attribution}</span>}
       </div>
       <div className="model-item-actions">
         <RowActions {...props} />

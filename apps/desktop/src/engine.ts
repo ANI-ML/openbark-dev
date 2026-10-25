@@ -338,7 +338,8 @@ export interface Status {
   version: string;
   models_dir: string;
   sessions_dir: string;
-  models: { id: string; name: string; installed: boolean }[];
+  /** The models needed to start; `bundled`: came with the app (the iPhone app's speech models). */
+  models: { id: string; name: string; installed: boolean; bundled?: boolean }[];
   hardware: Hardware;
   recording: boolean;
   /** Encryption at rest (ADR-0008). */
@@ -381,6 +382,10 @@ export interface ModelRow {
   installed: boolean;
   fit: Fit;
   builtin: boolean;
+  /** Came with the app (the iPhone app's speech models): Built in, nothing to download or remove. */
+  bundled?: boolean;
+  /** The credit the model's licence asks for, shown downloaded or built in. */
+  attribution?: string;
   /**
    * Bytes on disk that are OpenBark's alone, `.part` files included: what
    * removing it frees (0 when used where it is).

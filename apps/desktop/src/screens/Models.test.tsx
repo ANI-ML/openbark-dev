@@ -645,6 +645,29 @@ describe("Models on a phone", () => {
     expect(e2b.disabled).toBe(false);
   });
 
+  it("shows the speech models that come with the app as built in, with their credits", async () => {
+    mocked.models.mockResolvedValue([
+      ...PHONE_ROWS.filter((r) => r.id !== "parakeet"),
+      row({
+        id: "parakeet",
+        name: "Parakeet TDT 0.6B v3",
+        slot: "stt",
+        license: "CC-BY-4.0",
+        installed: true,
+        bundled: true,
+        remove: "needed",
+        attribution: "Parakeet TDT 0.6B v3 by NVIDIA, CC-BY-4.0; ONNX export by the k2-fsa/sherpa-onnx project",
+      }),
+    ]);
+    show(phoneCtx());
+    await screen.findByText("Parakeet TDT 0.6B v3", { selector: "td > div" });
+    const parakeet = rowOf("Parakeet TDT 0.6B v3");
+    expect(within(parakeet).getByText("Built in")).toBeTruthy();
+    expect(within(parakeet).getByText("Comes with the app")).toBeTruthy();
+    expect(within(parakeet).getByText(/by NVIDIA, CC-BY-4.0/)).toBeTruthy();
+    expect(within(parakeet).queryByRole("button")).toBeNull();
+  });
+
   it("says a phone under 6 GB can't write notes", async () => {
     show(phoneCtx(null));
     await screen.findByText("Gemma 4 E2B", { selector: "td > div" });

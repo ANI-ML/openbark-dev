@@ -21,6 +21,8 @@
 .model-item-actions .row-actions { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }
 .model-item-actions .row-help { max-width: none; text-align: left; }
 .model-item-actions .dl { width: 100%; }
+/* A model's credit (CC-BY-4.0, NVIDIA's statement): long links wrap, never scroll. */
+.row-credit { display: block; max-width: 56ch; overflow-wrap: anywhere; }
 
 /* The way back to Settings: a 44 px touch target on phones (§9). */
 @media (max-width: 640px) {

@@ -10,7 +10,6 @@ import {
   Lock,
   Mic,
   NotebookText,
-  PenLine,
   Phone,
   RefreshCw,
   Trash2,
@@ -22,6 +21,7 @@ import * as engine from "../engine";
 import { NOTE_LANGUAGES, UI_LANGUAGES, useT } from "../i18n";
 import { DeletedVisits } from "../components/DeletedVisits";
 import { MicCheck } from "../components/MicCheck";
+import { PhoneDrafting } from "../components/PhoneDrafting";
 import { PhoneSettings } from "../components/PhoneSettings";
 import { StorageSection } from "../components/StorageSection";
 import { SyncSection } from "../components/SyncSection";
@@ -175,22 +175,7 @@ function PhoneList({ title }: { title: (s: SettingsSection) => string }) {
         <ul className="inset-list">
           <Row icon={<NotebookText size={20} />} label={t("Templates")} to={{ screen: "templates" }} />
           <Row icon={<Languages size={20} />} label={t("Note language")} value={noteLanguage} to={s("language")} />
-          {ios && (
-            <li>
-              <label className="inset-row settings-row">
-                <span className="inset-icon" aria-hidden>
-                  <PenLine size={20} />
-                </span>
-                <span className="inset-text">{t("Write notes on this iPhone")}</span>
-                <input
-                  type="checkbox"
-                  className="opt-switch"
-                  checked={app.settings.writeNotesHere}
-                  onChange={(e) => app.setSettings({ writeNotesHere: e.target.checked })}
-                />
-              </label>
-            </li>
-          )}
+          {ios && <PhoneDrafting />}
         </ul>
       </section>
       <section className="inset-group" aria-labelledby="set-device">

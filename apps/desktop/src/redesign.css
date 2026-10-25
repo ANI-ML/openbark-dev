@@ -71,6 +71,11 @@
 .visits .inset-row { min-height: 72px; }
 .visits .inset-sub { white-space: normal; }
 .inset-row > .ob-chip { flex: none; white-space: nowrap; }
+/* Write notes on this iPhone: the drafting model's offer under the switch (ADR-0018 section 10). */
+.phone-drafting-body { display: flex; flex-direction: column; gap: 8px; padding: 0 16px 12px 48px; }
+.phone-drafting-body p { margin: 0; }
+.phone-drafting-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.phone-drafting-body .dl { display: flex; flex-direction: column; gap: 4px; }
 .recorder-phone .sheet-foot .ob-button { width: 100%; justify-content: center; }
 
 /* Options list (Record, Settings): rows on a hairline surface. */
