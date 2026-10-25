@@ -54,6 +54,7 @@ const OFF: engine.ClinicHubStatus = {
   addresses: ["192.168.1.20"],
   join: null,
   devices: [],
+  can_manage: true,
 };
 
 const ON: engine.ClinicHubStatus = {
@@ -61,7 +62,6 @@ const ON: engine.ClinicHubStatus = {
   on: true,
   listening: true,
   fingerprint: "ab".repeat(32),
-  check: "7K3QD-9XAPR",
   accounts: 1,
   used_mb: 2.5,
   join: {
@@ -144,6 +144,45 @@ describe("Settings, Clinic hub", () => {
         quotaMb: 5120,
       }),
     );
+  });
+
+  it("shows a person who can't manage the hub no join code and no changes", async () => {
+    mocked.clinicHubStatus.mockResolvedValue({ ...ON, can_manage: false, join: null });
+    show();
+    expect(await screen.findByText(/A veterinarian who manages the team can show join codes/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "New join code" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save hub settings" })).toBeNull();
+    expect((screen.getByLabelText(/Make this computer the clinic hub/) as HTMLInputElement).disabled).toBe(true);
+    // A manager's screen also says a new code stops the old one, and that the
+    // join code is the only gate inside the allowed ranges.
+    cleanup();
+    mocked.clinicHubStatus.mockResolvedValue(ON);
+    show();
+    expect(await screen.findByText(/Making a new code stops the old one/)).toBeTruthy();
+    expect(screen.getByText(/the join code is the only thing that stops a device from joining/)).toBeTruthy();
+  });
+
+  it("asks for the hub's status as the person using the app", async () => {
+    const real = await vi.importActual<typeof import("../engine")>("../engine");
+    const urls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        urls.push(url);
+        return new Response("{}", { headers: { "content-type": "application/json" } });
+      }),
+    );
+    try {
+      real.setActor("u-vet");
+      await real.clinicHubStatus();
+      real.setActor(null);
+      await real.clinicHubStatus();
+    } finally {
+      vi.unstubAllGlobals();
+      real.setActor(null);
+    }
+    expect(urls).toEqual(["/api/clinic-hub?by=u-vet", "/api/clinic-hub"]);
   });
 
   it("reads address ranges one per line or separated by commas", () => {

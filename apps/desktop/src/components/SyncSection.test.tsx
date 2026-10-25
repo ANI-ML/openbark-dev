@@ -18,6 +18,8 @@ vi.mock("../engine", async (importOriginal) => {
     syncPair: vi.fn(),
     syncRemoveDevice: vi.fn(),
     syncNow: vi.fn(),
+    syncConfirmPairing: vi.fn(),
+    syncStartOver: vi.fn(),
     recoveryKey: vi.fn(),
   };
 });
@@ -142,13 +144,13 @@ describe("Settings, Encrypted sync", () => {
     mocked.syncStatus.mockResolvedValue({
       ...OFF,
       phase: "active",
-      hub: { address: "192.168.1.20:47110", check: "7K3QD-9XAPR" },
+      hub: { address: "192.168.1.20:47110", fingerprint: "ab12 cd34 ef56 7890" },
       last_error: "Hub not reachable: syncs when you're back on the clinic network.",
       devices: [],
     });
     show();
     expect(await screen.findByText(/Syncing with the clinic hub at 192.168.1.20:47110/)).toBeTruthy();
-    expect(screen.getByText("7K3QD-9XAPR")).toBeTruthy();
+    expect(screen.getByText("ab12 cd34 ef56 7890")).toBeTruthy();
     expect(screen.getByText(/Hub not reachable/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Delete my sync account" }));
     expect(await screen.findByText("Type delete to confirm")).toBeTruthy();
@@ -178,6 +180,68 @@ describe("Settings, Encrypted sync", () => {
     expect(mocked.syncPair).toHaveBeenCalledWith("apple banana cherry dolphin eagle falcon", false);
     fireEvent.click(screen.getByRole("button", { name: "Add device" }));
     await waitFor(() => expect(mocked.syncPair).toHaveBeenCalledWith("apple banana cherry dolphin eagle falcon", true));
+  });
+
+  it("after approval through a hub, shows whose account it joined and syncs only once the code is typed", async () => {
+    const confirm: engine.SyncStatus = {
+      ...OFF,
+      phase: "confirm",
+      hub: { address: "192.168.1.20:47110", fingerprint: "ab12 cd34 ef56 7890" },
+      devices: [
+        { id: "a", name: "Front desk PC", platform: "windows", status: "approved", this_device: false, last_seen_at: null, approved_at: null },
+        { id: "b", name: "Exam room laptop", platform: "macos", status: "approved", this_device: true, last_seen_at: null, approved_at: null },
+      ],
+    };
+    mocked.syncStatus.mockResolvedValue(confirm);
+    mocked.syncConfirmPairing
+      .mockRejectedValueOnce(new Error("That code doesn't match."))
+      .mockResolvedValueOnce({ ...confirm, phase: "active" });
+    const c = ctx();
+    show(c);
+    expect(await screen.findByText(/This device was added to the account with: Front desk PC\./)).toBeTruthy();
+    // No way around the check: no Turn off here.
+    expect(screen.queryByRole("button", { name: /Turn off sync/ })).toBeNull();
+    const box = screen.getByLabelText("Code from the device that added this one");
+    const ok = screen.getByRole("button", { name: "Confirm and start syncing" }) as HTMLButtonElement;
+    expect(ok.disabled).toBe(true);
+    fireEvent.change(box, { target: { value: "wxyz-2345" } });
+    fireEvent.click(ok);
+    expect(await screen.findByText("That code doesn't match.")).toBeTruthy();
+    fireEvent.change(box, { target: { value: "ABCD-2345" } });
+    fireEvent.click(ok);
+    await waitFor(() => expect(mocked.syncConfirmPairing).toHaveBeenLastCalledWith("ABCD-2345"));
+    await waitFor(() => expect(c.toast).toHaveBeenCalledWith("Encrypted sync is on"));
+  });
+
+  it("starts over when none of the person's devices added this one", async () => {
+    mocked.syncStatus.mockResolvedValue({ ...OFF, phase: "confirm", devices: [] });
+    mocked.syncStartOver.mockResolvedValue(OFF);
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: "Start over" }));
+    await waitFor(() => expect(mocked.syncStartOver).toHaveBeenCalled());
+  });
+
+  it("shows the code to type on the new device after adding it through a hub", async () => {
+    mocked.syncStatus.mockResolvedValue({
+      ...OFF,
+      phase: "active",
+      hub: { address: "192.168.1.20:47110", fingerprint: "ab12 cd34 ef56 7890" },
+      devices: [],
+    });
+    mocked.syncPair
+      .mockResolvedValueOnce({ device_id: "c", name: "Home laptop", platform: "linux" })
+      .mockResolvedValueOnce({ device_id: "c", name: "Home laptop", platform: "linux", confirm: "K7M2-QX9P" });
+    const c = ctx();
+    show(c);
+    fireEvent.click(await screen.findByRole("button", { name: "Add a device" }));
+    fireEvent.change(screen.getByLabelText("The 6 words shown on the new device"), {
+      target: { value: "apple banana cherry dolphin eagle falcon" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Check" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Add device" }));
+    expect(await screen.findByText("K7M2-QX9P")).toBeTruthy();
+    expect(screen.getByText(/Type this code on the new device/)).toBeTruthy();
+    expect(c.toast).not.toHaveBeenCalled();
   });
 
   it("speaks the app's language", async () => {

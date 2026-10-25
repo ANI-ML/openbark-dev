@@ -1551,7 +1551,19 @@ export const encryptExisting = () =>
 // Rust makes every sync call (the desktop app's commands, or `openbark serve`
 // in web mode). This screen never sees a key, a token or the server.
 
-export type SyncPhase = "off" | "code_sent" | "pending" | "kit_check" | "active" | "signed_out" | "revoked";
+/**
+ * `confirm`: joined through a clinic hub and approved, but nothing syncs
+ * until the person types the code the approving device showed.
+ */
+export type SyncPhase =
+  | "off"
+  | "code_sent"
+  | "pending"
+  | "confirm"
+  | "kit_check"
+  | "active"
+  | "signed_out"
+  | "revoked";
 
 export interface SyncDevice {
   id: string;
@@ -1611,8 +1623,8 @@ export interface SyncStatus {
 
 export interface SyncHub {
   address: string;
-  /** The hub's certificate check, as the hub shows it (XXXXX-XXXXX). */
-  check: string;
+  /** The start of the pinned certificate fingerprint ("ab12 cd34 ef56 7890"). Not a security check. */
+  fingerprint: string;
 }
 
 export type SyncNext =
@@ -1624,6 +1636,8 @@ export interface SyncPending {
   device_id: string;
   name: string;
   platform: string;
+  /** After approving through a clinic hub: the code to type on the new device ("XXXX-XXXX"). */
+  confirm?: string;
 }
 
 export const syncStatus = () => (isDesktop ? invoke<SyncStatus>("sync_status") : api<SyncStatus>("/api/sync"));
@@ -1651,6 +1665,16 @@ export const syncPair = (words: string, approve: boolean) =>
   isDesktop
     ? invoke<SyncPending>("sync_pair", { words, approve, by: actor })
     : api<SyncPending>("/api/sync/pair", post({ words, approve, by: actor }));
+/** Joined through a clinic hub: the code the approving device showed. Only then does this device sync. */
+export const syncConfirmPairing = (code: string) =>
+  isDesktop
+    ? invoke<SyncStatus>("sync_confirm_pairing", { code, by: actor })
+    : api<SyncStatus>("/api/sync/pair/confirm", post({ code, by: actor }));
+/** Give up joining: this device leaves any account it was put in and starts again. */
+export const syncStartOver = () =>
+  isDesktop
+    ? invoke<SyncStatus>("sync_start_over", { by: actor })
+    : api<SyncStatus>("/api/sync/start-over", post({ by: actor }));
 export const syncRecover = (words: string) =>
   isDesktop
     ? invoke<SyncStatus>("sync_recover", { words, by: actor })
@@ -1714,7 +1738,9 @@ export interface ClinicHubStatus {
   addresses?: string[];
   error?: string | null;
   fingerprint?: string;
-  check?: string;
+  /** Whoever asked may manage the hub (see its join codes, change it, remove devices). */
+  can_manage?: boolean;
+  /** Only for whoever may manage the hub. */
   join?: ClinicHubJoin | null;
   devices?: ClinicHubDevice[];
   accounts?: number;
@@ -1751,7 +1777,9 @@ export const syncJoinHub = (
         post({ link, address, check, device_name: deviceName, backfill_days: backfillDays, existing, by: actor }),
       );
 export const clinicHubStatus = () =>
-  isDesktop ? invoke<ClinicHubStatus>("clinic_hub_status") : api<ClinicHubStatus>("/api/clinic-hub");
+  isDesktop
+    ? invoke<ClinicHubStatus>("clinic_hub_status", { by: actor })
+    : api<ClinicHubStatus>(`/api/clinic-hub${actor ? `?by=${enc(actor)}` : ""}`);
 export const clinicHubSettings = (change: ClinicHubChange) =>
   isDesktop
     ? invoke<ClinicHubStatus>("clinic_hub_settings", { ...change, by: actor })

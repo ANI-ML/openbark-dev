@@ -116,10 +116,27 @@ export function SyncSection() {
       {joining && (
         <div className="ask-actions">
           <Button onClick={() => setSheet(true)}>{t("Continue setting up sync")}</Button>
-          <Button variant="ghost" disabled={busy} onClick={() => void run(() => engine.syncOff())}>
-            {t("Cancel")}
-          </Button>
+          {phase === "pending" && s.hub ? (
+            <Button variant="ghost" disabled={busy} onClick={() => void run(() => engine.syncStartOver())}>
+              {t("Start over")}
+            </Button>
+          ) : (
+            <Button variant="ghost" disabled={busy} onClick={() => void run(() => engine.syncOff())}>
+              {t("Cancel")}
+            </Button>
+          )}
         </div>
+      )}
+
+      {phase === "confirm" && (
+        <ConfirmJoin
+          status={s}
+          onConfirmed={() => {
+            app.toast(t("Encrypted sync is on"));
+            void refresh();
+          }}
+          onStartOver={() => void refresh()}
+        />
       )}
 
       {phase === "active" && (
@@ -145,7 +162,7 @@ export function SyncSection() {
           </p>
           {s.hub && (
             <p className="small faint">
-              {t("Hub certificate check")}: <span className="mono">{s.hub.check}</span>
+              {t("Hub certificate")}: <span className="mono">{s.hub.fingerprint}</span>
             </p>
           )}
           {s.last_error && (
@@ -333,18 +350,112 @@ function summary(v: unknown): string {
   return v == null ? "empty" : JSON.stringify(v).slice(0, 80);
 }
 
-type Step = "hub" | "kit" | "check" | "pair" | "recover" | "done";
+type Step = "hub" | "kit" | "check" | "pair" | "confirm" | "recover" | "done";
 
 /** The text a hub's QR code holds, pasted or scanned into the code field. */
 export const isHubLink = (text: string) => text.trim().startsWith("openbark-hub:");
+
+/**
+ * Joined through a clinic hub and approved: nothing syncs until the person
+ * types the code the approving device showed. It proves which account this
+ * device ended up in; the devices of that account are listed so the person
+ * can see whose it is. Start over leaves that account.
+ */
+function ConfirmJoin({
+  status,
+  onConfirmed,
+  onStartOver,
+}: {
+  status: engine.SyncStatus;
+  onConfirmed: () => void;
+  onStartOver: () => void;
+}) {
+  const t = useT();
+  const [code, setCode] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const names = (status.devices ?? [])
+    .filter((d) => d.status === "approved" && !d.this_device)
+    .map((d) => d.name || t("Unnamed device"));
+  const act = async (f: () => Promise<unknown>, after: () => void) => {
+    setError(null);
+    setBusy(true);
+    try {
+      await f();
+      after();
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <form
+      className="sync-confirm"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void act(() => engine.syncConfirmPairing(code.trim()), onConfirmed);
+      }}
+    >
+      <p className="small measure">
+        {t("A device added this one to its account. Before anything syncs, type the code that device showed.")}
+      </p>
+      {names.length > 0 && (
+        <p className="small measure">
+          {t("This device was added to the account with: {names}.", { names: names.join(", ") })}
+        </p>
+      )}
+      {error && (
+        <p className="ob-notice" data-tone="danger" role="alert">
+          {error}
+        </p>
+      )}
+      <label className="ob-field narrow">
+        <span className="label">{t("Code from the device that added this one")}</span>
+        <input
+          className="ob-input mono"
+          autoCapitalize="characters"
+          autoComplete="off"
+          spellCheck={false}
+          placeholder="XXXX-XXXX"
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+        />
+      </label>
+      <div className="ask-actions">
+        <Button type="submit" variant="primary" disabled={busy || code.replace(/[\s-]/g, "").length !== 8}>
+          {t("Confirm and start syncing")}
+        </Button>
+      </div>
+      <p className="small muted measure">
+        {t(
+          "None of your devices added this one, or you don't know these devices? Start over: this device leaves that account and nothing is synced.",
+        )}
+      </p>
+      <div className="ask-actions">
+        <Button variant="ghost" disabled={busy} onClick={() => void act(() => engine.syncStartOver(), onStartOver)}>
+          {t("Start over")}
+        </Button>
+      </div>
+    </form>
+  );
+}
 
 /** Turning sync on, step by step. */
 function SyncSheet({ status, onClose }: { status: engine.SyncStatus; onClose: () => void }) {
   const t = useT();
   const app = useApp();
   const ios = isIos(app.status);
-  const initial: Step = status.phase === "kit_check" ? "kit" : status.phase === "pending" ? "pair" : "hub";
+  const initial: Step =
+    status.phase === "kit_check"
+      ? "kit"
+      : status.phase === "pending"
+        ? "pair"
+        : status.phase === "confirm"
+          ? "confirm"
+          : "hub";
   const [step, setStep] = useState<Step>(initial);
+  const [latest, setLatest] = useState<engine.SyncStatus>(status);
   const [name, setName] = useState(status.device_name ?? "");
   const [backfill, setBackfill] = useState<number | null>(30);
   const [code, setCode] = useState("");
@@ -368,7 +479,10 @@ function SyncSheet({ status, onClose }: { status: engine.SyncStatus; onClose: ()
       void engine
         .syncNow()
         .then((s) => {
+          setLatest(s);
           if (s.phase === "active") setStep("done");
+          // Approved through a hub: the code from the approving device first.
+          if (s.phase === "confirm") setStep("confirm");
           if (s.pairing) setPairing(s.pairing);
         })
         .catch(() => {});
@@ -432,7 +546,7 @@ function SyncSheet({ status, onClose }: { status: engine.SyncStatus; onClose: ()
   const title =
     step === "kit" || step === "check"
       ? t("Your Recovery Kit")
-      : step === "pair" || step === "recover"
+      : step === "pair" || step === "recover" || step === "confirm"
         ? t("Add this computer")
         : step === "done"
           ? t("Encrypted sync is on")
@@ -532,7 +646,7 @@ function SyncSheet({ status, onClose }: { status: engine.SyncStatus; onClose: ()
                       )}
                     </div>
                     <label className="ob-field narrow">
-                      <span className="label">{t("Certificate check")}</span>
+                      <span className="label">{t("Certificate check for this code")}</span>
                       <input
                         className="ob-input mono"
                         autoCapitalize="characters"
@@ -542,7 +656,9 @@ function SyncSheet({ status, onClose }: { status: engine.SyncStatus; onClose: ()
                         value={check}
                         onChange={(e) => setCheck(e.target.value)}
                       />
-                      <span className="ob-help">{t("Shown on the hub under the join code.")}</span>
+                      <span className="ob-help">
+                        {t("Shown on the hub beside this join code. It changes with every code.")}
+                      </span>
                     </label>
                   </>
                 )}
@@ -691,8 +807,24 @@ function SyncSheet({ status, onClose }: { status: engine.SyncStatus; onClose: ()
                   <Button variant="ghost" onClick={() => setStep("recover")}>
                     {t("Use my Recovery Kit instead")}
                   </Button>
+                  <Button
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={() =>
+                      void act(async () => {
+                        await engine.syncStartOver();
+                        close();
+                      })
+                    }
+                  >
+                    {t("Start over")}
+                  </Button>
                 </div>
               </>
+            )}
+
+            {step === "confirm" && (
+              <ConfirmJoin status={latest} onConfirmed={() => setStep("done")} onStartOver={close} />
             )}
 
             {step === "recover" && (
@@ -756,6 +888,8 @@ function AddDeviceSheet({ hub, onClose }: { hub: boolean; onClose: () => void })
   const app = useApp();
   const [words, setWords] = useState("");
   const [found, setFound] = useState<engine.SyncPending | null>(null);
+  /** Added through a hub: the code to type on the new device. */
+  const [confirm, setConfirm] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const act = async (f: () => Promise<void>) => {
@@ -794,7 +928,26 @@ function AddDeviceSheet({ hub, onClose }: { hub: boolean; onClose: () => void })
                 {error}
               </p>
             )}
-            {!found ? (
+            {confirm ? (
+              <>
+                <p className="small measure">
+                  {t("{name} was added. Type this code on the new device:", { name: found?.name ?? "" })}
+                </p>
+                <p className="pair-words mono" aria-label={t("Code for the new device")}>
+                  {confirm}
+                </p>
+                <p className="small muted measure">
+                  {t(
+                    "It shows the new device which account it joined. Until it is typed there, the new device syncs nothing.",
+                  )}
+                </p>
+                <div className="ask-actions">
+                  <Button variant="primary" onClick={close}>
+                    {t("Done")}
+                  </Button>
+                </div>
+              </>
+            ) : !found ? (
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
@@ -836,9 +989,13 @@ function AddDeviceSheet({ hub, onClose }: { hub: boolean; onClose: () => void })
                     disabled={busy}
                     onClick={() =>
                       void act(async () => {
-                        await engine.syncPair(words, true);
-                        app.toast(t("{name} added", { name: found.name }));
-                        close();
+                        const added = await engine.syncPair(words, true);
+                        if (added.confirm) {
+                          setConfirm(added.confirm);
+                        } else {
+                          app.toast(t("{name} added", { name: found.name }));
+                          close();
+                        }
                       })
                     }
                   >

@@ -167,6 +167,8 @@ impl App {
             }
             return v;
         }
+        #[cfg(not(feature = "hub"))]
+        let _ = by;
         json!({"available": false, "on": false})
     }
 

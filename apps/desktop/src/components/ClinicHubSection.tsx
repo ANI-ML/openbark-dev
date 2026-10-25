@@ -83,7 +83,9 @@ export function ClinicHubSection() {
     }
   };
 
-  const join = s.join;
+  /** Only whoever may manage the hub sees its join codes and can change it. */
+  const manage = s.can_manage === true;
+  const join = manage ? s.join : null;
   const live = join && !join.used && new Date(join.expires_at).getTime() > Date.now();
   const devices = s.devices ?? [];
   const saveSettings = () => {
@@ -128,7 +130,7 @@ export function ClinicHubSection() {
           type="checkbox"
           className="opt-switch"
           checked={s.on}
-          disabled={busy}
+          disabled={busy || !manage}
           onChange={(e) =>
             void run(
               () => engine.clinicHubSettings({ on: e.target.checked }),
@@ -154,6 +156,13 @@ export function ClinicHubSection() {
             </p>
           )}
 
+          {!manage && (
+            <p className="small muted measure">
+              {t("A veterinarian who manages the team can show join codes and change the hub.")}
+            </p>
+          )}
+          {manage && (
+            <>
           <h3 className="label">{t("Join code")}</h3>
           {live && join ? (
             <div className="hub-join">
@@ -167,10 +176,11 @@ export function ClinicHubSection() {
                   {t("Address")}: <span className="mono">{join.address}</span>
                 </p>
                 <p className="small">
-                  {t("Certificate check")}: <span className="mono">{join.check}</span>
+                  {t("Certificate check for this code")}: <span className="mono">{join.check}</span>
                 </p>
                 <p className="small faint">
-                  {t("Works once, until {time}.", { time: engine.fmtStamp(join.expires_at) })}
+                  {t("Works once, until {time}.", { time: engine.fmtStamp(join.expires_at) })}{" "}
+                  {t("Making a new code stops the old one.")}
                 </p>
               </div>
             </div>
@@ -188,6 +198,8 @@ export function ClinicHubSection() {
               {t("New join code")}
             </Button>
           </div>
+            </>
+          )}
 
           <h3 className="label">{t("Connected devices")}</h3>
           {devices.length === 0 ? (
@@ -206,7 +218,7 @@ export function ClinicHubSection() {
                       {d.last_seen_at ? `, ${t("last seen {when}", { when: engine.fmtStamp(d.last_seen_at) })}` : ""}
                     </span>
                   </div>
-                  {d.status !== "revoked" && (
+                  {manage && d.status !== "revoked" && (
                     <Button variant="ghost" onClick={() => setRemoving(d)}>
                       {t("Remove")}
                     </Button>
@@ -221,6 +233,8 @@ export function ClinicHubSection() {
             </p>
           )}
 
+          {manage && (
+            <>
           <h3 className="label">{t("Use this computer with its hub")}</h3>
           <p className="small muted measure">
             {t("This computer can sync through its own hub, like any other device.")}
@@ -280,7 +294,7 @@ export function ClinicHubSection() {
               />
               <span className="ob-help">
                 {t(
-                  "Address ranges that may connect, one per line. The default allows private networks only, never the internet.",
+                  "Address ranges that may connect, one per line. The default allows private networks only, never the internet. Within these ranges, the join code is the only thing that stops a device from joining. Add 100.64.0.0/10 only if the clinic uses Tailscale or a similar VPN.",
                 )}
               </span>
             </label>
@@ -299,6 +313,8 @@ export function ClinicHubSection() {
               </Button>
             </div>
           </form>
+            </>
+          )}
         </>
       )}
 
