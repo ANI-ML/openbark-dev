@@ -38,6 +38,10 @@ export interface Settings {
   copyCitations: boolean;
   /** iPhone profile: draft notes on the phone itself, or leave drafting to a computer (ADR-0027). */
   writeNotesHere: boolean;
+  /** iPhone profile: when the first-run walkthrough was finished or skipped. */
+  walkthroughDoneAt: string | null;
+  /** iPhone profile: show the walkthrough again (Settings, Help). */
+  showWalkthrough: boolean;
 }
 
 /** The app language to start in: the browser's, if we have it. */
@@ -75,6 +79,8 @@ const DEFAULTS: Settings = {
   copyFormat: "plain",
   copyCitations: false,
   writeNotesHere: true,
+  walkthroughDoneAt: null,
+  showWalkthrough: false,
 };
 
 const KEY = "openbark.settings";

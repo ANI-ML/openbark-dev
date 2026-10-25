@@ -5,6 +5,7 @@ import {
   ChevronRight,
   CircleHelp,
   FileText,
+  Signpost,
   Info,
   Languages,
   Lock,
@@ -207,6 +208,20 @@ function PhoneList({ title }: { title: (s: SettingsSection) => string }) {
         </h2>
         <ul className="inset-list">
           <Row icon={<CircleHelp size={20} />} label={t("Guides and videos")} to={{ screen: "help" }} />
+          {ios && (
+            <li>
+              <button
+                type="button"
+                className="inset-row settings-row"
+                onClick={() => app.setSettings({ showWalkthrough: true })}
+              >
+                <span className="inset-icon" aria-hidden>
+                  <Signpost size={20} />
+                </span>
+                <span className="inset-text">{t("Show the walkthrough")}</span>
+              </button>
+            </li>
+          )}
           <Row icon={<Info size={20} />} label={t("About OpenBark")} value={app.status?.version} to={s("about")} />
         </ul>
       </section>

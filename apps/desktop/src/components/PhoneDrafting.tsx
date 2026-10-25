@@ -11,7 +11,7 @@ import { useT } from "../i18n";
  * note model, with its size, and downloads it with the same progress the
  * Models screen shows. The other models that fit stay in Models.
  */
-export function PhoneDrafting() {
+export function PhoneDrafting({ walkthrough = false }: { walkthrough?: boolean } = {}) {
   const app = useApp();
   const t = useT();
   const on = app.settings.writeNotesHere;
@@ -107,9 +107,12 @@ export function PhoneDrafting() {
                 <Download size={20} aria-hidden />
                 {t("Download ({size})", { size })}
               </Button>
-              <Button variant="ghost" onClick={() => app.navigate({ screen: "models" })}>
-                {t("Other models")}
-              </Button>
+              {/* In the walkthrough the way on is its own Continue; Models comes later. */}
+              {!walkthrough && (
+                <Button variant="ghost" onClick={() => app.navigate({ screen: "models" })}>
+                  {t("Other models")}
+                </Button>
+              )}
             </div>
           )}
           {error && (
