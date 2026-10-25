@@ -2,7 +2,7 @@
     <div class="wrap">
       <h1>Privacy</h1>
       <p>{{PRODUCT}} is built so your clinic's recordings and notes stay on your own devices. This page says exactly what leaves them, and when.</p>
-      <p class="muted legal-date">Last updated 24 October 2026. ANI.ML Health Inc., Toronto, Ontario, Canada. Questions: <a href="mailto:{{CONTACT}}">{{CONTACT}}</a>.</p>
+      <p class="muted legal-date">Last updated 25 October 2026. ANI.ML Health Inc., Toronto, Ontario, Canada. Questions: <a href="mailto:{{CONTACT}}">{{CONTACT}}</a>.</p>
     </div>
   </section>
 
@@ -13,7 +13,7 @@
         <li>Recordings, transcripts and notes are made and kept on your clinic's own computers and phones. We never receive them.</li>
         <li>The app has no analytics, no advertising and no tracking. It doesn't sell or share data, because it doesn't collect it.</li>
         <li>Recordings never leave the device that made them, even with encrypted sync turned on.</li>
-        <li>If you turn on encrypted sync, only encrypted copies of transcripts and notes leave your devices. They're locked with keys that stay on your devices, so our servers can't read them.</li>
+        <li>Encrypted sync, when it arrives, moves transcripts and notes only between your own devices, through a computer in your clinic. Nothing goes to us: we run no servers for it.</li>
       </ul>
 
       <h2>What the app sends, and when</h2>
@@ -21,18 +21,21 @@
       <ul>
         <li><strong>Downloading models.</strong> When you choose a speech or note model, the app downloads it from Hugging Face. Hugging Face sees your device's internet address, like any download. Nothing about your patients is sent.</li>
         <li><strong>Your own accounts, if you connect them.</strong> If your clinic connects its own Twilio account for phone calls, calls go through Twilio under your clinic's agreement with them. Recordings of those calls are made on your computer.</li>
-        <li><strong>Encrypted sync, only if you turn it on.</strong> Sync is off unless you turn it on. Then the app sends your email address to sign in with a one-time code, and encrypted copies of transcripts, notes and patient records to our sync service, hosted by Supabase. We can see that an account exists, its devices' names and platforms, and the size and timing of encrypted uploads. We can't see what's inside them.</li>
       </ul>
       <p>With none of these in use, {{PRODUCT}} works fully offline.</p>
 
-      <h2>Clinic accounts and usage counts (coming soon)</h2>
-      <p>Clinic accounts are coming in a later release. A clinic will be able to create one and invite its staff. If a staff member joins and turns on "Share usage counts", their app sends daily counts to the clinic's dashboard: visits recorded, minutes recorded, notes drafted, notes signed and calls recorded, with the app version and platform. Counts only: never patient names, transcripts, notes, reasons for visits or recordings. Usage counts are kept for up to 400 days. A member can stop sharing or leave the clinic at any time.</p>
+      <h2>Encrypted sync and the clinic hub (coming soon)</h2>
+      <p>Encrypted sync is coming in a later release, off unless you turn it on. One computer in your clinic becomes the clinic hub, and your phones and computers sync with it over your clinic's own network. Transcripts, notes and patient records travel encrypted, with keys that stay on your devices. Recordings never sync. Nothing goes to ANI.ML Health: there are no OpenBark accounts or emails, and we run no servers for sync.</p>
+      <p>If your clinic chooses, the hub can also keep an encrypted copy in a folder on storage the clinic already uses (for example OneDrive, Dropbox or a network drive), so a laptop can sync from home. That provider holds only encrypted files.</p>
+
+      <h2>Clinic dashboard and usage counts (coming soon)</h2>
+      <p>A clinic will be able to see how {{PRODUCT}} is used, on its own hub computer. If a staff member turns on "Share usage counts", their device sends daily counts to the clinic hub: visits recorded, minutes recorded, notes drafted, notes signed and calls recorded, with the app version and platform. Counts only: never patient names, transcripts, notes, reasons for visits or recordings. The counts stay on the clinic's hub. A member can stop sharing at any time.</p>
 
       <h2>This website</h2>
-      <p>The website has no analytics and sets no cookies. It loads fonts from Google Fonts. If you sign in to your account at /portal, we keep your email address and the short profile you choose to fill in (name, clinic, role, country, and whether you want update emails). You can delete your account and profile from the portal at any time.</p>
+      <p>The website has no analytics and sets no cookies. It loads fonts from Google Fonts. An early account page at /portal is being retired: it kept only an email address and an optional short profile, and you can delete that account there or by asking us.</p>
 
       <h2>Where data is stored</h2>
-      <p>Your clinical data stays where your clinic keeps it, on your own devices. Account and sync data are held by Supabase on our behalf. Sign-in emails are sent through SendGrid. Both act as our processors.</p>
+      <p>Your clinical data stays where your clinic keeps it: on your own devices, your clinic hub and any storage your clinic chooses. We don't receive it.</p>
 
       <h2>Children</h2>
       <p>{{PRODUCT}} is a tool for veterinary professionals. It isn't directed at children.</p>
@@ -40,8 +43,8 @@
       <h2>Your choices</h2>
       <ul>
         <li>Delete a visit, its recording or all your data from within the app. Deleted visits are removed permanently after 30 days.</li>
-        <li>Turn off sync on any device, remove a device, or delete your sync account from the app.</li>
-        <li>Delete your website account from the portal, or ask us at <a href="mailto:{{CONTACT}}">{{CONTACT}}</a>.</li>
+        <li>When sync arrives: turn it off on any device, or remove a device, from the app.</li>
+        <li>Delete an early website account from the portal, or ask us at <a href="mailto:{{CONTACT}}">{{CONTACT}}</a>.</li>
       </ul>
 
       <h2>Changes</h2>

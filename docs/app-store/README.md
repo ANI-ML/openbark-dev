@@ -2,7 +2,7 @@
 
 Everything App Store Connect asks for, drafted from what the app does today. The owner reviews it and pastes it into App Store Connect when the app record exists (`docs/runbooks/ios.md`). Items marked **Owner** need the owner's decision or account.
 
-Status, 24 October 2026: the iPhone groundwork builds in CI, the redesign and encrypted sync are in progress, and the TestFlight secrets aren't in GitHub yet. Submit for review only after the checklist at the end is done.
+Status, 25 October 2026 (sync and the dashboard now run on the clinic's own hub, ADR-0029): the iPhone groundwork builds in CI, the redesign and encrypted sync are in progress, and the TestFlight secrets aren't in GitHub yet. Submit for review only after the checklist at the end is done.
 
 ## 1. App information
 
@@ -36,7 +36,7 @@ Record in the exam room
 Your data stays yours
 - Recordings never leave the iPhone that made them.
 - No analytics, no ads, no tracking. OpenBark works fully offline once its speech model is downloaded.
-- Optional encrypted sync sends encrypted copies of transcripts and notes to your other devices. Our servers can't read them.
+- Optional encrypted sync (coming) moves transcripts and notes between your own devices through a computer in your clinic. Nothing goes to us.
 
 Notes you can trust
 - Templates for SOAP notes, rechecks, dental procedures, phone calls and more.
@@ -61,17 +61,7 @@ First release of OpenBark for iPhone.
 
 Apple asks what data is *collected*: sent off the device in a way the developer or partners can access.
 
-**Default (sync off, the release state until the security review is done): Data Not Collected.** Recordings, transcripts and notes stay on the device; model downloads send nothing about the user.
-
-When encrypted sync ships in the App Store build, declare (conservative reading, recommended):
-
-| Data type | Collected | Linked to the user | Tracking | Purpose |
-|---|---|---|---|---|
-| Contact info: email address | Yes, only with sync on | Yes | No | App functionality (sign-in codes) |
-| Identifiers: user ID | Yes, only with sync on | Yes | No | App functionality (the account and its devices) |
-| User content: other user content | Yes, end-to-end encrypted, only with sync on | Yes | No | App functionality (sync between the person's own devices). Note in the review notes that we can't read it |
-
-When clinic accounts ship (ADR-0028, phase 2): Usage data, product interaction (daily counts only, when a member turns on "Share usage counts"), linked to the user, app functionality and analytics for the clinic. No tracking.
+**Data Not Collected**, with or without sync (ADR-0029). Recordings, transcripts and notes stay on the clinic's own devices; model downloads send nothing about the user. Encrypted sync and the clinic dashboard go between the clinic's devices and its own hub computer on its own network, never to ANI.ML Health or a partner, so nothing is "collected" in Apple's sense. Re-check this answer if that ever changes.
 
 ## 4. Export compliance
 
@@ -85,11 +75,11 @@ The app uses standard encryption (XChaCha20-Poly1305, X25519, Ed25519, Argon2id,
 >
 > Writing notes on the phone is optional (Settings, Write notes on this iPhone) and downloads a small model sized for the device.
 >
-> Recordings never leave the device. If encrypted sync is offered, its contents are end-to-end encrypted with keys held only on the user's devices; we can't read them. Account deletion is in Settings, Encrypted sync, Delete my sync account.
+> Recordings never leave the device. If encrypted sync is offered, it runs between the clinic's own devices and a computer in the clinic (the clinic hub) on the clinic's network; there are no OpenBark accounts and no servers of ours. The app asks for Local Network access only when sync is turned on, to find the clinic hub.
 >
 > Contact: **Owner** to fill in (name, phone, email for the review team).
 
-Account deletion is required for apps that create accounts (guideline 5.1.1(v)): the app has **Delete my sync account** in Settings.
+The app creates no accounts with us (guideline 5.1.1(v) doesn't apply). A person can remove a device from sync, or turn sync off, in Settings.
 
 ## 6. Screenshots
 
@@ -117,7 +107,7 @@ Free apps don't need the Paid Apps agreement, tax or banking.
 
 - [ ] TestFlight build installed on a test iPhone: recording survives locking, backgrounding and a phone call (M3 phase 1).
 - [ ] Redesigned phone screens merged (ADR-0027).
-- [ ] Decide whether the first App Store version includes encrypted sync. If yes: the hosted Supabase is set up (`supabase/README.md`), the external security review is done, and the privacy label above is updated.
+- [ ] Decide whether the first App Store version includes encrypted sync through the clinic hub (ADR-0029). If yes: the external security review is done, the Local Network permission text is reviewed, and the hub has been tried on a real clinic network.
 - [ ] Privacy policy reviewed by the owner and counsel, live at /privacy.
 - [ ] Screenshots made and checked.
 - [ ] Version and build number set (`apps/desktop/src-tauri/tauri.conf.json`).
