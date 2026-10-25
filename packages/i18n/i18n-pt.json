@@ -1814,6 +1814,7 @@
   "Write the medical record for this consultation under the headings below. Leave empty for the default.": "Escreva o prontuário desta consulta nas seções abaixo. Deixe em branco para usar o padrão.",
   "Write the report as numbered steps in the order described": "Escrever o relatório em etapas numeradas na ordem descrita",
   "Writes your notes. Choose another model first.": "Escreve suas notas. Escolha outro modelo primeiro.",
+  "Writing notes on the phone needs an iPhone with 8 GB of memory or more. Record here, and draft the note on your computer.": "Escrever notas no telefone requer um iPhone com 8 GB de memória ou mais. Grave aqui e escreva a nota no seu computador.",
   "Writing notes on this iPhone is optional. It uses a small model that fits this iPhone's memory ({ram} GB). Recording and transcribing need only the speech models.": "Escrever notas neste iPhone é opcional. Usa um modelo pequeno que cabe na memória deste iPhone ({ram} GB). Para gravar e transcrever bastam os modelos de voz.",
   "Writing note…": "Escrevendo a nota…",
   "Writing the draft.": "Escrevendo o rascunho.",

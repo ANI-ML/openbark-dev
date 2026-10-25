@@ -216,13 +216,13 @@ export function Models() {
       )}
 
       {phone ? (
-        <p className="ob-notice" data-tone={tier ? undefined : "danger"} data-testid="phone-tier">
-          {tier
+        <p className="ob-notice" data-tone={tier && tier >= 8 ? undefined : "danger"} data-testid="phone-tier">
+          {tier && tier >= 8
             ? t(
                 "Writing notes on this iPhone is optional. It uses a small model that fits this iPhone's memory ({ram} GB). Recording and transcribing need only the speech models.",
                 { ram: tier },
               )
-            : t("OpenBark needs an iPhone with 6 GB of memory or more to write notes on the phone.")}
+            : t("Writing notes on the phone needs an iPhone with 8 GB of memory or more. Record here, and draft the note on your computer.")}
         </p>
       ) : (
         <ModelGuide

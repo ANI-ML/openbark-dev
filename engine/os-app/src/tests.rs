@@ -1616,12 +1616,20 @@ fn phone_tiers_change_the_default_and_what_fits() {
     {
         let _six = os_models::platform::override_for_tests(Profile::Ios, Some(5.7));
         let s = app.status();
-        assert_eq!((s.mobile_tier, s.default_llm.as_str()), (Some(6), "qwen3-1.7b-q4_k_m"));
+        assert_eq!((s.mobile_tier, s.default_llm.as_str()), (Some(6), ""), "6 GB phones don't draft");
         let rows = app.models();
         let e2b = rows.iter().find(|r| r.id == "gemma-4-e2b-it-q4_0").unwrap();
-        assert_eq!(e2b.fit, Fit::WontFit, "3.35 GB is over a 6 GB phone's budget");
+        assert_eq!(e2b.fit, Fit::WontFit);
+        assert_eq!(
+            e2b.phone_note.as_deref(),
+            Some(
+                "Writing notes on the phone needs an iPhone with 8 GB of memory or more. Record here, and draft the note on your computer."
+            )
+        );
+        let qwen = rows.iter().find(|r| r.id == "qwen3-1.7b-q4_k_m").unwrap();
+        assert_eq!(qwen.fit, Fit::WontFit, "no drafting model on 6 GB phones");
         let nemotron = rows.iter().find(|r| r.id == "nemotron-3-nano-4b-q4_k_m").unwrap();
-        assert_eq!(nemotron.fit, Fit::WontFit, "4B and 2.84 GB are over a 6 GB phone's caps");
+        assert_eq!(nemotron.fit, Fit::WontFit);
     }
     {
         let _twelve = os_models::platform::override_for_tests(Profile::Ios, Some(11.4));
@@ -1637,7 +1645,9 @@ fn phone_tiers_change_the_default_and_what_fits() {
         let e2b = app.models().into_iter().find(|r| r.id == "gemma-4-e2b-it-q4_0").unwrap();
         assert_eq!(
             e2b.phone_note.as_deref(),
-            Some("OpenBark needs an iPhone with 6 GB of memory or more to write notes on the phone.")
+            Some(
+                "Writing notes on the phone needs an iPhone with 8 GB of memory or more. Record here, and draft the note on your computer."
+            )
         );
     }
     // Back on a computer.

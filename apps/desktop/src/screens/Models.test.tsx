@@ -672,7 +672,7 @@ describe("Models on a phone", () => {
     show(phoneCtx(null));
     await screen.findByText("Gemma 4 E2B", { selector: "td > div" });
     expect(screen.getByTestId("phone-tier").textContent).toBe(
-      "OpenBark needs an iPhone with 6 GB of memory or more to write notes on the phone.",
+      "Writing notes on the phone needs an iPhone with 8 GB of memory or more. Record here, and draft the note on your computer.",
     );
   });
 

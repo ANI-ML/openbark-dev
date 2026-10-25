@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useApp, type Settings } from "../context";
 import * as engine from "../engine";
 import { useT } from "../i18n";
-import { isIos } from "../visits";
+import { isIos, phoneCanDraft } from "../visits";
 import { ConsentCheck, ConsentText } from "./ConsentNotice";
 import { PhoneDrafting } from "./PhoneDrafting";
 
@@ -165,9 +165,11 @@ export function PhoneWalkthrough({ onDone }: { onDone?: () => void } = {}) {
                   : t("The speech models aren't on this iPhone yet. Download them in Models.")}
               </span>
             </p>
-            <p className="small muted">
-              {t("Writing the note on this iPhone is optional. It needs one more model, downloaded once.")}
-            </p>
+            {phoneCanDraft(app.status) && (
+              <p className="small muted">
+                {t("Writing the note on this iPhone is optional. It needs one more model, downloaded once.")}
+              </p>
+            )}
             <ul className="inset-list">
               <PhoneDrafting walkthrough />
             </ul>
@@ -202,16 +204,18 @@ export function PhoneWalkthrough({ onDone }: { onDone?: () => void } = {}) {
             <Button variant="primary" size="prominent" onClick={next}>
               {t("Continue")}
             </Button>
-            <Button
-              variant="ghost"
-              size="prominent"
-              onClick={() => {
-                app.setSettings({ writeNotesHere: false });
-                next();
-              }}
-            >
-              {t("Not now")}
-            </Button>
+            {phoneCanDraft(app.status) && (
+              <Button
+                variant="ghost"
+                size="prominent"
+                onClick={() => {
+                  app.setSettings({ writeNotesHere: false });
+                  next();
+                }}
+              >
+                {t("Not now")}
+              </Button>
+            )}
           </>
         )}
         {step === 3 && (

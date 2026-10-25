@@ -36,7 +36,12 @@ export interface Settings {
   /** What Copy note puts on the clipboard. */
   copyFormat: "plain" | "formatted" | "markdown";
   copyCitations: boolean;
-  /** iPhone profile: draft notes on the phone itself, or leave drafting to a computer (ADR-0027). */
+  /**
+   * iPhone profile: draft notes on the phone itself, or leave drafting to a
+   * computer (ADR-0027). Off until the person turns it on: drafting on the
+   * phone is opt-in (owner decision of 2026-10-19, ADR-0018 section 10), and
+   * iPhones with less than 8 GB never draft.
+   */
   writeNotesHere: boolean;
   /** iPhone profile: when the first-run walkthrough was finished or skipped. */
   walkthroughDoneAt: string | null;
@@ -78,7 +83,7 @@ const DEFAULTS: Settings = {
   pageSize: "letter",
   copyFormat: "plain",
   copyCitations: false,
-  writeNotesHere: true,
+  writeNotesHere: false,
   walkthroughDoneAt: null,
   showWalkthrough: false,
 };

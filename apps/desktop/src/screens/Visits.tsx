@@ -7,6 +7,7 @@ import { sourceLabel, useT } from "../i18n";
 import { PHONE, useMediaQuery } from "../useMediaQuery";
 import {
   animalFamily,
+  draftsOnThisDevice,
   firstWhen,
   inWhen,
   isIos,
@@ -69,7 +70,7 @@ export function Visits() {
     stopped: t("Not syncing"),
   };
   const pill = (r: engine.SessionSummary) => {
-    const s = visitStatus(r, app.status, t, !(isIos(app.status) && !app.settings.writeNotesHere));
+    const s = visitStatus(r, app.status, t, draftsOnThisDevice(app.status, app.settings.writeNotesHere));
     return <StatusDot tone={s.tone}>{s.text}</StatusDot>;
   };
 

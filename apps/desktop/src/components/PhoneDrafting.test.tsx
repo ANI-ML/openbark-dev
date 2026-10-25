@@ -70,7 +70,7 @@ afterEach(cleanup);
 describe("Write notes on this iPhone (ADR-0018 section 10)", () => {
   it("offers nothing while it's off", () => {
     mocked.models.mockResolvedValue([qwen]);
-    const c = show(ctx(false, 6));
+    const c = show(ctx(false, 8));
     expect(screen.queryByTestId("phone-drafting-offer")).toBeNull();
     fireEvent.click(screen.getByRole("checkbox", { name: "Write notes on this iPhone" }));
     expect(c.setSettings).toHaveBeenCalledWith({ writeNotesHere: true });
@@ -79,7 +79,7 @@ describe("Write notes on this iPhone (ADR-0018 section 10)", () => {
   it("offers the tier's model with its size, and downloads it", async () => {
     mocked.models.mockResolvedValue([qwen]);
     mocked.downloadModel.mockResolvedValue(undefined);
-    const c = show(ctx(true, 6));
+    const c = show(ctx(true, 8));
     expect(
       await screen.findByText("Notes on this iPhone are written by Qwen3 1.7B, a 1.1 GB download. Wi-Fi is recommended."),
     ).toBeTruthy();
@@ -93,14 +93,24 @@ describe("Write notes on this iPhone (ADR-0018 section 10)", () => {
 
   it("says nothing more once the model is on the phone", async () => {
     mocked.models.mockResolvedValue([{ ...qwen, installed: true }]);
-    show(ctx(true, 6));
+    show(ctx(true, 8));
     await waitFor(() => expect(mocked.models).toHaveBeenCalled());
     expect(screen.queryByTestId("phone-drafting-offer")).toBeNull();
   });
 
-  it("explains a phone too small to write notes", () => {
-    mocked.models.mockResolvedValue([]);
-    show(ctx(true, null));
-    expect(screen.getByText("OpenBark needs an iPhone with 6 GB of memory or more to write notes on the phone.")).toBeTruthy();
+  it("offers no drafting on a 6 GB iPhone, and says to draft on the computer", () => {
+    mocked.models.mockResolvedValue([qwen]);
+    for (const tier of [6, null]) {
+      show(ctx(true, tier));
+      expect(screen.getByText("Writing notes on the phone needs an iPhone with 8 GB of memory or more. Record here, and draft the note on your computer.")).toBeTruthy();
+      expect(screen.queryByRole("checkbox", { name: "Write notes on this iPhone" })).toBeNull();
+      expect(screen.queryByTestId("phone-drafting-offer")).toBeNull();
+      cleanup();
+    }
+    expect(mocked.models).not.toHaveBeenCalled();
+  });
+
+  it("is off by default (drafting on the phone is opt-in)", () => {
+    expect(loadSettings().writeNotesHere).toBe(false);
   });
 });

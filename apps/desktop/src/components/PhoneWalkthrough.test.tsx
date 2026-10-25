@@ -112,7 +112,8 @@ describe("The iPhone walkthrough", () => {
     // 3. Notes on this iPhone: the speech models are built in.
     expect(screen.getByRole("heading", { name: "Notes on this iPhone" })).toBeTruthy();
     expect(screen.getByText(/speech models are already on this iPhone/)).toBeTruthy();
-    expect(screen.getByRole("checkbox", { name: "Write notes on this iPhone" })).toBeTruthy();
+    // Offered, and off until the person turns it on (drafting on the phone is opt-in).
+    expect((screen.getByRole("checkbox", { name: "Write notes on this iPhone" }) as HTMLInputElement).checked).toBe(false);
     next("Continue");
 
     // 4. The clinic computer, then Record; finishing is remembered.
@@ -130,6 +131,20 @@ describe("The iPhone walkthrough", () => {
     expect(mocked.micTestStart).not.toHaveBeenCalled();
     // Consent wasn't accepted, so the notice still asks for it afterwards.
     expect(c.setSettings).not.toHaveBeenCalledWith(expect.objectContaining({ consentAcknowledgedAt: expect.any(String) }));
+  });
+
+  it("offers no drafting on a 6 GB iPhone", () => {
+    const c = ctx();
+    c.status = { ...ios, mobile_tier: 6, default_llm: "" } as unknown as engine.Status;
+    show(c);
+    next("Get started");
+    fireEvent.click(screen.getByRole("checkbox", { name: "I understand, and I'll get consent from clients before recording." }));
+    next("Continue");
+    expect(
+      screen.getByText("Writing notes on the phone needs an iPhone with 8 GB of memory or more. Record here, and draft the note on your computer."),
+    ).toBeTruthy();
+    expect(screen.queryByRole("checkbox", { name: "Write notes on this iPhone" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Not now" })).toBeNull();
   });
 
   it("says plainly when the microphone is blocked", async () => {

@@ -16,13 +16,15 @@ export function PhoneDrafting({ walkthrough = false }: { walkthrough?: boolean }
   const t = useT();
   const on = app.settings.writeNotesHere;
   const tier = app.status?.mobile_tier ?? null;
+  // 6 GB iPhones don't draft: no model within their budget met the bar.
+  const canDraft = tier !== null && tier >= 8;
   const wanted = app.status?.default_llm ?? "";
   const [row, setRow] = useState<engine.ModelRow | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!on || !wanted) return;
+    if (!on || !wanted || !canDraft) return;
     let live = true;
     engine.models().then(
       (rows) => live && setRow(rows.find((r) => r.id === wanted) ?? null),
@@ -31,7 +33,7 @@ export function PhoneDrafting({ walkthrough = false }: { walkthrough?: boolean }
     return () => {
       live = false;
     };
-  }, [on, wanted]);
+  }, [on, wanted, canDraft]);
 
   useEffect(() => {
     if (!on || !wanted) return;
@@ -61,7 +63,23 @@ export function PhoneDrafting({ walkthrough = false }: { walkthrough?: boolean }
 
   const name = row?.name.replace(/\s*\([^)]*\)/g, "") ?? "";
   const size = row ? fmtBytes(row.size_bytes) : "";
-  const offer = on && row && !row.installed;
+  const offer = on && canDraft && row && !row.installed;
+
+  if (!canDraft) {
+    return (
+      <li className="phone-drafting">
+        <div className="inset-row settings-row" aria-disabled="true">
+          <span className="inset-icon" aria-hidden>
+            <PenLine size={20} />
+          </span>
+          <span className="inset-text">
+            <span>{t("Write notes on this iPhone")}</span>
+            <span className="small muted">{t("Writing notes on the phone needs an iPhone with 8 GB of memory or more. Record here, and draft the note on your computer.")}</span>
+          </span>
+        </div>
+      </li>
+    );
+  }
 
   return (
     <li className="phone-drafting">
@@ -77,11 +95,6 @@ export function PhoneDrafting({ walkthrough = false }: { walkthrough?: boolean }
           onChange={(e) => app.setSettings({ writeNotesHere: e.target.checked })}
         />
       </label>
-      {on && !tier && (
-        <p className="small muted phone-drafting-body" role="status">
-          {t("OpenBark needs an iPhone with 6 GB of memory or more to write notes on the phone.")}
-        </p>
-      )}
       {offer && (
         <div className="phone-drafting-body" data-testid="phone-drafting-offer">
           <p className="small">

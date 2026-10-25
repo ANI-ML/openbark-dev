@@ -1013,7 +1013,12 @@ mod tests {
             let params = c["params_b"].as_f64();
             for tier in c["tiers"].as_array().unwrap() {
                 let tier = tier.as_u64().unwrap() as u32;
-                let t = os_models::platform::TIERS.iter().find(|t| t.ram_gb == tier).copied();
+                // The tier's budget and cap, even for a tier that no longer
+                // drafts (6 GB): the candidates were compared against them.
+                let t = os_models::platform::TIERS
+                    .iter()
+                    .find(|t| t.ram_gb == tier)
+                    .map(|t| os_models::platform::Tier { default_llm: "compared", ..*t });
                 assert!(t.is_some(), "{id}: no {tier} GB tier");
                 assert_eq!(
                     os_models::platform::check_gguf(t, file, size, params),

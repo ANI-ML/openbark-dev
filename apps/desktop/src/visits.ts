@@ -79,6 +79,19 @@ export const needsYou = (r: SessionSummary) => !r.signed;
 /** The phone profile (ADR-0018 section 10): no signing during the pilot (ADR-0027). */
 export const isIos = (status: Status | null | undefined) => status?.profile === "ios";
 
+/**
+ * Notes are drafted on this device: always on a computer; on an iPhone only
+ * when the person turned on Write notes on this iPhone and the phone has
+ * 8 GB or more (ADR-0018 section 10: no 6 GB model met the bar).
+ */
+export function draftsOnThisDevice(status: Status | null | undefined, writeNotesHere: boolean): boolean {
+  if (!isIos(status)) return true;
+  return writeNotesHere && phoneCanDraft(status);
+}
+
+/** An iPhone of the 8 or 12 GB tier: one that may write notes itself. */
+export const phoneCanDraft = (status: Status | null | undefined) => (status?.mobile_tier ?? 0) >= 8;
+
 /** "this iPhone" or "this computer", already translated. */
 export function thisDevice(status: Status | null | undefined, t: Translate): string {
   return isIos(status) ? t("this iPhone") : t("this computer");
