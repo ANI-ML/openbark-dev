@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { fmtBytes, useApp } from "../context";
 import * as engine from "../engine";
 import { useT } from "../i18n";
+import { noPhoneDrafting, phoneCanDraft } from "../visits";
 
 /**
  * "Write notes on this iPhone" (Settings on the iPhone, ADR-0018 section 10).
@@ -15,9 +16,8 @@ export function PhoneDrafting({ walkthrough = false }: { walkthrough?: boolean }
   const app = useApp();
   const t = useT();
   const on = app.settings.writeNotesHere;
-  const tier = app.status?.mobile_tier ?? null;
   // 6 GB iPhones don't draft: no model within their budget met the bar.
-  const canDraft = tier !== null && tier >= 8;
+  const canDraft = phoneCanDraft(app.status);
   const wanted = app.status?.default_llm ?? "";
   const [row, setRow] = useState<engine.ModelRow | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -74,7 +74,7 @@ export function PhoneDrafting({ walkthrough = false }: { walkthrough?: boolean }
           </span>
           <span className="inset-text">
             <span>{t("Write notes on this iPhone")}</span>
-            <span className="small muted">{t("Writing notes on the phone needs an iPhone with 8 GB of memory or more. Record here, and draft the note on your computer.")}</span>
+            <span className="small muted">{noPhoneDrafting(app.status, t)}</span>
           </span>
         </div>
       </li>

@@ -624,6 +624,10 @@ pub struct Status {
     /// The model that writes notes unless the person picks another: Gemma 4
     /// E4B on a computer, the tier's small model on a phone.
     pub default_llm: String,
+    /// This build can write notes (it has llama.cpp: the `inference`
+    /// feature). Phone builds turn on transcription first; until one with
+    /// `inference` ships, a phone doesn't offer drafting (ADR-0018 section 1).
+    pub can_draft: bool,
 }
 
 /// A visit as listed under a patient.
@@ -1384,6 +1388,7 @@ impl App {
             profile: Profile::current(),
             mobile_tier: self.phone_tier().flatten().map(|t| t.ram_gb),
             default_llm: self.default_llm(),
+            can_draft: cfg!(feature = "inference"),
         }
     }
 

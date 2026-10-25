@@ -89,8 +89,19 @@ export function draftsOnThisDevice(status: Status | null | undefined, writeNotes
   return writeNotesHere && phoneCanDraft(status);
 }
 
-/** An iPhone of the 8 or 12 GB tier: one that may write notes itself. */
-export const phoneCanDraft = (status: Status | null | undefined) => (status?.mobile_tier ?? 0) >= 8;
+/**
+ * An iPhone that may write notes itself: the 8 or 12 GB tier, in a build that
+ * has llama.cpp (`can_draft`; phone builds without it only transcribe).
+ */
+export const phoneCanDraft = (status: Status | null | undefined) =>
+  (status?.mobile_tier ?? 0) >= 8 && status?.can_draft !== false;
+
+/** Why this iPhone doesn't write notes itself, translated (when [`phoneCanDraft`] is false). */
+export function noPhoneDrafting(status: Status | null | undefined, t: Translate): string {
+  return (status?.mobile_tier ?? 0) >= 8
+    ? t("This version of OpenBark doesn't write notes on the iPhone yet. Record here, and draft the note on your computer.")
+    : t("Writing notes on the phone needs an iPhone with 8 GB of memory or more. Record here, and draft the note on your computer.");
+}
 
 /** "this iPhone" or "this computer", already translated. */
 export function thisDevice(status: Status | null | undefined, t: Translate): string {

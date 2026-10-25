@@ -12,6 +12,7 @@ import { ModelGuide, ModelMeaning, ModelTags } from "../components/ModelGuide";
 import { RemoveModelDialog, rowBytes } from "../components/RemoveModelDialog";
 import { PHONE_STARTERS, STARTERS } from "../modelGuide";
 import { PHONE, useMediaQuery } from "../useMediaQuery";
+import { noPhoneDrafting, phoneCanDraft } from "../visits";
 import "./Models.css";
 
 const SLOT_LABEL: Record<engine.Slot, string> = {
@@ -216,13 +217,13 @@ export function Models() {
       )}
 
       {phone ? (
-        <p className="ob-notice" data-tone={tier && tier >= 8 ? undefined : "danger"} data-testid="phone-tier">
-          {tier && tier >= 8
+        <p className="ob-notice" data-tone={phoneCanDraft(app.status) ? undefined : "danger"} data-testid="phone-tier">
+          {phoneCanDraft(app.status)
             ? t(
                 "Writing notes on this iPhone is optional. It uses a small model that fits this iPhone's memory ({ram} GB). Recording and transcribing need only the speech models.",
-                { ram: tier },
+                { ram: tier ?? "" },
               )
-            : t("Writing notes on the phone needs an iPhone with 8 GB of memory or more. Record here, and draft the note on your computer.")}
+            : noPhoneDrafting(app.status, t)}
         </p>
       ) : (
         <ModelGuide

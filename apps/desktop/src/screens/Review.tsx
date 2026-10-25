@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { MoreMenu } from "../components/MoreMenu";
 import { PHONE, useMediaQuery } from "../useMediaQuery";
-import { animalFamily, draftsOnThisDevice, isIos, phoneCanDraft, recordedLine, thisDevice } from "../visits";
+import { animalFamily, draftsOnThisDevice, isIos, noPhoneDrafting, phoneCanDraft, recordedLine, thisDevice } from "../visits";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DeleteRecordingDialog } from "../components/DeleteRecordingDialog";
 import { DeleteVisitMenu } from "../components/DeleteVisitMenu";
@@ -1197,7 +1197,7 @@ export function Review({
                   <p className="muted">
                     {phoneCanDraft(app.status)
                       ? t("Notes are written on your computer. Turn on Write notes on this iPhone in Settings to write them here.")
-                      : t("Writing notes on the phone needs an iPhone with 8 GB of memory or more. Record here, and draft the note on your computer.")}
+                      : noPhoneDrafting(app.status, t)}
                   </p>
                 )}
               </div>

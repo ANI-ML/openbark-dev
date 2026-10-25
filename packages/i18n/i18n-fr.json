@@ -1622,6 +1622,7 @@
   "This template changed while you were editing. Your changes are still here. Compare, then save again.": "Ce modèle a changé pendant votre modification. Vos changements sont toujours là. Comparez, puis enregistrez de nouveau.",
   "This template has no original to go back to. Delete it instead.": "Ce modèle n'a pas d'original auquel revenir. Supprimez-le plutôt.",
   "This template is no longer built in. Your version still works.": "Ce modèle n'est plus intégré. Votre version fonctionne toujours.",
+  "This version of OpenBark doesn't write notes on the iPhone yet. Record here, and draft the note on your computer.": "Cette version d'OpenBark ne rédige pas encore les notes sur l'iPhone. Enregistrez ici et rédigez la note sur votre ordinateur.",
   "This visit also has notes for {pets}. They're deleted with it.": "Cette visite contient aussi des notes pour {pets}. Elles sont supprimées avec elle.",
   "This visit has a signed note. Only a veterinarian can remove it before {date}.": "Cette visite comporte une note signée. Seul un vétérinaire peut l'effacer avant le {date}.",
   "This visit has no recording.": "Cette visite n'a pas d'enregistrement.",

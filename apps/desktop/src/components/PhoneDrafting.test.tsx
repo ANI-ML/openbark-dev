@@ -110,6 +110,17 @@ describe("Write notes on this iPhone (ADR-0018 section 10)", () => {
     expect(mocked.models).not.toHaveBeenCalled();
   });
 
+  it("offers no drafting in a phone build without llama.cpp", () => {
+    mocked.models.mockResolvedValue([qwen]);
+    const c = ctx(true, 12);
+    c.status = { ...c.status, can_draft: false } as engine.Status;
+    show(c);
+    expect(
+      screen.getByText("This version of OpenBark doesn't write notes on the iPhone yet. Record here, and draft the note on your computer."),
+    ).toBeTruthy();
+    expect(screen.queryByRole("checkbox", { name: "Write notes on this iPhone" })).toBeNull();
+  });
+
   it("is off by default (drafting on the phone is opt-in)", () => {
     expect(loadSettings().writeNotesHere).toBe(false);
   });
