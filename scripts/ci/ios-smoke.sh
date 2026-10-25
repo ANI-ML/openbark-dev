@@ -34,37 +34,42 @@ data="$(xcrun simctl get_app_container "$udid" "$bundle" data)"
 marker="$data/Library/Application Support/OpenBark/smoke-webview.txt"
 rm -f "$marker"
 
-launch() {
-  SIMCTL_CHILD_OPENBARK_SMOKE=1 SIMCTL_CHILD_RUST_LOG=info \
-    xcrun simctl launch --console-pty --terminate-running-process "$udid" "$bundle" >> "$out/app.log" 2>&1 &
-  launcher=$!
+# The app's own log, streamed from the simulator (no terminal needed).
+xcrun simctl spawn "$udid" log stream --style compact --level info \
+  --predicate 'subsystem BEGINSWITH "health.animl.openbark" OR process == "OpenBark"' > "$out/app.log" 2>&1 &
+logger=$!
+
+running() {
+  xcrun simctl spawn "$udid" launchctl list 2>/dev/null | grep -q "$bundle"
 }
 
-# Right after a first boot, Springboard can drop the launch without a word
-# (no process id, nothing in the log): if nothing started within 30 s, launch
-# once more. An app that started and then failed is not retried.
-: > "$out/app.log"
-launch
+# Launch without a console: on CI runners there's no terminal, and right after
+# a first boot Springboard can drop a launch without a word. Check the app is
+# really running and launch again (up to three times) if it isn't.
 ok=0
-for i in $(seq 1 120); do
-  if [ -f "$marker" ]; then ok=1; break; fi
-  if [ "$i" -eq 30 ] && [ ! -s "$out/app.log" ]; then
-    echo "the first launch didn't start the app; launching again"
-    kill "$launcher" 2>/dev/null || true
-    launch
+for attempt in 1 2 3; do
+  if SIMCTL_CHILD_OPENBARK_SMOKE=1 SIMCTL_CHILD_RUST_LOG=info \
+    xcrun simctl launch --terminate-running-process "$udid" "$bundle" >> "$out/launch.log" 2>&1; then
+    sleep 5
+    running && break
   fi
+  echo "launch $attempt didn't start the app; trying again"
+  sleep 10
+done
+for _ in $(seq 1 120); do
+  if [ -f "$marker" ]; then ok=1; break; fi
   sleep 1
 done
 sleep 3
 xcrun simctl io "$udid" screenshot "$out/simulator.png" || true
-kill "$launcher" 2>/dev/null || true
 xcrun simctl terminate "$udid" "$bundle" || true
+kill "$logger" 2>/dev/null || true
 # Anything the app left in its container (names only).
 find "$data" -maxdepth 5 -print > "$out/container.txt" 2>/dev/null || true
 
 if [ "$ok" -ne 1 ]; then
   echo "The WebView never loaded the interface (no $marker after 120 s)." >&2
-  tail -50 "$out/app.log" >&2 || true
+  tail -50 "$out/launch.log" "$out/app.log" >&2 || true
   exit 1
 fi
 echo "WebView smoke test passed: the interface loaded and reached the engine (version $(cat "$marker"))."
