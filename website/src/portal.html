@@ -61,6 +61,197 @@
       <button class="btn btn-ghost" type="button" id="sign-out"><svg class="lucide" viewBox="0 0 24 24" aria-hidden="true"><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/></svg>Sign out</button>
     </header>
 
+    <!-- Clinics (ADR-0028): invites waiting for this account, then the chosen
+         clinic. Admins get the dashboard; members their own counts. Filled by
+         portal.js; hidden until there is something to show. -->
+    <div class="cl" id="clinic-area" hidden>
+      <section class="pt-card cl-invited" id="clinic-invited" aria-labelledby="clinic-invited-h" hidden>
+        <div class="pt-card-head">
+          <h2 id="clinic-invited-h">You're invited to a clinic</h2>
+          <p>The clinic's admins will see the name you choose here and your role. Daily usage counts are shared only if you turn that on in {{PRODUCT}}, and never recordings, transcripts, notes or anything about patients.</p>
+        </div>
+        <ul class="cl-invites" id="clinic-invite-list"></ul>
+        <p class="pt-msg" id="clinic-invited-msg" role="status" aria-live="polite"></p>
+      </section>
+
+      <section class="pt-card cl-dash" id="clinic-dash" aria-labelledby="clinic-h" hidden>
+        <header class="cl-head">
+          <div class="cl-head-copy">
+            <p class="eyebrow" id="clinic-eyebrow">Your clinic</p>
+            <h2 id="clinic-h" tabindex="-1"></h2>
+            <p class="cl-sub" id="clinic-sub"></p>
+          </div>
+          <div class="field cl-switch" id="clinic-switch-wrap" hidden>
+            <label for="clinic-switch">Clinic</label>
+            <span class="select">
+              <select class="input" id="clinic-switch"></select>
+              <svg class="lucide" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+            </span>
+          </div>
+        </header>
+        <p class="pt-msg" id="clinic-msg" role="status" aria-live="polite"></p>
+
+        <!-- Admins: four tabs. -->
+        <div class="cl-admin" id="clinic-admin" hidden>
+          <div class="cl-tabs" role="tablist" aria-label="Clinic">
+            <button class="cl-tab" type="button" role="tab" id="tab-usage" aria-controls="panel-usage" aria-selected="true">Usage</button>
+            <button class="cl-tab" type="button" role="tab" id="tab-members" aria-controls="panel-members" aria-selected="false" tabindex="-1">Members</button>
+            <button class="cl-tab" type="button" role="tab" id="tab-invite" aria-controls="panel-invite" aria-selected="false" tabindex="-1">Invite people</button>
+            <button class="cl-tab" type="button" role="tab" id="tab-settings" aria-controls="panel-settings" aria-selected="false" tabindex="-1">Clinic settings</button>
+          </div>
+
+          <div class="cl-panel" role="tabpanel" id="panel-usage" aria-labelledby="tab-usage" tabindex="0">
+            <div class="cl-bar">
+              <fieldset class="cl-range">
+                <legend class="sr-only">Period</legend>
+                <div class="choices">
+                  <label class="choice"><input type="radio" name="clinic-range" value="7"><span>7 days</span></label>
+                  <label class="choice"><input type="radio" name="clinic-range" value="30" checked><span>30 days</span></label>
+                  <label class="choice"><input type="radio" name="clinic-range" value="90"><span>90 days</span></label>
+                </div>
+              </fieldset>
+              <button class="btn btn-ghost" type="button" id="usage-csv"><svg class="lucide" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg>Download CSV</button>
+            </div>
+            <p class="cl-summary" id="usage-summary" aria-live="polite"></p>
+            <dl class="cl-stats" id="usage-stats"></dl>
+            <figure class="cl-chart" id="usage-chart">
+              <figcaption>Visits recorded per day</figcaption>
+              <div class="cl-chart-plot">
+                <span class="cl-chart-max" id="usage-chart-max" aria-hidden="true"></span>
+                <svg id="usage-svg" role="img" aria-labelledby="usage-svg-label" preserveAspectRatio="none"><title id="usage-svg-label"></title></svg>
+              </div>
+              <div class="cl-chart-axis" aria-hidden="true"><span id="usage-chart-from"></span><span id="usage-chart-to"></span></div>
+            </figure>
+            <details class="how cl-alt">
+              <summary>Show each day as a table</summary>
+              <div class="cl-scroll" tabindex="0" role="region" aria-label="Usage per day"><table class="cl-table" id="usage-days"></table></div>
+            </details>
+            <h3 class="cl-h3">By member</h3>
+            <p class="cl-note">Totals for the period. Members who haven't turned on sharing show as not sharing. People who have left are counted together as former members, without names.</p>
+            <div class="cl-scroll" tabindex="0" role="region" aria-label="Usage by member"><table class="cl-table" id="usage-members"></table></div>
+            <div class="cl-two">
+              <div>
+                <h3 class="cl-h3">By platform</h3>
+                <div class="cl-scroll" tabindex="0" role="region" aria-label="Usage by platform"><table class="cl-table" id="usage-platforms"></table></div>
+              </div>
+              <div>
+                <h3 class="cl-h3">App versions</h3>
+                <div class="cl-scroll" tabindex="0" role="region" aria-label="App versions"><table class="cl-table" id="usage-versions"></table></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="cl-panel" role="tabpanel" id="panel-members" aria-labelledby="tab-members" tabindex="0" hidden>
+            <p class="cl-note">Devices and app versions are from the last 30 days, and only for people sharing usage counts.</p>
+            <div class="cl-scroll" tabindex="0" role="region" aria-label="Members"><table class="cl-table" id="members-table"></table></div>
+            <p class="pt-msg" id="members-msg" role="status" aria-live="polite"></p>
+          </div>
+
+          <div class="cl-panel" role="tabpanel" id="panel-invite" aria-labelledby="tab-invite" tabindex="0" hidden>
+            <form class="pt-form cl-invite-form" id="invite-form">
+              <div class="field">
+                <label for="invite-emails">Email addresses</label>
+                <textarea class="input cl-textarea" id="invite-emails" rows="4" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="invite-help" required></textarea>
+                <p class="help" id="invite-help">One per line, or separated by commas. Up to 50 at a time. People without an account get an email; people who already have one see the invite when they next sign in here. Invites last 14 days.</p>
+              </div>
+              <fieldset class="field">
+                <legend>Role</legend>
+                <div class="choices">
+                  <label class="choice"><input type="radio" name="invite-role" value="member" checked><span>Member</span></label>
+                  <label class="choice"><input type="radio" name="invite-role" value="admin"><span>Admin</span></label>
+                </div>
+                <p class="help">Admins can invite and remove people and see this dashboard.</p>
+              </fieldset>
+              <div class="pt-actions">
+                <button class="btn btn-primary" type="submit">Send invites</button>
+                <p class="pt-msg" id="invite-msg" role="status" aria-live="polite"></p>
+              </div>
+              <ul class="cl-results" id="invite-results" hidden></ul>
+            </form>
+
+            <h3 class="cl-h3">Waiting to be accepted</h3>
+            <div class="cl-scroll" tabindex="0" role="region" aria-label="Pending invites"><table class="cl-table" id="invites-table"></table></div>
+            <p class="pt-msg" id="invites-msg" role="status" aria-live="polite"></p>
+
+            <h3 class="cl-h3">Join code</h3>
+            <p class="cl-note">For someone who will join from the {{PRODUCT}} app, or who would rather not give an email address now. Each code works once, for 14 days, and joins as a member.</p>
+            <div class="pt-actions">
+              <button class="btn btn-ghost" type="button" id="code-make">Make a join code</button>
+              <p class="pt-msg" id="code-msg" role="status" aria-live="polite"></p>
+            </div>
+            <div class="cl-code" id="code-shown" hidden>
+              <p class="cl-code-value mono" id="code-value"></p>
+              <p class="help" id="code-help">Shown once. Give it to the person now; it can't be shown again. It expires on <span id="code-expires"></span>.</p>
+              <button class="btn btn-ghost" type="button" id="code-copy">Copy</button>
+            </div>
+            <div class="cl-scroll" tabindex="0" role="region" aria-label="Unused join codes"><table class="cl-table" id="codes-table"></table></div>
+          </div>
+
+          <div class="cl-panel" role="tabpanel" id="panel-settings" aria-labelledby="tab-settings" tabindex="0" hidden>
+            <form class="pt-form cl-narrow" id="rename-form">
+              <div class="field">
+                <label for="rename-name">Clinic name</label>
+                <input class="input" id="rename-name" type="text" maxlength="120" autocomplete="organization" required>
+              </div>
+              <div class="pt-actions">
+                <button class="btn btn-ghost" type="submit">Rename</button>
+                <p class="pt-msg" id="rename-msg" role="status" aria-live="polite"></p>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- Everyone in the clinic: their own counts, their name, sharing, leave. -->
+        <div class="cl-mine" id="clinic-mine">
+          <div class="cl-mine-grid">
+            <section class="cl-block" aria-labelledby="mine-h">
+              <h3 class="cl-h3" id="mine-h">Your usage</h3>
+              <p class="cl-note" id="mine-sharing"></p>
+              <dl class="cl-stats cl-stats-sm" id="mine-stats"></dl>
+            </section>
+            <section class="cl-block" aria-labelledby="mine-name-h">
+              <h3 class="cl-h3" id="mine-name-h">Your name in this clinic</h3>
+              <form class="pt-form" id="mine-name-form">
+                <div class="field">
+                  <label class="sr-only" for="mine-name">Your name in this clinic</label>
+                  <input class="input" id="mine-name" type="text" maxlength="80" autocomplete="name" required>
+                  <p class="help">What this clinic's admins see.</p>
+                </div>
+                <div class="pt-actions">
+                  <button class="btn btn-ghost" type="submit">Save name</button>
+                  <p class="pt-msg" id="mine-name-msg" role="status" aria-live="polite"></p>
+                </div>
+              </form>
+            </section>
+          </div>
+          <div class="cl-leave">
+            <button class="btn btn-danger" type="button" id="leave-open" aria-expanded="false" aria-controls="leave-form">Leave this clinic</button>
+            <form class="pt-form pt-confirm" id="leave-form" hidden>
+              <p class="cl-note" id="leave-text">You'll no longer be part of this clinic. Counts you already shared stay with it, without your name, until they're 400 days old.</p>
+              <div class="pt-actions">
+                <button class="btn btn-danger" type="submit">Leave</button>
+                <button class="btn btn-ghost" type="button" id="leave-cancel">Cancel</button>
+              </div>
+              <p class="pt-msg" id="leave-msg" role="status" aria-live="polite"></p>
+            </form>
+            <button class="btn btn-danger" type="button" id="clinic-delete-open" aria-expanded="false" aria-controls="clinic-delete-form" hidden>Delete this clinic</button>
+            <form class="pt-form pt-confirm" id="clinic-delete-form" hidden>
+              <div class="field">
+                <label for="clinic-delete-name">Type the clinic's name to confirm</label>
+                <input class="input" id="clinic-delete-name" type="text" autocomplete="off" spellcheck="false">
+                <p class="help">Removes every member, invite, join code and usage count of this clinic. {{PRODUCT}} on everyone's computers keeps working, and their visits stay where they are.</p>
+              </div>
+              <div class="pt-actions">
+                <button class="btn btn-danger" type="submit" id="clinic-delete-submit" disabled>Delete the clinic</button>
+                <button class="btn btn-ghost" type="button" id="clinic-delete-cancel">Cancel</button>
+              </div>
+              <p class="pt-msg" id="clinic-delete-msg" role="status" aria-live="polite"></p>
+            </form>
+          </div>
+        </div>
+      </section>
+    </div>
+
     <div class="pt-grid">
       <div class="pt-col">
         <section class="pt-card" aria-labelledby="profile-h">
@@ -125,6 +316,48 @@
           <p>When encrypted sync arrives, the computers and phones linked to your account will be listed here, and you'll be able to remove one. Nothing is linked yet.</p>
         </section>
 
+        <section class="pt-card" aria-labelledby="clinics-h" id="clinics-card">
+          <div class="pt-card-head">
+            <h2 id="clinics-h">Clinics</h2>
+            <p id="clinics-lede">Bring your practice onto {{PRODUCT}}: invite your team by email and, for those who choose to share them, see daily usage counts. Never recordings, transcripts, notes or anything about patients.</p>
+          </div>
+          <div class="pt-actions">
+            <button class="btn btn-ghost" type="button" id="create-open" aria-expanded="false" aria-controls="create-form">Create a clinic</button>
+            <button class="btn btn-text" type="button" id="join-open" aria-expanded="false" aria-controls="join-form">I have a join code</button>
+          </div>
+          <form class="pt-form pt-confirm" id="create-form" hidden>
+            <div class="field">
+              <label for="create-name">Clinic or hospital name</label>
+              <input class="input" id="create-name" type="text" maxlength="120" autocomplete="organization" required>
+            </div>
+            <div class="field">
+              <label for="create-you">Your name, as your team will see it</label>
+              <input class="input" id="create-you" type="text" maxlength="80" autocomplete="name" required>
+            </div>
+            <p class="help">You'll be the clinic's first admin.</p>
+            <div class="pt-actions">
+              <button class="btn btn-primary" type="submit">Create clinic</button>
+              <button class="btn btn-ghost" type="button" id="create-cancel">Cancel</button>
+            </div>
+            <p class="pt-msg" id="create-msg" role="status" aria-live="polite"></p>
+          </form>
+          <form class="pt-form pt-confirm" id="join-form" hidden>
+            <div class="field">
+              <label for="join-code">Join code</label>
+              <input class="input mono" id="join-code" type="text" maxlength="12" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="7KQ2-M9XD" required>
+            </div>
+            <div class="field">
+              <label for="join-you">Your name, as your team will see it</label>
+              <input class="input" id="join-you" type="text" maxlength="80" autocomplete="name" required>
+            </div>
+            <div class="pt-actions">
+              <button class="btn btn-primary" type="submit">Join clinic</button>
+              <button class="btn btn-ghost" type="button" id="join-cancel">Cancel</button>
+            </div>
+            <p class="pt-msg" id="join-msg" role="status" aria-live="polite"></p>
+          </form>
+        </section>
+
         <section class="pt-card" aria-labelledby="holds-h">
           <div class="pt-card-head">
             <h2 id="holds-h">What this account holds</h2>
@@ -132,6 +365,7 @@
           <ul class="pt-holds">
             <li>Your email address</li>
             <li>The profile, if you fill it in</li>
+            <li>Clinics you belong to, your name and role in each, and the daily usage counts you choose to share with one</li>
             <li>Sign-in records kept by our provider, Supabase: times, IP address and browser</li>
           </ul>
           <p class="pt-holds-not">Never recordings, transcripts, notes or anything about patients.</p>
@@ -140,10 +374,11 @@
         <section class="pt-card" aria-labelledby="delete-h">
           <div class="pt-card-head">
             <h2 id="delete-h">Delete my account</h2>
-            <p>Deletes your sign-in and profile from our servers. {{PRODUCT}} on your computers keeps working, and your visits stay where they are.</p>
+            <p>Deletes your sign-in, profile, clinic memberships and shared usage counts from our servers. {{PRODUCT}} on your computers keeps working, and your visits stay where they are.</p>
           </div>
           <button class="btn btn-danger" type="button" id="delete-open" aria-expanded="false" aria-controls="delete-form">Delete my account</button>
           <form class="pt-form pt-confirm" id="delete-form" hidden>
+            <p class="cl-warn" id="delete-clinic-warn" hidden></p>
             <div class="field">
               <label for="delete-email">Type your email address to confirm</label>
               <input class="input" id="delete-email" type="email" autocomplete="off" autocapitalize="off" spellcheck="false">
