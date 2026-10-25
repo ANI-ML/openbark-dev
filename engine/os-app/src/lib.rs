@@ -2715,8 +2715,21 @@ impl App {
             }
         }
         // Deleted visits whose entry is missing (including any just described).
+        // A delete or restore in this process holds the visit's lock from
+        // moving the folder until its record is written: that's work in
+        // progress, not a crash to recover from. The lock is released only
+        // after the record, so a fresh read settles one that just finished.
+        let in_progress = |info: &DeletedInfo| {
+            let held = |key: String| {
+                self.visit_locks.lock().map(|h| h.contains_key(&key.to_ascii_lowercase())).unwrap_or(true)
+            };
+            held(info.original_name.clone()) || held(format!("deleted:{}", info.trash_id))
+        };
         for (info, s) in trash.list() {
-            if events.iter().any(|e| e.id == info.event_id) {
+            if events.iter().any(|e| e.id == info.event_id) || in_progress(&info) {
+                continue;
+            }
+            if audit.read_readable().is_ok_and(|now| now.iter().any(|e| e.id == info.event_id)) {
                 continue;
             }
             let mut entry = EventDraft::new(EventKind::VisitDeleted, info.by.clone(), team);
