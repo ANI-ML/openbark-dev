@@ -111,7 +111,7 @@ describe("The iPhone walkthrough", () => {
 
     // 3. Notes on this iPhone: the speech models are built in.
     expect(screen.getByRole("heading", { name: "Notes on this iPhone" })).toBeTruthy();
-    expect(screen.getByText(/speech models are built in/)).toBeTruthy();
+    expect(screen.getByText(/speech models are already on this iPhone/)).toBeTruthy();
     expect(screen.getByRole("checkbox", { name: "Write notes on this iPhone" })).toBeTruthy();
     next("Continue");
 

@@ -1552,6 +1552,7 @@
   "The request steers the model; it isn't evidence. Anything not said in the recording stays out, and numbers are checked again.": "La solicitud orienta al modelo; no es evidencia. Lo que no se dijo en la grabación queda fuera y los números se vuelven a verificar.",
   "The second recogniser heard {heard} instead of {number}. Listen to the recording before signing.": "El segundo reconocedor oyó {heard} en lugar de {number}. Escuche la grabación antes de firmar.",
   "The signed note doesn't change. The addendum is dated and signed with your name.": "La nota firmada no cambia. La adenda queda fechada y firmada con su nombre.",
+  "The speech models are already on this iPhone, so nothing needs downloading before you record.": "Los modelos de voz ya están en este iPhone, así que no hace falta descargar nada antes de grabar.",
   "The speech models are built in, so recording and transcribing work offline now.": "Los modelos de voz vienen integrados, así que grabar y transcribir ya funciona sin conexión.",
   "The speech models aren't on this iPhone yet. Download them in Models.": "Los modelos de voz aún no están en este iPhone. Descárguelos en Modelos.",
   "The template this draft was written with": "La plantilla con la que se redactó este borrador",

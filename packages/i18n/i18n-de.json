@@ -1552,6 +1552,7 @@
   "The request steers the model; it isn't evidence. Anything not said in the recording stays out, and numbers are checked again.": "Die Anfrage steuert das Modell; sie ist kein Beleg. Was in der Aufnahme nicht gesagt wurde, bleibt draußen, und Zahlen werden erneut geprüft.",
   "The second recogniser heard {heard} instead of {number}. Listen to the recording before signing.": "Die zweite Spracherkennung hörte {heard} statt {number}. Hören Sie sich die Aufnahme vor dem Unterschreiben an.",
   "The signed note doesn't change. The addendum is dated and signed with your name.": "Der unterschriebene Bericht bleibt unverändert. Der Nachtrag wird datiert und mit Ihrem Namen unterschrieben.",
+  "The speech models are already on this iPhone, so nothing needs downloading before you record.": "Die Sprachmodelle sind bereits auf diesem iPhone, vor der ersten Aufnahme muss also nichts heruntergeladen werden.",
   "The speech models are built in, so recording and transcribing work offline now.": "Die Sprachmodelle sind integriert, daher funktionieren Aufnehmen und Transkribieren jetzt auch offline.",
   "The speech models aren't on this iPhone yet. Download them in Models.": "Die Sprachmodelle sind noch nicht auf diesem iPhone. Laden Sie sie unter Modelle herunter.",
   "The template this draft was written with": "Die Vorlage, mit der dieser Entwurf geschrieben wurde",

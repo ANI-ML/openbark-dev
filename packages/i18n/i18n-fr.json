@@ -1552,6 +1552,7 @@
   "The request steers the model; it isn't evidence. Anything not said in the recording stays out, and numbers are checked again.": "La demande oriente le modèle d'IA ; elle ne sert pas de source. Ce qui n'a pas été dit dans l'enregistrement reste exclu, et les nombres sont vérifiés à nouveau.",
   "The second recogniser heard {heard} instead of {number}. Listen to the recording before signing.": "Le second moteur de reconnaissance a entendu {heard} au lieu de {number}. Écoutez l'enregistrement avant de signer.",
   "The signed note doesn't change. The addendum is dated and signed with your name.": "La note signée reste inchangée. L'addendum est daté et signé à votre nom.",
+  "The speech models are already on this iPhone, so nothing needs downloading before you record.": "Les modèles vocaux sont déjà sur cet iPhone : rien à télécharger avant d'enregistrer.",
   "The speech models are built in, so recording and transcribing work offline now.": "Les modèles vocaux sont intégrés : l'enregistrement et la transcription fonctionnent dès maintenant hors ligne.",
   "The speech models aren't on this iPhone yet. Download them in Models.": "Les modèles vocaux ne sont pas encore sur cet iPhone. Téléchargez-les dans Modèles d'IA.",
   "The template this draft was written with": "Le modèle avec lequel ce brouillon a été rédigé",
