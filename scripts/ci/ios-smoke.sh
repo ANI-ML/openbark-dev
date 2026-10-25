@@ -11,9 +11,10 @@
 #   empty. The clip is copied into the app's data container for the test
 #   only; it never ships in the app;
 # - in a build with `inference` (OPENBARK_SMOKE_DRAFT=1, the default), it
-#   drafts a SOAP note from that transcript with a tiny pinned test model
-#   (SmolLM2-135M, scripts/ci/fetch-test-gguf.sh), also copied in for the
-#   test only, and a note must come back. No LLM ships in the app.
+#   drafts a SOAP note from that transcript with a small pinned test model
+#   (Qwen2.5-0.5B-Instruct Q4_K_M, scripts/ci/fetch-test-gguf.sh: SmolLM2-135M
+#   never closes the note), also copied in for the test only, and a note
+#   must come back. No LLM ships in the app.
 # Saves a screenshot, the app's log and what it reported in <out dir>.
 #   bash scripts/ci/ios-smoke.sh <path to .app> <out dir>
 set -euo pipefail
@@ -24,8 +25,8 @@ repo="$(cd "$(dirname "$0")/../.." && pwd)"
 clip="$repo/packages/eval/fixtures/audio/smoke.wav"
 draft="${OPENBARK_SMOKE_DRAFT:-1}"
 if [ "$draft" = 1 ]; then
-  gguf="$repo/target/test-models/smollm2-135m-q4km.gguf"
-  bash "$repo/scripts/ci/fetch-test-gguf.sh" "$gguf"
+  gguf="$repo/target/test-models/qwen2.5-0.5b-instruct-q4km.gguf"
+  bash "$repo/scripts/ci/fetch-test-gguf.sh" "$gguf" qwen2.5-0.5b
 fi
 
 # The newest available iPhone simulator.
