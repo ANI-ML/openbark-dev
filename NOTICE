@@ -8,8 +8,8 @@ Third-party models that OpenBark can download are not distributed in this
 repository. When a model is offered in the app's catalog, its license and any
 required attribution are shown before download.
 
-The iPhone app ships four speech models inside the app, so nothing needs
-downloading before the first recording: Silero VAD (MIT), Parakeet TDT 0.6B v3 int8
+The iPhone app ships four speech models inside the app, so it records and
+transcribes offline right after install: Silero VAD (MIT), Parakeet TDT 0.6B v3 int8
 (CC-BY-4.0), pyannote/segmentation-3.0 (MIT) and WeSpeaker VoxCeleb
 ResNet34-LM (CC-BY-4.0), each credited below and on the app's Models screen.
 They are the files pinned in engine/os-models/catalog.json, unchanged.

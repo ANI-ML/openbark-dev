@@ -161,7 +161,7 @@ export function PhoneWalkthrough({ onDone }: { onDone?: () => void } = {}) {
               <Check size={20} aria-hidden />
               <span>
                 {speechBuiltIn
-                  ? t("The speech models are already on this iPhone, so nothing needs downloading before you record.")
+                  ? t("The speech models are built in, so recording and transcribing work offline now.")
                   : t("The speech models aren't on this iPhone yet. Download them in Models.")}
               </span>
             </p>
