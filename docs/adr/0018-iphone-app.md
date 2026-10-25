@@ -1,6 +1,6 @@
 # ADR-0018: The iPhone app
 
-- Status: accepted (owner decisions 2026-10-18; amended by the owner decisions of 2026-10-19 on mobile models, section 10). The iOS half of spike S1, run as a CI job plus a TestFlight build on the owner's iPhone, confirms or replaces the framework choice. ADR-0002 (mobile framework, reserved in M0) records that result for both iOS and Android.
+- Status: accepted (decisions of 2026-10-18; amended by the decisions of 2026-10-19 on mobile models, section 10). The iOS half of spike S1, run as a CI job plus a TestFlight build on a test iPhone, confirms or replaces the framework choice. ADR-0002 (mobile framework, reserved in M0) records that result for both iOS and Android.
 - Date: 2026-10-18 (section 10: 2026-10-19)
 - Deciders: product owner ("Start building the iPhone app"; decisions of 2026-10-18 listed in ADR-0017), engineering
 - Owner decisions that shape this ADR: builds, signing and TestFlight uploads run on GitHub Actions macOS runners, with no owner Mac; the phone records and transcribes on the device, and since 2026-10-19 it may also draft with a small model (section 10); audio never leaves the device that recorded it; the bundle id is `health.animl.openbark` and there is no signing on the phone in the pilot (both accepted by default).
@@ -48,7 +48,7 @@ Environment:
   - Face ID through LocalAuthentication.
 
   Background `URLSession` uploads and audio encoding with `AVAudioConverter` were in the earlier draft. They went with audio sync (ADR-0017 section 7).
-- **S1 gates the work.** S1's iOS audio criteria A1 to A4 must pass on the owner's iPhone, in a TestFlight build made by CI, before feature work starts.
+- **S1 gates the work.** S1's iOS audio criteria A1 to A4 must pass on a test iPhone, in a TestFlight build made by CI, before feature work starts.
   - If A1 to A3 fail, the fallback is a thin SwiftUI shell for recording and review that calls the same Rust engine through UniFFI (S1 fallback 1).
   - Sync, keys and the engine stay the same either way.
 - **Cargo features.** The phone links only what it uses:
@@ -66,7 +66,7 @@ Environment:
 |---|---|---|
 | Recording | Always. Encrypted as it records (OBA1) | Yes, as today |
 | Live and final transcription | Yes, during recording: Parakeet TDT 0.6B v3 int8 and Silero VAD through sherpa-onnx | Yes, for its own recordings, as today |
-| Drafting the note | Optional, with a small model that fits the phone's memory tier, never loaded while speech recognition is (owner decision 2026-10-19, section 10). Off until the person turns it on | Yes, as today (Gemma 4 E4B, 12B or larger), including for visits recorded on a phone |
+| Drafting the note | Optional, with a small model that fits the phone's memory tier, never loaded while speech recognition is (decision of 2026-10-19, section 10). Off until the person turns it on | Yes, as today (Gemma 4 E4B, 12B or larger), including for visits recorded on a phone |
 | Review | Read the transcript, play the audio of visits recorded on this phone, read the note, copy | Full review, Edit and Ask. For a visit recorded on a phone, the evidence link shows the transcript line and its time; the audio plays only on that phone |
 | Signing | Not in the pilot (accepted by default) | Yes, as today |
 | Templates | Choose one for the visit | Build and edit |
@@ -199,7 +199,7 @@ Windows handles everything else: all the Rust except the Apple SDK build scripts
 - **Nothing extra.** Version 1 has no analytics, no crash reporting SDK and no push notifications. A later "Draft ready" notification carries no content.
 - **Seller name.** An individual membership shows the person's name. An organisation membership shows ANI.ML Health Inc., and needs a D-U-N-S number. Which one the owner's account is remains to confirm, before the first public release.
 
-### 10. Mobile models (owner decisions, 2026-10-19)
+### 10. Mobile models (decisions of 2026-10-19)
 
 The owner decided on 2026-10-19:
 
@@ -208,7 +208,7 @@ The owner decided on 2026-10-19:
 
 | # | Decision (2026-10-19) | What changes |
 |---|---|---|
-| 1 | **On iOS the default models are the small, mobile ones.** Speech recognition: Parakeet TDT 0.6B v3 int8 through sherpa-onnx, or a smaller sherpa-onnx model if Parakeet doesn't fit. Drafting: a small GGUF on llama.cpp with Metal | This **amends "drafting stays on computers"** (owner decision 3 of 2026-10-18, sections 1 to 3 and Consequences). The phone **may** draft on the device with a small model when it can run one, and can still hand drafting to a computer through sync later |
+| 1 | **On iOS the default models are the small, mobile ones.** Speech recognition: Parakeet TDT 0.6B v3 int8 through sherpa-onnx, or a smaller sherpa-onnx model if Parakeet doesn't fit. Drafting: a small GGUF on llama.cpp with Metal | This **amends "drafting stays on computers"** (decision 3 of 2026-10-18, sections 1 to 3 and Consequences). The phone **may** draft on the device with a small model when it can run one, and can still hand drafting to a computer through sync later |
 | 2 | **On iOS the Hugging Face browser and the catalog show only mobile-friendly models:** GGUF only (no MLX), single-file or split GGUFs within a memory budget, a parameter cap, and quantisations suited to phones | The phone profile below. MLX is never shown on a phone: OpenBark's MLX engine is a Python pack (ADR-0025), which can't run on iOS (and App Review doesn't allow downloading code) |
 
 **Drafting on the phone is opt-in, not on by default** (engineering's call, asked for by the owner). Why:
@@ -217,7 +217,7 @@ The owner decided on 2026-10-19:
 - The model is a 1.1 to 3.4 GB download, on Wi-Fi; battery use and heat in the exam room are real costs.
 - Notes from 2B-class models haven't been measured against the eval fixtures yet. Gemma 4 E4B, the computers' default, is the quality reference.
 
-So the phone needs only the speech models to start (onboarding lists voice detection, Parakeet and the two speaker models; no drafting model). The Models screen offers the tier's default first. Drafting on the phone becomes on by default only by a new owner decision, after the first TestFlight build with `inference` passes S1's L1 to L3 on the owner's iPhone and the eval shows the tier default meets the bar.
+So the phone needs only the speech models to start (onboarding lists voice detection, Parakeet and the two speaker models; no drafting model). The Models screen offers the tier's default first. Drafting on the phone becomes on by default only by a new product decision, after the first TestFlight build with `inference` passes S1's L1 to L3 on a test iPhone and the eval shows the tier default meets the bar.
 
 **Memory tiers.** iOS gives each app a memory limit (jetsam) that Apple doesn't publish. The `com.apple.developer.kernel.increased-memory-limit` entitlement raises it on some devices, and `os_proc_available_memory()` reports what's left (advisory; it can change while the app runs). llama.cpp maps GGUF files, so most weight pages don't count against the limit: on an iPhone Air, Llama 3.2 3B peaked at 696 MB of `phys_footprint` under llama.cpp against 2,508 MB under MLX. The KV cache, Metal buffers, the WebView and the app do count. The budgets below are for the GGUF files on disk, set under the headroom measured without the entitlement, so a phone without it still loads the default.
 
@@ -254,7 +254,7 @@ So the phone needs only the speech models to start (onboarding lists voice detec
 
 Considered and not pinned (the Hub browser still offers them when they fit): Qwen3 4B Instruct 2507 Q4_K_M (`unsloth/Qwen3-4B-Instruct-2507-GGUF`, 2,497,281,120 bytes, Apache-2.0) for 8 GB phones; Phi-4-mini-instruct Q4_K_M (2,491,874,272 bytes, MIT, 3.84B); SmolLM3 3B Q4_K_M (1,915,305,312 bytes, Apache-2.0); Llama 3.2 1B and 3B Instruct (807,694,464 and 2,019,377,696 bytes at Q4_K_M) under the Llama 3.2 Community License, which isn't permissive, so the browser asks for it to be accepted; Qwen3 0.6B (Q8_0 only from Qwen, 639,446,688 bytes), too weak for notes. Qwen3 is a thinking model; drafting constrains its output to the template's schema from the first token, and that needs checking in the eval before Qwen3 1.7B's notes are trusted.
 
-**To revisit:** after phase 1 (Parakeet's real peak memory on the owner's iPhone) and after the first TestFlight build with `inference` (llama.cpp's `phys_footprint`, tokens per second and heat for each tier default). The budgets move with those measurements.
+**To revisit:** after phase 1 (Parakeet's real peak memory on a test iPhone) and after the first TestFlight build with `inference` (llama.cpp's `phys_footprint`, tokens per second and heat for each tier default). The budgets move with those measurements.
 
 **Sources** (checked live on 2026-10-19):
 - Apple, increased memory limit entitlement: https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.developer.kernel.increased-memory-limit
