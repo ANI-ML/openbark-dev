@@ -469,13 +469,6 @@ reason = "Owner-personal phrasing."
 # ---- docs/adr/0018-iphone-app.md
 
 [[scrub]]
-id = "adr0018-status"
-files = ["docs/adr/0018-iphone-app.md"]
-find = "- Status: accepted (owner decisions 2026-10-18). The iOS half of spike S1, run as a CI job plus a TestFlight build on the owner's iPhone,"
-replace = "- Status: accepted (2026-10-18). The iOS half of spike S1, run as a CI job plus a TestFlight build on a test iPhone,"
-reason = "Owner hardware."
-
-[[scrub]]
 id = "adr0018-deciders"
 files = ["docs/adr/0018-iphone-app.md"]
 find = "- Deciders: product owner (\"Start building the iPhone app\"; decisions of 2026-10-18 listed in ADR-0017), engineering"
@@ -495,13 +488,6 @@ files = ["docs/adr/0018-iphone-app.md"]
 find = "- GitHub Actions works: the billing problem was fixed on 2026-10-18. The repo is private, so macOS minutes count ten times against the allowance.\n- No owner Mac is in the loop (owner decision, 2026-10-18). The owner has an iPhone and installs builds from TestFlight, following scripted runbooks.\n- The owner has a paid Apple Developer account (christopher.pinard@animl.health). Whether it is an individual or organisation membership is still to confirm.\n"
 replace = "- iOS builds run on GitHub Actions macOS runners.\n- No local Mac is needed (decision, 2026-10-18). Device checks use an iPhone that installs builds from TestFlight, following scripted runbooks.\n- Signing and TestFlight distribution need a paid Apple Developer Program membership.\n"
 reason = "Billing status, private-repo claim, owner hardware and the owner's personal email."
-
-[[scrub]]
-id = "adr0018-s1-gates"
-files = ["docs/adr/0018-iphone-app.md"]
-find = "must pass on the owner's iPhone, in a TestFlight build made by CI,"
-replace = "must pass on a real iPhone, in a TestFlight build made by CI,"
-reason = "Owner hardware."
 
 [[scrub]]
 id = "adr0018-decision-154"
@@ -565,14 +551,6 @@ files = ["docs/adr/0018-iphone-app.md"]
 find = "| The owner's Mac, Xcode Cloud or Codemagic as the main build path | The owner decided on 2026-10-18 that builds run"
 replace = "| A local Mac, Xcode Cloud or Codemagic as the main build path | It was decided on 2026-10-18 that builds run"
 reason = "Owner hardware."
-
-[[scrub]]
-id = "adr0018-owner-decision-paren"
-files = ["docs/adr/0018-iphone-app.md"]
-find = "(owner decision, 2026-10-18)"
-replace = "(decision of 2026-10-18)"
-reason = "Owner-personal phrasing (two places)."
-expect = 2
 
 # ---- docs/adr/0019-acceleration-on-every-platform.md
 
@@ -1014,13 +992,6 @@ reason = "Owner-personal phrasing."
 
 # ---- docs/network.md
 
-[[scrub]]
-id = "network-supabase-ref"
-files = ["docs/network.md"]
-find = "ANI.ML's hosted project is `nmecovtmijnfnjuadicp.supabase.co`; a clinic can point OpenBark at its own Supabase"
-replace = "ANI.ML Health will host one project (its address is added here when sync ships); a clinic can point OpenBark at its own Supabase"
-reason = "Internal project identifier for a feature not built yet. When sync ships, the real host must be listed here."
-
 # ---- docs/perf/M0.md
 
 [[scrub]]
@@ -1347,13 +1318,6 @@ replace = "  - SendGrid as custom SMTP, set up in the dashboard;"
 reason = "Owner errand."
 
 [[scrub]]
-id = "m3-owners-iphone"
-files = ["docs/plans/M3.md"]
-find = "in the real app on the owner's iPhone."
-replace = "in the real app on a real iPhone."
-reason = "Owner hardware."
-
-[[scrub]]
 id = "m3-testflight"
 files = ["docs/plans/M3.md"]
 find = "- **TestFlight.** The owner and one other tester install an internal build."
@@ -1365,13 +1329,6 @@ id = "m3-dropped"
 files = ["docs/plans/M3.md"]
 find = "Dropped from this phase by owner decision 2"
 replace = "Dropped from this phase by decision 2"
-reason = "Owner-personal phrasing."
-
-[[scrub]]
-id = "m3-not-in-m3"
-files = ["docs/plans/M3.md"]
-find = "(not in the pilot, accepted by default; the owner may decide later), and drafting on the phone (drafting stays on computers, owner decision 3)."
-replace = "(not in the pilot, accepted by default; may be decided later), and drafting on the phone (drafting stays on computers, decision 3)."
 reason = "Owner-personal phrasing."
 
 [[scrub]]
@@ -2110,9 +2067,9 @@ gitleaks_allow_fingerprints = [
 
 [[gate.allow]]
 pattern = "supabase-project-ref"
-files = ["website/src/portal.js", "website/dist/**", "scripts/website-build.py", "vercel.json", "website/vercel.json", "apps/desktop/e2e/website.mjs", "docs/network.md", "supabase/README.md", "supabase/functions/delete-account/index.ts"]
-context = 'https://nmecovtmijnfnjuadicp\.supabase\.co|sb-nmecovtmijnfnjuadicp-auth-token|`nmecovtmijnfnjuadicp\.supabase\.co`|--project-ref nmecovtmijnfnjuadicp|^Project: `nmecovtmijnfnjuadicp`'
-reason = "The account portal's Supabase project. Its URL and session key are in the live website's code that every visitor downloads, the CSP must name it, and docs/network.md must list every host. Decided fine to publish; the scrubs that hide it in ADR-0017, M3 and the sync line of docs/network.md remain, because those passages are about plans."
+files = ["website/src/portal.js", "website/dist/**", "scripts/website-build.py", "vercel.json", "website/vercel.json", "apps/desktop/e2e/website.mjs", "docs/network.md", "supabase/README.md", "supabase/functions/delete-account/index.ts", "engine/os-sync/src/lib.rs", "supabase/functions/revoke-device/index.ts", "apps/desktop/src/components/SyncSection.test.tsx"]
+context = 'https://nmecovtmijnfnjuadicp\.supabase\.co|sb-nmecovtmijnfnjuadicp-auth-token|`nmecovtmijnfnjuadicp\.supabase\.co`|--project-ref nmecovtmijnfnjuadicp|^Project: `nmecovtmijnfnjuadicp`|"nmecovtmijnfnjuadicp\.supabase\.co"'
+reason = "The account portal's Supabase project. Its URL and session key are in the live website's code that every visitor downloads, the CSP must name it, and docs/network.md must list every host. Decided fine to publish. Encrypted sync is in the code since 0.2.0 (off in release builds until the security review), so os-sync's default server, its revoke-device deploy line and a sync test name it too; the scrubs that hide it in ADR-0017 and M3 remain, because those passages are about plans."
 
 [[gate.allow]]
 pattern = "openai-hf-keys"
