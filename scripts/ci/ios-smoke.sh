@@ -34,13 +34,25 @@ data="$(xcrun simctl get_app_container "$udid" "$bundle" data)"
 marker="$data/Library/Application Support/OpenBark/smoke-webview.txt"
 rm -f "$marker"
 
-SIMCTL_CHILD_OPENBARK_SMOKE=1 SIMCTL_CHILD_RUST_LOG=info \
-  xcrun simctl launch --console-pty --terminate-running-process "$udid" "$bundle" > "$out/app.log" 2>&1 &
-launcher=$!
+launch() {
+  SIMCTL_CHILD_OPENBARK_SMOKE=1 SIMCTL_CHILD_RUST_LOG=info \
+    xcrun simctl launch --console-pty --terminate-running-process "$udid" "$bundle" >> "$out/app.log" 2>&1 &
+  launcher=$!
+}
 
+# Right after a first boot, Springboard can drop the launch without a word
+# (no process id, nothing in the log): if nothing started within 30 s, launch
+# once more. An app that started and then failed is not retried.
+: > "$out/app.log"
+launch
 ok=0
-for _ in $(seq 1 120); do
+for i in $(seq 1 120); do
   if [ -f "$marker" ]; then ok=1; break; fi
+  if [ "$i" -eq 30 ] && [ ! -s "$out/app.log" ]; then
+    echo "the first launch didn't start the app; launching again"
+    kill "$launcher" 2>/dev/null || true
+    launch
+  fi
   sleep 1
 done
 sleep 3
