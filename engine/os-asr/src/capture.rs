@@ -9,13 +9,22 @@
 //! system default changed, the driver stopped calling back) through
 //! [`MicCapture::fault`] and [`MicCapture::idle_for`]; [`crate::mic`] watches
 //! those and reopens the microphone.
+//!
+//! Without the `capture` feature (a build that doesn't record) there is no
+//! microphone: [`input_devices`] is empty and [`MicCapture::start`] says so.
 
+#[cfg(feature = "capture")]
 use std::sync::Arc;
+#[cfg(feature = "capture")]
 use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(feature = "capture")]
+use std::time::Instant;
 
+#[cfg(feature = "capture")]
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+#[cfg(feature = "capture")]
 use cpal::{ErrorKind, Sample, SampleFormat};
 
 /// Why a microphone couldn't be opened. The messages are shown to the clinic
@@ -46,10 +55,12 @@ pub enum CaptureError {
     #[error(
         "This microphone sends audio in a format OpenBark can't read. Choose another microphone in Settings."
     )]
+    #[cfg(feature = "capture")]
     Format(SampleFormat),
 }
 
 impl CaptureError {
+    #[cfg(feature = "capture")]
     fn from_cpal(e: &cpal::Error) -> Self {
         match e.kind() {
             ErrorKind::DeviceBusy => Self::Busy,
@@ -87,6 +98,7 @@ pub enum Fault {
 }
 
 impl Fault {
+    #[cfg(feature = "capture")]
     fn code(self) -> u8 {
         match self {
             Fault::Gone => 1,
@@ -95,6 +107,7 @@ impl Fault {
             Fault::Failed => 4,
         }
     }
+    #[cfg(feature = "capture")]
     fn from_code(c: u8) -> Option<Self> {
         match c {
             1 => Some(Fault::Gone),
@@ -105,6 +118,7 @@ impl Fault {
         }
     }
     /// How a cpal stream error maps; `None` for glitches that don't stop it.
+    #[cfg(feature = "capture")]
     fn from_cpal(kind: ErrorKind) -> Option<Self> {
         match kind {
             ErrorKind::DeviceNotAvailable | ErrorKind::HostUnavailable => Some(Fault::Gone),
@@ -119,6 +133,7 @@ impl Fault {
 }
 
 /// Shared between a stream's callbacks and its owner.
+#[cfg(feature = "capture")]
 struct Flags {
     fault: AtomicU8,
     /// Milliseconds after `epoch` of the last data callback.
@@ -126,6 +141,7 @@ struct Flags {
     epoch: Instant,
 }
 
+#[cfg(feature = "capture")]
 impl Flags {
     fn new() -> Self {
         Self { fault: AtomicU8::new(0), last_data_ms: AtomicU64::new(0), epoch: Instant::now() }
@@ -135,7 +151,48 @@ impl Flags {
     }
 }
 
+/// What a build without the `capture` feature answers.
+#[cfg(not(feature = "capture"))]
+const NO_CAPTURE: &str = "recording isn't in this build";
+
+/// Names of available input devices: none without the `capture` feature.
+#[cfg(not(feature = "capture"))]
+pub fn input_devices() -> Vec<String> {
+    Vec::new()
+}
+
+/// No system default microphone without the `capture` feature.
+#[cfg(not(feature = "capture"))]
+pub fn default_input_name() -> Option<String> {
+    None
+}
+
+/// A microphone stream, in a build that can't record: never opened.
+#[cfg(not(feature = "capture"))]
+pub struct MicCapture {
+    pub device_name: String,
+    pub sample_rate: u32,
+    pub channels: u16,
+}
+
+#[cfg(not(feature = "capture"))]
+impl MicCapture {
+    pub fn start(device: Option<&str>, tx: Sender<AudioBlock>) -> Result<Self, CaptureError> {
+        let _ = (device, tx);
+        Err(CaptureError::Device(NO_CAPTURE.into()))
+    }
+
+    pub fn fault(&self) -> Option<Fault> {
+        None
+    }
+
+    pub fn idle_for(&self) -> Duration {
+        Duration::ZERO
+    }
+}
+
 /// Names of available input devices; the first is the system default.
+#[cfg(feature = "capture")]
 pub fn input_devices() -> Vec<String> {
     let host = cpal::default_host();
     let default = host.default_input_device().and_then(|d| device_name(&d));
@@ -150,10 +207,12 @@ pub fn input_devices() -> Vec<String> {
 }
 
 /// The system default microphone's name, if there is one.
+#[cfg(feature = "capture")]
 pub fn default_input_name() -> Option<String> {
     cpal::default_host().default_input_device().and_then(|d| device_name(&d))
 }
 
+#[cfg(feature = "capture")]
 fn device_name(d: &cpal::Device) -> Option<String> {
     d.description().ok().map(|desc| desc.name().to_string())
 }
@@ -162,6 +221,7 @@ fn device_name(d: &cpal::Device) -> Option<String> {
 ///
 /// `cpal::Stream` is not `Send` on every platform, so create and drop it on
 /// the same thread.
+#[cfg(feature = "capture")]
 pub struct MicCapture {
     _stream: cpal::Stream,
     pub device_name: String,
@@ -171,6 +231,7 @@ pub struct MicCapture {
     opened: Instant,
 }
 
+#[cfg(feature = "capture")]
 impl MicCapture {
     /// Open `device` (or the system default) and send mono blocks to `tx`.
     pub fn start(device: Option<&str>, tx: Sender<AudioBlock>) -> Result<Self, CaptureError> {
@@ -274,6 +335,7 @@ impl MicCapture {
 /// The device's own default configuration when it has one; otherwise the
 /// best of what it supports: a format cpal can convert, a rate of 16 kHz or
 /// more (closest to 48 kHz), and the fewest channels.
+#[cfg(feature = "capture")]
 fn choose_config(dev: &cpal::Device) -> Result<(cpal::StreamConfig, SampleFormat), CaptureError> {
     match dev.default_input_config() {
         Ok(c) if readable(c.sample_format()) => return Ok((c.config(), c.sample_format())),
@@ -301,6 +363,7 @@ fn choose_config(dev: &cpal::Device) -> Result<(cpal::StreamConfig, SampleFormat
     Ok((c.config(), c.sample_format()))
 }
 
+#[cfg(feature = "capture")]
 fn readable(f: SampleFormat) -> bool {
     matches!(
         f,
@@ -388,6 +451,7 @@ pub fn downmix(interleaved: &[f32], channels: usize) -> Vec<f32> {
 
 /// One supported range, as [`pick_config`] sees it.
 #[derive(Debug, Clone, Copy)]
+#[cfg(feature = "capture")]
 pub struct ConfigOption {
     pub format: SampleFormat,
     pub channels: u16,
@@ -397,6 +461,7 @@ pub struct ConfigOption {
 
 /// Index and rate of the best range: readable, 48 kHz or the nearest rate
 /// to it (16 kHz or more preferred), then fewer channels, then float.
+#[cfg(feature = "capture")]
 pub fn pick_config(options: &[ConfigOption]) -> Option<(usize, u32)> {
     const IDEAL: u32 = 48_000;
     options
@@ -413,7 +478,7 @@ pub fn pick_config(options: &[ConfigOption]) -> Option<(usize, u32)> {
         .map(|(i, rate, _)| (i, rate))
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "capture"))]
 mod tests {
     use super::*;
 

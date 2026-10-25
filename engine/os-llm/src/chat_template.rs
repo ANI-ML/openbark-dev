@@ -25,6 +25,7 @@ impl ChatMessage {
 }
 
 /// Render `messages` with a Hugging Face–style Jinja chat template.
+#[cfg_attr(not(feature = "llama"), allow(dead_code))]
 pub fn render(
     template: &str,
     messages: &[ChatMessage],

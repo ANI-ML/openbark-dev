@@ -8,7 +8,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-os-asr.workspace = true
+os-asr = { workspace = true, features = ["default"] }
 anyhow.workspace = true
 clap.workspace = true
 serde.workspace = true

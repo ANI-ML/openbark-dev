@@ -176,6 +176,7 @@ fn import_with(
         files: Vec::new(),
         layout,
         gated: false,
+        mobile: false,
     };
     let mut copied_to = None;
     match mode {

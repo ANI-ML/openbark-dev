@@ -14,6 +14,12 @@
 //!
 //! The vault is off until [`init`] runs (the app and CLI call it), so
 //! library tests and tools that never touch clinical data stay plain.
+//!
+//! Every format can also be sealed and opened with an explicit [`Key`]
+//! (the `*_with` functions and [`AudioWriter::with_key`]): sync (ADR-0017)
+//! seals objects under keys of its own, and a visit adopted from another
+//! device is written under this device's data key. The plain functions use
+//! the data key, as before.
 
 use std::fs;
 use std::io::{self, Read, Seek, SeekFrom, Write};
@@ -34,7 +40,7 @@ const NONCE: usize = 24;
 const TAG: usize = 16;
 /// Audio plaintext per chunk: 2 s of 16 kHz 16-bit mono.
 pub const CHUNK: usize = 64 * 1024;
-const SERVICE: &str = "OpenBark";
+/// Keychain account of the data key (service "OpenBark", [`crate::keychain`]).
 const ACCOUNT: &str = "data-key";
 
 /// Where the data key came from.
@@ -57,9 +63,54 @@ pub struct VaultStatus {
     pub warning: Option<String>,
 }
 
-struct State {
+/// A 256-bit key for the vault's formats. The data key is one; sync's
+/// object keys are others (ADR-0017 section 4). Never printed.
+#[derive(Clone)]
+pub struct Key {
+    bytes: [u8; 32],
     cipher: XChaCha20Poly1305,
-    key: [u8; 32],
+}
+
+impl Key {
+    pub fn from_bytes(bytes: [u8; 32]) -> Self {
+        Self { cipher: XChaCha20Poly1305::new(&bytes.into()), bytes }
+    }
+
+    /// A new random key (`getrandom`).
+    pub fn random() -> io::Result<Self> {
+        Ok(Self::from_bytes(random::<32>()?))
+    }
+
+    /// The key in base64, as a recovery key is written.
+    pub fn to_base64(&self) -> String {
+        encode_key(&self.bytes)
+    }
+
+    pub fn from_base64(text: &str) -> Option<Self> {
+        decode_key(text).map(Self::from_bytes)
+    }
+
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        &self.bytes
+    }
+}
+
+impl std::fmt::Debug for Key {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Key(..)")
+    }
+}
+
+impl PartialEq for Key {
+    fn eq(&self, other: &Self) -> bool {
+        self.bytes == other.bytes
+    }
+}
+
+impl Eq for Key {}
+
+struct State {
+    key: Key,
     source: KeySource,
     warning: Option<String>,
 }
@@ -92,20 +143,17 @@ fn encode_key(key: &[u8; 32]) -> String {
     base64::engine::general_purpose::STANDARD.encode(key)
 }
 
-#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+/// The data key from the OS keychain (on iOS, the protected store: "after
+/// first unlock, this device only").
 fn keychain_get() -> Result<Option<[u8; 32]>, String> {
-    let entry = keyring::Entry::new(SERVICE, ACCOUNT).map_err(|e| e.to_string())?;
-    match entry.get_password() {
-        Ok(text) => decode_key(&text).map(Some).ok_or_else(|| "the stored key is damaged".to_string()),
-        Err(keyring::Error::NoEntry) => Ok(None),
-        Err(e) => Err(e.to_string()),
+    match crate::keychain::get(ACCOUNT)? {
+        Some(text) => decode_key(&text).map(Some).ok_or_else(|| "the stored key is damaged".to_string()),
+        None => Ok(None),
     }
 }
 
-#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 fn keychain_set(key: &[u8; 32]) -> Result<(), String> {
-    let entry = keyring::Entry::new(SERVICE, ACCOUNT).map_err(|e| e.to_string())?;
-    entry.set_password(&encode_key(key)).map_err(|e| e.to_string())?;
+    crate::keychain::set(ACCOUNT, &encode_key(key))?;
     // Read it back: some stores accept a write they can't keep.
     match keychain_get()? {
         Some(k) if &k == key => Ok(()),
@@ -113,29 +161,8 @@ fn keychain_set(key: &[u8; 32]) -> Result<(), String> {
     }
 }
 
-#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 fn keychain_delete() -> Result<bool, String> {
-    let entry = keyring::Entry::new(SERVICE, ACCOUNT).map_err(|e| e.to_string())?;
-    match entry.delete_credential() {
-        Ok(()) => Ok(true),
-        Err(keyring::Error::NoEntry) => Ok(false),
-        Err(e) => Err(e.to_string()),
-    }
-}
-
-#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
-fn keychain_delete() -> Result<bool, String> {
-    Ok(false)
-}
-
-#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
-fn keychain_get() -> Result<Option<[u8; 32]>, String> {
-    Err("no keychain on this platform".into())
-}
-
-#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
-fn keychain_set(_: &[u8; 32]) -> Result<(), String> {
-    Err("no keychain on this platform".into())
+    crate::keychain::delete(ACCOUNT)
 }
 
 fn write_key_file(key: &[u8; 32]) -> io::Result<()> {
@@ -181,6 +208,11 @@ pub fn init() -> io::Result<VaultStatus> {
                     };
                     match stored {
                         Ok(()) => (key, KeySource::Keychain, None),
+                        // iOS keeps keys only in the protected store: no
+                        // key file next to the visits (ADR-0018 section 5).
+                        Err(reason) if cfg!(target_os = "ios") => {
+                            return Err(err(format!("The keychain couldn't keep the data key: {reason}.")));
+                        }
                         Err(reason) => {
                             tracing::warn!(%reason, "keychain unavailable; keeping the data key in a file");
                             write_key_file(&key)?;
@@ -197,8 +229,12 @@ pub fn init() -> io::Result<VaultStatus> {
 
 /// Turn encryption on with a given key (tests, `OPENBARK_DATA_KEY`).
 pub fn use_key(key: [u8; 32], source: KeySource, warning: Option<String>) {
-    let cipher = XChaCha20Poly1305::new(&key.into());
-    *STATE.write().expect("vault lock") = Some(State { cipher, key, source, warning });
+    *STATE.write().expect("vault lock") = Some(State { key: Key::from_bytes(key), source, warning });
+}
+
+/// This device's data key, when encryption is on.
+pub fn data_key() -> Option<Key> {
+    STATE.read().expect("vault lock").as_ref().map(|s| s.key.clone())
 }
 
 /// Turn encryption off (tests).
@@ -220,7 +256,7 @@ pub fn enabled() -> bool {
 /// The data key in base64, to keep somewhere safe (restores with
 /// `OPENBARK_DATA_KEY` or `openbark key import`).
 pub fn recovery_key() -> Option<String> {
-    STATE.read().expect("vault lock").as_ref().map(|s| encode_key(&s.key))
+    STATE.read().expect("vault lock").as_ref().map(|s| s.key.to_base64())
 }
 
 /// Store a recovery key as this computer's data key. Refused when a
@@ -297,24 +333,53 @@ pub fn is_encrypted(path: &Path) -> bool {
         && (&magic == FILE_MAGIC || &magic == AUDIO_MAGIC)
 }
 
-/// Read a file, decrypting it if it's encrypted.
+/// Read a file, decrypting it with the data key if it's encrypted.
 pub fn read(path: &Path) -> io::Result<Vec<u8>> {
+    read_inner(path, data_key().as_ref())
+}
+
+/// Read a file, decrypting it with `key` if it's encrypted.
+pub fn read_with(key: &Key, path: &Path) -> io::Result<Vec<u8>> {
+    read_inner(path, Some(key))
+}
+
+fn read_inner(path: &Path, key: Option<&Key>) -> io::Result<Vec<u8>> {
     let bytes = fs::read(path)?;
     if bytes.starts_with(AUDIO_MAGIC) {
-        return decrypt_audio(&bytes, path);
+        return decrypt_audio(&bytes, path, key.ok_or_else(|| locked(path))?);
     }
     if !bytes.starts_with(FILE_MAGIC) {
         return Ok(bytes);
     }
-    let state = STATE.read().expect("vault lock");
-    let s = state.as_ref().ok_or_else(|| locked(path))?;
+    let key = key.ok_or_else(|| locked(path))?;
     if bytes.len() < 4 + NONCE + TAG {
         return Err(err(format!("{} is damaged.", path.display())));
     }
-    let nonce = XNonce::try_from(&bytes[4..4 + NONCE]).expect("24-byte nonce");
-    s.cipher
-        .decrypt(&nonce, Payload { msg: &bytes[4 + NONCE..], aad: &file_aad(path) })
+    open_with(key, &file_aad(path), &bytes)
         .map_err(|_| err(format!("{} can't be decrypted with this computer's key.", path.display())))
+}
+
+/// Seal `plain` in the small-file format (`OBK1` ‖ nonce ‖ ciphertext) with
+/// `aad` bound in. Files use their name as `aad`; sync binds its header.
+pub fn seal_with(key: &Key, aad: &[u8], plain: &[u8]) -> io::Result<Vec<u8>> {
+    let nonce_bytes = random::<NONCE>()?;
+    let ct = key
+        .cipher
+        .encrypt(&XNonce::from(nonce_bytes), Payload { msg: plain, aad })
+        .map_err(|_| err("encryption failed"))?;
+    Ok([FILE_MAGIC.as_slice(), &nonce_bytes, &ct].concat())
+}
+
+/// Open what [`seal_with`] sealed. A wrong key, wrong `aad` or changed bytes
+/// is an `InvalidData` error.
+pub fn open_with(key: &Key, aad: &[u8], sealed: &[u8]) -> io::Result<Vec<u8>> {
+    if !sealed.starts_with(FILE_MAGIC) || sealed.len() < 4 + NONCE + TAG {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "not a sealed object, or damaged"));
+    }
+    let nonce = XNonce::try_from(&sealed[4..4 + NONCE]).expect("24-byte nonce");
+    key.cipher
+        .decrypt(&nonce, Payload { msg: &sealed[4 + NONCE..], aad })
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "can't be opened with this key"))
 }
 
 pub fn read_to_string(path: &Path) -> io::Result<String> {
@@ -325,22 +390,20 @@ fn locked(path: &Path) -> io::Error {
     err(format!("{} is encrypted and encryption isn't set up in this program.", path.display()))
 }
 
-/// Write a file atomically, encrypted when the vault is on.
+/// Write a file atomically, encrypted under the data key when the vault is on.
 pub fn write(path: &Path, plain: &[u8]) -> io::Result<()> {
-    let data = {
-        let state = STATE.read().expect("vault lock");
-        match state.as_ref() {
-            Some(s) => {
-                let nonce_bytes = random::<NONCE>()?;
-                let nonce = XNonce::from(nonce_bytes);
-                let ct = s
-                    .cipher
-                    .encrypt(&nonce, Payload { msg: plain, aad: &file_aad(path) })
-                    .map_err(|_| err("encryption failed"))?;
-                [FILE_MAGIC.as_slice(), &nonce_bytes, &ct].concat()
-            }
-            None => plain.to_vec(),
-        }
+    write_inner(path, plain, data_key().as_ref())
+}
+
+/// Write a file atomically, encrypted under `key`.
+pub fn write_with(key: &Key, path: &Path, plain: &[u8]) -> io::Result<()> {
+    write_inner(path, plain, Some(key))
+}
+
+fn write_inner(path: &Path, plain: &[u8], key: Option<&Key>) -> io::Result<()> {
+    let data = match key {
+        Some(k) => seal_with(k, &file_aad(path), plain)?,
+        None => plain.to_vec(),
     };
     let tmp = path.with_extension(format!(
         "{}.tmp",
@@ -366,8 +429,7 @@ pub fn append_line(path: &Path, plain: &[u8]) -> io::Result<String> {
         return Err(err("a log line can't contain a line break"));
     }
     let line = {
-        let state = STATE.read().expect("vault lock");
-        match state.as_ref() {
+        match data_key() {
             Some(s) => {
                 let nonce_bytes = random::<NONCE>()?;
                 let ct = s
@@ -430,8 +492,7 @@ pub fn decrypt_line(path: &Path, stored: &str) -> io::Result<Vec<u8>> {
     if bytes.len() < NONCE + TAG {
         return Err(err(format!("{} has a damaged line.", path.display())));
     }
-    let state = STATE.read().expect("vault lock");
-    let s = state.as_ref().ok_or_else(|| locked(path))?;
+    let s = data_key().ok_or_else(|| locked(path))?;
     let nonce = XNonce::try_from(&bytes[..NONCE]).expect("24-byte nonce");
     s.cipher.decrypt(&nonce, Payload { msg: &bytes[NONCE..], aad: &line_aad(path) }).map_err(|_| {
         err(format!("{} has a line that can't be decrypted with this computer's key.", path.display()))
@@ -445,9 +506,10 @@ fn audio_aad(index: u64) -> [u8; 12] {
     aad
 }
 
-fn decrypt_audio(bytes: &[u8], path: &Path) -> io::Result<Vec<u8>> {
-    let state = STATE.read().expect("vault lock");
-    let s = state.as_ref().ok_or_else(|| locked(path))?;
+fn decrypt_audio(bytes: &[u8], path: &Path, s: &Key) -> io::Result<Vec<u8>> {
+    if bytes.len() < 8 {
+        return Err(err(format!("{} is damaged.", path.display())));
+    }
     let chunk = u32::from_le_bytes(bytes[4..8].try_into().expect("4 bytes")) as usize;
     let slot = NONCE + chunk + TAG;
     let mut out = Vec::with_capacity(bytes.len());
@@ -490,6 +552,9 @@ fn fix_wav_sizes(wav: &mut [u8]) {
 /// can be overwritten only within the first chunk (the WAV header).
 pub struct AudioWriter {
     file: fs::File,
+    /// The key it seals under: given ([`AudioWriter::with_key`]) or the
+    /// data key at the moment it was created.
+    key: Option<Key>,
     first: Vec<u8>,
     first_written: bool,
     current: Vec<u8>,
@@ -499,12 +564,24 @@ pub struct AudioWriter {
 }
 
 impl AudioWriter {
+    /// A recording sealed under the data key.
     pub fn create(path: &Path) -> io::Result<Self> {
+        Self::open(path, data_key())
+    }
+
+    /// A recording sealed under `key`, whatever the data key is (ADR-0017
+    /// section 13).
+    pub fn with_key(path: &Path, key: Key) -> io::Result<Self> {
+        Self::open(path, Some(key))
+    }
+
+    fn open(path: &Path, key: Option<Key>) -> io::Result<Self> {
         let mut file = fs::File::create(path)?;
         file.write_all(AUDIO_MAGIC)?;
         file.write_all(&(CHUNK as u32).to_le_bytes())?;
         Ok(Self {
             file,
+            key,
             first: Vec::new(),
             first_written: false,
             current: Vec::new(),
@@ -515,8 +592,7 @@ impl AudioWriter {
     }
 
     fn seal(&self, index: u64, plain: &[u8]) -> io::Result<Vec<u8>> {
-        let state = STATE.read().expect("vault lock");
-        let s = state.as_ref().ok_or_else(|| err("encryption isn't set up"))?;
+        let s = self.key.as_ref().ok_or_else(|| err("encryption isn't set up"))?;
         let nonce_bytes = random::<NONCE>()?;
         let ct = s
             .cipher
@@ -748,7 +824,8 @@ impl AudioReader {
         let state = STATE.read().expect("vault lock");
         let s = state.as_ref().ok_or_else(|| locked(&self.path))?;
         let nonce = XNonce::try_from(&sealed[..NONCE]).expect("24-byte nonce");
-        s.cipher
+        s.key
+            .cipher
             .decrypt(&nonce, Payload { msg: &sealed[NONCE..], aad: &audio_aad(index) })
             .map_err(|_| err(format!("{} can't be decrypted with this computer's key.", self.path.display())))
     }
@@ -1047,5 +1124,62 @@ pub(crate) mod tests {
         let a = append_line(&log, br#"{"seq":1}"#).unwrap();
         assert_eq!(a, r#"{"seq":1}"#);
         assert_eq!(read_lines(&log).unwrap()[0].1, br#"{"seq":1}"#);
+    }
+
+    // ---- explicit keys (ADR-0017 section 13) ------------------------------------
+
+    #[test]
+    fn explicit_keys_seal_and_open_without_the_data_key() {
+        let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        disable();
+        let dir = tempfile::tempdir().unwrap();
+        let a = Key::from_bytes([1u8; 32]);
+        let b = Key::from_bytes([2u8; 32]);
+        let file = dir.path().join("transcript.json");
+        write_with(&a, &file, b"{\"segments\":[]}").unwrap();
+        assert!(is_encrypted(&file));
+        assert_eq!(read_with(&a, &file).unwrap(), b"{\"segments\":[]}");
+        assert!(read_with(&b, &file).is_err(), "another key can't open it");
+        assert!(read(&file).is_err(), "with the vault off it stays locked");
+        // Bound to its name, as before.
+        let moved = dir.path().join("session.json");
+        fs::copy(&file, &moved).unwrap();
+        assert!(read_with(&a, &moved).is_err());
+
+        // seal/open with associated data.
+        let sealed = seal_with(&a, b"header", b"body").unwrap();
+        assert_eq!(open_with(&a, b"header", &sealed).unwrap(), b"body");
+        assert_eq!(open_with(&a, b"other", &sealed).unwrap_err().kind(), io::ErrorKind::InvalidData);
+        assert_eq!(open_with(&b, b"header", &sealed).unwrap_err().kind(), io::ErrorKind::InvalidData);
+        assert!(open_with(&a, b"header", b"OBK1short").is_err());
+
+        // Keys round-trip as recovery text and never print.
+        assert_eq!(Key::from_base64(&a.to_base64()), Some(a.clone()));
+        assert_eq!(format!("{a:?}"), "Key(..)");
+        assert_ne!(Key::random().unwrap(), Key::random().unwrap());
+    }
+
+    #[test]
+    fn audio_writer_with_key_ignores_the_data_key() {
+        let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        use_key([7u8; 32], KeySource::Environment, None);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audio.wav");
+        let other = Key::from_bytes([9u8; 32]);
+        let audio: Vec<u8> = (0..(CHUNK * 2 + 100)).map(|i| (i % 251) as u8).collect();
+        let mut w = AudioWriter::with_key(&path, other.clone()).unwrap();
+        w.write_all(&audio).unwrap();
+        w.finish().unwrap();
+        assert!(read(&path).is_err(), "the data key can't open it");
+        assert_eq!(read_with(&other, &path).unwrap(), audio);
+        // create() still uses the data key, and data_key() is that key.
+        let plain_path = dir.path().join("audio2.wav");
+        let mut w = AudioWriter::create(&plain_path).unwrap();
+        w.write_all(&audio).unwrap();
+        w.finish().unwrap();
+        assert_eq!(read(&plain_path).unwrap(), audio);
+        assert_eq!(read_with(&data_key().unwrap(), &plain_path).unwrap(), audio);
+        disable();
+        assert!(data_key().is_none());
     }
 }

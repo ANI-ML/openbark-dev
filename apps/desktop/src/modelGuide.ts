@@ -138,6 +138,12 @@ export const LEGEND: { term: string; meaning: string }[] = [
 ];
 
 /** Good starting points on Hugging Face, by computer (searchable there). */
+/** Starting points on a phone (ADR-0018 section 10): small GGUFs that fit its memory. */
+export const PHONE_STARTERS: { repo: string; label: string; why: string }[] = [
+  { repo: "google/gemma-4-E2B-it-qat-q4_0-gguf", label: "Gemma 4 E2B", why: "iPhones with 8 GB or more: about 3.4 GB" },
+  { repo: "unsloth/Qwen3-1.7B-GGUF", label: "Qwen3 1.7B", why: "iPhones with 6 GB: about 1.1 GB" },
+];
+
 export const STARTERS: { repo: string; size: "E2B" | "E4B" | "12B"; why: string }[] = [
   { repo: "google/gemma-4-E2B-it-qat-q4_0-gguf", size: "E2B", why: "Older laptops and small computers: fastest, about 3 GB" },
   { repo: "google/gemma-4-E4B-it-qat-q4_0-gguf", size: "E4B", why: "Most laptops: OpenBark's default, about 5 GB" },

@@ -250,6 +250,10 @@ pub struct Refinement {
     /// The run whose note was refined ("runs/002_gemma…").
     #[serde(default)]
     pub from_run: Option<String>,
+    /// That run's id ([`crate::session::RunInfo::id`]): stable across
+    /// devices, where folder names may differ (ADR-0017 section 13).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_run_id: Option<String>,
     /// Whether the request was also saved as a standard for the template.
     #[serde(default)]
     pub saved_as_standard: bool,
@@ -852,6 +856,7 @@ pub fn refine_note(
             heading: heading.to_string(),
             request: request.trim().to_string(),
             from_run: None,
+            from_run_id: None,
             saved_as_standard: false,
         }),
         edit: None,

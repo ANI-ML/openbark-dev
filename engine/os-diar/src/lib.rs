@@ -4,6 +4,12 @@
 //! clustering. Roles (DVM / client / technician) are assigned later by the
 //! user; the engine only reports anonymous speaker indices.
 
+//!
+//! Without the `stt` feature (no sherpa-onnx in the build) the diarizer and
+//! the live tracker can't be created and say so; the attribution helpers
+//! still work.
+
+#[cfg(feature = "stt")]
 use os_asr::sherpa_onnx::{
     FastClusteringConfig, OfflineSpeakerDiarization, OfflineSpeakerDiarizationConfig,
     OfflineSpeakerSegmentationModelConfig, OfflineSpeakerSegmentationPyannoteModelConfig,
@@ -20,6 +26,8 @@ pub enum DiarError {
     Create,
     #[error("diarization failed")]
     Process,
+    #[error("speaker separation isn't in this build")]
+    NotInThisBuild,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq)]
@@ -56,10 +64,52 @@ impl DiarOptions {
     }
 }
 
+#[cfg(feature = "stt")]
 pub struct Diarizer {
     inner: OfflineSpeakerDiarization,
 }
 
+/// The diarizer in a build without sherpa-onnx: never created.
+#[cfg(not(feature = "stt"))]
+pub struct Diarizer {
+    _never: std::convert::Infallible,
+}
+
+#[cfg(not(feature = "stt"))]
+impl Diarizer {
+    pub fn new(options: &DiarOptions) -> Result<Self, DiarError> {
+        let _ = options;
+        Err(DiarError::NotInThisBuild)
+    }
+
+    pub fn turns(&self, _audio: &Audio) -> Result<Vec<SpeakerTurn>, DiarError> {
+        match self._never {}
+    }
+}
+
+/// The live tracker in a build without sherpa-onnx: never created.
+#[cfg(not(feature = "stt"))]
+pub struct SpeakerTracker {
+    _never: std::convert::Infallible,
+}
+
+#[cfg(not(feature = "stt"))]
+impl SpeakerTracker {
+    pub fn new(embedding_model: &str, threshold: f32) -> Result<Self, DiarError> {
+        let _ = (embedding_model, threshold);
+        Err(DiarError::NotInThisBuild)
+    }
+
+    pub fn assign(&mut self, _samples: &[f32]) -> Option<u32> {
+        match self._never {}
+    }
+
+    pub fn speaker_count(&self) -> usize {
+        match self._never {}
+    }
+}
+
+#[cfg(feature = "stt")]
 impl Diarizer {
     pub fn new(options: &DiarOptions) -> Result<Self, DiarError> {
         for file in [&options.segmentation_model, &options.embedding_model] {
@@ -215,6 +265,7 @@ fn nearest_speaker(span: &SpeechSpan, turns: &[SpeakerTurn]) -> Option<u32> {
 /// reverberant speech loses what tells voices apart), so each speaker also
 /// keeps the mean of its utterances' high-band level ([`high_band_db`]), and
 /// a phone voice and a room voice are never merged ([`band_apart`]).
+#[cfg(feature = "stt")]
 pub struct SpeakerTracker {
     extractor: os_asr::sherpa_onnx::SpeakerEmbeddingExtractor,
     speakers: Vec<Centroid>,
@@ -222,6 +273,7 @@ pub struct SpeakerTracker {
     band_cue: bool,
 }
 
+#[cfg(feature = "stt")]
 struct Centroid {
     sum: Vec<f32>,
     count: u32,
@@ -229,6 +281,7 @@ struct Centroid {
     band_count: u32,
 }
 
+#[cfg(feature = "stt")]
 impl Centroid {
     fn similarity(&self, e: &[f32]) -> f32 {
         let norm = self.sum.iter().map(|v| v * v).sum::<f32>().sqrt().max(1e-9);
@@ -251,6 +304,7 @@ impl Centroid {
 
 /// Utterances shorter than this give unreliable embeddings: they are matched
 /// to an existing speaker but never start a new one.
+#[cfg(feature = "stt")]
 const MIN_EMBED_SECS: f32 = 1.0;
 
 /// Below this high-band level (dB, see [`high_band_db`]) an utterance sounds
@@ -316,6 +370,7 @@ impl Biquad {
     }
 }
 
+#[cfg(feature = "stt")]
 impl SpeakerTracker {
     pub fn new(embedding_model: &str, threshold: f32) -> Result<Self, DiarError> {
         if !std::path::Path::new(embedding_model).is_file() {

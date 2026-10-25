@@ -22,6 +22,11 @@ default = []
 cuda = ["os-llm/cuda"]
 vulkan = ["os-llm/vulkan"]
 metal = ["os-llm/metal"]
+# Phones only (ADR-0018 sections 1 and 10): transcription with sherpa-onnx's
+# xcframework, and drafting with a small GGUF on llama.cpp (with `metal`). Desktop
+# builds always have both.
+stt = ["os-app/stt"]
+inference = ["os-app/inference"]
 # CI only, never in the installers: drives the app and quits (src/selftest.rs).
 selftest = []
 
@@ -32,10 +37,20 @@ tauri-build.workspace = true
 tauri = { workspace = true, features = ["protocol-asset"] }
 tauri-plugin-dialog.workspace = true
 tauri-plugin-opener.workspace = true
-os-app.workspace = true
-os-engine.workspace = true
-os-llm.workspace = true
 os-models.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
+
+# Desktop: every engine feature, exactly as before.
+[target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
+os-app = { workspace = true, features = ["default"] }
+os-engine = { workspace = true, features = ["default"] }
+os-llm = { workspace = true, features = ["default"] }
+
+# Phones (ADR-0018): recording to the encrypted visit folder first; `stt` and
+# `inference` above add the native libraries once each is proven on iOS.
+[target.'cfg(any(target_os = "ios", target_os = "android"))'.dependencies]
+os-app = { workspace = true, features = ["recorder"] }
+os-engine = { workspace = true, features = ["recorder"] }
+os-llm.workspace = true

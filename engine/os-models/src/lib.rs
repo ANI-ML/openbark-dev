@@ -11,6 +11,7 @@ pub mod hub;
 pub mod local;
 pub mod locations;
 pub mod mlx_pack;
+pub mod platform;
 pub mod remove;
 mod store;
 

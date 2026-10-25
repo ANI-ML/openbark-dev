@@ -21,6 +21,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::{Catalog, CatalogEntry, FileSpec, Layout, Slot, Source};
+use crate::platform::{self, Tier, TooBig};
 use crate::store::ModelStore;
 
 const API: &str = "https://huggingface.co/api/models";
@@ -99,6 +100,9 @@ struct RawModel {
     #[serde(rename = "cardData")]
     card_data: Option<serde_json::Value>,
     sha: Option<String>,
+    /// `expand[]=gguf`: the parameter count of a GGUF repo (phone profile).
+    #[serde(default)]
+    gguf: Option<serde_json::Value>,
 }
 
 impl RawModel {
@@ -128,6 +132,11 @@ impl RawModel {
             _ => None,
         }
         .filter(|s| valid_repo(s))
+    }
+
+    /// Parameters, from the Hub's GGUF summary.
+    fn params(&self) -> Option<u64> {
+        self.gguf.as_ref()?.get("total")?.as_u64().filter(|n| *n > 0)
     }
 
     fn into_model(self) -> HubModel {
@@ -274,6 +283,26 @@ fn search_with(f: &dyn Fetch, query: &str, limit: usize, mlx: bool) -> Result<Ve
         raw.extend(get_json::<Vec<RawModel>>(f, &url("mlx"), None)?);
     }
     Ok(merge(raw.into_iter().map(RawModel::into_model).collect(), limit))
+}
+
+/// Search on a phone (ADR-0018 section 10): GGUF only, never MLX, and only
+/// repos whose names don't put them over the tier's parameter cap. A name
+/// without a size stays; its files are checked when the repo is opened.
+/// `None` (a phone under 6 GB): nothing.
+pub fn search_mobile(query: &str, limit: usize, tier: Option<Tier>) -> Result<Vec<HubModel>, HubError> {
+    search_mobile_with(&Http, query, limit, tier)
+}
+
+fn search_mobile_with(
+    f: &dyn Fetch,
+    query: &str,
+    limit: usize,
+    tier: Option<Tier>,
+) -> Result<Vec<HubModel>, HubError> {
+    let Some(tier) = tier else { return Ok(Vec::new()) };
+    let mut found = search_with(f, query, limit, false)?;
+    found.retain(|m| !m.mlx && platform::params_from_name(&m.id).is_none_or(|p| p <= tier.max_params_b));
+    Ok(found)
 }
 
 /// One list, most downloaded first, without duplicates.
@@ -428,6 +457,9 @@ pub struct HubRepo {
     pub gated_kind: Option<String>,
     /// cardData.base_model (the first if a list).
     pub base_model: Option<String>,
+    /// Parameters, from the Hub's GGUF summary. Asked for on a phone only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub params: Option<u64>,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -604,11 +636,29 @@ pub fn repo(repo: &str, token: Option<&str>) -> Result<HubRepo, HubError> {
     repo_with(&Http, repo, token)
 }
 
+/// [`repo`] on a phone: the Hub's GGUF summary is asked for too, for the
+/// parameter check, and MLX is never offered (ADR-0018 section 10).
+pub fn repo_mobile(repo: &str, token: Option<&str>) -> Result<HubRepo, HubError> {
+    repo_mobile_with(&Http, repo, token)
+}
+
 fn repo_with(f: &dyn Fetch, repo: &str, token: Option<&str>) -> Result<HubRepo, HubError> {
+    repo_inner(f, repo, token, false)
+}
+
+fn repo_mobile_with(f: &dyn Fetch, repo: &str, token: Option<&str>) -> Result<HubRepo, HubError> {
+    let mut r = repo_inner(f, repo, token, true)?;
+    r.mlx = None;
+    r.model.mlx = false;
+    Ok(r)
+}
+
+fn repo_inner(f: &dyn Fetch, repo: &str, token: Option<&str>, mobile: bool) -> Result<HubRepo, HubError> {
     if !valid_repo(repo) {
         return Err(HubError::Invalid(format!("'{repo}' is not a model id like publisher/name")));
     }
-    let meta = f.get(&format!("{API}/{repo}?{META_EXPAND}"), None, JSON_CAP)?;
+    let expand = if mobile { format!("{META_EXPAND}&expand[]=gguf") } else { META_EXPAND.to_string() };
+    let meta = f.get(&format!("{API}/{repo}?{expand}"), None, JSON_CAP)?;
     match meta.status {
         200..=299 => {}
         401 | 404 => return Err(HubError::NotFound(repo.to_string())),
@@ -619,6 +669,7 @@ fn repo_with(f: &dyn Fetch, repo: &str, token: Option<&str>) -> Result<HubRepo, 
         raw.sha.clone().filter(|s| is_hex(s, 40)).ok_or_else(|| HubError::Invalid("no revision".into()))?;
     let gated_kind = raw.gated_kind();
     let base_model = raw.base_model();
+    let params = raw.params();
     let token = token.filter(|t| gated_kind.is_some() && !t.is_empty());
 
     let tree = tree_with(f, repo, &revision, token)?;
@@ -630,7 +681,8 @@ fn repo_with(f: &dyn Fetch, repo: &str, token: Option<&str>) -> Result<HubRepo, 
     };
     let files = gguf_choices(&tree);
     let model = raw.into_model();
-    let mlx = if model.mlx {
+    // A phone never reads an MLX repo's config: MLX can't run there.
+    let mlx = if model.mlx && !mobile {
         let listed = |name: &str| tree.iter().any(|e| e.is_file() && e.path == name);
         let readable = access == Access::Open;
         let resolve = |name: &str, cap: usize| -> Result<Option<Vec<u8>>, HubError> {
@@ -646,7 +698,23 @@ fn repo_with(f: &dyn Fetch, repo: &str, token: Option<&str>) -> Result<HubRepo, 
     } else {
         None
     };
-    Ok(HubRepo { model, revision, files, mlx, access, gated_kind, base_model })
+    Ok(HubRepo { model, revision, files, mlx, access, gated_kind, base_model, params })
+}
+
+/// The repo's GGUF choices on a phone of `tier`: those offered, and those
+/// held back with the reason (ADR-0018 section 10).
+pub fn mobile_files(repo: &HubRepo, tier: Option<Tier>) -> (Vec<HubFile>, Vec<(HubFile, TooBig)>) {
+    let params = repo.params.map(|n| n as f64 / 1e9).or_else(|| platform::params_from_name(&repo.model.id));
+    let mut kept = Vec::new();
+    let mut held = Vec::new();
+    for f in &repo.files {
+        let p = platform::params_from_name(&f.path).or(params);
+        match platform::check_gguf(tier, &f.path, f.size, p) {
+            Ok(()) => kept.push(f.clone()),
+            Err(why) => held.push((f.clone(), why)),
+        }
+    }
+    (kept, held)
 }
 
 /// `{API}/{repo}/tree/{rev}?recursive=true&expand=false`, every page.
@@ -899,6 +967,10 @@ fn strip_gguf(s: &str) -> &str {
     if s.len() > 5 && s[s.len() - 5..].eq_ignore_ascii_case(".gguf") { &s[..s.len() - 5] } else { s }
 }
 
+/// MLX on a phone (ADR-0018 section 10).
+pub const MLX_NOT_ON_PHONE: &str =
+    "MLX models run only on a Mac. On an iPhone, OpenBark uses small GGUF models.";
+
 const HIDDEN_HASHES: &str =
     "Hugging Face is hiding this model's file checksums. Request access on its page, then add your token.";
 
@@ -915,6 +987,28 @@ pub fn add_to_catalog(
     choice: &str,
     accepted_license: bool,
 ) -> Result<CatalogEntry, HubError> {
+    add_to_catalog_for(store, repo, choice, accepted_license, None)
+}
+
+/// [`add_to_catalog`], on a phone when `phone` is `Some(tier)`: MLX is
+/// refused, the file must pass the tier's checks, and the entry is marked
+/// `mobile` (ADR-0018 section 10).
+pub fn add_to_catalog_for(
+    store: &ModelStore,
+    repo: &HubRepo,
+    choice: &str,
+    accepted_license: bool,
+    phone: Option<Option<Tier>>,
+) -> Result<CatalogEntry, HubError> {
+    if let Some(tier) = phone {
+        if choice == MLX_CHOICE {
+            return Err(HubError::Invalid(MLX_NOT_ON_PHONE.into()));
+        }
+        let (_, held) = mobile_files(repo, tier);
+        if let Some((_, why)) = held.iter().find(|(f, _)| f.path == choice) {
+            return Err(HubError::Invalid(why.message(tier.map(|t| t.ram_gb))));
+        }
+    }
     if repo.model.license_class != LicenseClass::Permissive && !accepted_license {
         return Err(HubError::Invalid(format!(
             "{} uses the {} licence. Read it on Hugging Face and accept it to download.",
@@ -980,6 +1074,7 @@ pub fn add_to_catalog(
         files: parts.iter().map(file_spec).collect(),
         layout,
         gated: repo.gated_kind.is_some(),
+        mobile: phone.is_some(),
     };
     // The same model at another revision: its folder is the same, so files
     // (or stopped downloads) the new listing doesn't keep would be left
@@ -1172,6 +1267,7 @@ mod tests {
             last_modified: None,
             card_data: None,
             sha: None,
+            gguf: None,
         };
         let models = merge(
             vec![
@@ -1658,6 +1754,105 @@ mod tests {
         assert!(gguf_alternatives_with(&f, "../x", 5).is_err());
     }
 
+    // ---- the phone profile (ADR-0018 section 10) ----------------------------
+
+    fn mobile_meta_url(repo: &str) -> String {
+        format!("{API}/{repo}?{META_EXPAND}&expand[]=gguf")
+    }
+
+    fn mobile_repo(f: Fixtures, repo: &str) -> Fixtures {
+        let n = repo.replace('/', "_");
+        f.route(mobile_meta_url(repo), 200, fixture(&format!("meta_{n}.json")))
+    }
+
+    #[test]
+    fn phone_search_is_gguf_only_and_drops_models_over_the_cap() {
+        let url = format!("{API}?search=qwen&filter=gguf&sort=downloads&direction=-1&limit=10&{LIST_EXPAND}");
+        let body = br#"[
+          {"id": "unsloth/Qwen3-235B-A22B-GGUF", "downloads": 900, "tags": ["gguf"]},
+          {"id": "unsloth/Qwen3-1.7B-GGUF", "downloads": 800, "tags": ["gguf"]},
+          {"id": "someone/qwen-mlx", "downloads": 700, "tags": ["mlx", "gguf"]},
+          {"id": "unsloth/Phi-4-mini-instruct-GGUF", "downloads": 600, "tags": ["gguf"]}
+        ]"#;
+        // Only the GGUF search is routed: asking for MLX builds would panic.
+        let f = Fixtures::default().route(url, 200, body.to_vec());
+        let found = search_mobile_with(&f, "qwen", 10, Some(platform::TIERS[1])).unwrap();
+        let ids: Vec<&str> = found.iter().map(|m| m.id.as_str()).collect();
+        assert_eq!(ids, ["unsloth/Qwen3-1.7B-GGUF", "unsloth/Phi-4-mini-instruct-GGUF"]);
+        assert_eq!(f.tokens_sent().len(), 1);
+        // A phone under 6 GB searches nothing.
+        assert!(search_mobile_with(&Fixtures::default(), "qwen", 10, None).unwrap().is_empty());
+    }
+
+    #[test]
+    fn phone_repo_files_are_held_back_with_reasons() {
+        let f = mobile_repo(Fixtures::default(), GEMMA4).route(
+            tree_url(GEMMA4, GEMMA4_REV),
+            200,
+            fixture("tree_unsloth_gemma-4-E4B-it-GGUF.json"),
+        );
+        let r = repo_mobile_with(&f, GEMMA4, None).unwrap();
+        assert!(r.mlx.is_none());
+        // 12 GB: the 4-bit and 3-bit builds within 5.3 GB.
+        let (kept, held) = mobile_files(&r, Some(platform::TIERS[2]));
+        let kept_names: Vec<&str> = kept.iter().map(|k| k.path.as_str()).collect();
+        assert!(kept_names.contains(&"gemma-4-E4B-it-Q4_K_M.gguf"), "{kept_names:?}");
+        assert!(kept_names.contains(&"gemma-4-E4B-it-Q4_0.gguf"));
+        assert!(kept.iter().all(|k| k.size <= platform::TIERS[2].llm_budget_bytes));
+        let why = |name: &str| held.iter().find(|(h, _)| h.path == name).map(|(_, w)| *w);
+        assert_eq!(why("gemma-4-E4B-it-BF16.gguf"), Some(TooBig::Quantisation));
+        assert_eq!(why("gemma-4-E4B-it-Q6_K.gguf"), Some(TooBig::Quantisation));
+        assert!(matches!(why("gemma-4-E4B-it-Q5_K_M.gguf"), Some(TooBig::TooLarge { .. })));
+        assert_eq!(kept.len() + held.len(), r.files.len());
+        // 8 GB: every E4B build is over 3.5 GB.
+        let (kept, held) = mobile_files(&r, Some(platform::TIERS[1]));
+        assert!(kept.is_empty());
+        assert!(matches!(
+            held.iter().find(|(h, _)| h.path == "gemma-4-E4B-it-Q4_K_M.gguf").map(|(_, w)| *w),
+            Some(TooBig::TooLarge { .. })
+        ));
+        // Adding a held-back file on the phone is refused, in plain words; an
+        // offered one is marked mobile.
+        let (_dir, store) = tmp_store();
+        let err = add_to_catalog_for(
+            &store,
+            &r,
+            "gemma-4-E4B-it-Q4_K_M.gguf",
+            false,
+            Some(Some(platform::TIERS[1])),
+        )
+        .unwrap_err();
+        assert_eq!(err.to_string(), "Too large for this iPhone (8 GB): 5.0 GB. Models up to 3.5 GB fit.");
+        let e = add_to_catalog_for(
+            &store,
+            &r,
+            "gemma-4-E4B-it-Q4_K_M.gguf",
+            false,
+            Some(Some(platform::TIERS[2])),
+        )
+        .unwrap();
+        assert!(e.mobile);
+        // On a computer nothing changes: not marked mobile.
+        let (_dir2, store2) = tmp_store();
+        assert!(!add_to_catalog(&store2, &r, "gemma-4-E4B-it-Q4_K_M.gguf", false).unwrap().mobile);
+    }
+
+    #[test]
+    fn phones_never_see_mlx() {
+        let f = mobile_repo(Fixtures::default(), QWEN_MLX).route(
+            tree_url(QWEN_MLX, QWEN_MLX_REV),
+            200,
+            fixture("tree_mlx-community_Qwen3-0.6B-4bit.json"),
+        );
+        // No config.json or index is read: those aren't routed.
+        let r = repo_mobile_with(&f, QWEN_MLX, None).unwrap();
+        assert!(r.mlx.is_none() && !r.model.mlx);
+        let (_dir, store) = tmp_store();
+        let err =
+            add_to_catalog_for(&store, &r, MLX_CHOICE, false, Some(Some(platform::TIERS[2]))).unwrap_err();
+        assert_eq!(err.to_string(), MLX_NOT_ON_PHONE);
+    }
+
     #[test]
     fn search_never_sends_a_token() {
         let url = |filter: &str| {
@@ -1723,6 +1918,7 @@ mod tests {
             access: Access::Open,
             gated_kind: None,
             base_model: None,
+            params: None,
         }
     }
 

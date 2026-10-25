@@ -1,5 +1,5 @@
 {
-  "_comment": "Curated M0 catalog. Every file is pinned by revision + SHA-256 + size. Sources verified 2026-10-17 (docs/versions.md).",
+  "_comment": "Curated catalog. Every file is pinned by revision + SHA-256 + size. Sources verified 2026-10-17; mobile entries and Qwen3 1.7B verified 2026-10-19 (docs/versions.md, ADR-0018 section 10).",
   "schema_version": 1,
   "models": [
     {
@@ -12,7 +12,8 @@
       "files": [
         { "path": "gemma-4-E4B_q4_0-it.gguf", "size": 5154941280, "sha256": "676c35070db6dbe52f93e9c864ee0fba4eddea94b9c875d9cb10daff453fbaee" }
       ],
-      "layout": { "type": "llm_gguf", "model": "gemma-4-E4B_q4_0-it.gguf" }
+      "layout": { "type": "llm_gguf", "model": "gemma-4-E4B_q4_0-it.gguf" },
+      "mobile": true
     },
     {
       "id": "gemma-4-12b-it-q4_0",
@@ -36,7 +37,21 @@
       "files": [
         { "path": "gemma-4-E2B_q4_0-it.gguf", "size": 3349516256, "sha256": "fa401b55b07ee70a54c6dae3903c783a6e65064312529ea57175cb5f8dec6634" }
       ],
-      "layout": { "type": "llm_gguf", "model": "gemma-4-E2B_q4_0-it.gguf" }
+      "layout": { "type": "llm_gguf", "model": "gemma-4-E2B_q4_0-it.gguf" },
+      "mobile": true
+    },
+    {
+      "id": "qwen3-1.7b-q4_k_m",
+      "display_name": "Qwen3 1.7B (Q4_K_M, for iPhones with 6 GB)",
+      "slot": "llm",
+      "license": "Apache-2.0",
+      "attribution": "Qwen3 by the Qwen team, Alibaba Cloud; GGUF by Unsloth",
+      "source": { "kind": "huggingface", "repo": "unsloth/Qwen3-1.7B-GGUF", "revision": "d7f544eead698dbd1f15126ef60b45a1e1933222" },
+      "files": [
+        { "path": "Qwen3-1.7B-Q4_K_M.gguf", "size": 1107409472, "sha256": "b139949c5bd74937ad8ed8c8cf3d9ffb1e99c866c823204dc42c0d91fa181897" }
+      ],
+      "layout": { "type": "llm_gguf", "model": "Qwen3-1.7B-Q4_K_M.gguf" },
+      "mobile": true
     },
     {
       "id": "parakeet-tdt-0.6b-v3-int8",
@@ -51,7 +66,8 @@
         { "path": "joiner.int8.onnx", "size": 6355277, "sha256": "3164c13fc2821009440d20fcb5fdc78bff28b4db2f8d0f0b329101719c0948b3" },
         { "path": "tokens.txt", "size": 93939, "sha256": "d58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d" }
       ],
-      "layout": { "type": "asr_nemo_transducer", "encoder": "encoder.int8.onnx", "decoder": "decoder.int8.onnx", "joiner": "joiner.int8.onnx", "tokens": "tokens.txt" }
+      "layout": { "type": "asr_nemo_transducer", "encoder": "encoder.int8.onnx", "decoder": "decoder.int8.onnx", "joiner": "joiner.int8.onnx", "tokens": "tokens.txt" },
+      "mobile": true
     },
     {
       "id": "parakeet-tdt-0.6b-v3-fp32",
@@ -108,7 +124,8 @@
       "files": [
         { "path": "silero_vad.onnx", "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx", "size": 643854, "sha256": "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6" }
       ],
-      "layout": { "type": "vad_silero", "model": "silero_vad.onnx" }
+      "layout": { "type": "vad_silero", "model": "silero_vad.onnx" },
+      "mobile": true
     },
     {
       "id": "pyannote-segmentation-3.0",
@@ -120,7 +137,8 @@
       "files": [
         { "path": "model.onnx", "size": 5992913, "sha256": "220ad67ca923bef2fa91f2390c786097bf305bceb5e261d4af67b38e938e1079" }
       ],
-      "layout": { "type": "diar_segmentation", "model": "model.onnx" }
+      "layout": { "type": "diar_segmentation", "model": "model.onnx" },
+      "mobile": true
     },
     {
       "id": "wespeaker-en-resnet34-lm",
@@ -132,7 +150,8 @@
       "files": [
         { "path": "wespeaker_en_voxceleb_resnet34_LM.onnx", "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/wespeaker_en_voxceleb_resnet34_LM.onnx", "size": 26530550, "sha256": "e9848563da86f263117134dfd7ad63c92355b37de492b55e325400c9d9c39012" }
       ],
-      "layout": { "type": "speaker_embedding", "model": "wespeaker_en_voxceleb_resnet34_LM.onnx" }
+      "layout": { "type": "speaker_embedding", "model": "wespeaker_en_voxceleb_resnet34_LM.onnx" },
+      "mobile": true
     }
   ]
 }

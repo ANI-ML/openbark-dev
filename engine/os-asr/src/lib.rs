@@ -3,6 +3,13 @@
 //! Every audio model runs through sherpa-onnx so the binary carries a single
 //! ONNX Runtime and no second copy of ggml (ADR-0001, spike S2).
 
+//!
+//! Features (ADR-0018 section 1): `stt` links sherpa-onnx (recognisers, voice
+//! detection, its WAV reader and resampler); `capture` links cpal for the
+//! microphone. Desktop builds have both. Without `stt` the recognisers say
+//! speech recognition isn't in this build, and audio is still decoded and
+//! resampled, in Rust.
+
 mod audio;
 pub mod capture;
 pub mod level;
@@ -13,7 +20,10 @@ mod vad;
 mod wav;
 
 /// Re-exported so other crates share this crate's link-mode decision.
+#[cfg(feature = "stt")]
 pub use sherpa_onnx;
+
+pub use resample::Resampler;
 
 pub use audio::{Audio, AudioError, SAMPLE_RATE};
 pub use recognizer::{AsrModel, OfflineAsr};
@@ -41,6 +51,10 @@ pub enum AsrError {
     Recognize,
     #[error(transparent)]
     Audio(#[from] AudioError),
+    /// A build without the `stt` feature (a phone before transcription is
+    /// turned on there).
+    #[error("speech recognition isn't in this build")]
+    NotInThisBuild,
 }
 
 /// A speech-to-text backend over 16 kHz mono audio.
@@ -49,6 +63,7 @@ pub trait AsrBackend: Send + Sync {
     fn transcribe(&self, samples: &[f32]) -> Result<String, AsrError>;
 }
 
+#[cfg_attr(not(feature = "stt"), allow(dead_code))]
 pub(crate) fn require_file(path: &str) -> Result<(), AsrError> {
     if std::path::Path::new(path).is_file() { Ok(()) } else { Err(AsrError::ModelNotFound(path.to_string())) }
 }
@@ -113,6 +128,7 @@ pub fn gpu_usable() -> bool {
 /// GPU they measured slower: 8.5-minute consult, Parakeet int8 43 s on an RTX
 /// 4080 against 28 s on 6 processor threads) unless `OPENBARK_ASR_PROVIDER`
 /// says otherwise.
+#[cfg(feature = "stt")]
 pub(crate) fn provider_for(model: &recognizer::AsrModel) -> String {
     let forced = std::env::var("OPENBARK_ASR_PROVIDER").is_ok_and(|p| !p.trim().is_empty());
     if !forced && model.files().iter().any(|f| f.contains(".int8.")) {

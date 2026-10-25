@@ -31,7 +31,6 @@ use crate::vault;
 
 /// Keychain account for the token; the service is "OpenBark".
 pub const HF_TOKEN_ACCOUNT: &str = "huggingface-token";
-const SERVICE: &str = "OpenBark";
 const FILE_NAME: &str = "hf-token.obk";
 /// The only environment variable a token is taken from (never `HF_TOKEN`).
 const ENV_VAR: &str = "OPENBARK_HF_TOKEN";
@@ -106,41 +105,18 @@ impl SecretBackend for NoKeychain {
     }
 }
 
-#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+/// The OS keychain ([`crate::keychain`]; the protected store on iOS).
 impl SecretBackend for Keychain {
     fn get(&self, account: &str) -> Result<Option<String>, String> {
-        let entry = keyring::Entry::new(SERVICE, account).map_err(|e| e.to_string())?;
-        match entry.get_password() {
-            Ok(v) => Ok(Some(v)),
-            Err(keyring::Error::NoEntry) => Ok(None),
-            Err(e) => Err(e.to_string()),
-        }
+        crate::keychain::get(account)
     }
 
     fn set(&self, account: &str, value: &str) -> Result<(), String> {
-        let entry = keyring::Entry::new(SERVICE, account).map_err(|e| e.to_string())?;
-        entry.set_password(value).map_err(|e| e.to_string())
+        crate::keychain::set(account, value)
     }
 
     fn delete(&self, account: &str) -> Result<(), String> {
-        let entry = keyring::Entry::new(SERVICE, account).map_err(|e| e.to_string())?;
-        match entry.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(e) => Err(e.to_string()),
-        }
-    }
-}
-
-#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
-impl SecretBackend for Keychain {
-    fn get(&self, _: &str) -> Result<Option<String>, String> {
-        Err("no keychain on this platform".into())
-    }
-    fn set(&self, _: &str, _: &str) -> Result<(), String> {
-        Err("no keychain on this platform".into())
-    }
-    fn delete(&self, _: &str) -> Result<(), String> {
-        Ok(())
+        crate::keychain::delete(account).map(|_| ())
     }
 }
 
