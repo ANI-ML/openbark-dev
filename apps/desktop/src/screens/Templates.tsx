@@ -360,7 +360,14 @@ export function Templates({ initialOpen, initialHeading }: { initialOpen?: strin
     <div className="screen templates">
       {/* Phones (§9): the header is the title and the one primary action; the other two sit under the intro. */}
       <header className="screen-head">
-        <h1>{t("Templates")}</h1>
+        <div className="head-title">
+          {/* Phones reach Templates from Settings (ADR-0027): the way back. */}
+          <Button variant="ghost" size="compact" className="back-to-settings" onClick={() => app.navigate({ screen: "settings" })}>
+            <ArrowLeft size={16} aria-hidden />
+            {t("Settings")}
+          </Button>
+          <h1>{t("Templates")}</h1>
+        </div>
         {mayCreate && (
           <div className="head-actions">
             {!phone && secondary()}

@@ -5,10 +5,13 @@ The website's account portal (www.openbark.io/portal, ADR-0017) signs people in 
 | Path | What it is |
 |---|---|
 | `migrations/20261018120000_profiles.sql` | The `public.profiles` table (name, clinic, role, country, update emails), its row level security and its privileges |
-| `functions/delete-account/` | The Edge Function behind "Delete my account" (`index.ts`, with supabase-js pinned in `deno.json`) |
+| `migrations/20261020120000_sync.sql` | Encrypted sync (ADR-0017, M3 phase 2): the `sync` schema, its row level security, and the functions the app calls (push, pull, devices, keys, rotation, revocation), plus the hourly purge |
+| `functions/delete-account/` | The Edge Function behind "Delete my account" on the portal and "Delete my sync account" in the app (`index.ts`, with supabase-js pinned in `deno.json`) |
+| `functions/revoke-device/` | The Edge Function behind removing a device from the portal |
 | `templates/sign-in-code.html` | The sign-in email: a 6-digit code, no link |
+| `config.toml` | A local Supabase for development and the sync tests (`scripts/sync-local-supabase.sh`); not the hosted project's settings |
 
-**No clinical data ever goes to this project for the portal**: no recordings, transcripts, notes or anything about patients. Encrypted sync (ADR-0017, later in M3) will add its own `sync` schema here.
+**No clinical data ever goes to this project for the portal**: no recordings, transcripts, notes or anything about patients. Encrypted sync stores **ciphertext only** in its `sync` schema: transcripts, notes and patient records sealed on the person's devices, with keys the server never has. Recordings never reach it.
 
 Project: `nmecovtmijnfnjuadicp`, URL `https://nmecovtmijnfnjuadicp.supabase.co`. The publishable key in `website/src/portal.js` is public by design; the database's row level security is what protects each account's row. **Never put a secret key or the service role key in this repository, the website or a chat.** The delete-account function gets the service role from Supabase at run time.
 
@@ -117,10 +120,31 @@ Save. The key lives only in Supabase. Then check Authentication > Rate Limits: *
 
 Until this point the portal page exists but nothing links to it. Once step 6 works, set `PORTAL_LINKED = True` in `scripts/website-build.py`, rebuild (`python scripts/website-build.py`), run the website e2e and push. The header and footer then show Sign in on every page.
 
+## Encrypted sync (M3 phase 2, Preview; test data only until the security review)
+
+Only when the owner decides to try sync on the hosted project. Every step is safe to repeat.
+
+1. **Region check.** Project Settings > General shows the region. Real clinic data needs `ca-central-1` on the Pro plan (ADR-0017 section 11); until then, test data only.
+2. **Apply the migration:** `npx supabase@2.121.0 db push` (lists `20261020120000_sync.sql`), or paste the file into the SQL editor and run it.
+3. **Expose the schema:** Project Settings > Data API > Exposed schemas: add `sync`. Without it the app gets "schema must be one of public, graphql_public".
+4. **Sessions:** Authentication > Sessions (or JWT settings): access token expiry **600** seconds; refresh token rotation on, reuse interval 10 s.
+5. **Deploy the device-removal function:** `npx supabase@2.121.0 functions deploy revoke-device --project-ref nmecovtmijnfnjuadicp --no-verify-jwt --use-api`. Redeploy `delete-account` too (its comment changed; the behaviour didn't).
+6. **pg_cron:** Database > Extensions: pg_cron on. The migration schedules `openbark-sync-purge` hourly when pg_cron is available; if it was off when the migration ran, run `select cron.schedule('openbark-sync-purge', '17 * * * *', 'select sync.purge()');` once.
+7. **Revocation check:** in the SQL editor, `select has_table_privilege('postgres', 'auth.sessions', 'DELETE');` should be `true`. If it isn't, a removed device is still refused at once by row level security, but its refresh token keeps working until it tries; tell engineering.
+8. **Try it** with two test computers and a test address: Settings > Encrypted sync on each (the guide: `docs/guide/sync.md`).
+
+Check (as the service role, in the SQL editor): `select kind, count(*), min(padded_size), max(padded_size) from sync.objects group by kind;` shows only kinds and sizes; `select substring(body from 1 for 4) from sync.objects limit 5;` shows `OBS1`.
+
+The sign-in email says "Type this code on the OpenBark account page"; the app uses the same email. If that wording should mention the app, change `templates/sign-in-code.html` and paste it again (step 4 above).
+
+### Testing locally
+
+`scripts/sync-local-supabase.sh start` runs this folder in a local Supabase (Docker; on Windows inside WSL), then `eval "$(bash scripts/sync-local-supabase.sh env)"` and `cargo test -p os-sync --test supabase`. `scripts/sync-e2e.py` drives two OpenBark servers through it.
+
 ## How it is protected
 
 - **Row level security** on `profiles`: a signed-in person can read, create, change and delete only the row whose `id` is their own user id. Visitors who aren't signed in get nothing. The timestamps are the database's to set, and a row's `id` can't be changed.
-- **Delete my account** asks Supabase Auth who the token belongs to, requires the account's email address typed as confirmation, then deletes that user with the service role. The profile row goes with it (`on delete cascade`). When the `sync` schema arrives, its tables must also cascade from `auth.users`, or the function must delete them first. Local data on the person's computers is never touched.
+- **Delete my account** asks Supabase Auth who the token belongs to, requires the account's email address typed as confirmation, then deletes that user with the service role. The profile row goes with it (`on delete cascade`), and so does every row of the `sync` schema (each table cascades from `auth.users`, directly or through `sync.spaces`). Local data on the person's computers is never touched.
 - **The website's CSP** (`website/vercel.json`) allows connections to this one project and loads supabase-js from one pinned jsDelivr URL with Subresource Integrity. No realtime connection is opened.
 - **Region:** still to check (ADR-0017 section 11). It can't be changed later.
 

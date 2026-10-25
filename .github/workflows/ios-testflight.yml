@@ -35,6 +35,9 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   NODE_VERSION: "24.22.0"
+  # TestFlight builds offer the encrypted sync preview (ADR-0017); release
+  # installers don't until the hosted project and the security review are done.
+  OPENBARK_SYNC_PREVIEW: "1"
 
 jobs:
   testflight:

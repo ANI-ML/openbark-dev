@@ -1,6 +1,6 @@
 import { Button, MarkMono, Skeleton } from "@openbark/ui";
 import { CallButton } from "../components/CallButton";
-import { Mic, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import { AnimatePresence, m } from "motion/react";
 import { useEffect, useState } from "react";
 import { useApp } from "../context";
@@ -9,16 +9,15 @@ import * as engine from "../engine";
 import { templateName, useT } from "../i18n";
 import { speciesName } from "../species";
 import { SpeciesIcon, TemplateIcon } from "../templateIcons";
-import { Encounters } from "./Encounters";
+import { whenLabel } from "../visits";
 
 /**
- * Patients and their visits (ADR-0011): one row per animal, most recently
- * seen first, with "Recent visits" one tap away for the day's list.
+ * Patients (ADR-0011): one row per animal, most recently seen first, with a
+ * name filter. The visit list is its own destination, Visits (ADR-0027).
  */
 export function Patients() {
   const app = useApp();
   const t = useT();
-  const [view, setView] = useState<"patients" | "visits">("patients");
   const [rows, setRows] = useState<engine.PatientSummary[] | null>(null);
   const [q, setQ] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -41,55 +40,27 @@ export function Patients() {
         <h1>{t("Patients")}</h1>
         <div className="head-actions">
           <CallButton variant="ghost" label={t("Call a number")} />
-          <Button variant="primary" onClick={() => app.navigate({ screen: "record" })}>
-            <Mic size={20} aria-hidden />
-            {t("New visit")}
-          </Button>
         </div>
       </header>
       <div className="patients-bar">
-        <div className="ob-segmented" role="tablist" aria-label={t("Show")}>
-          <button
-            type="button"
-            role="tab"
-            className="ob-segment"
-            aria-selected={view === "patients"}
-            onClick={() => setView("patients")}
-          >
-            {t("Patients")}
-          </button>
-          <button
-            type="button"
-            role="tab"
-            className="ob-segment"
-            aria-selected={view === "visits"}
-            onClick={() => setView("visits")}
-          >
-            {t("Recent visits")}
-          </button>
-        </div>
-        {view === "patients" && (
-          <label className="patient-filter">
-            <Search size={18} aria-hidden />
-            <input
-              className="ob-input"
-              type="search"
-              value={q}
-              placeholder={t("Find a patient")}
-              aria-label={t("Find a patient")}
-              onChange={(e) => setQ(e.target.value)}
-            />
-          </label>
-        )}
+        <label className="patient-filter">
+          <Search size={18} aria-hidden />
+          <input
+            className="ob-input"
+            type="search"
+            value={q}
+            placeholder={t("Find a patient")}
+            aria-label={t("Find a patient")}
+            onChange={(e) => setQ(e.target.value)}
+          />
+        </label>
       </div>
       {error && (
         <p className="ob-notice" data-tone="danger" role="alert">
           {error}
         </p>
       )}
-      {view === "visits" ? (
-        <Encounters embedded />
-      ) : rows === null ? (
+      {rows === null ? (
         <Skeleton rows={4} label={t("Loading")} />
       ) : rows.length === 0 ? (
         <div className="empty-state">
@@ -97,7 +68,7 @@ export function Patients() {
           <h3>{t("No patients yet")}</h3>
           <p className="muted">{t("Record or import a visit and its patient appears here.")}</p>
           <Button variant="primary" onClick={() => app.navigate({ screen: "record" })}>
-            {t("New visit")}
+            {t("Record")}
           </Button>
         </div>
       ) : shown.length === 0 ? (
@@ -119,7 +90,7 @@ export function Patients() {
               >
                 <button
                   type="button"
-                  className="patient-row"
+                  className="patient-row row-link"
                   onClick={() => app.navigate({ screen: "patient", id: r.patient.id })}
                 >
                   <span className="patient-avatar" aria-hidden>
@@ -146,7 +117,7 @@ export function Patients() {
                       </span>
                       <span className="patient-last-text">
                         <span className="small">{r.last_type ? templateName(t, r.last_type) : t("No draft")}</span>
-                        <span className="small faint mono">{r.last_visit}</span>
+                        <span className="small faint">{whenLabel(r.last_visit, new Date(), app.settings.uiLanguage, t)}</span>
                       </span>
                     </span>
                   )}

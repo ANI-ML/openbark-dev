@@ -13,10 +13,13 @@ export function PatientPicker({
   value,
   onChange,
   disabled,
+  onNew,
 }: {
   value: engine.Patient;
   onChange: (p: engine.Patient) => void;
   disabled?: boolean;
+  /** No match: offer the typed name as a new patient (Record's compact strip, ADR-0027). */
+  onNew?: (name: string) => void;
 }) {
   const t = useT();
   const id = useId();
@@ -115,8 +118,23 @@ export function PatientPicker({
           ))}
         </ul>
       )}
-      {needle && matches.length === 0 && all !== null && (
-        <p className="small muted">{t("No patient by that name yet: fill in the details below to add one.")}</p>
+      {needle && matches.length === 0 && all !== null && onNew ? (
+        <button
+          type="button"
+          className="link small"
+          onClick={() => {
+            onNew(q.trim());
+            setQ("");
+          }}
+        >
+          {t("Add {name} as a new patient", { name: q.trim() })}
+        </button>
+      ) : (
+        needle &&
+        matches.length === 0 &&
+        all !== null && (
+          <p className="small muted">{t("No patient by that name yet: fill in the details below to add one.")}</p>
+        )
       )}
     </div>
   );

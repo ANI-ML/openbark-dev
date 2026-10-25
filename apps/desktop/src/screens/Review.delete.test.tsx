@@ -106,6 +106,7 @@ describe("Review: deleting", () => {
     });
     mocked.restoreVisit.mockResolvedValue({ id: view.id, patient_id: "p-olive" });
     show(view, c);
+    fireEvent.click(await screen.findByRole("button", { name: "More actions" }));
     fireEvent.click(await screen.findByRole("button", { name: "Delete visit" }));
     expect(screen.getByText("This visit also has notes for Olive. They're deleted with it.")).toBeTruthy();
     await waitFor(() => expect(document.querySelector("audio")).not.toBeNull());
@@ -139,13 +140,15 @@ describe("Review: deleting", () => {
 
   it("shows no Delete visit or Delete recording to reception", async () => {
     show(sessionView(), ctx({ can: { notes: false, sign: false, team: false, admin: false } }));
-    await screen.findByText("Ear check");
+    await screen.findByText(/Ear check/);
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }));
     expect(screen.queryByRole("button", { name: "Delete visit" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Delete recording" })).toBeNull();
   });
 
   it("disables Delete visit on a signed visit, with the reason", async () => {
     show(sessionView({ any_signed: true }), ctx());
+    fireEvent.click(await screen.findByRole("button", { name: "More actions" }));
     const button = (await screen.findByRole("button", { name: "Delete visit" })) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     expect(button.closest("[title]")?.getAttribute("title")).toBe(
@@ -153,19 +156,27 @@ describe("Review: deleting", () => {
     );
   });
 
-  it("offers Delete recording under the player; a technician can't on a signed visit", async () => {
+  it("offers Delete recording in More; a technician can't on a signed visit, and sees why", async () => {
     show(sessionView({ any_signed: true }), ctx({ can: { notes: true, sign: false, team: false, admin: false } }));
+    fireEvent.click(await screen.findByRole("button", { name: "More actions" }));
     const button = (await screen.findByRole("button", { name: "Delete recording" })) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
-    expect(button.closest("[title]")?.getAttribute("title")).toBe(
-      "Only a veterinarian can delete the recording of a signed visit.",
-    );
+    const why = document.getElementById(button.getAttribute("aria-describedby") ?? "");
+    expect(why?.textContent).toBe("Only a veterinarian can delete the recording of a signed visit.");
+  });
+
+  it("keeps destructive actions out of the header until More is opened", async () => {
+    show(sessionView(), ctx());
+    await screen.findByRole("button", { name: "More actions" });
+    expect(screen.queryByRole("button", { name: "Delete visit" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete recording" })).toBeNull();
   });
 
   it("deletes the recording after the dialog, and shows the line in the player's place", async () => {
     const c = ctx();
     const before = sessionView({ pets: [], pet: null, patient: { name: "Maple", last_name: "Okonkwo", reason: "Limping" } });
     show(before, c, "");
+    fireEvent.click(await screen.findByRole("button", { name: "More actions" }));
     fireEvent.click(await screen.findByRole("button", { name: "Delete recording" }));
     expect(screen.getByRole("heading", { name: "Delete this recording? The note stays." })).toBeTruthy();
     const at = "2026-10-18T14:05:00+00:00";

@@ -51,6 +51,7 @@ pub use templates::{
 pub mod demo;
 mod mic;
 mod phone;
+mod sync;
 mod templates;
 pub use mic::{MicLevel, MicTestStarted};
 pub use os_connect::{ConnectStore, PhonePrefs};
@@ -325,6 +326,13 @@ pub struct App {
     gpu_checked: Arc<std::sync::atomic::AtomicU8>,
     /// Template resets that can still be undone (ADR-0024).
     undo: Mutex<templates::UndoMap>,
+    /// Encrypted sync for this visits folder (ADR-0017). Off until the
+    /// person turns it on in Settings > Sync.
+    #[cfg(feature = "sync")]
+    sync: Option<Arc<os_sync::SyncService>>,
+    /// Run a sync now rather than at the next 30-second poll.
+    #[cfg_attr(not(feature = "sync"), allow(dead_code))]
+    sync_wake: std::sync::atomic::AtomicBool,
     /// The clinic's own Twilio account and this computer's phone settings
     /// (ADR-0023). `OPENBARK_CONNECTIONS_DIR` moves it, away from the keychain.
     pub connect: ConnectStore,
@@ -667,6 +675,17 @@ pub struct SessionSummary {
     pub reason: String,
     /// Name of the template the latest draft used.
     pub template: String,
+    /// Encrypted sync: synced, pending or stopped; none while sync is off
+    /// or the visit doesn't sync (ADR-0017).
+    pub sync: Option<String>,
+    /// For a visit from another device: the device that holds its audio.
+    pub audio_on: Option<String>,
+    /// The animal's name and the family name, apart ("Maple", "Okonkwo"),
+    /// so the visit list can show "Maple · Okonkwo" (ADR-0027).
+    pub animal: String,
+    pub family: String,
+    /// Who signed the latest signed note, by name; none until signed.
+    pub signed_by: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -712,9 +731,30 @@ pub struct SessionView {
     /// The latest draft's teeth with a drafted chart entry that no
     /// veterinarian has confirmed yet. Signing waits until it is empty.
     pub unconfirmed_teeth: Vec<String>,
+    /// For a visit from another device: the device that holds its audio
+    /// (ADR-0017 section 7). Audio never syncs.
+    pub audio_on: Option<session::AudioOn>,
+    /// Drafts set aside when this visit met a signature from another device
+    /// (ADR-0017 section 9), each offered as an addendum.
+    pub set_aside: Vec<SetAsideView>,
+    /// Encrypted sync: synced, pending or stopped.
+    pub sync: Option<String>,
     /// A phone call's details (ADR-0023 section 8): direction, number,
     /// length, Twilio's call SID, and who was on the clinic's side.
     pub call: Option<CallInfo>,
+}
+
+/// A draft set aside by sync, for Review.
+#[derive(Debug, Clone, Serialize)]
+pub struct SetAsideView {
+    pub run_id: String,
+    pub reason: session::SetAsideReason,
+    pub created_at: String,
+    pub by: Option<String>,
+    /// When and where the record was signed.
+    pub signed_at: String,
+    pub signed_on: Option<String>,
+    pub markdown: Option<String>,
 }
 
 /// A visit just moved to Deleted visits.
@@ -1253,11 +1293,16 @@ impl App {
             gpu_at_start: os_models::gpu_pack::loaded_at_start(),
             gpu_checked: Arc::new(std::sync::atomic::AtomicU8::new(0)),
             undo: Mutex::new(HashMap::new()),
+            #[cfg(feature = "sync")]
+            sync: None,
+            sync_wake: std::sync::atomic::AtomicBool::new(false),
             connect: ConnectStore::default(),
             twilio_base: None,
             call: Mutex::new(None),
             pending_call: Mutex::new(None),
         };
+        #[cfg(feature = "sync")]
+        let app = Self { sync: sync::open_service(&app.sessions_root), ..app };
         app.start_gpu_check();
         // Folders of older MLX engine packs and unfinished unpacks (ADR-0025 §4).
         static MLX_TIDY: std::sync::Once = std::sync::Once::new();
@@ -1579,8 +1624,27 @@ impl App {
                         })
                     })
                     .unwrap_or_default(),
+                sync: self.sync_state_of(&s),
+                audio_on: s.meta.audio_on.as_ref().filter(|_| !s.has_audio()).map(|a| a.device_name.clone()),
+                animal: s.meta.patient.as_ref().map(|p| p.name.trim().to_string()).unwrap_or_default(),
+                family: s.meta.patient.as_ref().map(|p| p.last_name.trim().to_string()).unwrap_or_default(),
+                signed_by: s
+                    .meta
+                    .runs
+                    .iter()
+                    .filter(|r| r.signed_at.is_some())
+                    .max_by_key(|r| r.signed_at)
+                    .and_then(|r| r.signer.as_ref().map(|w| w.name.clone()).or_else(|| r.signed_by.clone())),
             })
             .collect()
+    }
+
+    /// One visit's sync state for the screens.
+    fn sync_state_of(&self, s: &Session) -> Option<String> {
+        match self.sync_states().get(&s.meta.id) {
+            Some(state) => Some(state.clone()),
+            None => self.sync_would(s).then(|| "pending".to_string()),
+        }
     }
 
     // ---- patients (ADR-0011) -------------------------------------------------
@@ -1741,7 +1805,10 @@ impl App {
     /// An encounter, showing one animal's notes in a multi-pet visit
     /// (`pet`), or the visit's single note.
     pub fn open_session(&self, id: &str, pet: Option<&str>) -> Result<SessionView> {
-        Ok(view(&self.open(id, pet)?, None))
+        let s = self.open(id, pet)?;
+        let mut v = view(&s, None);
+        v.sync = self.sync_state_of(&s);
+        Ok(v)
     }
 
     fn open(&self, id: &str, pet: Option<&str>) -> Result<Session> {
@@ -4022,6 +4089,23 @@ fn view(s: &Session, transcript: Option<Transcript>) -> SessionView {
         audio_deleted: s.meta.audio_deleted.clone(),
         chart_checks: record.map(|r| r.chart_checks.clone()).unwrap_or_default(),
         unconfirmed_teeth,
+        audio_on: s.meta.audio_on.clone().filter(|_| !s.has_audio()),
+        set_aside: s
+            .my_runs()
+            .filter_map(|r| {
+                let aside = r.set_aside.as_ref()?;
+                Some(SetAsideView {
+                    run_id: r.id().to_string(),
+                    reason: aside.reason,
+                    created_at: r.created_at.format("%Y-%m-%d %H:%M").to_string(),
+                    by: r.by.as_ref().map(|w| w.name.clone()).or_else(|| r.signed_by.clone()),
+                    signed_at: aside.signed_at.format("%Y-%m-%d %H:%M").to_string(),
+                    signed_on: aside.signed_on.clone(),
+                    markdown: os_engine::vault::read_to_string(&s.dir.join(&r.dir).join("note.md")).ok(),
+                })
+            })
+            .collect(),
+        sync: None,
         call: s.meta.call.clone(),
     }
 }

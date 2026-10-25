@@ -2,7 +2,11 @@
 
 Video: **Help → Reviewing and signing** in the app.
 
-Review shows the transcript and recording on the left, and the draft note on the right. On a phone, switch between them with **Transcript** and **Note**.
+Open a visit from **Visits** (or from a patient's page). Review shows the patient as "Animal · Family" and one line saying the reason, the species, when and where it was recorded and how consent was given. **Visits**, at the top left, goes back.
+
+On a computer the transcript, with the recording's player above it, is on the left and the draft note on the right. At the top right are the **Template**, **More** (the three dots), **Copy note** and **Sign note**. **More** holds **Edit details**, **Save PDF**, **Delete recording**, **Delete visit** and the rest.
+
+On a phone, switch between them with **Note** and **Transcript**. **Ask for changes** and **Copy note** are at the bottom, and **More** is at the top right. Tap a line of the note to see what was said, with **Play this moment**.
 
 ## Check the draft against the recording
 
@@ -15,7 +19,7 @@ Review shows the transcript and recording on the left, and the draft note on the
 
 ## Ask for changes
 
-Hover a heading and choose **Ask**. Built-in templates suggest requests made for that heading, such as "Chart every tooth that was named, by its Triadan number" under a dental note's chart; choose one or write your own. Say what should change, for example "List every fluid with its volume and rate", then choose **Redraft**. Only that heading is redrafted, from the recording; the rest of the note stays as it was. The request guides the model but isn't evidence: anything not said stays out, and the numbers are checked again.
+Hover a heading and choose **Ask** (on a phone, **Ask for changes** at the bottom, then the heading). Built-in templates suggest requests made for that heading, such as "Chart every tooth that was named, by its Triadan number" under a dental note's chart; choose one or write your own. Say what should change, for example "List every fluid with its volume and rate", then choose **Redraft**. Only that heading is redrafted, from the recording; the rest of the note stays as it was. The request guides the model but isn't evidence: anything not said stays out, and the numbers are checked again.
 
 Tick **Save as a standard** to make the request part of the template. Later drafts with that template then follow it under that heading. With a team, choose **For me** (only your drafts) or **For the hospital** (everyone's drafts, approved with an admin's PIN). Standards are listed, and can be removed, in **Templates**. **Edit this heading in the template** opens the template at that heading.
 
@@ -49,7 +53,7 @@ When you enter the patient before recording, choose **Add another animal** for e
 
 ## Draft again with another template
 
-Pick a template in the top bar and choose **Draft as …** to draft the same consult another way. Every draft is kept with the visit.
+Pick a template at the top and choose **Draft as …** to draft the same consult another way. Every draft is kept with the visit.
 
 ## Sign
 
@@ -57,13 +61,15 @@ When the note is right, choose **Sign note**. A dental chart must have every dra
 
 If your clinic has a team set up, only veterinarians can sign and add addenda.
 
+During the pilot, notes are signed on a computer, not on the iPhone: the iPhone shows **Sign it on your computer.** in place of **Sign note**. The same goes for addenda and for confirming teeth on a dental chart. With encrypted sync on, the visit is waiting on your computer under **Visits**, in **Needs you**.
+
 ## Delete a visit
 
-A test recording, a visit recorded by mistake, a duplicate import, or a client who withdraws consent: open the visit in Review and choose **Delete visit**, beside **Edit details**. Pick the reason from the short menu. The visit is deleted at once and a message offers **Undo**.
+A test recording, a visit recorded by mistake, a duplicate import, or a client who withdraws consent: open the visit in Review, choose **More** at the top right, then **Delete visit**. Pick the reason from the short menu. The visit is deleted at once and a message offers **Undo**.
 
 - The visit goes to **Deleted visits** (Settings) for 30 days. Restore it from there any time in those 30 days.
 - In a visit with more than one animal, the whole visit is deleted, with every animal's notes. The menu names the other animals first.
-- Filed under the wrong patient? That's a correction, not a deletion: use **Edit details** instead.
+- Filed under the wrong patient? That's a correction, not a deletion: use **Edit details** (in **More**) instead.
 - **Signed visits can't be deleted yet.** To correct a signed note, add an addendum.
 - Veterinarians and technicians can delete visits. Reception can't, and doesn't see Deleted visits. Working alone, you need your name in Settings, as for signing.
 
@@ -77,11 +83,11 @@ The patient stays in your patient list, even with no visits left. Their page say
 - **Delete now** removes it for good, after you confirm. It can't be undone.
 - After 30 days, OpenBark removes a deleted visit for good on its own.
 
-**Settings → Storage** shows how much space Deleted visits take.
+**Settings → Privacy and storage** shows how much space Deleted visits take.
 
 ## Delete only the recording
 
-After the note is checked and signed, you may not need the recording any more. Choose **Delete recording**, under the player, and confirm: "Delete this recording? The note stays."
+After the note is checked and signed, you may not need the recording any more. In Review, choose **More**, then **Delete recording**, and confirm: "Delete this recording? The note stays."
 
 - Only the recording goes, at once. The transcript, every draft, signed notes and addenda stay. Evidence links still light up the transcript line; they just can't play it.
 - You can't play the visit back or transcribe it again afterwards. Drafting again works, because drafts are written from the transcript.

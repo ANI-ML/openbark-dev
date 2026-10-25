@@ -23,6 +23,7 @@ import { mkdirSync, renameSync, rmSync } from "node:fs";
 import { userInfo } from "node:os";
 import { resolve } from "node:path";
 import { chromium } from "@playwright/test";
+const OLD_NAV = ["record", "patients", "templates", "models", "settings", "help"]; // nav by name (data-nav, ADR-0027)
 
 const base = process.env.OPENBARK_URL ?? "http://localhost:4318";
 const outDir = resolve("public/help");
@@ -150,7 +151,7 @@ function helpers(page) {
     await page.keyboard.type(text, { delay: 40 });
     await page.waitForTimeout(250);
   };
-  const nav = (i) => page.locator(".nav-item").nth(i);
+  const nav = (i) => page.locator(`.nav-item[data-nav="${OLD_NAV[i]}"]`);
   return { caption, clear, captionAt, center, point, click, type, nav };
 }
 
@@ -184,7 +185,7 @@ async function checkDraft(note, maxEmpty = 2) {
 /** Open a visit from Patients, Recent visits, by its patient's name. */
 async function openVisit(page, h, name) {
   await h.click(h.nav(1));
-  await h.click(page.locator(".patients-bar .ob-segment").nth(1));
+  await h.click(page.locator('.nav-item[data-nav="visits"]'));
   await h.click(page.locator("tr.row-link", { hasText: name }).first());
   await page.locator(".note").waitFor();
 }
@@ -240,10 +241,13 @@ const TOPICS = {
     await click(page.locator(".patient-match").first());
     await page.locator(".picked-patient").waitFor();
     await caption("Choosing a patient fills in their details and links the visit to them.", 3000);
-    await type(page.locator(".recorder-patient [id$='-reason']"), "Ear infection recheck");
+    await type(page.locator("#strip-reason"), "Ear infection recheck");
     await clear();
-    await click(page.locator(".visit-types button", { hasText: "Recheck" }).first());
-    await caption("Choose the kind of visit. Each has its own headings.", 2800);
+    // One Template choice beside the recorder (ADR-0027).
+    const template = page.locator(".record-side select.opt-select");
+    await point(template);
+    await template.selectOption({ label: "Recheck" });
+    await caption("Choose the template. Each has its own headings.", 2800);
     await point(page.locator(".ob-record"));
     await caption("Press Record, or the Space bar.", 2000);
     await click(page.locator(".ob-record"));
@@ -320,7 +324,7 @@ const TOPICS = {
     await caption("New visit opens Record with the patient already filled in.", 3200);
     await clear();
     await click(nav(1));
-    await click(page.locator(".patients-bar .ob-segment").nth(1));
+    await click(page.locator('.nav-item[data-nav="visits"]'));
     await page.locator("tr.row-link").first().waitFor();
     await caption("Recent visits lists the day's recordings.", 3000);
   },

@@ -1,0 +1,89 @@
+# A local Supabase for developing and testing OpenBark's account portal and
+# encrypted sync (ADR-0017). `supabase start` runs it in Docker; nothing here
+# configures the hosted project, whose settings are made in its dashboard
+# (supabase/README.md). Tests and scripts read the local keys from
+# `supabase status -o env` at run time; none are written down here.
+#
+# Only what OpenBark uses is switched on: Postgres, the REST API (PostgREST),
+# Auth, Edge Functions and the local mail catcher (Mailpit), where sign-in
+# codes arrive. See scripts/sync-local-supabase.sh.
+
+project_id = "openbark-sync-dev"
+
+[api]
+enabled = true
+port = 54321
+# `sync` is OpenBark's encrypted sync schema. On a hosted project, add it
+# under Project Settings > Data API > Exposed schemas.
+schemas = ["public", "graphql_public", "sync"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 17
+
+[db.seed]
+enabled = false
+
+[realtime]
+enabled = false
+
+[studio]
+enabled = false
+
+[local_smtp]
+enabled = true
+port = 54324
+
+[storage]
+# Sync stores no files: every object and blob is a Postgres row (ADR-0017
+# section 11). Audio never leaves the device that recorded it.
+enabled = false
+
+[auth]
+enabled = true
+site_url = "http://127.0.0.1:4336"
+# Access tokens last 10 minutes; refresh tokens rotate (ADR-0017 section 2).
+# Set the same on a hosted project: Authentication > Sessions.
+jwt_expiry = 600
+enable_refresh_token_rotation = true
+refresh_token_reuse_interval = 10
+enable_signup = true
+enable_anonymous_sign_ins = false
+
+[auth.rate_limit]
+# Tests sign in many times; the hosted project keeps its own limits.
+email_sent = 200
+token_refresh = 500
+sign_in_sign_ups = 500
+token_verifications = 500
+
+[auth.email]
+enable_signup = true
+enable_confirmations = false
+max_frequency = "1s"
+otp_length = 6
+otp_expiry = 3600
+
+# The emails carry a 6-digit code and no link (supabase/templates).
+[auth.email.template.magic_link]
+subject = "Your OpenBark sign-in code"
+content_path = "./supabase/templates/sign-in-code.html"
+
+[auth.email.template.confirmation]
+subject = "Your OpenBark sign-in code"
+content_path = "./supabase/templates/sign-in-code.html"
+
+[auth.mfa.totp]
+enroll_enabled = true
+verify_enabled = true
+
+[edge_runtime]
+enabled = true
+policy = "per_worker"
+deno_version = 2
+
+[analytics]
+enabled = false

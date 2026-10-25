@@ -53,17 +53,16 @@ for (const v of variants) {
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
     if (overflow) errors.push(`${screen}: horizontal scroll at ${window.innerWidth}px`);
   };
-  // Navigate by position so every interface language works: Record, Patients, Templates, Models, Settings.
-  const NAV = { Record: 0, Patients: 1, Templates: 2, Models: 3, Settings: 4, Help: 5 };
-  // Phones show four tabs (DESIGN.md §9); Models and Help are rows under Settings.
-  const PHONE_MORE = { Models: 0, Help: 1 };
+  // Navigate by data-nav name so every interface language works (ADR-0027).
+  // Phones show four tabs; Templates, Models and Help are rows under Settings.
+  const PHONE_MORE = { Templates: 0, Models: 1, Help: 4 };
   const phone = v.viewport.width <= 640;
   const nav = async (screen) => {
     if (phone && screen in PHONE_MORE) {
-      await page.locator(".nav-item").nth(NAV.Settings).click();
-      await page.locator(".phone-more-row").nth(PHONE_MORE[screen]).click();
+      await page.locator('.nav-item[data-nav="settings"]').click();
+      await page.locator(".settings-row").nth(PHONE_MORE[screen]).click();
     } else {
-      await page.locator(".nav-item").nth(NAV[screen]).click();
+      await page.locator(`.nav-item[data-nav="${screen.toLowerCase()}"]`).click();
     }
     await page.locator(".screen h1").first().waitFor();
   };
@@ -95,7 +94,7 @@ for (const v of variants) {
 
   // Patients opens on the patient list; the visits table is under Recent visits.
   const recentVisits = async () => {
-    await page.locator(".patients-bar .ob-segment").nth(1).click();
+    await page.locator('.nav-item[data-nav="visits"]').click();
     await page
       .locator(".row-link")
       .first()

@@ -119,6 +119,35 @@ pub struct RunInfo {
     /// entry; entries the vet edited or added are their own.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub chart_checks: Vec<ChartCheck>,
+    /// Set by encrypted sync (ADR-0017 section 9) on a run that met a
+    /// signature made on another device: a draft made offline after the note
+    /// was signed elsewhere, or a second signature that came later. The run
+    /// is kept and shown beside the record, offered as an addendum; it is
+    /// never the visit's record, and nothing is dropped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub set_aside: Option<SetAside>,
+}
+
+/// Why a run was set aside when visits from two devices met (ADR-0017
+/// section 9), and which signed run is the record.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SetAside {
+    pub reason: SetAsideReason,
+    /// The record: the run signed first.
+    pub record_run: String,
+    pub signed_at: DateTime<Local>,
+    /// Where the record was signed (a device name from the sync roster), when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signed_on: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SetAsideReason {
+    /// A draft made after the note was signed on another device.
+    SignedElsewhere,
+    /// Signed too, but after the record was signed.
+    SignedLater,
 }
 
 /// A veterinarian's confirmation that the drafted chart entries on one tooth
@@ -208,6 +237,11 @@ pub struct SessionMeta {
     /// transcript, drafts, signatures and `audio_sha256` stay.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio_deleted: Option<AudioDeleted>,
+    /// For a visit that came from another device through encrypted sync:
+    /// the device that recorded it, which alone holds the audio (ADR-0017
+    /// section 7). Audio never syncs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio_on: Option<AudioOn>,
     /// Set for a phone call made through the clinic's own Twilio account
     /// (ADR-0023 section 8): the other number, when, how long, Twilio's call
     /// SID. Kept in `session.json`, encrypted like the rest of the visit.
@@ -274,6 +308,16 @@ impl CallInfo {
             self.clinic_label
         )
     }
+}
+
+/// The device that holds a synced visit's recording.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AudioOn {
+    /// The sync device id.
+    pub device_id: String,
+    /// Its name in the sync roster ("Anna's iPhone"), when known.
+    #[serde(default)]
+    pub device_name: String,
 }
 
 /// When the recording was deleted, and by whom. The rest of the visit stays.
@@ -512,6 +556,7 @@ impl Session {
             consent: None,
             recorded_by: None,
             audio_deleted: None,
+            audio_on: None,
             call: None,
         };
         let session = Self { dir, meta, pet: None };
@@ -543,6 +588,7 @@ impl Session {
             consent: None,
             recorded_by: None,
             audio_deleted: None,
+            audio_on: None,
             call: None,
         };
         let session = Self { dir, meta, pet: None };
@@ -695,6 +741,7 @@ impl Session {
             template_icon: Some(template.template.icon.clone()),
             chart_version: template.chart().map(|_| crate::dental::chart().version),
             chart_checks: carried,
+            set_aside: None,
         });
         self.save_meta()?;
         Ok(dir)
@@ -916,12 +963,14 @@ impl Session {
     }
 
     /// The latest medical-record run (client documents aside).
+    /// A run set aside by sync (a draft or a second signature that met a
+    /// signature from another device) is never the record.
     pub fn latest_record(&self) -> Option<&RunInfo> {
-        self.meta.runs.iter().rev().find(|r| r.document.is_record() && self.mine(r))
+        self.meta.runs.iter().rev().find(|r| r.document.is_record() && r.set_aside.is_none() && self.mine(r))
     }
 
     fn latest_record_index(&self) -> Option<usize> {
-        self.meta.runs.iter().rposition(|r| r.document.is_record() && self.mine(r))
+        self.meta.runs.iter().rposition(|r| r.document.is_record() && r.set_aside.is_none() && self.mine(r))
     }
 
     /// The latest draft's tooth chart teeth with a drafted entry that no
@@ -1035,7 +1084,7 @@ impl Session {
             .runs
             .iter_mut()
             .rev()
-            .find(|r| r.document.is_record() && r.pet == pet)
+            .find(|r| r.document.is_record() && r.set_aside.is_none() && r.pet == pet)
             .filter(|r| r.signed_at.is_some())
             .ok_or_else(|| {
                 EngineError::Session("Addenda are for signed notes. Edit the draft instead.".into())
@@ -1094,6 +1143,12 @@ impl Session {
             crate::trash::remove_file_retrying(&tmp)?;
         }
         self.meta.audio_deleted = Some(AudioDeleted { at: Local::now(), by: who.clone() });
+        self.save_meta()
+    }
+
+    /// Save `session.json` after changing `meta` directly (encrypted sync
+    /// merging a visit from another device, ADR-0017 section 6).
+    pub fn save(&self) -> Result<(), EngineError> {
         self.save_meta()
     }
 

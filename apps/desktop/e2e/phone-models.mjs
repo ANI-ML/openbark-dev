@@ -71,10 +71,10 @@ for (const v of variants) {
 
   // Models: from the side bar on a wide screen, from Settings on a phone.
   if (v.isMobile) {
-    await page.locator(".nav-item", { hasText: "Settings" }).first().click();
-    await page.getByRole("button", { name: "Models" }).first().click();
+    await page.locator('.nav-item[data-nav="settings"]').click();
+    await page.locator(".settings-row", { hasText: "Models and storage" }).first().click();
   } else {
-    await page.locator(".nav-item", { hasText: "Models" }).first().click();
+    await page.locator('.nav-item[data-nav="models"]').click();
   }
   await page.getByRole("heading", { name: "Models", level: 1 }).waitFor();
   await page.locator(".ob-table tbody tr").first().waitFor();

@@ -13,9 +13,9 @@ default = ["recorder", "stt", "inference", "sync"]
 recorder = ["os-engine/recorder"]
 stt = ["os-engine/stt"]
 inference = ["os-engine/inference"]
-# Encrypted sync (ADR-0017). The os-sync crate arrives in M3 phase 2; the
-# feature exists now so every build already names it.
-sync = []
+# Encrypted sync (ADR-0017, M3 phase 2): the os-sync crate. Off at run time
+# until the person turns it on in Settings > Sync.
+sync = ["dep:os-sync"]
 # The end-to-end demo only (ADR-0023): a fault hook for calls (see phone.rs,
 # `fault`) and the fake Twilio. Never in builds clinics get.
 mock-twilio = ["os-connect/mock"]
@@ -27,6 +27,7 @@ os-connect.workspace = true
 os-engine.workspace = true
 os-llm.workspace = true
 os-models.workspace = true
+os-sync = { workspace = true, optional = true }
 chrono.workspace = true
 serde.workspace = true
 serde_json.workspace = true
