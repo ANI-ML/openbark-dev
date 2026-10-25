@@ -1375,19 +1375,45 @@ impl App {
         transcript: &Transcript,
         progress: &mut dyn FnMut(&str),
     ) -> Result<usize> {
-        let llm = open_llm(&self.store, &gguf.to_string_lossy(), Some(0))?;
-        progress("loaded");
+        // Two threads on the processor: the CI simulator shares a 3-core
+        // runner, and ggml's threads spin-wait, so more threads than cores
+        // slow it down by orders of magnitude.
+        let cores = std::thread::available_parallelism().map_or(0, |n| n.get());
+        let threads = 2;
+        let mut options = LlamaCppOptions::new(gguf);
+        options.gpu_layers = 0;
+        options.threads = Some(threads);
+        let llm: Arc<dyn LlmBackend> = Arc::new(LlamaCppBackend::load(options)?);
+        progress(&format!("loaded ({threads} threads, {cores} cores)"));
+        // Plain generation first, no schema: tokens per second without the
+        // constrained sampling, to tell the two costs apart.
+        let mut request = os_llm::GenerateRequest::new(vec![os_llm::ChatMessage::user(
+            "Count from one to fifty, in words.",
+        )]);
+        request.max_tokens = 64;
+        let started = std::time::Instant::now();
+        let mut plain = 0u32;
+        llm.generate(&request, &mut |_| {
+            plain += 1;
+            true
+        })
+        .map_err(|e| AppError(e.to_string()))?;
+        let secs = started.elapsed().as_secs_f64().max(0.001);
+        progress(&format!("plain: {plain} tokens in {secs:.1} s ({:.1} tokens/s)", plain as f64 / secs));
         let template = LoadedTemplate::resolve("soap").map_err(|e| AppError(e.to_string()))?;
-        let options = NoteOptions { max_tokens: 2048, ..Default::default() };
+        let options = NoteOptions { max_tokens: 1024, ..Default::default() };
+        let started = std::time::Instant::now();
         let mut tokens = 0u32;
         let result = os_engine::generate_note(&*llm, &template, transcript, &options, &mut |_| {
             tokens += 1;
             if tokens % 32 == 0 {
-                progress(&format!("{tokens} tokens"));
+                progress(&format!("note: {tokens} tokens in {:.0} s", started.elapsed().as_secs_f64()));
             }
             true
         })
         .map_err(|e| AppError(e.to_string()))?;
+        let secs = started.elapsed().as_secs_f64().max(0.001);
+        progress(&format!("note: {tokens} tokens in {secs:.1} s ({:.1} tokens/s)", tokens as f64 / secs));
         let sections = result.note.as_object().map_or(0, |o| o.len());
         if sections == 0 {
             return Err(AppError("the note came back empty".into()));

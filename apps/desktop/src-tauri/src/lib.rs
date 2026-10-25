@@ -140,8 +140,11 @@ fn status(app: State<'_, AppState>) -> os_app::Status {
                 if let (Ok(t), true) = (&transcript, gguf.is_file()) {
                     // Where the draft is, for the script when it runs long.
                     let progress_file = note_out.with_extension("progress");
+                    let mut lines = String::new();
                     let mut progress = |stage: &str| {
-                        let _ = std::fs::write(&progress_file, stage);
+                        lines.push_str(stage);
+                        lines.push('\n');
+                        let _ = std::fs::write(&progress_file, &lines);
                     };
                     progress("loading");
                     let note = match app.smoke_draft(&gguf, t, &mut progress) {

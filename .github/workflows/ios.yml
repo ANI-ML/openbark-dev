@@ -147,6 +147,10 @@ jobs:
             for f in OpenBark OpenBark.debug.dylib Frameworks/SherpaOnnxC.framework; do
               [ -e "$app/$f" ] && echo "- $f: $(du -sk "$app/$f" | cut -f1) KB"
             done
+            # llama.cpp's static libraries for this target (what `inference` adds
+            # before linking and stripping; a release build is smaller).
+            find target/aarch64-apple-ios-sim -path '*llama-cpp-sys-2*' \( -name 'libllama*.a' -o -name 'libggml*.a' \) 2>/dev/null               | while read -r lib; do echo "- $(basename "$lib"): $(du -sk "$lib" | cut -f1) KB"; done | sort -u
+            echo "- assets: $(du -sk "$app/assets" | cut -f1) KB ($(find "$app/assets" -type f | wc -l | tr -d ' ') files)"
           } | tee -a "$GITHUB_STEP_SUMMARY"
           rm -f target/ios-smoke/models.zip
       # One ggml (llama.cpp's), no whisper.cpp, one ONNX Runtime (sherpa-onnx's

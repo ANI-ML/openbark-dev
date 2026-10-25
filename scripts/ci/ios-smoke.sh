@@ -107,7 +107,7 @@ if [ "$heard" -eq 1 ] && [ "$draft" = 1 ]; then
   for i in $(seq 1 600); do
     if [ -f "$note" ]; then drafted=1; break; fi
     if [ $((i % 60)) -eq 0 ]; then
-      echo "draft after $i s: $(cat "$support/smoke-note.progress" 2>/dev/null || echo 'no progress yet')"
+      echo "draft after $i s: $(tail -1 "$support/smoke-note.progress" 2>/dev/null || echo 'no progress yet')"
     fi
     sleep 1
   done
@@ -180,12 +180,14 @@ esac
 if [ "$draft" = 1 ]; then
   if [ "$drafted" -ne 1 ]; then
     echo "The app never wrote $note (drafting a note with the test model)." >&2
-    echo "Last progress: $(cat "$out/note.progress" 2>/dev/null || echo none)" >&2
+    echo "Progress:" >&2
+    cat "$out/note.progress" >&2 2>/dev/null || echo "none" >&2
     tail -50 "$out/app.log" >&2 || true
     exit 1
   fi
   result="$(cat "$note")"
   echo "Draft on the simulator: $result"
+  cat "$out/note.progress" 2>/dev/null || true
   case "$result" in
     ok:\ ?*) echo "Drafting smoke test passed: llama.cpp wrote a note on the iPhone simulator." ;;
     *) echo "The draft failed: $result" >&2; exit 1 ;;
