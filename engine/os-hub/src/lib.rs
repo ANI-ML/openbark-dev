@@ -469,11 +469,15 @@ impl Hub {
         if let Some(o) = v.as_object_mut() {
             o.remove("code_key");
         }
+        // A running hub may replace a file between reading the index and
+        // reading the file: those are skipped (the next look sees the new one).
         let mut bodies = Vec::new();
         for (space, objs) in &st.ix.objects {
             for (id, o) in objs {
-                if !o.deleted {
-                    let b = st.read_object(space, id, o.version)?;
+                if o.deleted {
+                    continue;
+                }
+                if let Ok(b) = st.read_object(space, id, o.version) {
                     bodies.push(json!({"space": space, "id": id, "body": keys::b64(&b)}));
                 }
             }
@@ -481,8 +485,9 @@ impl Hub {
         let mut parts = Vec::new();
         for (space, blobs) in &st.ix.blobs {
             for k in blobs.keys() {
-                if let Some((o, ver, p)) = store::split_blob_key(k) {
-                    let b = st.read_blob(space, o, ver, p)?;
+                if let Some((o, ver, p)) = store::split_blob_key(k)
+                    && let Ok(b) = st.read_blob(space, o, ver, p)
+                {
                     parts.push(json!({"space": space, "key": k, "body": keys::b64(&b)}));
                 }
             }

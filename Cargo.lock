@@ -4046,6 +4046,7 @@ dependencies = [
  "os-asr",
  "os-connect",
  "os-engine",
+ "os-hub",
  "os-llm",
  "os-models",
  "os-sync",
