@@ -86,6 +86,10 @@ describe("The iPhone walkthrough", () => {
     mocked.micTestStop.mockResolvedValue(undefined);
     const c = show(ctx());
 
+    // Started: it stays until finished, even once consent is accepted.
+    expect(c.setSettings).toHaveBeenCalledWith({ showWalkthrough: true });
+    expect(walkthroughDue(ios, { ...loadSettings(), consentAcknowledgedAt: "2026-10-25T10:00:00Z", showWalkthrough: true })).toBe(true);
+
     // 1. Welcome: the promise, and no permission asked.
     expect(screen.getByRole("heading", { name: "Welcome to OpenBark" })).toBeTruthy();
     expect(screen.getByText("Recordings stay on this iPhone.")).toBeTruthy();

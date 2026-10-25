@@ -55,6 +55,13 @@ export function PhoneWalkthrough({ onDone }: { onDone?: () => void } = {}) {
   const [mic, setMic] = useState<Mic>("idle");
   const heading = useRef<HTMLHeadingElement>(null);
 
+  // Once started, it stays until finished or skipped, even after the consent
+  // step is accepted (which alone would end a first run), and after a restart.
+  useEffect(() => {
+    if (!app.settings.showWalkthrough) app.setSettings({ showWalkthrough: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Each step's title takes focus, so VoiceOver reads the new screen.
   useEffect(() => {
     heading.current?.focus();
