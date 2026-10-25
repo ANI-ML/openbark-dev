@@ -596,6 +596,9 @@ pub struct ModelStatus {
     pub id: String,
     pub name: String,
     pub installed: bool,
+    /// Came with the app (the iPhone app's speech models, ADR-0018 section
+    /// 10): used from the app itself, never downloaded or removed.
+    pub bundled: bool,
 }
 
 #[derive(Serialize)]
@@ -626,6 +629,10 @@ pub struct Status {
     /// The model that writes notes unless the person picks another: Gemma 4
     /// E4B on a computer, the tier's small model on a phone.
     pub default_llm: String,
+    /// This build can write notes (it has llama.cpp: the `inference`
+    /// feature). Phone builds turn on transcription first; until one with
+    /// `inference` ships, a phone doesn't offer drafting (ADR-0018 section 1).
+    pub can_draft: bool,
 }
 
 /// A visit as listed under a patient.
@@ -886,6 +893,13 @@ pub struct ModelRow {
     pub installed: bool,
     pub fit: Fit,
     pub builtin: bool,
+    /// Came with the app (the iPhone app's speech models): shown as Built in,
+    /// with nothing to download or remove.
+    pub bundled: bool,
+    /// The credit the model's licence asks for (CC-BY-4.0, NVIDIA's
+    /// statement), shown with the model, downloaded or built in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attribution: Option<String>,
     /// Bytes on disk that are OpenBark's alone, so removing them frees that
     /// much (0 when used in place).
     pub disk_bytes: u64,
@@ -1333,10 +1347,37 @@ impl App {
         });
     }
 
+    /// The iOS check's transcription smoke test (ADR-0018 sections 8 and
+    /// 10): transcribe a WAV file with this device's speech models (on a
+    /// phone, the ones built into the app), without speaker labels, and
+    /// return the text. Fails when this build can't transcribe (no `stt`).
+    pub fn smoke_transcribe(&self, wav: &Path) -> Result<String> {
+        let stt = if Profile::current().is_mobile() {
+            os_models::platform::MOBILE_STT
+        } else {
+            os_engine::models::DEFAULT_STT
+        };
+        let transcriber = os_engine::models::transcriber(&self.store, stt, false, None, None, None, false)
+            .map_err(|e| AppError(e.to_string()))?;
+        let audio = os_asr::Audio::load(wav).map_err(|e| AppError(e.to_string()))?;
+        let (transcript, _) = transcriber.run(&audio, &mut |_| {}).map_err(|e| AppError(e.to_string()))?;
+        Ok(transcript
+            .segments
+            .iter()
+            .map(|s| s.text.trim())
+            .filter(|t| !t.is_empty())
+            .collect::<Vec<_>>()
+            .join(" "))
+    }
+
     pub fn status(&self) -> Status {
+        let catalog = os_models::Catalog::builtin();
         let models = os_engine::models::required_status_for(&self.store, Profile::current())
             .into_iter()
-            .map(|(id, name, installed)| ModelStatus { id, name, installed })
+            .map(|(id, name, installed)| {
+                let bundled = catalog.get(&id).is_some_and(|m| self.store.is_bundled(m));
+                ModelStatus { id, name, installed, bundled }
+            })
             .collect();
         Status {
             product: os_engine::PRODUCT_NAME,
@@ -1354,6 +1395,7 @@ impl App {
             profile: Profile::current(),
             mobile_tier: self.phone_tier().flatten().map(|t| t.ram_gb),
             default_llm: self.default_llm(),
+            can_draft: cfg!(feature = "inference"),
         }
     }
 
@@ -3198,6 +3240,8 @@ impl App {
                 Fit::Fits
             },
             builtin,
+            bundled: self.store.is_bundled(m),
+            attribution: m.attribution.clone(),
             disk_bytes: self.store.disk_usage(m),
             shared_bytes: self.store.shared_bytes(m),
             partial_bytes: self.store.partial_bytes(m),
@@ -3901,8 +3945,10 @@ pub struct HeldFile {
     pub reason: String,
 }
 
-/// Note models made for 6 GB phones: a computer doesn't list them.
-const PHONE_ONLY: &[&str] = &["qwen3-1.7b-q4_k_m"];
+/// Note models in the catalog for phones only (ADR-0018 section 10): a
+/// computer doesn't list them, so its catalog stays as it was.
+const PHONE_ONLY: &[&str] =
+    &["qwen3-1.7b-q4_k_m", "qwen3-4b-instruct-2507-q4_k_m", "nemotron-3-nano-4b-q4_k_m"];
 
 /// The repo sheet on a phone: offered files only, the rest listed with why,
 /// and MLX never shown.

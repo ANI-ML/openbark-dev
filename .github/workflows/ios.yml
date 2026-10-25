@@ -20,7 +20,7 @@ on:
         options: [check, init]
         default: check
       features:
-        description: "Extra cargo features for the check build (for example stt)"
+        description: "Cargo features for the check build (default: stt, so the phone transcribes)"
         type: string
         default: ""
   push:
@@ -35,6 +35,8 @@ on:
       - "pnpm-lock.yaml"
       - ".github/workflows/ios.yml"
       - "scripts/ci/ios-*.sh"
+      - "scripts/ci/ios-models.py"
+      - "scripts/ci/ios-sherpa.py"
 
 permissions:
   contents: read
@@ -119,11 +121,38 @@ jobs:
             brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
             pnpm tauri ios init --ci
           fi
+      # The speech models the app ships (ADR-0018 section 10), checked against
+      # the catalog's sizes and SHA-256. Outside target/, so the cargo cache
+      # never carries them.
+      - name: Restore the bundled speech models
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: build/ios-models
+          key: ios-models-${{ hashFiles('engine/os-models/catalog.json', 'scripts/ci/ios-models.py') }}
+      - name: The bundled speech models (pinned sizes and SHA-256)
+        run: python3 scripts/ci/ios-models.py build/ios-models
       - name: Simulator build (unsigned)
         id: build
         run: bash scripts/ci/ios-sim-build.sh "${{ inputs.features }}"
+      - name: App size, with and without the speech models
+        run: |
+          app="${{ steps.build.outputs.app }}"
+          mkdir -p target/ios-smoke
+          {
+            echo "### iOS app size (simulator, debug)"
+            echo "- .app: $(du -sk "$app" | cut -f1) KB"
+            echo "- speech models inside it (assets/models): $(du -sk "$app/assets/models" | cut -f1) KB"
+            (cd "$app/assets" && zip -qr -9 "$GITHUB_WORKSPACE/target/ios-smoke/models.zip" models)
+            echo "- the models zipped (how an IPA stores them): $(du -sk target/ios-smoke/models.zip | cut -f1) KB"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          rm -f target/ios-smoke/models.zip
       - name: WebView smoke test
         run: bash scripts/ci/ios-smoke.sh "${{ steps.build.outputs.app }}" target/ios-smoke
+      # tauri-build also copies bundle > resources next to the Rust build:
+      # keep those 0.7 GB out of the cargo cache.
+      - name: Drop the resource copies from target/
+        if: always()
+        run: find target -maxdepth 3 -type d -name models -path '*apple-ios*' -prune -exec rm -rf {} + || true
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:

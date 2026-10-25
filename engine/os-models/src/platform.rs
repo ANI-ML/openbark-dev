@@ -86,8 +86,17 @@ pub struct Tier {
     /// Largest model offered, in billions of parameters (effective size for
     /// Gemma's E-models: E2B counts as 2).
     pub max_params_b: f64,
-    /// The drafting model this tier picks by default.
+    /// The drafting model this tier picks by default; empty when the tier
+    /// doesn't draft on the phone at all (6 GB, see [`TIERS`]).
     pub default_llm: &'static str,
+}
+
+impl Tier {
+    /// Whether phones of this tier write notes themselves. A tier with no
+    /// default drafting model doesn't: no model that fits it met the bar.
+    pub fn drafts(&self) -> bool {
+        !self.default_llm.is_empty()
+    }
 }
 
 /// Speech recognition on every phone tier: Parakeet TDT 0.6B v3 int8 (about
@@ -98,19 +107,28 @@ const GB: u64 = 1_000_000_000;
 
 /// Phones with 6, 8 and 12 GB. Below 6 GB OpenBark can't run on the phone
 /// (ADR-0018 section 3).
+///
+/// Defaults from the phone note-model comparison (docs/eval/phone-models.md,
+/// 2026-10-25): Qwen3 4B Instruct 2507 was the only phone candidate with no
+/// invented number once the checker's known gaps on reference transcripts
+/// are set aside, and it found the most facts, so it writes notes on 8 and
+/// 12 GB phones. No model within the 6 GB tier's budget met the bar (all
+/// invented doses), so 6 GB phones don't draft at all: they record and
+/// transcribe, and a computer writes the note. The budget and cap stay for
+/// the record of what was compared.
 pub const TIERS: [Tier; 3] = [
-    Tier { ram_gb: 6, llm_budget_bytes: 1_300_000_000, max_params_b: 2.0, default_llm: "qwen3-1.7b-q4_k_m" },
+    Tier { ram_gb: 6, llm_budget_bytes: 1_300_000_000, max_params_b: 2.0, default_llm: "" },
     Tier {
         ram_gb: 8,
         llm_budget_bytes: 3_500_000_000,
         max_params_b: 4.5,
-        default_llm: "gemma-4-e2b-it-q4_0",
+        default_llm: "qwen3-4b-instruct-2507-q4_k_m",
     },
     Tier {
         ram_gb: 12,
         llm_budget_bytes: 5_300_000_000,
         max_params_b: 8.5,
-        default_llm: "gemma-4-e2b-it-q4_0",
+        default_llm: "qwen3-4b-instruct-2507-q4_k_m",
     },
 ];
 
@@ -210,7 +228,8 @@ pub fn params_from_name(name: &str) -> Option<f64> {
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TooBig {
-    /// The phone has less than 6 GB: no drafting on it at all.
+    /// The phone has less than 8 GB, or less than 6 GB: no drafting on it
+    /// at all (its tier has no drafting model, or it has no tier).
     PhoneTooSmall,
     /// More parameters than the tier allows.
     TooManyParams { params_b: f64, max_params_b: f64 },
@@ -227,7 +246,7 @@ impl TooBig {
         let phone = ram_gb.map_or_else(|| "this iPhone".to_string(), |g| format!("this iPhone ({g} GB)"));
         match self {
             TooBig::PhoneTooSmall => {
-                "OpenBark needs an iPhone with 6 GB of memory or more to write notes on the phone.".into()
+                "Writing notes on the phone needs an iPhone with 8 GB of memory or more. Record here, and draft the note on your computer.".into()
             }
             TooBig::TooManyParams { params_b, max_params_b } => format!(
                 "Too large for {phone}: about {params_b}B parameters. Models up to {max_params_b}B fit."
@@ -248,7 +267,7 @@ impl TooBig {
 /// `params_b` billion parameters (if known), may be offered on a phone of
 /// `tier`.
 pub fn check_gguf(tier: Option<Tier>, file: &str, bytes: u64, params_b: Option<f64>) -> Result<(), TooBig> {
-    let tier = tier.ok_or(TooBig::PhoneTooSmall)?;
+    let tier = tier.filter(Tier::drafts).ok_or(TooBig::PhoneTooSmall)?;
     let params = params_b.or_else(|| params_from_name(file));
     if let Some(p) = params
         && p > tier.max_params_b
@@ -310,18 +329,28 @@ mod tests {
     #[test]
     fn the_checks_hold_per_tier() {
         let [t6, t8, t12] = TIERS;
-        // Gemma 4 E2B QAT (3.35 GB): 8 and 12 GB phones; on 6 GB its 2B
-        // effective parameters pass but the file is too large.
+        // 6 GB phones don't draft at all (no model within their budget met the bar).
+        assert!(!t6.drafts() && t8.drafts() && t12.drafts());
+        for (file, bytes) in
+            [("gemma-4-E2B_q4_0-it.gguf", 3_349_516_256u64), ("Qwen3-1.7B-Q4_K_M.gguf", 1_107_409_472)]
+        {
+            assert_eq!(check_gguf(Some(t6), file, bytes, None), Err(TooBig::PhoneTooSmall), "{file}");
+        }
+        // Gemma 4 E2B QAT (3.35 GB): 8 and 12 GB phones.
         let e2b = ("gemma-4-E2B_q4_0-it.gguf", 3_349_516_256);
-        assert!(matches!(check_gguf(Some(t6), e2b.0, e2b.1, None), Err(TooBig::TooLarge { .. })));
         assert_eq!(check_gguf(Some(t8), e2b.0, e2b.1, None), Ok(()));
         assert_eq!(check_gguf(Some(t12), e2b.0, e2b.1, None), Ok(()));
         // Gemma 4 E4B QAT (5.15 GB): 12 GB phones only.
         let e4b = ("gemma-4-E4B_q4_0-it.gguf", 5_154_941_280);
         assert!(check_gguf(Some(t8), e4b.0, e4b.1, None).is_err());
         assert_eq!(check_gguf(Some(t12), e4b.0, e4b.1, None), Ok(()));
-        // Qwen3 1.7B Q4_K_M (1.1 GB): every tier.
-        for t in TIERS {
+        // Qwen3 4B Instruct 2507 Q4_K_M (2.5 GB, 4.02B): 8 and 12 GB, not 6.
+        let q4b = ("Qwen3-4B-Instruct-2507-Q4_K_M.gguf", 2_497_281_120);
+        assert!(check_gguf(Some(t6), q4b.0, q4b.1, None).is_err());
+        assert_eq!(check_gguf(Some(t8), q4b.0, q4b.1, Some(4.02)), Ok(()));
+        assert_eq!(check_gguf(Some(t12), q4b.0, q4b.1, Some(4.02)), Ok(()));
+        // Qwen3 1.7B Q4_K_M (1.1 GB): every tier that drafts.
+        for t in [t8, t12] {
             assert_eq!(check_gguf(Some(t), "Qwen3-1.7B-Q4_K_M.gguf", 1_107_409_472, None), Ok(()));
         }
         // 12B never fits a phone; 16-bit and 6-bit builds aren't offered.
@@ -338,15 +367,14 @@ mod tests {
             Err(TooBig::Quantisation)
         );
         // 8-bit only up to 1B.
-        assert_eq!(check_gguf(Some(t6), "Qwen3-0.6B-Q8_0.gguf", 639_446_688, None), Ok(()));
+        assert_eq!(check_gguf(Some(t8), "Qwen3-0.6B-Q8_0.gguf", 639_446_688, None), Ok(()));
         assert_eq!(
             check_gguf(Some(t8), "Qwen3-1.7B-Q8_0.gguf", 1_834_426_016, None),
             Err(TooBig::Quantisation)
         );
-        // Size alone: a 4B Q4_K_M (2.5 GB) on a 6 GB phone fails on parameters,
-        // a name without a size fails on bytes.
+        // Size alone: a name without a size fails on bytes.
         assert!(matches!(
-            check_gguf(Some(t6), "Phi-4-mini-instruct-Q4_K_M.gguf", 2_491_874_272, None),
+            check_gguf(Some(t8), "Phi-4-mini-instruct-Q4_K_M.gguf", 3_600_000_000, None),
             Err(TooBig::TooLarge { .. })
         ));
         // Parameters from the Hub beat the name.
@@ -361,7 +389,7 @@ mod tests {
     #[test]
     fn tier_defaults_are_mobile_catalog_models_that_fit_their_tier() {
         let catalog = crate::Catalog::builtin();
-        for t in TIERS {
+        for t in TIERS.into_iter().filter(Tier::drafts) {
             let m = catalog
                 .get(t.default_llm)
                 .unwrap_or_else(|| panic!("{} isn't in the catalog", t.default_llm));
@@ -387,6 +415,10 @@ mod tests {
 
     #[test]
     fn messages_are_plain() {
+        assert_eq!(
+            TooBig::PhoneTooSmall.message(Some(6)),
+            "Writing notes on the phone needs an iPhone with 8 GB of memory or more. Record here, and draft the note on your computer."
+        );
         let m = TooBig::TooLarge { bytes: 5_154_941_280, budget_bytes: 3_500_000_000 }.message(Some(8));
         assert_eq!(m, "Too large for this iPhone (8 GB): 5.2 GB. Models up to 3.5 GB fit.");
         let m = TooBig::TooManyParams { params_b: 12.0, max_params_b: 4.5 }.message(Some(8));

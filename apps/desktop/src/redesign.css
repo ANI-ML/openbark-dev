@@ -71,6 +71,36 @@
 .visits .inset-row { min-height: 72px; }
 .visits .inset-sub { white-space: normal; }
 .inset-row > .ob-chip { flex: none; white-space: nowrap; }
+/* The iPhone's first-run walkthrough: one full screen per step, flat, the
+   mark on the first only, one primary action at the bottom in thumb reach. */
+.walkthrough {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; flex-direction: column;
+  background: var(--bg); color: var(--ink);
+  padding: calc(8px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
+  overflow-y: auto;
+}
+.walkthrough-top { display: flex; align-items: center; justify-content: space-between; min-height: 44px; }
+.walkthrough-top .walkthrough-skip { min-height: 44px; }
+.walkthrough-body { flex: 1; display: flex; flex-direction: column; gap: 16px; max-width: 560px; width: 100%; margin: 24px auto 0; }
+.walkthrough-body h1 { margin: 0; font-size: 32px; line-height: 38px; font-weight: 800; letter-spacing: -0.02em; }
+.walkthrough-body h1:focus { outline: none; }
+.walkthrough-body p { margin: 0; }
+.walkthrough-mark { margin-bottom: 8px; }
+.walkthrough-promise, .walkthrough-done { display: flex; align-items: flex-start; gap: 12px; }
+.walkthrough-promise svg, .walkthrough-done svg { margin-top: 2px; color: var(--ink-2); }
+.walkthrough-mic { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.walkthrough-mic .ob-button { min-height: 44px; }
+.walkthrough-foot { display: flex; flex-direction: column; gap: 8px; max-width: 560px; width: 100%; margin: 24px auto 0; }
+.walkthrough-foot .ob-button { width: 100%; justify-content: center; }
+.walkthrough .check { min-height: 44px; align-items: flex-start; }
+.walkthrough .check input { margin-top: 4px; }
+
+/* Write notes on this iPhone: the drafting model's offer under the switch (ADR-0018 section 10). */
+.phone-drafting-body { display: flex; flex-direction: column; gap: 8px; padding: 0 16px 12px 48px; }
+.phone-drafting-body p { margin: 0; }
+.phone-drafting-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.phone-drafting-body .dl { display: flex; flex-direction: column; gap: 4px; }
 .recorder-phone .sheet-foot .ob-button { width: 100%; justify-content: center; }
 
 /* Options list (Record, Settings): rows on a hairline surface. */

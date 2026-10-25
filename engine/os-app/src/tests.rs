@@ -1490,6 +1490,9 @@ fn a_computer_keeps_every_model_and_its_defaults() {
     assert!(rows.iter().any(|r| r.id == "gemma-4-12b-it-q4_0"));
     assert!(rows.iter().any(|r| r.id == "whisper-large-v3-turbo-int8"));
     assert!(!rows.iter().any(|r| r.id == "qwen3-1.7b-q4_k_m"), "phone-only models stay off computers");
+    for id in ["nemotron-3-nano-4b-q4_k_m", "qwen3-4b-instruct-2507-q4_k_m"] {
+        assert!(!rows.iter().any(|r| r.id == id), "phone-only models stay off computers");
+    }
     assert!(rows.iter().all(|r| r.phone_note.is_none()));
     let json = serde_json::to_value(&rows[0]).unwrap();
     assert!(json.get("phone_note").is_none(), "desktop rows are as before");
@@ -1504,7 +1507,7 @@ fn a_phone_lists_mobile_models_and_picks_its_tier_default() {
     assert_eq!(status.profile, Profile::Ios);
     assert_eq!(status.mobile_tier, Some(8));
     assert_eq!(status.hardware.summary, "This iPhone, 8 GB memory", "no graphics-card line on a phone");
-    assert_eq!(status.default_llm, "gemma-4-e2b-it-q4_0");
+    assert_eq!(status.default_llm, "qwen3-4b-instruct-2507-q4_k_m", "the eval's 8 GB default");
     // Drafting is opt-in on a phone: only the speech models are needed to start.
     let needed: Vec<&str> = status.models.iter().map(|m| m.id.as_str()).collect();
     assert_eq!(
@@ -1514,8 +1517,14 @@ fn a_phone_lists_mobile_models_and_picks_its_tier_default() {
 
     let rows = app.models();
     let ids: Vec<&str> = rows.iter().map(|r| r.id.as_str()).collect();
-    for id in ["gemma-4-e2b-it-q4_0", "qwen3-1.7b-q4_k_m", "gemma-4-e4b-it-q4_0", "parakeet-tdt-0.6b-v3-int8"]
-    {
+    for id in [
+        "gemma-4-e2b-it-q4_0",
+        "qwen3-1.7b-q4_k_m",
+        "qwen3-4b-instruct-2507-q4_k_m",
+        "nemotron-3-nano-4b-q4_k_m",
+        "gemma-4-e4b-it-q4_0",
+        "parakeet-tdt-0.6b-v3-int8",
+    ] {
         assert!(ids.contains(&id), "{id} missing from {ids:?}");
     }
     for id in ["gemma-4-12b-it-q4_0", "whisper-large-v3-turbo-int8", "parakeet-tdt-0.6b-v3-fp32"] {
@@ -1530,6 +1539,9 @@ fn a_phone_lists_mobile_models_and_picks_its_tier_default() {
     );
     let e2b = rows.iter().find(|r| r.id == "gemma-4-e2b-it-q4_0").unwrap();
     assert_eq!((e2b.fit, e2b.phone_note.as_deref()), (Fit::Fits, None));
+    // Nemotron 3 Nano 4B (2.84 GB, 4B) fits the 8 GB tier too, and carries NVIDIA's statement.
+    let nemotron = rows.iter().find(|r| r.id == "nemotron-3-nano-4b-q4_k_m").unwrap();
+    assert_eq!((nemotron.fit, nemotron.phone_note.as_deref()), (Fit::Fits, None));
 
     // Downloading the too-large one is refused before any network call.
     let err = app.download_model("gemma-4-e4b-it-q4_0", None, &Quiet).unwrap_err();
@@ -1548,6 +1560,55 @@ fn a_phone_lists_mobile_models_and_picks_its_tier_default() {
     assert_eq!(app.inspect_import("C:/models/x.gguf", None).unwrap_err().0, NO_IMPORT_ON_PHONE);
 }
 
+/// The iPhone app ships its speech models (ADR-0018 section 10): found in the
+/// app's own folder, shown as built in with their credits, never downloaded
+/// again and never removed. Two small ones stand in for all four here.
+#[test]
+fn bundled_speech_models_are_built_in_on_a_phone() {
+    let tmp = tempfile::tempdir().unwrap();
+    test_env();
+    let bundle = tmp.path().join("OpenBark.app/assets/models");
+    let catalog = os_models::Catalog::builtin();
+    for id in ["silero-vad", "pyannote-segmentation-3.0"] {
+        let m = catalog.get(id).unwrap();
+        for f in &m.files {
+            let path = bundle.join(os_models::dir_name(id)).join(&f.path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::File::create(&path).unwrap().set_len(f.size).unwrap();
+        }
+    }
+    let mut app = App::new(
+        ModelStore::new(tmp.path().join("models")).with_bundled(Some(bundle)),
+        tmp.path().join("sessions"),
+    );
+    app.users = UserStore::new(tmp.path().join("users.json"));
+    app.templates = TemplateStore::new(tmp.path().join("templates"));
+    let _phone = os_models::platform::override_for_tests(Profile::Ios, Some(7.6));
+
+    let status = app.status();
+    let vad = status.models.iter().find(|m| m.id == "silero-vad").unwrap();
+    assert!(vad.installed && vad.bundled, "found in the app, nothing downloaded");
+    let parakeet = status.models.iter().find(|m| m.id == "parakeet-tdt-0.6b-v3-int8").unwrap();
+    assert!(!parakeet.installed && !parakeet.bundled);
+
+    let rows = app.models();
+    let vad = rows.iter().find(|r| r.id == "silero-vad").unwrap();
+    assert!(vad.bundled && vad.installed);
+    assert_eq!((vad.disk_bytes, vad.partial_bytes, vad.remove), (0, 0, RowRemove::Needed));
+    assert!(vad.attribution.as_deref().is_some_and(|a| a.contains("Silero")), "credits still shown");
+    let parakeet = rows.iter().find(|r| r.id == "parakeet-tdt-0.6b-v3-int8").unwrap();
+    assert!(parakeet.attribution.as_deref().is_some_and(|a| a.contains("CC-BY-4.0")));
+    assert!(!parakeet.bundled);
+
+    // Downloading it again does nothing and writes nothing.
+    app.download_model("silero-vad", None, &Quiet).unwrap();
+    assert!(!tmp.path().join("models").join("silero-vad").exists());
+    // And it can't be removed.
+    assert!(app.remove_model("silero-vad", None, false, None).is_err());
+    let json = serde_json::to_value(&status.models[0]).unwrap();
+    assert_eq!(json["bundled"], true);
+}
+
 #[test]
 fn phone_tiers_change_the_default_and_what_fits() {
     let tmp = tempfile::tempdir().unwrap();
@@ -1555,15 +1616,25 @@ fn phone_tiers_change_the_default_and_what_fits() {
     {
         let _six = os_models::platform::override_for_tests(Profile::Ios, Some(5.7));
         let s = app.status();
-        assert_eq!((s.mobile_tier, s.default_llm.as_str()), (Some(6), "qwen3-1.7b-q4_k_m"));
+        assert_eq!((s.mobile_tier, s.default_llm.as_str()), (Some(6), ""), "6 GB phones don't draft");
         let rows = app.models();
         let e2b = rows.iter().find(|r| r.id == "gemma-4-e2b-it-q4_0").unwrap();
-        assert_eq!(e2b.fit, Fit::WontFit, "3.35 GB is over a 6 GB phone's budget");
+        assert_eq!(e2b.fit, Fit::WontFit);
+        assert_eq!(
+            e2b.phone_note.as_deref(),
+            Some(
+                "Writing notes on the phone needs an iPhone with 8 GB of memory or more. Record here, and draft the note on your computer."
+            )
+        );
+        let qwen = rows.iter().find(|r| r.id == "qwen3-1.7b-q4_k_m").unwrap();
+        assert_eq!(qwen.fit, Fit::WontFit, "no drafting model on 6 GB phones");
+        let nemotron = rows.iter().find(|r| r.id == "nemotron-3-nano-4b-q4_k_m").unwrap();
+        assert_eq!(nemotron.fit, Fit::WontFit);
     }
     {
         let _twelve = os_models::platform::override_for_tests(Profile::Ios, Some(11.4));
         let s = app.status();
-        assert_eq!((s.mobile_tier, s.default_llm.as_str()), (Some(12), "gemma-4-e2b-it-q4_0"));
+        assert_eq!((s.mobile_tier, s.default_llm.as_str()), (Some(12), "qwen3-4b-instruct-2507-q4_k_m"));
         let e4b = app.models().into_iter().find(|r| r.id == "gemma-4-e4b-it-q4_0").unwrap();
         assert_eq!((e4b.fit, e4b.phone_note), (Fit::Fits, None));
     }
@@ -1574,7 +1645,9 @@ fn phone_tiers_change_the_default_and_what_fits() {
         let e2b = app.models().into_iter().find(|r| r.id == "gemma-4-e2b-it-q4_0").unwrap();
         assert_eq!(
             e2b.phone_note.as_deref(),
-            Some("OpenBark needs an iPhone with 6 GB of memory or more to write notes on the phone.")
+            Some(
+                "Writing notes on the phone needs an iPhone with 8 GB of memory or more. Record here, and draft the note on your computer."
+            )
         );
     }
     // Back on a computer.

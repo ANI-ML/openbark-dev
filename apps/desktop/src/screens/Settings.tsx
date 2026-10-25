@@ -5,13 +5,13 @@ import {
   ChevronRight,
   CircleHelp,
   FileText,
+  Signpost,
   Info,
   Languages,
   Lock,
   Mic,
   Network,
   NotebookText,
-  PenLine,
   Phone,
   RefreshCw,
   Trash2,
@@ -24,6 +24,7 @@ import { NOTE_LANGUAGES, UI_LANGUAGES, useT } from "../i18n";
 import { ClinicHubSection } from "../components/ClinicHubSection";
 import { DeletedVisits } from "../components/DeletedVisits";
 import { MicCheck } from "../components/MicCheck";
+import { PhoneDrafting } from "../components/PhoneDrafting";
 import { PhoneSettings } from "../components/PhoneSettings";
 import { StorageSection } from "../components/StorageSection";
 import { SyncSection } from "../components/SyncSection";
@@ -192,22 +193,7 @@ function PhoneList({ title }: { title: (s: SettingsSection) => string }) {
         <ul className="inset-list">
           <Row icon={<NotebookText size={20} />} label={t("Templates")} to={{ screen: "templates" }} />
           <Row icon={<Languages size={20} />} label={t("Note language")} value={noteLanguage} to={s("language")} />
-          {ios && (
-            <li>
-              <label className="inset-row settings-row">
-                <span className="inset-icon" aria-hidden>
-                  <PenLine size={20} />
-                </span>
-                <span className="inset-text">{t("Write notes on this iPhone")}</span>
-                <input
-                  type="checkbox"
-                  className="opt-switch"
-                  checked={app.settings.writeNotesHere}
-                  onChange={(e) => app.setSettings({ writeNotesHere: e.target.checked })}
-                />
-              </label>
-            </li>
-          )}
+          {ios && <PhoneDrafting />}
         </ul>
       </section>
       <section className="inset-group" aria-labelledby="set-device">
@@ -240,6 +226,20 @@ function PhoneList({ title }: { title: (s: SettingsSection) => string }) {
         </h2>
         <ul className="inset-list">
           <Row icon={<CircleHelp size={20} />} label={t("Guides and videos")} to={{ screen: "help" }} />
+          {ios && (
+            <li>
+              <button
+                type="button"
+                className="inset-row settings-row"
+                onClick={() => app.setSettings({ showWalkthrough: true })}
+              >
+                <span className="inset-icon" aria-hidden>
+                  <Signpost size={20} />
+                </span>
+                <span className="inset-text">{t("Show the walkthrough")}</span>
+              </button>
+            </li>
+          )}
           <Row icon={<Info size={20} />} label={t("About OpenBark")} value={app.status?.version} to={s("about")} />
         </ul>
       </section>

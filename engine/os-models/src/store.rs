@@ -119,24 +119,83 @@ pub fn hashes_match(spec: &FileSpec, h: &FileHashes) -> bool {
 }
 
 /// Where models live on disk: `<root>/<dir_name(model-id)>/<file>`.
+///
+/// A store may also have a read-only folder of models that came with the app
+/// (the iPhone app's speech models, ADR-0018 section 10): a model whose files
+/// are all there, at their pinned sizes, is used from it, is never
+/// downloaded again, and is never removed.
 #[derive(Debug, Clone)]
 pub struct ModelStore {
     root: PathBuf,
+    bundled: Option<PathBuf>,
+}
+
+/// The models that came with the app: `OPENBARK_BUNDLED_MODELS_DIR` when set
+/// (tests and demos on a computer), else, in the iPhone app, the `models`
+/// folder of the app's resources (`<app>/assets/models`, where Tauri puts
+/// `bundle > resources` on iOS). `None` on a computer: desktop builds bundle
+/// no models.
+pub fn bundled_models_dir() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("OPENBARK_BUNDLED_MODELS_DIR").filter(|d| !d.is_empty()) {
+        return Some(PathBuf::from(dir));
+    }
+    if cfg!(target_os = "ios") {
+        let exe = std::env::current_exe().ok()?;
+        let dir = exe.parent()?.join("assets").join("models");
+        return dir.is_dir().then_some(dir);
+    }
+    None
 }
 
 impl ModelStore {
     pub fn new(root: impl Into<PathBuf>) -> Self {
-        Self { root: root.into() }
+        Self { root: root.into(), bundled: None }
+    }
+
+    /// Also use the models in `dir`, read-only (see [`ModelStore`]).
+    pub fn with_bundled(mut self, dir: Option<PathBuf>) -> Self {
+        self.bundled = dir;
+        self
     }
 
     /// `OPENBARK_MODELS_DIR`, else the folder chosen in Settings, else the
-    /// platform data directory (ADR-0013, [`crate::locations`]).
+    /// platform data directory (ADR-0013, [`crate::locations`]), plus the
+    /// models that came with the app ([`bundled_models_dir`]).
     pub fn default_location() -> Self {
         Self::new(crate::locations::resolve(crate::locations::FolderKind::Models).0)
+            .with_bundled(bundled_models_dir())
     }
 
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// The read-only folder of models that came with the app, if any.
+    pub fn bundled_root(&self) -> Option<&Path> {
+        self.bundled.as_deref()
+    }
+
+    /// The model's folder among those that came with the app, when every one
+    /// of its files is there at its pinned size (`<bundled>/<dir_name(id)>`).
+    /// Models added from this computer are never bundled.
+    pub fn bundled_dir(&self, entry: &CatalogEntry) -> Option<PathBuf> {
+        let base = self.bundled.as_ref()?;
+        if entry.is_local() || entry.files.is_empty() {
+            return None;
+        }
+        let dir = base.join(dir_name(&entry.id));
+        let complete = entry.files.iter().all(|f| {
+            safe_rel_path(&f.path)
+                .ok()
+                .and_then(|rel| std::fs::metadata(dir.join(rel)).ok())
+                .is_some_and(|m| m.is_file() && m.len() == f.size)
+        });
+        complete.then_some(dir)
+    }
+
+    /// The model came with the app: used from there, read-only.
+    pub fn is_bundled(&self, entry: &CatalogEntry) -> bool {
+        self.bundled_dir(entry).is_some()
     }
 
     /// In place (`Source::Local { path: Some }`): the MLX folder itself, or a
@@ -144,6 +203,9 @@ impl ModelStore {
     /// existing folder under the raw id (Mac and Linux installs from before
     /// ADR-0025) is still used.
     pub fn model_dir(&self, entry: &CatalogEntry) -> PathBuf {
+        if let Some(dir) = self.bundled_dir(entry) {
+            return dir;
+        }
         if let Some(p) = entry.in_place() {
             return match entry.layout {
                 Layout::LlmMlx { .. } => p.to_path_buf(),
@@ -193,7 +255,8 @@ impl ModelStore {
     /// here but in [`ModelStore::shared_bytes`]. 0 when used in place (those
     /// bytes aren't OpenBark's).
     pub fn disk_usage(&self, entry: &CatalogEntry) -> u64 {
-        if entry.in_place().is_some() {
+        // In the app itself: nothing that removing could free.
+        if entry.in_place().is_some() || self.is_bundled(entry) {
             return 0;
         }
         self.listed_paths(entry).map(|p| own_len(&p) + own_len(&part_path(&p))).sum()
@@ -203,7 +266,7 @@ impl ModelStore {
     /// (hard links): on disk, but removing them frees no space. 0 when used
     /// in place.
     pub fn shared_bytes(&self, entry: &CatalogEntry) -> u64 {
-        if entry.in_place().is_some() {
+        if entry.in_place().is_some() || self.is_bundled(entry) {
             return 0;
         }
         self.listed_paths(entry).map(|p| shared_len(&p)).sum()
@@ -211,7 +274,7 @@ impl ModelStore {
 
     /// Bytes in `.part` files only (a download that stopped part-way).
     pub fn partial_bytes(&self, entry: &CatalogEntry) -> u64 {
-        if entry.in_place().is_some() {
+        if entry.in_place().is_some() || self.is_bundled(entry) {
             return 0;
         }
         self.listed_paths(entry).map(|p| file_len(&part_path(&p))).sum()
@@ -316,6 +379,37 @@ mod tests {
             gated: false,
             mobile: false,
         }
+    }
+
+    #[test]
+    fn bundled_models_are_used_read_only_and_only_when_complete() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bundled = tmp.path().join("app/assets/models");
+        let store = ModelStore::new(tmp.path().join("store")).with_bundled(Some(bundled.clone()));
+        let e = entry("hf:x/vad", &[("model.onnx", 3), ("sub/tokens.txt", 2)]);
+        // Nothing bundled yet: the store's own folder.
+        assert!(!store.is_bundled(&e));
+        assert_eq!(store.model_dir(&e), tmp.path().join("store").join("hf_x/vad"));
+
+        // Only one file, or a file of the wrong size: still not bundled.
+        let dir = bundled.join(dir_name(&e.id));
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::write(dir.join("model.onnx"), b"abc").unwrap();
+        assert!(!store.is_bundled(&e));
+        std::fs::write(dir.join("sub/tokens.txt"), b"abc").unwrap();
+        assert!(!store.is_bundled(&e), "a file of the wrong size isn't used");
+
+        // Complete: found there, installed, and nothing to free.
+        std::fs::write(dir.join("sub/tokens.txt"), b"ab").unwrap();
+        assert!(store.is_bundled(&e));
+        assert_eq!(store.model_dir(&e), dir);
+        assert_eq!(store.file_path(&e, "sub/tokens.txt"), dir.join("sub").join("tokens.txt"));
+        assert!(store.is_installed(&e, Verify::Size));
+        assert_eq!((store.disk_usage(&e), store.shared_bytes(&e), store.partial_bytes(&e)), (0, 0, 0));
+        assert_eq!(store.bundled_root(), Some(bundled.as_path()));
+
+        // A store without the folder (a computer) never looks there.
+        assert!(!ModelStore::new(tmp.path().join("store")).is_bundled(&e));
     }
 
     #[test]

@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { MoreMenu } from "../components/MoreMenu";
 import { PHONE, useMediaQuery } from "../useMediaQuery";
-import { animalFamily, isIos, recordedLine, thisDevice } from "../visits";
+import { animalFamily, draftsOnThisDevice, isIos, noPhoneDrafting, phoneCanDraft, recordedLine, thisDevice } from "../visits";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DeleteRecordingDialog } from "../components/DeleteRecordingDialog";
 import { DeleteVisitMenu } from "../components/DeleteVisitMenu";
@@ -107,7 +107,7 @@ export function Review({
   /** No signing on the phone during the pilot (ADR-0027): Sign, addenda and tooth confirmations. */
   const canSignHere = app.can.sign && !ios;
   /** An iPhone set to leave drafting to a computer (Settings, Write notes on this iPhone). */
-  const draftsHere = !(ios && !app.settings.writeNotesHere);
+  const draftsHere = draftsOnThisDevice(app.status, app.settings.writeNotesHere);
 
   /** In a multi-pet visit, the animal whose note is shown (M2 item 2). */
   const [pet, setPet] = useState<string | null>(initialPet ?? null);
@@ -1194,7 +1194,11 @@ export function Review({
                     </Button>
                   </>
                 ) : (
-                  <p className="muted">{t("Notes are written on your computer. Turn on Write notes on this iPhone in Settings to write them here.")}</p>
+                  <p className="muted">
+                    {phoneCanDraft(app.status)
+                      ? t("Notes are written on your computer. Turn on Write notes on this iPhone in Settings to write them here.")
+                      : noPhoneDrafting(app.status, t)}
+                  </p>
                 )}
               </div>
             )

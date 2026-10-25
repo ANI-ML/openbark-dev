@@ -89,19 +89,47 @@ async fn work<T: Send + 'static>(
 
 #[tauri::command]
 fn status(app: State<'_, AppState>) -> os_app::Status {
+    let status = app.status();
     // The iOS check job's smoke test (ADR-0018 section 8): the interface asks
     // for the status as soon as the WebView has loaded it, so a marker in the
-    // data folder proves the WebView ran the app. Only with OPENBARK_SMOKE=1.
+    // data folder proves the WebView ran the app. Next to it, the models the
+    // engine found (the speech models that come with the iPhone app, ADR-0018
+    // section 10), written first so the marker means both are there. Only
+    // with OPENBARK_SMOKE=1.
     if std::env::var("OPENBARK_SMOKE").as_deref() == Ok("1") {
         let dir = os_engine::session::default_root();
-        let marker = dir.parent().unwrap_or(&dir).join("smoke-webview.txt");
-        if let Err(e) = std::fs::create_dir_all(marker.parent().unwrap_or(&dir))
-            .and_then(|_| std::fs::write(&marker, env!("CARGO_PKG_VERSION")))
+        let base = dir.parent().unwrap_or(&dir).to_path_buf();
+        let models = serde_json::to_string_pretty(&status.models).unwrap_or_default();
+        if let Err(e) = std::fs::create_dir_all(&base)
+            .and_then(|_| std::fs::write(base.join("smoke-models.json"), models))
+            .and_then(|_| std::fs::write(base.join("smoke-webview.txt"), env!("CARGO_PKG_VERSION")))
         {
             tracing::warn!(error = %e, "couldn't write the smoke-test marker");
         }
+        // The transcription check: the smoke test puts a short synthetic clip
+        // in the data folder; transcribe it once with the built-in models and
+        // write "ok: <first words>" or "error: <why>" for the script.
+        static TRANSCRIBING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        let clip = base.join("smoke-input.wav");
+        if clip.is_file() && !TRANSCRIBING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            let app = app.inner().clone();
+            let out = base.join("smoke-transcript.txt");
+            std::thread::spawn(move || {
+                let line = match app.smoke_transcribe(&clip) {
+                    Ok(text) if !text.trim().is_empty() => {
+                        format!("ok: {}", text.split_whitespace().take(12).collect::<Vec<_>>().join(" "))
+                    }
+                    Ok(_) => "error: the transcript is empty".to_string(),
+                    Err(e) => format!("error: {}", e.0),
+                };
+                tracing::info!(result = %line, "smoke-test transcription");
+                if let Err(e) = std::fs::write(&out, line) {
+                    tracing::warn!(error = %e, "couldn't write the smoke-test transcript");
+                }
+            });
+        }
     }
-    app.status()
+    status
 }
 
 #[tauri::command]

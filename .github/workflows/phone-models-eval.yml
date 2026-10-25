@@ -1,0 +1,173 @@
+# The phone note-model comparison (docs/eval/phone-models.md, ADR-0018
+# section 10). Every candidate in packages/eval/phone-models.json drafts every
+# fixture with `openbark eval --from-ref`: the transcript comes from the
+# fixture's reference (speakers and timings as the app would have them), so
+# no audio or speech model is involved and only the note model differs. SOAP
+# for fixtures that name no template, each fixture's own template otherwise.
+#
+# Linux CPU runners: timings are CPU timings, not iPhone timings.
+#
+# Runs by hand, or on a push whose head commit message contains
+# [phone-eval] (every candidate) or [phone-eval: id,id] (those only).
+# Hours of Linux minutes: never on every push.
+name: Phone models eval
+
+on:
+  workflow_dispatch:
+    inputs:
+      models:
+        description: "Candidate ids, comma separated (default: every candidate)"
+        type: string
+        default: ""
+  push:
+    branches-ignore: [main]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  plan:
+    name: Plan (candidates x shards)
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.head_commit.message, '[phone-eval')
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - id: plan
+        env:
+          MODELS: ${{ inputs.models }}
+          HEAD_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          python3 - <<'EOF' >> "$GITHUB_OUTPUT"
+          import json, os, re
+          plan = json.load(open("packages/eval/phone-models.json"))
+          named = os.environ.get("MODELS", "")
+          tag = re.search(r"\[phone-eval:\s*([^\]]+)\]", os.environ.get("HEAD_MESSAGE", ""))
+          if tag:
+              named = tag.group(1)
+          want = [m.strip() for m in named.split(",") if m.strip()]
+          ids = [c["id"] for c in plan["candidates"] if not want or c["id"] in want]
+          unknown = set(want) - set(ids)
+          assert not unknown, f"unknown candidates: {unknown}"
+          include = [{"model": i, "shard": s} for i in ids for s in range(1, plan["shards"] + 1)]
+          print("matrix=" + json.dumps({"include": include}))
+          EOF
+
+  build:
+    name: Build openbark (Linux, release)
+    needs: plan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: System packages (libclang, ALSA)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev cmake libasound2-dev
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-linux/${{ github.repository }}/${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-linux/${{ github.repository }}/
+      - run: cargo build --release -p os-cli
+      # The binary and the shared libraries it loads from target/ (sherpa-onnx's
+      # C API and ONNX Runtime), so the eval jobs run it without building.
+      - name: Package the binary with its libraries
+        run: |
+          mkdir -p target/phone-eval-bin
+          cp target/release/openbark target/phone-eval-bin/
+          ldd target/release/openbark | awk '/=>/ {print $3}' | grep "^$PWD/target" | xargs -r -I{} cp -L {} target/phone-eval-bin/
+          ls -la target/phone-eval-bin
+          LD_LIBRARY_PATH=target/phone-eval-bin ldd target/phone-eval-bin/openbark | grep -i "not found" && exit 1 || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: openbark-linux
+          path: target/phone-eval-bin
+          retention-days: 3
+
+  eval:
+    name: ${{ matrix.model }} (shard ${{ matrix.shard }})
+    needs: [plan, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      OPENBARK_DATA_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      OPENBARK_MODELS_DIR: ${{ github.workspace }}/target/phone-eval/store
+      OPENBARK_SESSIONS_DIR: ${{ github.workspace }}/target/phone-eval/sessions
+      OPENBARK_LOG: warn
+      LD_LIBRARY_PATH: ${{ github.workspace }}/target/bin
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: openbark-linux
+          path: target/bin
+      - name: The runner
+        run: |
+          chmod +x target/bin/openbark
+          out="target/phone-eval/out/${{ matrix.model }}-${{ matrix.shard }}"
+          mkdir -p "$out"
+          echo "$(nproc) CPUs ($(lscpu | sed -n 's/^Model name: *//p' | head -1)), $(free -g | awk '/^Mem:/{print $2}') GB RAM" | tee "$out/hardware.txt"
+          printf '{"id": "%s", "shard": %s}\n' "${{ matrix.model }}" "${{ matrix.shard }}" > "$out/meta.json"
+          echo "OUT=$out" >> "$GITHUB_ENV"
+          command -v /usr/bin/time >/dev/null || sudo apt-get install -y time
+      - name: Download the model (pinned revision, size and SHA-256)
+        run: |
+          path="$(python3 scripts/ci/fetch-gguf.py "${{ matrix.model }}" target/phone-eval/gguf | tail -1)"
+          echo "GGUF=$path" >> "$GITHUB_ENV"
+      - name: openbark eval --from-ref (shard ${{ matrix.shard }})
+        run: |
+          shards=$(python3 -c "import json; print(json.load(open('packages/eval/phone-models.json'))['shards'])")
+          set +e
+          /usr/bin/time -v -o "$OUT/time.txt" target/bin/openbark eval --from-ref \
+            --shard "${{ matrix.shard }}/$shards" --llm "$GGUF" --gpu-layers 0 --template soap \
+            --json "$OUT/report.json" > "$OUT/eval.log" 2> "$OUT/stderr.log"
+          code=$?
+          set -e
+          echo "$code" > "$OUT/status.txt"
+          cat "$OUT/eval.log"
+          tail -20 "$OUT/stderr.log"
+          grep -E "Maximum resident|Elapsed" "$OUT/time.txt" || true
+          cp -r target/eval "$OUT/notes" 2>/dev/null || true
+          exit "$code"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          # Synthetic consults only: no patient data exists on CI.
+          name: phone-eval-${{ matrix.model }}-${{ matrix.shard }}
+          path: ${{ env.OUT }}
+          retention-days: 30
+
+  summary:
+    name: Summary
+    needs: eval
+    if: always() && needs.eval.result != 'skipped'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: phone-eval-*
+          path: target/phone-eval/results
+      - name: Table
+        run: |
+          python3 scripts/ci/phone-eval-summary.py target/phone-eval/results | tee target/phone-eval/results/summary.md
+          cat target/phone-eval/results/summary.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: phone-eval-summary
+          path: |
+            target/phone-eval/results/summary.md
+            target/phone-eval/results/summary.json
+          retention-days: 90

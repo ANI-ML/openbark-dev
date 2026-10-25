@@ -40,7 +40,10 @@ mkdirSync(out, { recursive: true });
 const problems = [];
 const check = (ok, what) => ok || problems.push(what);
 check(status.mobile_tier === 8, `the demo should be an 8 GB iPhone, is ${status.mobile_tier}`);
-check(status.default_llm === "gemma-4-e2b-it-q4_0", `8 GB default should be Gemma 4 E2B, is ${status.default_llm}`);
+check(
+  status.default_llm === "qwen3-4b-instruct-2507-q4_k_m",
+  `8 GB default should be Qwen3 4B Instruct 2507 (docs/eval/phone-models.md), is ${status.default_llm}`,
+);
 check(
   !status.models.some((m) => m.id.startsWith("gemma")),
   "a phone needs only the speech models to start (drafting is opt-in)",

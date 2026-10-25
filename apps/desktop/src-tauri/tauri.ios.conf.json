@@ -21,6 +21,9 @@
     "longDescription": "OpenBark records the consult and transcribes it on this iPhone. Recordings stay on this iPhone.",
     "iOS": {
       "minimumSystemVersion": "17.0"
+    },
+    "resources": {
+      "../../../build/ios-models": "models"
     }
   }
 }

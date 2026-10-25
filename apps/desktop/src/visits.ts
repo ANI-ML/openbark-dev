@@ -79,6 +79,30 @@ export const needsYou = (r: SessionSummary) => !r.signed;
 /** The phone profile (ADR-0018 section 10): no signing during the pilot (ADR-0027). */
 export const isIos = (status: Status | null | undefined) => status?.profile === "ios";
 
+/**
+ * Notes are drafted on this device: always on a computer; on an iPhone only
+ * when the person turned on Write notes on this iPhone and the phone has
+ * 8 GB or more (ADR-0018 section 10: no 6 GB model met the bar).
+ */
+export function draftsOnThisDevice(status: Status | null | undefined, writeNotesHere: boolean): boolean {
+  if (!isIos(status)) return true;
+  return writeNotesHere && phoneCanDraft(status);
+}
+
+/**
+ * An iPhone that may write notes itself: the 8 or 12 GB tier, in a build that
+ * has llama.cpp (`can_draft`; phone builds without it only transcribe).
+ */
+export const phoneCanDraft = (status: Status | null | undefined) =>
+  (status?.mobile_tier ?? 0) >= 8 && status?.can_draft !== false;
+
+/** Why this iPhone doesn't write notes itself, translated (when [`phoneCanDraft`] is false). */
+export function noPhoneDrafting(status: Status | null | undefined, t: Translate): string {
+  return (status?.mobile_tier ?? 0) >= 8
+    ? t("This version of OpenBark doesn't write notes on the iPhone yet. Record here, and draft the note on your computer.")
+    : t("Writing notes on the phone needs an iPhone with 8 GB of memory or more. Record here, and draft the note on your computer.");
+}
+
 /** "this iPhone" or "this computer", already translated. */
 export function thisDevice(status: Status | null | undefined, t: Translate): string {
   return isIos(status) ? t("this iPhone") : t("this computer");

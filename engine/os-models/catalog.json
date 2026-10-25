@@ -1,5 +1,5 @@
 {
-  "_comment": "Curated catalog. Every file is pinned by revision + SHA-256 + size. Sources verified 2026-10-17; mobile entries and Qwen3 1.7B verified 2026-10-19 (docs/versions.md, ADR-0018 section 10).",
+  "_comment": "Curated catalog. Every file is pinned by revision + SHA-256 + size. Sources verified 2026-10-17; mobile entries and Qwen3 1.7B verified 2026-10-19, Nemotron 3 Nano 4B and Qwen3 4B Instruct 2507 verified 2026-10-25 (docs/versions.md, ADR-0018 section 10).",
   "schema_version": 1,
   "models": [
     {
@@ -51,6 +51,32 @@
         { "path": "Qwen3-1.7B-Q4_K_M.gguf", "size": 1107409472, "sha256": "b139949c5bd74937ad8ed8c8cf3d9ffb1e99c866c823204dc42c0d91fa181897" }
       ],
       "layout": { "type": "llm_gguf", "model": "Qwen3-1.7B-Q4_K_M.gguf" },
+      "mobile": true
+    },
+    {
+      "id": "qwen3-4b-instruct-2507-q4_k_m",
+      "display_name": "Qwen3 4B Instruct 2507 (Q4_K_M, for iPhones with 8 GB or more)",
+      "slot": "llm",
+      "license": "Apache-2.0",
+      "attribution": "Qwen3 by the Qwen team, Alibaba Cloud; GGUF by Unsloth",
+      "source": { "kind": "huggingface", "repo": "unsloth/Qwen3-4B-Instruct-2507-GGUF", "revision": "a06e946bb6b655725eafa393f4a9745d460374c9" },
+      "files": [
+        { "path": "Qwen3-4B-Instruct-2507-Q4_K_M.gguf", "size": 2497281120, "sha256": "3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597" }
+      ],
+      "layout": { "type": "llm_gguf", "model": "Qwen3-4B-Instruct-2507-Q4_K_M.gguf" },
+      "mobile": true
+    },
+    {
+      "id": "nemotron-3-nano-4b-q4_k_m",
+      "display_name": "Nemotron 3 Nano 4B (Q4_K_M, for iPhones with 8 GB or more)",
+      "slot": "llm",
+      "license": "NVIDIA Nemotron Open Model License",
+      "attribution": "Nemotron 3 Nano 4B by NVIDIA. Licensed by NVIDIA Corporation under the NVIDIA Nemotron Model License (https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-nemotron-open-model-license/)",
+      "source": { "kind": "huggingface", "repo": "nvidia/NVIDIA-Nemotron-3-Nano-4B-GGUF", "revision": "ba223d14e45525f7fae81db77ea8cabeb2fc6c25" },
+      "files": [
+        { "path": "NVIDIA-Nemotron3-Nano-4B-Q4_K_M.gguf", "size": 2837072864, "sha256": "be5d9a656a51922f24f1f09a759cebb694e1f5d9728bf0ef9f8c972c5a0b5ef2" }
+      ],
+      "layout": { "type": "llm_gguf", "model": "NVIDIA-Nemotron3-Nano-4B-Q4_K_M.gguf" },
       "mobile": true
     },
     {

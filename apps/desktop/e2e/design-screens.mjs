@@ -9,6 +9,9 @@
 // It refuses unless the URL is this computer (never port 4317) and the demo
 // folder holds an OPENBARK-DEMO marker.
 //
+// The phone pass (the demo started with OPENBARK_PLATFORM=ios) begins with
+// the iPhone's first-run walkthrough, one screenshot per step.
+//
 // RECORDING=1 adds a last pass in Chromium with a fake microphone, for the
 // recording screen (WebKit can't fake one). It starts a recording, so it runs
 // after every other screen.
@@ -73,18 +76,51 @@ async function context(v, extra = {}) {
     deviceScaleFactor: v.deviceScaleFactor,
     permissions: extra.permissions,
   });
-  await ctx.addInitScript(() => {
+  await ctx.addInitScript((firstRun) => {
     const key = "openbark.settings";
     const current = JSON.parse(localStorage.getItem(key) ?? "{}");
-    localStorage.setItem(
-      key,
-      JSON.stringify({ ...current, consentAcknowledgedAt: "2026-10-17T20:00:00Z", uiLanguage: "en" }),
-    );
-  });
+    // A first run (the walkthrough pass) has accepted nothing yet.
+    const accepted = firstRun
+      ? { consentAcknowledgedAt: null, walkthroughDoneAt: null, showWalkthrough: false }
+      : { consentAcknowledgedAt: "2026-10-17T20:00:00Z" };
+    localStorage.setItem(key, JSON.stringify({ ...current, ...accepted, uiLanguage: "en" }));
+  }, Boolean(extra.firstRun));
   const page = await ctx.newPage();
   // A screen that isn't there is listed as missed, never waited for forever.
   page.setDefaultTimeout(15000);
   return { browser, ctx, page };
+}
+
+// The iPhone's first-run walkthrough: phone width only, on the iPhone profile.
+for (const v of variants.filter((x) => x.viewport.width <= 640)) {
+  let browser = null;
+  try {
+    const opened = await context(v, { firstRun: true });
+    browser = opened.browser;
+    const page = opened.page;
+    const shot = async (n) => {
+      await page.waitForTimeout(500);
+      const file = `${v.name}-walkthrough-${n}.png`;
+      await page.screenshot({ path: `${out}/${file}` });
+      taken.push(file);
+    };
+    await page.goto(base);
+    await page.locator(".walkthrough").waitFor({ timeout: 20000 });
+    await shot(1);
+    await page.getByRole("button", { name: "Get started" }).click();
+    await shot(2);
+    await page.locator(".walkthrough .check input").check();
+    await page.getByRole("button", { name: "Continue" }).click();
+    await shot(3);
+    await page.getByRole("button", { name: "Continue" }).click();
+    await shot(4);
+    await page.getByRole("button", { name: "Later" }).click();
+    await page.locator(".recorder").waitFor({ timeout: 10000 });
+  } catch (e) {
+    missed.push(`${v.name} walkthrough: ${String(e).split("\n")[0]}`);
+  } finally {
+    await browser?.close().catch(() => {});
+  }
 }
 
 for (const v of variants) {

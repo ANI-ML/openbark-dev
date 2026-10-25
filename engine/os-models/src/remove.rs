@@ -51,6 +51,8 @@ pub enum RemoveError {
     OutsideStore(String),
     #[error("OpenBark won't delete {0}: it's a link to somewhere else.")]
     Link(String),
+    #[error("{0} comes with the app, so it can't be removed.")]
+    Bundled(String),
     #[error(transparent)]
     Unsafe(#[from] crate::store::UnsafePath),
     #[error(transparent)]
@@ -95,6 +97,9 @@ fn shown(p: &Path) -> String {
 /// deletes nothing.
 pub fn remove_files(store: &ModelStore, entry: &CatalogEntry) -> Result<Removal, RemoveError> {
     let mut removal = Removal { id: entry.id.clone(), ..Removal::default() };
+    if store.is_bundled(entry) {
+        return Err(RemoveError::Bundled(entry.display_name.clone()));
+    }
     if entry.in_place().is_some() {
         // Its path is never passed to any delete call.
         removal.kept_in_place = true;

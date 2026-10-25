@@ -24,7 +24,7 @@ import { ProcessingBar } from "../components/ProcessingBar";
 import { SetupPanel } from "../components/SetupPanel";
 import { TranscriptList } from "../components/TranscriptList";
 import { PHONE, useMediaQuery } from "../useMediaQuery";
-import { animalFamily, inWhen, isIos, needsYou } from "../visits";
+import { animalFamily, draftsOnThisDevice, inWhen, isIos, needsYou } from "../visits";
 
 type State = "idle" | "consent" | "starting" | "recording" | "stopping" | "importing";
 
@@ -199,7 +199,7 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
   }
 
   /** Draft after stopping, unless this iPhone leaves drafting to a computer. */
-  const draftAfter = app.settings.draftOnStop && !(ios && !app.settings.writeNotesHere);
+  const draftAfter = app.settings.draftOnStop && draftsOnThisDevice(app.status, app.settings.writeNotesHere);
 
   async function finish() {
     try {

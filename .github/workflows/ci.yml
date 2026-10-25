@@ -85,6 +85,37 @@ jobs:
           export OPENBARK_MODELS_DIR=~/models
           target/release/openbark models verify
           bash scripts/ci/e2e-offline.sh target/release/openbark smoke gemma-4-e2b-it-q4_0
+      # The phone model package (ADR-0018 section 10): Nemotron 3 Nano 4B is a
+      # hybrid Mamba-2 and Transformer model (`nemotron_h`). This proves the
+      # pinned llama.cpp loads it and drafts a valid, faithful note from the
+      # catalog entry. Its own store and cache, so the speech models' cache
+      # above stays as it is.
+      - name: Restore Nemotron 3 Nano 4B
+        id: nemotron
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/nemotron-store
+          key: gguf-nemotron-3-nano-4b-q4_k_m-be5d9a656a51922f
+      # Loading and a schema-valid draft are what this step proves; how good
+      # the notes are is the phone models eval's job, so an unsupported number
+      # here is reported as a warning, not a failure.
+      - name: Nemotron 3 Nano 4B drafts a note (pinned llama.cpp, CPU)
+        run: |
+          export OPENBARK_MODELS_DIR="$HOME/nemotron-store"
+          target/release/openbark models pull nemotron-3-nano-4b-q4_k_m
+          target/release/openbark note --input target/e2e/smoke.jsonl --llm nemotron-3-nano-4b-q4_k_m \
+            --gpu-layers 0 --json target/e2e/nemotron.note.json > target/e2e/nemotron.md
+          cat target/e2e/nemotron.md
+          python3 scripts/ci/validate-note.py packages/templates/soap/schema.json target/e2e/nemotron.note.json
+          python3 - target/e2e/nemotron.note.json <<'EOF'
+          import json, sys
+          r = json.load(open(sys.argv[1]))
+          f = r["faithfulness"]
+          print(f"model={r.get('model')} status={r['status']} numbers={f['numbers_checked']} passed={f['passed']} tokens={r['stats'].get('completion_tokens')} secs={r['stats'].get('total_ms', 0) / 1000:.0f}")
+          assert r["status"] == "draft"
+          if not f["passed"]:
+              print(f"::warning title=Nemotron 3 Nano 4B::faithfulness flags on the smoke fixture: {f['unsupported_numbers']} {f['invalid_evidence']}")
+          EOF
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:

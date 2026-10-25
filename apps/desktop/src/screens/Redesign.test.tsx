@@ -46,7 +46,7 @@ function ctx(over: Partial<Ctx> = {}): Ctx {
 }
 
 const status = (profile: "desktop" | "ios") =>
-  ({ profile, models: [], encryption: { enabled: true, source: "keychain", warning: null }, team: false, version: "0.1.3" }) as unknown as engine.Status;
+  ({ profile, mobile_tier: profile === "ios" ? 8 : null, models: [], encryption: { enabled: true, source: "keychain", warning: null }, team: false, version: "0.1.3" }) as unknown as engine.Status;
 
 function phoneWidth(on: boolean) {
   vi.stubGlobal("matchMedia", (q: string) => ({
