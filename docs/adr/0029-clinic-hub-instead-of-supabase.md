@@ -116,3 +116,14 @@ The server's authorization is reviewed call by call: `docs/security/hub-authoriz
 - **A relay ANI.ML runs.** Cheaper than Supabase but still a service to pay for and operate.
 - **Phone to computer without a hub (each computer syncs with each phone).** Simpler for one vet and one laptop, but every device pair needs its own link and merges multiply. The hub is the same code with one server, and a single-vet clinic simply makes their own computer the hub.
 - **CloudKit for Apple devices.** Free for users, but Apple-only; clinics run Windows.
+
+## Implementation notes (phase A, 2026-10-25)
+
+How phase A built sections 2 to 6, 10 and 11, where the text above left a choice open:
+
+- **Crates.** `os-hub` (desktop only, os-app's `hub` feature) owns the listener, the store, the certificate and mDNS advertising. `os-sync` owns the device's side: the hub transport (pinned TLS 1.3 with rustls and ring, one request per connection), request signing, join codes and mDNS browsing. Phones link `os-sync` (os-app's `sync` feature) and never `os-hub`. `scripts/ci/check-network.sh` names which crate may have which network capability.
+- **A person's next device** can't name its account without email, so it waits in the hub's lobby, filed under an Argon2id tag of its 6 words; the approving device finds it with the same tag (`find_pending`) and the device joins the approver's account. Recovery with the kit finds the account by the kit verifier.
+- **Typing a join code** (no QR code) also needs the hub's 10-character certificate check, shown under the code: the device compares it with the certificate it sees before pinning the full fingerprint.
+- **Loopback** is in the default allowed ranges, so the hub computer's own device can join its hub (Settings, Clinic hub, Use this computer with its hub).
+- **The run-time preview signal** is `OPENBARK_SYNC_PREVIEW=1` (it was `OPENBARK_SYNC_URL`); hub mode sits behind the same gate.
+- docs/security/hub-authorization.md maps every SQL function to the hub's check and lists where the hub is stricter.
