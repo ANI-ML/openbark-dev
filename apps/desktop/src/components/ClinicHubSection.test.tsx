@@ -132,7 +132,8 @@ describe("Settings, Clinic hub", () => {
     mocked.clinicHubSettings.mockResolvedValue(ON);
     show();
     const ranges = (await screen.findByLabelText(/Allowed addresses/)) as HTMLTextAreaElement;
-    expect(ranges.value).toBe("10.0.0.0/8\n192.168.0.0/16");
+    // The form fills in once the status has loaded.
+    await waitFor(() => expect(ranges.value).toBe("10.0.0.0/8\n192.168.0.0/16"));
     fireEvent.change(ranges, { target: { value: "192.168.1.0/24, 100.64.0.0/10" } });
     fireEvent.change(screen.getByLabelText("Storage per person (GB)"), { target: { value: "5" } });
     fireEvent.click(screen.getByRole("button", { name: "Save hub settings" }));

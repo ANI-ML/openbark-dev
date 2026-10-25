@@ -146,7 +146,7 @@ fn platform(a: &Value) -> Res<String> {
 }
 
 fn eq_b64(stored: &str, given: &[u8]) -> bool {
-    keys::unb64(stored).map(|b| os_sync::hub::ct_eq(&b, given)).unwrap_or(false)
+    keys::unb64(stored).is_ok_and(|b| os_sync::hub::ct_eq(&b, given))
 }
 
 // ---- who is asking --------------------------------------------------------------
@@ -542,7 +542,7 @@ fn upsert_envelope(
 ) {
     st.ix
         .envelopes
-        .retain(|e| !(e.account == account && e.recipient == recipient && e.amk_version == amk_version));
+        .retain(|e| e.account != account || e.recipient != recipient || e.amk_version != amk_version);
     st.ix.envelopes.push(Envelope {
         account: account.into(),
         recipient: recipient.into(),
@@ -619,7 +619,7 @@ pub fn revoke(st: &mut Store, account: Option<&str>, target: &str, now: DateTime
     d.pair_blob = None;
     d.pair_tag = None;
     if let Some(acct) = account {
-        st.ix.envelopes.retain(|e| !(e.account == acct && e.device_id.as_deref() == Some(target)));
+        st.ix.envelopes.retain(|e| e.account != acct || e.device_id.as_deref() != Some(target));
         if was_approved && let Some(ac) = st.ix.accounts.get_mut(acct) {
             ac.rotate_needed = true;
             ac.updated_at = now;
@@ -735,8 +735,8 @@ fn rotate(cx: &mut Ctx, a: &Value) -> Res<Value> {
         upsert_envelope(cx.st, &account, id, Some(id), amk_version, env, now);
     }
     upsert_envelope(cx.st, &account, "kit", None, amk_version, &kit_env, now);
-    cx.st.ix.envelopes.retain(|e| !(e.account == account && e.amk_version < amk_version));
-    cx.st.ix.space_keys.retain(|k| !(k.space == space && k.version >= key_version));
+    cx.st.ix.envelopes.retain(|e| e.account != account || e.amk_version >= amk_version);
+    cx.st.ix.space_keys.retain(|k| k.space != space || k.version < key_version);
     cx.st.ix.space_keys.push(SpaceKey {
         space: space.clone(),
         version: key_version,
@@ -744,7 +744,7 @@ fn rotate(cx: &mut Ctx, a: &Value) -> Res<Value> {
         wrapped: enc(&space_key),
         created_at: now,
     });
-    cx.st.ix.space_keys.retain(|k| !(k.space == space && k.version < key_version));
+    cx.st.ix.space_keys.retain(|k| k.space != space || k.version >= key_version);
     if let Some(objs) = cx.st.ix.objects.get_mut(&space) {
         for (id, w) in &rewrapped {
             if let Some(o) = objs.get_mut(id) {
@@ -1102,7 +1102,7 @@ fn list_devices(cx: &mut Ctx) -> Res<Value> {
             .collect(),
         _ => vec![(&me.created_at, device_row(&cx.me, &me))],
     };
-    rows.sort_by(|a, b| a.0.cmp(b.0));
+    rows.sort_by_key(|r| *r.0);
     Ok(Value::Array(rows.into_iter().map(|(_, v)| v).collect()))
 }
 

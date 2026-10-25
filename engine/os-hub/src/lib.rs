@@ -366,7 +366,7 @@ impl Hub {
             return Err(deny(403, "revoked"));
         }
         let mut cx = Ctx {
-            st: &mut *st,
+            st: &mut st,
             me: device,
             now,
             quota: self.quota.load(Ordering::Relaxed),
@@ -426,7 +426,7 @@ impl Hub {
                 last_seen_at: d.last_seen_at,
             })
             .collect();
-        v.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        v.sort_by_key(|d| std::cmp::Reverse(d.created_at));
         v
     }
 

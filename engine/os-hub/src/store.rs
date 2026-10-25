@@ -319,7 +319,6 @@ impl Store {
     /// a day after they expired, join codes a day after they expired.
     pub fn purge(&mut self, now: DateTime<Utc>) -> (usize, usize, usize) {
         let day = chrono::Duration::days(1);
-        let mut n_objects = 0;
         let mut gone_objects: Vec<(String, String, i64)> = Vec::new();
         for (space, objs) in self.ix.objects.iter_mut() {
             objs.retain(|id, o| {
@@ -334,8 +333,8 @@ impl Store {
             if let Some(m) = self.by_seq.get_mut(space) {
                 m.remove(seq);
             }
-            n_objects += 1;
         }
+        let n_objects = gone_objects.len();
         let mut gone_blobs: Vec<(String, String)> = Vec::new();
         for (space, parts) in &self.ix.blobs {
             for (k, b) in parts {
@@ -365,7 +364,7 @@ impl Store {
         let before = self.ix.devices.len();
         self.ix
             .devices
-            .retain(|_, d| !(d.status == "pending" && d.pending_expires_at.is_some_and(|t| t < now - day)));
+            .retain(|_, d| d.status != "pending" || d.pending_expires_at.is_none_or(|t| t >= now - day));
         let n_devices = before - self.ix.devices.len();
         self.ix.codes.retain(|c| c.expires_at >= now - day);
         (n_objects, gone_blobs.len(), n_devices)
