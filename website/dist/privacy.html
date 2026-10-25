@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>OpenBark Privacy</title>
+<meta name="description" content="What OpenBark sends, and when. Recordings and notes stay on your clinic&#x27;s devices; with encrypted sync on, only encrypted copies leave them. Built by the ANI.ML Health team.">
+<meta property="og:title" content="OpenBark Privacy">
+<meta property="og:description" content="What OpenBark sends, and when. Recordings and notes stay on your clinic&#x27;s devices; with encrypted sync on, only encrypted copies leave them. Built by the ANI.ML Health team.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="OpenBark">
+<link rel="canonical" href="https://www.openbark.io/privacy">
+<meta property="og:url" content="https://www.openbark.io/privacy">
+<meta property="og:image" content="https://www.openbark.io/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="OpenBark, the free, open-source AI scribe for veterinary medicine">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="OpenBark Privacy">
+<meta name="twitter:description" content="What OpenBark sends, and when. Recordings and notes stay on your clinic&#x27;s devices; with encrypted sync on, only encrypted copies leave them. Built by the ANI.ML Health team.">
+<meta name="twitter:image" content="https://www.openbark.io/og-image.png">
+<meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0F151D" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;800&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="index.html"><svg class="lockup" viewBox="0 0 372 80" role="img" aria-label="OpenBark, home"><g transform="translate(4 4) scale(0.72)" fill="currentColor"><circle cx="30" cy="20" r="7.5"/><circle cx="50" cy="12" r="7.5"/><circle cx="70" cy="20" r="7.5"/><rect class="capsule" x="35" y="28" width="30" height="42" rx="15"/><rect class="grille" x="42" y="44" width="16" height="4" rx="2"/><rect class="grille" x="42" y="52" width="16" height="4" rx="2"/><path d="M24 54 A26 26 0 0 0 76 54" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round"/><rect x="46.5" y="78" width="7" height="10" rx="3.5"/><rect x="35" y="87" width="30" height="7" rx="3.5"/></g><text x="92" y="60" font-family="Manrope, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="60" letter-spacing="-1.8"><tspan font-weight="500">open</tspan><tspan font-weight="800">bark</tspan></text></svg><span class="stage">Beta</span></a>
+    <nav class="site-nav" aria-label="Site">
+      <a href="features.html">Features</a>
+      <a href="history.html">Version history</a>
+      <a href="index.html#contact">Contact</a>
+      <a href="https://github.com/ANI-ML/openbark">Source code</a>
+      <a class="btn btn-primary" href="index.html#download">Get OpenBark</a>
+    </nav>
+  </div>
+</header>
+<main id="main">
+  <section class="fx-hero">
+    <div class="wrap">
+      <h1>Privacy</h1>
+      <p>OpenBark is built so your clinic's recordings and notes stay on your own devices. This page says exactly what leaves them, and when.</p>
+      <p class="muted legal-date">Last updated 24 October 2026. ANI.ML Health Inc., Toronto, Ontario, Canada. Questions: <a href="mailto:we.care@animl.health">we.care@animl.health</a>.</p>
+    </div>
+  </section>
+
+  <section class="legal">
+    <div class="wrap">
+      <h2>The short version</h2>
+      <ul>
+        <li>Recordings, transcripts and notes are made and kept on your clinic's own computers and phones. We never receive them.</li>
+        <li>The app has no analytics, no advertising and no tracking. It doesn't sell or share data, because it doesn't collect it.</li>
+        <li>Recordings never leave the device that made them, even with encrypted sync turned on.</li>
+        <li>If you turn on encrypted sync, only encrypted copies of transcripts and notes leave your devices. They're locked with keys that stay on your devices, so our servers can't read them.</li>
+      </ul>
+
+      <h2>What the app sends, and when</h2>
+      <p>The OpenBark app on a computer or an iPhone connects to the internet only for the reasons below. Each one is listed, with its exact addresses, in our <a href="https://github.com/ANI-ML/openbark/blob/main/docs/network.md">network document</a>.</p>
+      <ul>
+        <li><strong>Downloading models.</strong> When you choose a speech or note model, the app downloads it from Hugging Face. Hugging Face sees your device's internet address, like any download. Nothing about your patients is sent.</li>
+        <li><strong>Your own accounts, if you connect them.</strong> If your clinic connects its own Twilio account for phone calls, calls go through Twilio under your clinic's agreement with them. Recordings of those calls are made on your computer.</li>
+        <li><strong>Encrypted sync, only if you turn it on.</strong> Sync is off unless you turn it on. Then the app sends your email address to sign in with a one-time code, and encrypted copies of transcripts, notes and patient records to our sync service, hosted by Supabase. We can see that an account exists, its devices' names and platforms, and the size and timing of encrypted uploads. We can't see what's inside them.</li>
+      </ul>
+      <p>With none of these in use, OpenBark works fully offline.</p>
+
+      <h2>Clinic accounts and usage counts (coming soon)</h2>
+      <p>Clinic accounts are coming in a later release. A clinic will be able to create one and invite its staff. If a staff member joins and turns on "Share usage counts", their app sends daily counts to the clinic's dashboard: visits recorded, minutes recorded, notes drafted, notes signed and calls recorded, with the app version and platform. Counts only: never patient names, transcripts, notes, reasons for visits or recordings. Usage counts are kept for up to 400 days. A member can stop sharing or leave the clinic at any time.</p>
+
+      <h2>This website</h2>
+      <p>The website has no analytics and sets no cookies. It loads fonts from Google Fonts. If you sign in to your account at /portal, we keep your email address and the short profile you choose to fill in (name, clinic, role, country, and whether you want update emails). You can delete your account and profile from the portal at any time.</p>
+
+      <h2>Where data is stored</h2>
+      <p>Your clinical data stays where your clinic keeps it, on your own devices. Account and sync data are held by Supabase on our behalf. Sign-in emails are sent through SendGrid. Both act as our processors.</p>
+
+      <h2>Children</h2>
+      <p>OpenBark is a tool for veterinary professionals. It isn't directed at children.</p>
+
+      <h2>Your choices</h2>
+      <ul>
+        <li>Delete a visit, its recording or all your data from within the app. Deleted visits are removed permanently after 30 days.</li>
+        <li>Turn off sync on any device, remove a device, or delete your sync account from the app.</li>
+        <li>Delete your website account from the portal, or ask us at <a href="mailto:we.care@animl.health">we.care@animl.health</a>.</li>
+      </ul>
+
+      <h2>Changes</h2>
+      <p>If this policy changes, we'll update this page and its date. Significant changes are noted in the <a href="history.html">version history</a>.</p>
+    </div>
+  </section>
+</main>
+<footer class="site-foot">
+  <div class="wrap">
+    <p class="foot-name"><svg class="lockup" viewBox="0 0 372 80" role="img" aria-label="OpenBark"><g transform="translate(4 4) scale(0.72)" fill="currentColor"><circle cx="30" cy="20" r="7.5"/><circle cx="50" cy="12" r="7.5"/><circle cx="70" cy="20" r="7.5"/><rect class="capsule" x="35" y="28" width="30" height="42" rx="15"/><rect class="grille" x="42" y="44" width="16" height="4" rx="2"/><rect class="grille" x="42" y="52" width="16" height="4" rx="2"/><path d="M24 54 A26 26 0 0 0 76 54" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round"/><rect x="46.5" y="78" width="7" height="10" rx="3.5"/><rect x="35" y="87" width="30" height="7" rx="3.5"/></g><text x="92" y="60" font-family="Manrope, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="60" letter-spacing="-1.8"><tspan font-weight="500">open</tspan><tspan font-weight="800">bark</tspan></text></svg></p>
+    <div class="foot-row">
+      <p>OpenBark, open-source veterinary scribe. Built by the <a href="https://www.animl.health">ANI.ML Health</a> team.<br>
+      Drafts are not medical records until a veterinarian reviews and signs them.</p>
+      <nav aria-label="Footer">
+        <a href="features.html">Features</a>
+        <a href="history.html">Version history</a>
+        <a href="index.html#download">Download</a>
+        <a href="mailto:we.care@animl.health">we.care@animl.health</a>
+        <a href="https://buymeacoffee.com/animlhealth" rel="noopener">Buy us a coffee</a>
+        <a href="privacy.html">Privacy</a>
+        <a href="https://www.apache.org/licenses/LICENSE-2.0">Licence: Apache-2.0</a>
+        <a href="https://github.com/ANI-ML/openbark">Source code</a>
+      </nav>
+    </div>
+    <p class="foot-legal">&copy; 2026 ANI.ML Health Inc., Toronto, Ontario, Canada.</p>
+  </div>
+</footer>
+<script>
+// "Sign in" reads "Account" when this browser holds a portal sign-in. Read locally; nothing is sent.
+try {
+  if (localStorage.getItem("sb-nmecovtmijnfnjuadicp-auth-token")) document.querySelectorAll("[data-account-label]").forEach(function (el) {
+    el.setAttribute("data-out-label", el.textContent);
+    el.textContent = el.getAttribute("data-account-label");
+  });
+} catch (err) {}
+</script>
+</body>
+</html>

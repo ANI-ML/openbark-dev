@@ -775,3 +775,12 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .cl-warn { padding: 12px 16px; border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent); border-radius: var(--r-md); font-size: 14px; line-height: 20px; color: var(--ink); }
 #clinics-card .pt-actions { gap: 8px 16px; }
 #clinics-card .pt-confirm { margin-top: 16px; }
+
+/* Privacy (and any other long text page): one readable column (DESIGN.md §5.2, 720 px). */
+.legal { padding: 8px 0 80px; }
+.legal .wrap { max-width: 720px; }
+.legal h2 { font-size: 24px; line-height: 30px; letter-spacing: -0.02em; margin: 40px 0 12px; }
+.legal p, .legal li { font-size: 16px; line-height: 26px; }
+.legal p { margin: 0 0 12px; }
+.legal ul { margin: 0 0 12px; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; }
+.legal-date { font-size: 14px; line-height: 20px; }

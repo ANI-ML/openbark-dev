@@ -2,9 +2,20 @@
 
 All notable changes to OpenBark, newest first. Generated from `website/content/history.json` by `scripts/website-build.py`; edit that file, not this one. The same history is on the website's Version history page.
 
-## 0.1.3 (beta)
+## 0.2.0 (beta)
 
 ### Beta: Ready for clinics to try
+
+#### 2026-10-25: A new design: Record first, visits in one place
+
+Record is one tap on a calmer screen, visits have their own place grouped by what needs you, notes are easier to check, and Settings is organised into sections.
+
+- The Record screen puts the Record button first. The patient is one optional row, and the template is one choice instead of tiles plus a list.
+- Visits have their own place, grouped into Needs you and Done, with times as people say them and one clear status for each visit.
+- Reviewing a note: a slimmer header with Copy and Sign, the transcript beside the note, and deleting moved into the More menu.
+- Settings is organised into sections, so every setting is one click away.
+- Groundwork for the iPhone app: screens laid out for a phone, and models sized for a phone's memory. (being tested)
+- A privacy page on the website that lists exactly what OpenBark sends, and when.
 
 #### 2026-10-20: Phone calls, a fuller dental chart, better microphones
 
@@ -81,7 +92,7 @@ The core of OpenBark, running entirely on the clinic's own computer.
 Planned or being tested, not finished. No dates are promised.
 
 - An iPhone app that records and transcribes in the exam room, with encrypted sync of transcripts and notes to your computers.
+- A clinic dashboard: invite your team and see how OpenBark is used, with counts only and never patient data.
 - PIMS integration.
 - Signed installers, so Windows and macOS don't warn on first install.
 - Summaries of a patient's past records.
-- Testing on more Macs, Linux computers and graphics cards.
