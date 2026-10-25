@@ -39,6 +39,10 @@ impl Identity {
         os_sync::hub::fingerprint(&self.cert_der())
     }
 
+    pub fn fingerprint_hex(&self) -> String {
+        hex::encode(self.fingerprint())
+    }
+
     /// The certificate check shown beside a join code.
     pub fn check_code(&self) -> String {
         os_sync::hub::check_code(&self.fingerprint())

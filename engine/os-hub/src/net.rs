@@ -99,6 +99,22 @@ pub fn allowed(ranges: &[Cidr], ip: IpAddr) -> bool {
     ranges.iter().any(|r| r.contains(ip))
 }
 
+/// This computer's addresses that devices could use (not loopback or IPv6
+/// link-local, within the allowed ranges), IPv4 first, for the join code.
+pub fn lan_addresses(ranges: &[Cidr]) -> Vec<IpAddr> {
+    let mut out: Vec<IpAddr> = if_addrs::get_if_addrs()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|i| !i.is_loopback() && i.is_oper_up())
+        .map(|i| canonical(i.ip()))
+        .filter(|ip| !matches!(ip, IpAddr::V6(v6) if v6.segments()[0] & 0xffc0 == 0xfe80))
+        .filter(|ip| allowed(ranges, *ip))
+        .collect();
+    out.sort_by_key(|ip| (!ip.is_ipv4(), *ip));
+    out.dedup();
+    out
+}
+
 /// The key lockouts and rate limits count under: the address, or for IPv6
 /// its /64 (one device can hold a whole /64).
 pub fn limit_key(ip: IpAddr) -> String {

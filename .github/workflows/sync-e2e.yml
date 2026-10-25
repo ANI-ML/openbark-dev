@@ -95,7 +95,7 @@ jobs:
               OPENBARK_SYNC_SECRETS_DIR="$demo/$name/sync-secrets" OPENBARK_MODELS_DIR="$HOME/models" \
               OPENBARK_DATA_KEY="$(head -c 32 /dev/urandom | base64)" \
               OPENBARK_SYNC_URL="$OPENBARK_SYNC_TEST_URL" OPENBARK_SYNC_KEY="$OPENBARK_SYNC_TEST_KEY" \
-              OPENBARK_SYNC_INTERVAL_SECS=5 "$@" \
+              OPENBARK_SYNC_PREVIEW=1 OPENBARK_SYNC_INTERVAL_SECS=5 "$@" \
               target/release/openbark serve --port "$port" --ui-dir "$demo/ui" > "$demo/$name.log" 2>&1 &
             for _ in $(seq 1 150); do curl -fs "http://127.0.0.1:$port/api/status" > /dev/null && return; sleep 0.2; done
             echo "$name didn't start"; tail -50 "$demo/$name.log"; exit 1

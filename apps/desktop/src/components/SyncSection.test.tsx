@@ -12,6 +12,8 @@ vi.mock("../engine", async (importOriginal) => {
     syncStatus: vi.fn(),
     syncSendCode: vi.fn(),
     syncVerify: vi.fn(),
+    syncJoinHub: vi.fn(),
+    syncFindHubs: vi.fn(),
     syncConfirmKit: vi.fn(),
     syncPair: vi.fn(),
     syncRemoveDevice: vi.fn(),
@@ -68,23 +70,39 @@ describe("Settings, Encrypted sync", () => {
     await screen.findByText(SYNC_PROMISE);
     expect(screen.getByText(/Recordings never leave the device that recorded them/)).toBeTruthy();
     expect(screen.getByText(/use test data only/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Turn on encrypted sync" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Join your clinic hub" })).toBeTruthy();
+    // The email sign-in is gone (ADR-0029).
+    expect(screen.queryByText(/email/i)).toBeNull();
+    expect(mocked.syncJoinHub).not.toHaveBeenCalled();
     expect(mocked.syncSendCode).not.toHaveBeenCalled();
   });
 
-  it("turns on with an emailed code, shows the kit and checks two of its words", async () => {
+  it("joins the hub with a code, its address and certificate check, then shows the kit and checks two words", async () => {
     mocked.syncStatus.mockResolvedValue(OFF);
-    mocked.syncSendCode.mockResolvedValue({ ...OFF, phase: "code_sent" });
-    mocked.syncVerify.mockResolvedValue({ next: "kit", ...KIT });
+    mocked.syncFindHubs.mockResolvedValue([
+      {
+        name: "OpenBark hub 3f9a01",
+        host: "192.168.1.20",
+        port: 47110,
+        addresses: ["192.168.1.20"],
+        fingerprint_prefix: "3f9a01",
+      },
+    ]);
+    mocked.syncJoinHub.mockResolvedValue({ next: "kit", ...KIT });
     mocked.syncConfirmKit.mockResolvedValue({ ...OFF, phase: "active" });
     show();
-    fireEvent.click(await screen.findByRole("button", { name: "Turn on encrypted sync" }));
-    fireEvent.change(screen.getByLabelText(/Your email address/), { target: { value: "vet@example.org" } });
-    fireEvent.click(screen.getByRole("button", { name: "Email me a code" }));
-    await waitFor(() => expect(mocked.syncSendCode).toHaveBeenCalledWith("vet@example.org"));
-    fireEvent.change(await screen.findByLabelText(/6-digit code/), { target: { value: "123456" } });
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    await waitFor(() => expect(mocked.syncVerify).toHaveBeenCalledWith("123456", "", 30));
+    fireEvent.click(await screen.findByRole("button", { name: "Join your clinic hub" }));
+    const join = screen.getByRole("button", { name: "Join the hub" }) as HTMLButtonElement;
+    expect(join.disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Find on this network" }));
+    expect(await screen.findByText("OpenBark hub 3f9a01")).toBeTruthy();
+    expect((screen.getByLabelText("Hub address") as HTMLInputElement).value).toBe("192.168.1.20:47110");
+    fireEvent.change(screen.getByLabelText(/Join code/), { target: { value: "abcd-efgh" } });
+    fireEvent.change(screen.getByLabelText(/Certificate check/), { target: { value: "7K3QD-9XAPR" } });
+    fireEvent.click(join);
+    await waitFor(() =>
+      expect(mocked.syncJoinHub).toHaveBeenCalledWith("abcd-efgh", "192.168.1.20:47110", "7K3QD-9XAPR", "", 30, false),
+    );
     expect(await screen.findByText("word24")).toBeTruthy();
     // The computer's own key arrives separately from the kit: wait for it.
     expect(await screen.findByText("computer-key")).toBeTruthy();
@@ -99,6 +117,41 @@ describe("Settings, Encrypted sync", () => {
       ]),
     );
     expect(await screen.findByText("Encrypted sync is on")).toBeTruthy();
+  });
+
+  it("joins with the hub's link alone, as another device of the same person", async () => {
+    mocked.syncStatus.mockResolvedValue(OFF);
+    mocked.syncJoinHub.mockResolvedValue({
+      next: "pair",
+      words: ["a", "b", "c", "d", "e", "f"],
+      qr_svg: "<svg></svg>",
+      expires_at: null,
+    });
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: "Join your clinic hub" }));
+    const link = "openbark-hub:1?h=192.168.1.20&p=47110&f=00&c=ABCDEFGH";
+    fireEvent.change(screen.getByLabelText(/Join code/), { target: { value: link } });
+    expect(screen.queryByLabelText("Hub address")).toBeNull();
+    fireEvent.click(screen.getByLabelText("I already use OpenBark on another device"));
+    fireEvent.click(screen.getByRole("button", { name: "Join the hub" }));
+    await waitFor(() => expect(mocked.syncJoinHub).toHaveBeenCalledWith(link, "", "", "", 30, true));
+    expect(await screen.findByText("a b c d e f")).toBeTruthy();
+  });
+
+  it("shows the hub it syncs with and asks for the word delete before deleting the account", async () => {
+    mocked.syncStatus.mockResolvedValue({
+      ...OFF,
+      phase: "active",
+      hub: { address: "192.168.1.20:47110", check: "7K3QD-9XAPR" },
+      last_error: "Hub not reachable: syncs when you're back on the clinic network.",
+      devices: [],
+    });
+    show();
+    expect(await screen.findByText(/Syncing with the clinic hub at 192.168.1.20:47110/)).toBeTruthy();
+    expect(screen.getByText("7K3QD-9XAPR")).toBeTruthy();
+    expect(screen.getByText(/Hub not reachable/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Delete my sync account" }));
+    expect(await screen.findByText("Type delete to confirm")).toBeTruthy();
   });
 
   it("lists devices and adds one by its 6 words after checking them", async () => {
@@ -130,6 +183,6 @@ describe("Settings, Encrypted sync", () => {
   it("speaks the app's language", async () => {
     mocked.syncStatus.mockResolvedValue(OFF);
     show(ctx("fr"));
-    expect(await screen.findByRole("button", { name: "Activer la synchronisation chiffrée" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Rejoindre le hub de votre clinique" })).toBeTruthy();
   });
 });

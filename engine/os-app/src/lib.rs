@@ -49,10 +49,12 @@ pub use templates::{
 
 #[doc(hidden)]
 pub mod demo;
+mod hub;
 mod mic;
 mod phone;
 mod sync;
 mod templates;
+pub use hub::{hub_dir, hub_inspect};
 pub use mic::{MicLevel, MicTestStarted};
 pub use os_connect::{ConnectStore, PhonePrefs};
 pub use os_engine::live::CallBlock;
@@ -333,6 +335,9 @@ pub struct App {
     /// Run a sync now rather than at the next 30-second poll.
     #[cfg_attr(not(feature = "sync"), allow(dead_code))]
     sync_wake: std::sync::atomic::AtomicBool,
+    /// This computer as the clinic hub (ADR-0029), once hub mode was turned on.
+    #[cfg(feature = "hub")]
+    hub: Mutex<Option<hub::HubRuntime>>,
     /// The clinic's own Twilio account and this computer's phone settings
     /// (ADR-0023). `OPENBARK_CONNECTIONS_DIR` moves it, away from the keychain.
     pub connect: ConnectStore,
@@ -1296,6 +1301,8 @@ impl App {
             #[cfg(feature = "sync")]
             sync: None,
             sync_wake: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(feature = "hub")]
+            hub: Mutex::new(None),
             connect: ConnectStore::default(),
             twilio_base: None,
             call: Mutex::new(None),

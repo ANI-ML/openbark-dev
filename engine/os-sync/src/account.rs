@@ -1058,7 +1058,7 @@ impl SyncService {
         let mut inner = self.lock();
         if inner.state.hub.is_some() {
             // No email on a hub: the word "delete" confirms.
-            if confirm.trim().to_ascii_lowercase() != "delete" {
+            if !confirm.trim().eq_ignore_ascii_case("delete") {
                 return Err(SyncError::User("Type delete to confirm.".into()));
             }
             self.rpc(&mut inner, "delete_account", json!({}))?;

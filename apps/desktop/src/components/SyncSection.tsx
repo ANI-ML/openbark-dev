@@ -1,6 +1,6 @@
 import { Button, Dialog, Sheet } from "@openbark/ui";
 import { RefreshCw, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useApp } from "../context";
 import * as engine from "../engine";
 import { useT } from "../i18n";
@@ -21,10 +21,11 @@ const BACKFILL: { days: number | null; label: string }[] = [
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /**
- * Settings > Sync (ADR-0017, M3 phase 2). Off by default. Turning it on signs
- * in with an emailed code; a new account shows its Recovery Kit, a computer
- * joining an account shows a 6-word code to type on a computer that already
- * syncs. Every network call is made by OpenBark's engine, never this screen.
+ * Settings > Sync (ADR-0017, ADR-0029). Off by default. Turning it on joins
+ * the clinic hub with a join code shown on the hub computer; a person's first
+ * device makes their account and shows its Recovery Kit, a further device
+ * shows a 6-word code to type on a device that already syncs. Every network
+ * call is made by OpenBark's engine, never this screen.
  */
 export function SyncSection() {
   const app = useApp();
@@ -97,20 +98,18 @@ export function SyncSection() {
               )}
             </p>
           )}
-          {phase === "signed_out" && (
-            <p className="ob-notice" data-tone="warn">
-              {t("Signed out of sync. Sign in again to keep syncing.")}
-            </p>
-          )}
+          <p className="small muted measure">
+            {t(
+              "Your devices sync through your clinic's hub: a computer at the clinic that keeps encrypted copies. Ask whoever runs it for a join code.",
+            )}
+          </p>
           <p className="small faint measure">
             {t("Preview: use test data only until the independent security review is finished.")}
           </p>
           <div className="ask-actions">
-            <Button onClick={() => setSheet(true)}>
-              {phase === "signed_out" ? t("Sign in again") : t("Turn on encrypted sync")}
-            </Button>
+            <Button onClick={() => setSheet(true)}>{t("Join your clinic hub")}</Button>
           </div>
-          {phase === "off" && <ServerChoice s={s} onChanged={refresh} />}
+          {s.hub && <p className="small faint">{t("Clinic hub: {address}.", { address: s.hub.address })}</p>}
         </>
       )}
 
@@ -129,14 +128,26 @@ export function SyncSection() {
             <span className="ob-dot" data-tone={s.last_error ? "warn" : "ok"} aria-hidden />{" "}
             {s.busy
               ? t("Syncing now.")
-              : s.last_sync_at
-                ? t("Syncing as {email}. Last synced {when}.", {
-                    email: s.email ?? "",
-                    when: engine.fmtStamp(s.last_sync_at),
-                  })
-                : t("Syncing as {email}.", { email: s.email ?? "" })}{" "}
+              : s.hub
+                ? s.last_sync_at
+                  ? t("Syncing with the clinic hub at {address}. Last synced {when}.", {
+                      address: s.hub.address,
+                      when: engine.fmtStamp(s.last_sync_at),
+                    })
+                  : t("Syncing with the clinic hub at {address}.", { address: s.hub.address })
+                : s.last_sync_at
+                  ? t("Syncing as {email}. Last synced {when}.", {
+                      email: s.email ?? "",
+                      when: engine.fmtStamp(s.last_sync_at),
+                    })
+                  : t("Syncing as {email}.", { email: s.email ?? "" })}{" "}
             {(s.pending_uploads ?? 0) > 0 && t("{n} changes waiting to upload.", { n: s.pending_uploads ?? 0 })}
           </p>
+          {s.hub && (
+            <p className="small faint">
+              {t("Hub certificate check")}: <span className="mono">{s.hub.check}</span>
+            </p>
+          )}
           {s.last_error && (
             <p className="ob-notice" data-tone="warn">
               {s.last_error}
@@ -248,7 +259,7 @@ export function SyncSection() {
           }}
         />
       )}
-      {adding && <AddDeviceSheet onClose={() => (setAdding(false), void refresh())} />}
+      {adding && <AddDeviceSheet hub={!!s.hub} onClose={() => (setAdding(false), void refresh())} />}
       {removing && (
         <Dialog labelledBy="sync-remove-title" onClose={() => setRemoving(null)} dismissible={!busy}>
           {(close) => (
@@ -281,7 +292,12 @@ export function SyncSection() {
           )}
         </Dialog>
       )}
-      {deleting && <DeleteAccountDialog email={s.email ?? ""} onClose={() => (setDeleting(false), void refresh())} />}
+      {deleting && (
+        <DeleteAccountDialog
+          confirmWord={s.hub ? "delete" : (s.email ?? "")}
+          onClose={() => (setDeleting(false), void refresh())}
+        />
+      )}
     </section>
   );
 }
@@ -317,71 +333,26 @@ function summary(v: unknown): string {
   return v == null ? "empty" : JSON.stringify(v).slice(0, 80);
 }
 
-/** Before signing in: the hosted service, or the clinic's own Supabase. */
-function ServerChoice({ s, onChanged }: { s: engine.SyncStatus; onChanged: () => void }) {
-  const t = useT();
-  const [open, setOpen] = useState(false);
-  const [url, setUrl] = useState("");
-  const [key, setKey] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  if (!open) {
-    return (
-      <p className="small faint">
-        {t("Server: {host}.", { host: s.server ?? "" })}{" "}
-        <button type="button" className="link small" onClick={() => setOpen(true)}>
-          {t("Use my clinic's own server")}
-        </button>
-      </p>
-    );
-  }
-  return (
-    <form
-      className="sync-server"
-      onSubmit={(e) => {
-        e.preventDefault();
-        setError(null);
-        engine.syncSetServer(url, key).then(
-          () => (setOpen(false), onChanged()),
-          (err) => setError(message(err)),
-        );
-      }}
-    >
-      <label className="ob-field narrow">
-        <span className="label">{t("Server address")}</span>
-        <input className="ob-input" value={url} placeholder="https://example.supabase.co" onChange={(e) => setUrl(e.target.value)} />
-      </label>
-      <label className="ob-field narrow">
-        <span className="label">{t("Publishable key")}</span>
-        <input className="ob-input mono" value={key} onChange={(e) => setKey(e.target.value)} />
-        <span className="ob-help">{t("Leave both empty to use the OpenBark service.")}</span>
-      </label>
-      {error && (
-        <p className="ob-notice" data-tone="danger" role="alert">
-          {error}
-        </p>
-      )}
-      <div className="ask-actions">
-        <Button type="submit">{t("Save")}</Button>
-        <Button variant="ghost" onClick={() => setOpen(false)}>
-          {t("Cancel")}
-        </Button>
-      </div>
-    </form>
-  );
-}
+type Step = "hub" | "kit" | "check" | "pair" | "recover" | "done";
 
-type Step = "email" | "code" | "kit" | "check" | "pair" | "recover" | "done";
+/** The text a hub's QR code holds, pasted or scanned into the code field. */
+export const isHubLink = (text: string) => text.trim().startsWith("openbark-hub:");
 
 /** Turning sync on, step by step. */
 function SyncSheet({ status, onClose }: { status: engine.SyncStatus; onClose: () => void }) {
   const t = useT();
-  const initial: Step =
-    status.phase === "kit_check" ? "kit" : status.phase === "pending" ? "pair" : status.phase === "code_sent" ? "code" : "email";
+  const app = useApp();
+  const ios = isIos(app.status);
+  const initial: Step = status.phase === "kit_check" ? "kit" : status.phase === "pending" ? "pair" : "hub";
   const [step, setStep] = useState<Step>(initial);
-  const [email, setEmail] = useState(status.email ?? "");
   const [name, setName] = useState(status.device_name ?? "");
   const [backfill, setBackfill] = useState<number | null>(30);
   const [code, setCode] = useState("");
+  const [address, setAddress] = useState(status.hub?.address ?? "");
+  const [check, setCheck] = useState("");
+  const [existing, setExisting] = useState(false);
+  const [found, setFound] = useState<engine.FoundHub[] | null>(null);
+  const [searching, setSearching] = useState(false);
   const [kit, setKit] = useState<engine.SyncKit | null>(status.kit ?? null);
   const [pairing, setPairing] = useState<engine.SyncPairing | null>(status.pairing ?? null);
   const [answers, setAnswers] = useState<[string, string]>(["", ""]);
@@ -389,15 +360,7 @@ function SyncSheet({ status, onClose }: { status: engine.SyncStatus; onClose: ()
   const [computerKey, setComputerKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [resendIn, setResendIn] = useState(0);
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  useEffect(() => () => void (timer.current && clearInterval(timer.current)), []);
-  useEffect(() => {
-    if (resendIn <= 0) return;
-    const id = setTimeout(() => setResendIn((n) => n - 1), 1000);
-    return () => clearTimeout(id);
-  }, [resendIn]);
   // While waiting to be added, check every few seconds.
   useEffect(() => {
     if (step !== "pair") return;
@@ -428,16 +391,33 @@ function SyncSheet({ status, onClose }: { status: engine.SyncStatus; onClose: ()
     }
   };
 
-  const sendCode = () =>
-    act(async () => {
-      await engine.syncSendCode(email);
-      setResendIn(60);
-      setStep("code");
-    });
+  const link = isHubLink(code);
+  const codeReady = link || (code.replace(/[\s-]/g, "").length === 8 && address.trim() && check.replace(/[\s-]/g, "").length === 10);
 
-  const verify = () =>
+  const findHubs = async () => {
+    setError(null);
+    setSearching(true);
+    try {
+      const hubs = await engine.syncFindHubs();
+      setFound(hubs);
+      if (hubs.length === 1 && hubs[0]) setAddress(`${hubs[0].host}:${hubs[0].port}`);
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const join = () =>
     act(async () => {
-      const next = await engine.syncVerify(code, name, backfill);
+      const next = await engine.syncJoinHub(
+        code.trim(),
+        link ? "" : address.trim(),
+        link ? "" : check.trim(),
+        name,
+        backfill,
+        existing,
+      );
       if (next.next === "kit") {
         setKit({ words: next.words, qr_svg: next.qr_svg, check: next.check });
         setStep("kit");
@@ -456,7 +436,7 @@ function SyncSheet({ status, onClose }: { status: engine.SyncStatus; onClose: ()
         ? t("Add this computer")
         : step === "done"
           ? t("Encrypted sync is on")
-          : t("Turn on encrypted sync");
+          : t("Join your clinic hub");
 
   return (
     <Sheet label={title} onClose={onClose} dismissible={!busy}>
@@ -475,32 +455,119 @@ function SyncSheet({ status, onClose }: { status: engine.SyncStatus; onClose: ()
               </p>
             )}
 
-            {step === "email" && (
+            {step === "hub" && (
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
-                  void sendCode();
+                  void join();
                 }}
               >
-                <p className="small measure">{t(SYNC_PROMISE)}</p>
+                <p className="small measure">
+                  {t(
+                    "On the hub computer, open Settings, Clinic hub. It shows a join code, its address and a certificate check. A code works once, for 30 minutes.",
+                  )}
+                </p>
                 <label className="ob-field">
-                  <span className="label">{t("Your email address")}</span>
+                  <span className="label">{t("Join code")}</span>
                   <input
-                    className="ob-input"
-                    type="email"
-                    autoComplete="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    className="ob-input mono"
+                    autoCapitalize="characters"
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder="ABCD-EFGH"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
                   />
-                  <span className="ob-help">{t("We email you a 6-digit code. There's no password.")}</span>
+                  <span className="ob-help">{t("Or paste the hub's link, from its QR code.")}</span>
                 </label>
+                {!link && (
+                  <>
+                    <div className="ob-field">
+                      <label className="label" htmlFor="hub-address">
+                        {t("Hub address")}
+                      </label>
+                      <input
+                        id="hub-address"
+                        className="ob-input mono"
+                        autoCapitalize="none"
+                        autoComplete="off"
+                        spellCheck={false}
+                        placeholder="192.168.1.20:47110"
+                        value={address}
+                        onChange={(e) => setAddress(e.target.value)}
+                      />
+                      <div className="ask-actions">
+                        <Button variant="ghost" disabled={busy || searching} onClick={() => void findHubs()}>
+                          {searching ? t("Looking on this network") : t("Find on this network")}
+                        </Button>
+                      </div>
+                      {found && found.length === 0 && (
+                        <span className="ob-help">
+                          {t("No hub answered. Some networks block this; enter the address shown on the hub.")}
+                        </span>
+                      )}
+                      {found && found.length > 0 && (
+                        <>
+                          <ul className="hub-found">
+                            {found.map((h) => (
+                              <li key={`${h.name}-${h.host}`}>
+                                <label className="check">
+                                  <input
+                                    type="radio"
+                                    name="hub-found"
+                                    checked={address === `${h.host}:${h.port}`}
+                                    onChange={() => setAddress(`${h.host}:${h.port}`)}
+                                  />
+                                  <span>
+                                    {h.name} <span className="mono small faint">{`${h.host}:${h.port}`}</span>
+                                  </span>
+                                </label>
+                              </li>
+                            ))}
+                          </ul>
+                          <span className="ob-help">
+                            {t("A hub found here is only a hint. The join code and the certificate check decide which hub this device trusts.")}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                    <label className="ob-field narrow">
+                      <span className="label">{t("Certificate check")}</span>
+                      <input
+                        className="ob-input mono"
+                        autoCapitalize="characters"
+                        autoComplete="off"
+                        spellCheck={false}
+                        placeholder="XXXXX-XXXXX"
+                        value={check}
+                        onChange={(e) => setCheck(e.target.value)}
+                      />
+                      <span className="ob-help">{t("Shown on the hub under the join code.")}</span>
+                    </label>
+                  </>
+                )}
+                <fieldset className="ob-field hub-who">
+                  <legend className="label">{t("Is this your first device?")}</legend>
+                  <label className="check">
+                    <input type="radio" name="hub-existing" checked={!existing} onChange={() => setExisting(false)} />
+                    <span>{t("This is my first device")}</span>
+                  </label>
+                  <label className="check">
+                    <input type="radio" name="hub-existing" checked={existing} onChange={() => setExisting(true)} />
+                    <span>{t("I already use OpenBark on another device")}</span>
+                  </label>
+                  <span className="ob-help">
+                    {existing
+                      ? t("That device approves this one: it shows 6 words to type there.")
+                      : t("This device makes your account and its Recovery Kit.")}
+                  </span>
+                </fieldset>
                 <label className="ob-field">
-                  <span className="label">{t("This computer's name")}</span>
+                  <span className="label">{ios ? t("This iPhone's name") : t("This computer's name")}</span>
                   <input
                     className="ob-input"
                     value={name}
-                    placeholder={t("Front desk PC")}
+                    placeholder={ios ? t("Dr Rivera's iPhone") : t("Front desk PC")}
                     onChange={(e) => setName(e.target.value)}
                   />
                   <span className="ob-help">{t("Shown in your list of devices. Only your devices can read it.")}</span>
@@ -520,38 +587,8 @@ function SyncSheet({ status, onClose }: { status: engine.SyncStatus; onClose: ()
                   </select>
                 </label>
                 <div className="ask-actions">
-                  <Button type="submit" variant="primary" disabled={busy || !email.includes("@")}>
-                    {t("Email me a code")}
-                  </Button>
-                </div>
-              </form>
-            )}
-
-            {step === "code" && (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void verify();
-                }}
-              >
-                <label className="ob-field">
-                  <span className="label">{t("Enter the 6-digit code we emailed to {email}", { email })}</span>
-                  <input
-                    className="ob-input mono sync-code"
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    maxLength={8}
-                    autoFocus
-                    value={code}
-                    onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-                  />
-                </label>
-                <div className="ask-actions">
-                  <Button type="submit" variant="primary" disabled={busy || code.length !== 6}>
-                    {t("Continue")}
-                  </Button>
-                  <Button variant="ghost" disabled={busy || resendIn > 0} onClick={() => void sendCode()}>
-                    {resendIn > 0 ? t("Send a new code in {n} s", { n: resendIn }) : t("Send a new code")}
+                  <Button type="submit" variant="primary" disabled={busy || !codeReady}>
+                    {t("Join the hub")}
                   </Button>
                 </div>
               </form>
@@ -714,7 +751,7 @@ function SyncSheet({ status, onClose }: { status: engine.SyncStatus; onClose: ()
 }
 
 /** On a computer that syncs: type the new device's 6 words, check, add. */
-function AddDeviceSheet({ onClose }: { onClose: () => void }) {
+function AddDeviceSheet({ hub, onClose }: { hub: boolean; onClose: () => void }) {
   const t = useT();
   const app = useApp();
   const [words, setWords] = useState("");
@@ -744,9 +781,13 @@ function AddDeviceSheet({ onClose }: { onClose: () => void }) {
           </header>
           <div className="sheet-body sync-sheet">
             <p className="small measure">
-              {t(
-                "On the new device, turn on encrypted sync and sign in with the same email. It shows 6 words. Type them here: OpenBark checks they match that device before giving it the keys.",
-              )}
+              {hub
+                ? t(
+                    "On the new device, join the clinic hub with a new join code and choose I already use OpenBark on another device. It shows 6 words. Type them here: OpenBark checks they match that device before giving it the keys.",
+                  )
+                : t(
+                    "On the new device, turn on encrypted sync and sign in with the same email. It shows 6 words. Type them here: OpenBark checks they match that device before giving it the keys.",
+                  )}
             </p>
             {error && (
               <p className="ob-notice" data-tone="danger" role="alert">
@@ -816,7 +857,8 @@ function AddDeviceSheet({ onClose }: { onClose: () => void }) {
   );
 }
 
-function DeleteAccountDialog({ email, onClose }: { email: string; onClose: () => void }) {
+/** `confirmWord`: the account's email, or on a clinic hub the word "delete". */
+function DeleteAccountDialog({ confirmWord, onClose }: { confirmWord: string; onClose: () => void }) {
   const t = useT();
   const app = useApp();
   const [typed, setTyped] = useState("");
@@ -833,7 +875,9 @@ function DeleteAccountDialog({ email, onClose }: { email: string; onClose: () =>
             )}
           </p>
           <label className="ob-field">
-            <span className="label">{t("Type {email} to confirm", { email })}</span>
+            <span className="label">
+              {confirmWord === "delete" ? t("Type delete to confirm") : t("Type {email} to confirm", { email: confirmWord })}
+            </span>
             <input className="ob-input" autoComplete="off" value={typed} onChange={(e) => setTyped(e.target.value)} />
           </label>
           {error && (
@@ -844,7 +888,7 @@ function DeleteAccountDialog({ email, onClose }: { email: string; onClose: () =>
           <div className="ask-actions">
             <Button
               variant="danger"
-              disabled={busy || typed.trim().toLowerCase() !== email.toLowerCase()}
+              disabled={busy || typed.trim().toLowerCase() !== confirmWord.toLowerCase()}
               onClick={async () => {
                 setBusy(true);
                 setError(null);

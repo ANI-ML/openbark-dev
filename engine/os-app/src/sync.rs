@@ -18,14 +18,15 @@ use serde_json::{Value, json};
 use crate::Need;
 use crate::{App, AppError, Result};
 
-/// Encrypted sync is a preview until ANI.ML's hosted project is set up and
-/// the independent security review is done (ADR-0017): only builds made with
-/// `OPENBARK_SYNC_PREVIEW` set (development and TestFlight builds) offer it,
-/// or any build pointed at a server with `OPENBARK_SYNC_URL` (the end-to-end
-/// tests, a clinic's own Supabase). Release installers don't set either.
+/// Encrypted sync (and the clinic hub, ADR-0029) is a preview until the
+/// independent security review is done: only builds made with
+/// `OPENBARK_SYNC_PREVIEW` set (development and TestFlight builds) offer
+/// it, or a run with `OPENBARK_SYNC_PREVIEW=1` in its environment (the
+/// end-to-end tests). Release installers set neither.
 #[cfg(feature = "sync")]
 pub(crate) fn preview_enabled() -> bool {
-    option_env!("OPENBARK_SYNC_PREVIEW").is_some() || std::env::var_os("OPENBARK_SYNC_URL").is_some()
+    option_env!("OPENBARK_SYNC_PREVIEW").is_some()
+        || std::env::var("OPENBARK_SYNC_PREVIEW").is_ok_and(|v| v.trim() == "1")
 }
 
 /// The sync service for a visits folder, or why there is none.
@@ -162,6 +163,52 @@ impl App {
         #[cfg(not(feature = "sync"))]
         {
             let _ = (code, device_name, backfill_days, by);
+            Err(AppError(NOT_BUILT.into()))
+        }
+    }
+
+    /// Look for clinic hubs on the local network for a few seconds (mDNS).
+    pub fn sync_find_hubs(&self) -> Result<Value> {
+        #[cfg(feature = "sync")]
+        {
+            self.sync_service()?;
+            let found = os_sync::hub::browse(std::time::Duration::from_secs(3)).map_err(err)?;
+            Ok(serde_json::to_value(found).unwrap_or(Value::Null))
+        }
+        #[cfg(not(feature = "sync"))]
+        Err(AppError(NOT_BUILT.into()))
+    }
+
+    /// Join a clinic hub (ADR-0029): the QR code's text in `link`, or the
+    /// 8-character code there with the hub's address and certificate check.
+    /// `existing`: the person already syncs on another device, which
+    /// approves this one; otherwise this device creates their account and
+    /// Recovery Kit.
+    #[allow(clippy::too_many_arguments)]
+    pub fn sync_join_hub(
+        &self,
+        link: &str,
+        address: &str,
+        check: &str,
+        device_name: &str,
+        backfill_days: Option<u32>,
+        existing: bool,
+        by: Option<&str>,
+    ) -> Result<Value> {
+        #[cfg(feature = "sync")]
+        {
+            let linked = self.sync_actor(by, false)?;
+            let join = os_sync::hub::parse_join(link, address, check).map_err(err)?;
+            let step = self
+                .sync_service()?
+                .join_hub(&join, device_name, backfill_days, linked, existing)
+                .map_err(err)?;
+            self.sync_soon();
+            Ok(serde_json::to_value(step).unwrap_or(Value::Null))
+        }
+        #[cfg(not(feature = "sync"))]
+        {
+            let _ = (link, address, check, device_name, backfill_days, existing, by);
             Err(AppError(NOT_BUILT.into()))
         }
     }
@@ -333,6 +380,8 @@ impl App {
     /// Poll every 30 seconds while the app is open (and at once after sync
     /// is turned on). Stops when the app is retired or dropped.
     pub fn start_sync(self: &Arc<Self>) {
+        // Hub mode, if it was on (ADR-0029): listening again.
+        self.start_hub();
         #[cfg(feature = "sync")]
         {
             if self.sync.is_none() {

@@ -75,6 +75,21 @@ enum Command {
     Templates(templates::TemplatesCommand),
     /// Open the OpenBark UI in your browser, served from this machine only (127.0.0.1).
     Serve(ServeArgs),
+    /// The clinic hub (ADR-0029). Hub mode itself is in Settings, Clinic hub.
+    #[command(subcommand)]
+    Hub(HubCommand),
+}
+
+#[derive(clap::Subcommand)]
+enum HubCommand {
+    /// Print the hub's store as its server role sees it (opened with this
+    /// computer's data key), as JSON: structure and ciphertext only. For
+    /// checking that the hub holds nothing readable.
+    Inspect {
+        /// The hub's folder (default: `<visits>/.openbark/hub`, or OPENBARK_HUB_DIR).
+        #[arg(long)]
+        dir: Option<PathBuf>,
+    },
 }
 
 #[derive(clap::Subcommand)]
@@ -305,6 +320,12 @@ fn main() -> Result<()> {
             }
         },
         Command::Eval(args) => eval::run(&store, args),
+        Command::Hub(HubCommand::Inspect { dir }) => {
+            let dir = dir.unwrap_or_else(|| os_app::hub_dir(&os_engine::session::default_root()));
+            let seen = os_app::hub_inspect(&dir).map_err(|e| anyhow::anyhow!(e.0))?;
+            println!("{}", serde_json::to_string_pretty(&seen)?);
+            Ok(())
+        }
     }
 }
 
