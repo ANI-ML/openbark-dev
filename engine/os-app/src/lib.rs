@@ -1352,6 +1352,36 @@ impl App {
     /// phone, the ones built into the app), without speaker labels, and
     /// return the text. Fails when this build can't transcribe (no `stt`).
     pub fn smoke_transcribe(&self, wav: &Path) -> Result<String> {
+        let transcript = self.smoke_transcript(wav)?;
+        Ok(transcript
+            .segments
+            .iter()
+            .map(|s| s.text.trim())
+            .filter(|t| !t.is_empty())
+            .collect::<Vec<_>>()
+            .join(" "))
+    }
+
+    /// The iOS check's drafting smoke test (ADR-0018 section 10): draft a
+    /// SOAP note from `transcript` with the GGUF at `gguf` (a tiny test
+    /// model the script copies in; no model ships in the app), on the
+    /// processor, and return how many sections came back. Fails when this
+    /// build can't draft (no `inference`) or no note comes back.
+    pub fn smoke_draft(&self, gguf: &Path, transcript: &Transcript) -> Result<usize> {
+        let llm = open_llm(&self.store, &gguf.to_string_lossy(), Some(0))?;
+        let template = LoadedTemplate::resolve("soap").map_err(|e| AppError(e.to_string()))?;
+        let options = NoteOptions { max_tokens: 2048, ..Default::default() };
+        let result = os_engine::generate_note(&*llm, &template, transcript, &options, &mut |_| true)
+            .map_err(|e| AppError(e.to_string()))?;
+        let sections = result.note.as_object().map_or(0, |o| o.len());
+        if sections == 0 {
+            return Err(AppError("the note came back empty".into()));
+        }
+        Ok(sections)
+    }
+
+    /// [`App::smoke_transcribe`]'s transcript itself.
+    pub fn smoke_transcript(&self, wav: &Path) -> Result<Transcript> {
         let stt = if Profile::current().is_mobile() {
             os_models::platform::MOBILE_STT
         } else {
@@ -1361,13 +1391,7 @@ impl App {
             .map_err(|e| AppError(e.to_string()))?;
         let audio = os_asr::Audio::load(wav).map_err(|e| AppError(e.to_string()))?;
         let (transcript, _) = transcriber.run(&audio, &mut |_| {}).map_err(|e| AppError(e.to_string()))?;
-        Ok(transcript
-            .segments
-            .iter()
-            .map(|s| s.text.trim())
-            .filter(|t| !t.is_empty())
-            .collect::<Vec<_>>()
-            .join(" "))
+        Ok(transcript)
     }
 
     pub fn status(&self) -> Status {

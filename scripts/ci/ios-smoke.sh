@@ -9,14 +9,24 @@
 # - it transcribes the committed smoke clip (packages/eval/fixtures/audio/
 #   smoke.wav, synthetic) with those built-in models, and the transcript isn't
 #   empty. The clip is copied into the app's data container for the test
-#   only; it never ships in the app.
+#   only; it never ships in the app;
+# - in a build with `inference` (OPENBARK_SMOKE_DRAFT=1, the default), it
+#   drafts a SOAP note from that transcript with a tiny pinned test model
+#   (SmolLM2-135M, scripts/ci/fetch-test-gguf.sh), also copied in for the
+#   test only, and a note must come back. No LLM ships in the app.
 # Saves a screenshot, the app's log and what it reported in <out dir>.
 #   bash scripts/ci/ios-smoke.sh <path to .app> <out dir>
 set -euo pipefail
 app="$1"; out="$2"
 mkdir -p "$out"
 bundle="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")"
-clip="$(cd "$(dirname "$0")/../.." && pwd)/packages/eval/fixtures/audio/smoke.wav"
+repo="$(cd "$(dirname "$0")/../.." && pwd)"
+clip="$repo/packages/eval/fixtures/audio/smoke.wav"
+draft="${OPENBARK_SMOKE_DRAFT:-1}"
+if [ "$draft" = 1 ]; then
+  gguf="$repo/target/test-models/smollm2-135m-q4km.gguf"
+  bash "$repo/scripts/ci/fetch-test-gguf.sh" "$gguf"
+fi
 
 # The newest available iPhone simulator.
 udid="$(xcrun simctl list devices available -j | python3 -c '
@@ -45,10 +55,12 @@ data="$(xcrun simctl get_app_container "$udid" "$bundle" data)"
 support="$data/Library/Application Support/OpenBark"
 marker="$support/smoke-webview.txt"
 transcript="$support/smoke-transcript.txt"
-rm -f "$marker" "$transcript"
+note="$support/smoke-note.txt"
+rm -f "$marker" "$transcript" "$note"
 # The clip the app transcribes under OPENBARK_SMOKE=1 (apps/desktop/src-tauri/src/lib.rs).
 mkdir -p "$support"
 cp "$clip" "$support/smoke-input.wav"
+if [ "$draft" = 1 ]; then cp "$gguf" "$support/smoke-llm.gguf"; fi
 
 # The app's own log, streamed from the simulator (no terminal needed).
 xcrun simctl spawn "$udid" log stream --style compact --level info \
@@ -88,6 +100,15 @@ if [ "$ok" -eq 1 ]; then
     sleep 1
   done
 fi
+# Then the draft: loading the tiny model and writing a SOAP note on the
+# simulator's processor.
+drafted=0
+if [ "$heard" -eq 1 ] && [ "$draft" = 1 ]; then
+  for _ in $(seq 1 300); do
+    if [ -f "$note" ]; then drafted=1; break; fi
+    sleep 1
+  done
+fi
 sleep 3
 xcrun simctl io "$udid" screenshot "$out/simulator.png" || true
 # At most a minute (macOS has no timeout command; perl's alarm stands in).
@@ -97,6 +118,7 @@ kill "$logger" 2>/dev/null || true
 find "$data" -maxdepth 5 -print > "$out/container.txt" 2>/dev/null || true
 cp "$support/smoke-models.json" "$out/models.json" 2>/dev/null || true
 cp "$transcript" "$out/transcript.txt" 2>/dev/null || true
+cp "$note" "$out/note.txt" 2>/dev/null || true
 
 if [ "$ok" -ne 1 ]; then
   # What the simulator said about the app (launch refusals, crashes).
@@ -149,3 +171,18 @@ case "$result" in
   ok:\ ?*) echo "Transcription smoke test passed: the built-in models transcribed the clip on the iPhone simulator." ;;
   *) echo "The transcription failed or was empty: $result" >&2; exit 1 ;;
 esac
+
+# The draft: the app writes "ok: <n> sections" or "error: <why>".
+if [ "$draft" = 1 ]; then
+  if [ "$drafted" -ne 1 ]; then
+    echo "The app never wrote $note (drafting a note with the test model)." >&2
+    tail -50 "$out/app.log" >&2 || true
+    exit 1
+  fi
+  result="$(cat "$note")"
+  echo "Draft on the simulator: $result"
+  case "$result" in
+    ok:\ ?*) echo "Drafting smoke test passed: llama.cpp wrote a note on the iPhone simulator." ;;
+    *) echo "The draft failed: $result" >&2; exit 1 ;;
+  esac
+fi

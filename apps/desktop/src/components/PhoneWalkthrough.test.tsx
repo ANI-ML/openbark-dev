@@ -93,6 +93,7 @@ describe("The iPhone walkthrough", () => {
     // 1. Welcome: the promise, and no permission asked.
     expect(screen.getByRole("heading", { name: "Welcome to OpenBark" })).toBeTruthy();
     expect(screen.getByText("Recordings stay on this iPhone.")).toBeTruthy();
+    expect(screen.getByText("OpenBark records the consult and writes the note, here on this iPhone.")).toBeTruthy();
     expect(screen.getByText("Step 1 of 4")).toBeTruthy();
     expect(mocked.micTestStart).not.toHaveBeenCalled();
     next("Get started");
@@ -137,6 +138,8 @@ describe("The iPhone walkthrough", () => {
     const c = ctx();
     c.status = { ...ios, mobile_tier: 6, default_llm: "" } as unknown as engine.Status;
     show(c);
+    // Screen 1 says what this iPhone does: no notes written here.
+    expect(screen.getByText("OpenBark records and transcribes the consult here on this iPhone. Your computer writes the note.")).toBeTruthy();
     next("Get started");
     fireEvent.click(screen.getByRole("checkbox", { name: "I understand, and I'll get consent from clients before recording." }));
     next("Continue");
@@ -166,5 +169,14 @@ describe("The iPhone walkthrough", () => {
     expect(c.setSettings).toHaveBeenCalledWith({ writeNotesHere: false });
     next("Open Encrypted sync");
     expect(c.navigate).toHaveBeenCalledWith({ screen: "settings", section: "sync" });
+  });
+});
+
+describe("The walkthrough in a build that can't draft", () => {
+  it("says the computer writes the note, even on a 12 GB iPhone", () => {
+    const c = ctx();
+    c.status = { ...ios, mobile_tier: 12, can_draft: false } as unknown as engine.Status;
+    show(c);
+    expect(screen.getByText("OpenBark records and transcribes the consult here on this iPhone. Your computer writes the note.")).toBeTruthy();
   });
 });

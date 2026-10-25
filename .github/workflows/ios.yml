@@ -20,7 +20,7 @@ on:
         options: [check, init]
         default: check
       features:
-        description: "Cargo features for the check build (default: stt, so the phone transcribes)"
+        description: "Cargo features for the check build (default: stt,inference: the phone transcribes and can draft)"
         type: string
         default: ""
   push:
@@ -144,8 +144,26 @@ jobs:
             echo "- speech models inside it (assets/models): $(du -sk "$app/assets/models" | cut -f1) KB"
             (cd "$app/assets" && zip -qr -9 "$GITHUB_WORKSPACE/target/ios-smoke/models.zip" models)
             echo "- the models zipped (how an IPA stores them): $(du -sk target/ios-smoke/models.zip | cut -f1) KB"
+            for f in OpenBark OpenBark.debug.dylib Frameworks/SherpaOnnxC.framework; do
+              [ -e "$app/$f" ] && echo "- $f: $(du -sk "$app/$f" | cut -f1) KB"
+            done
           } | tee -a "$GITHUB_STEP_SUMMARY"
           rm -f target/ios-smoke/models.zip
+      # One ggml (llama.cpp's), no whisper.cpp, one ONNX Runtime (sherpa-onnx's
+      # framework, linked statically into it): ADR-0001, M0-5.
+      - name: Single ggml / no whisper / one ONNX Runtime (the app's code and sherpa-onnx)
+        run: |
+          app="${{ steps.build.outputs.app }}"
+          code="$app/OpenBark.debug.dylib"; [ -f "$code" ] || code="$app/OpenBark"
+          bash scripts/ci/check-symbols.sh "$code"
+          sherpa="$app/Frameworks/SherpaOnnxC.framework/SherpaOnnxC"
+          if [ -f "$sherpa" ]; then
+            ggml=$(nm -gU "$sherpa" | grep -cE '[[:space:]]_?ggml_init$' || true)
+            ort=$(nm -gU "$sherpa" | grep -cE '[[:space:]]_?OrtGetApiBase$' || true)
+            echo "SherpaOnnxC: ggml_init $ggml, OrtGetApiBase $ort"
+            [ "$ggml" -eq 0 ] || { echo "::error::sherpa-onnx's framework carries a ggml"; exit 1; }
+            [ "$ort" -le 1 ] || { echo "::error::more than one ONNX Runtime in sherpa-onnx"; exit 1; }
+          fi
       - name: WebView smoke test
         run: bash scripts/ci/ios-smoke.sh "${{ steps.build.outputs.app }}" target/ios-smoke
       # tauri-build also copies bundle > resources next to the Rust build:

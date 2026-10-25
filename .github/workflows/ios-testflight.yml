@@ -25,7 +25,7 @@ on:
   workflow_dispatch:
     inputs:
       features:
-        description: "Cargo features for the build (default: stt, so the phone transcribes)"
+        description: "Cargo features for the build (default: stt,inference: the phone transcribes and can draft)"
         type: string
         default: ""
 
@@ -131,8 +131,9 @@ jobs:
         working-directory: apps/desktop
         run: |
           features="${{ inputs.features }}"
-          # The phone records and transcribes: stt unless other features are named.
-          [ -n "$features" ] || features=stt
+          # The phone records, transcribes and (opt-in, 8 GB and up) drafts:
+          # stt and inference unless other features are named.
+          [ -n "$features" ] || features=stt,inference
           args=(tauri ios build --export-method app-store-connect --ci --build-number "${{ github.run_number }}")
           [ -n "$features" ] && args+=(--features "$features")
           pnpm "${args[@]}"
