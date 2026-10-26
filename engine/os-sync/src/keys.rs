@@ -649,7 +649,9 @@ mod tests {
         }
         assert!(wrong.is_err() || wrong.unwrap().seed() != kit.seed());
         assert!(Kit::from_words("abandon ability").is_err());
-        assert!(Kit::from_words(&format!("{} notaword", words[..23].join(" "))).is_err());
+        // A word no kit word starts with ("notaword" read as "notable" and,
+        // one time in 256, passed the checksum).
+        assert!(Kit::from_words(&format!("{} xqzvk", words[..23].join(" "))).is_err());
     }
 
     #[test]

@@ -319,6 +319,11 @@ pub struct App {
     mic_test: Mutex<Option<mic::MicTest>>,
     /// Visits being imported, recorded, drafted, saved or deleted (ADR-0022).
     visit_locks: VisitLocks,
+    /// Deleted visits change one step at a time: a delete, restore or
+    /// removal holds this from moving a folder until its record is written,
+    /// and housekeeping holds it while it recovers, so it never mistakes
+    /// work in progress for what a crash left behind.
+    trash_work: Mutex<()>,
     gate: Arc<Gate>,
     hardware: Hardware,
     /// The GPU speech pack was in place when this process started, so its
@@ -1307,6 +1312,7 @@ impl App {
             warm: Mutex::new(mic::Warm::Empty),
             mic_test: Mutex::new(None),
             visit_locks: Arc::new(Mutex::new(HashMap::new())),
+            trash_work: Mutex::new(()),
             gate: Arc::new(Gate::default()),
             hardware: probe_hardware(),
             gpu_at_start: os_models::gpu_pack::loaded_at_start(),
@@ -2613,6 +2619,7 @@ impl App {
             recovered: false,
         };
         let tombstone = audit::tombstone(&s, Some(&trash_id));
+        let _trash = self.trash_work.lock().unwrap_or_else(|e| e.into_inner());
         let trashed = trash.put(&dir, &info)?;
         let mut entry = EventDraft::new(EventKind::VisitDeleted, who, self.users.is_team());
         entry.id = Some(info.event_id.clone());
@@ -2675,6 +2682,7 @@ impl App {
         let trash = self.trash();
         let (info, s) = trash.get(trash_id)?;
         let tombstone = audit::tombstone(&s, Some(trash_id));
+        let _trash = self.trash_work.lock().unwrap_or_else(|e| e.into_inner());
         let restored = trash.restore(trash_id)?;
         let mut entry = EventDraft::new(EventKind::VisitRestored, who, self.users.is_team());
         entry.visit = Some(tombstone);
@@ -2723,6 +2731,7 @@ impl App {
         };
         let tombstone = audit::tombstone(&s, Some(trash_id));
         drop(s);
+        let _trash = self.trash_work.lock().unwrap_or_else(|e| e.into_inner());
         let purging = trash.begin_purge(trash_id)?;
         let mut entry = EventDraft::new(EventKind::VisitPurged, who, self.users.is_team());
         entry.visit = Some(tombstone);
@@ -2755,6 +2764,7 @@ impl App {
             let Ok((info, s)) = trash.get(&trash_id) else { continue };
             let tombstone = audit::tombstone(&s, Some(&trash_id));
             drop(s);
+            let _trash = self.trash_work.lock().unwrap_or_else(|e| e.into_inner());
             let purging = match trash.begin_purge(&trash_id) {
                 Ok(p) => p,
                 Err(e) => {
@@ -2786,6 +2796,7 @@ impl App {
     /// how many entries were added.
     pub fn recover_deleted(&self, now: DateTime<Local>) -> usize {
         let Ok(_work) = self.begin_work() else { return 0 };
+        let _trash = self.trash_work.lock().unwrap_or_else(|e| e.into_inner());
         let trash = self.trash();
         let audit = self.audit();
         let team = self.users.is_team();
