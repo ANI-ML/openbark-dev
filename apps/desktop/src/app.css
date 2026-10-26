@@ -365,12 +365,6 @@ button.turn-text:hover { color: var(--ink); }
 /* Note (§4.1, §7.5): the record reads as the record, mono 15/26 in ink,
    720 px reading width; SOAP headings in h3 with a 1 px rule beneath. */
 .note { padding: 24px; max-width: calc(720px + 48px); }
-/* Phones: one level of padding, not three (screen gutter, card, summary). */
-@media (max-width: 640px) {
-  .note { padding: 16px; }
-  .note-summary { margin: 12px 16px 0; }
-  .pane-pad { padding: 16px; }
-}
 .note :is(.stmts, .text-box, .fields dd, .not-discussed) {
   font-family: var(--font-mono);
   font-size: 15px;
@@ -394,9 +388,12 @@ button.turn-text:hover { color: var(--ink); }
 .note-part:hover > .note-part-head .section-tool,
 .note-part-head:focus-within .section-tool { opacity: 1; }
 @media (pointer: coarse) { .section-tool { opacity: 1; } }
-/* Phones: section tools are icon-only (each keeps its accessible name). */
+/* Phones: section tools are icon-only (each keeps its accessible name), and
+   one level of padding, not three (screen gutter, card, summary). */
 @media (max-width: 640px) {
-  .note { padding: 20px; }
+  .note { padding: 16px; }
+  .note-summary { margin: 12px 16px 0; }
+  .pane-pad { padding: 16px; }
   .section-tool { font-size: 0; gap: 0; width: 36px; padding: 0; justify-content: center; }
   .section-tool svg { width: 18px; height: 18px; }
 }
