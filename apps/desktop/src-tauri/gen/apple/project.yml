@@ -56,10 +56,15 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        CFBundleShortVersionString: 0.1.1
-        CFBundleVersion: "0.1.1"
+        CFBundleShortVersionString: 0.2.0
+        CFBundleVersion: "0.2.0"
     entitlements:
       path: openbark-desktop_iOS/openbark-desktop_iOS.entitlements
+      properties:
+        # Drafting on 8 GB+ iPhones (ADR-0018 section 10): the note model needs
+        # more than iOS's default per-app memory. The App ID has the
+        # Increased Memory Limit capability turned on.
+        com.apple.developer.kernel.increased-memory-limit: true
     scheme:
       environmentVariables:
         RUST_BACKTRACE: full

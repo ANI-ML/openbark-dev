@@ -14,6 +14,20 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 archive_dir="$(python3 scripts/ci/ios-sherpa.py | tail -1)"
+# The app's version comes from tauri.conf.json (the App Store needs it to rise
+# with each release); the build number is the TestFlight job's --build-number.
+python3 - <<'PY'
+import json, re
+conf = "apps/desktop/src-tauri/tauri.conf.json"
+spec = "apps/desktop/src-tauri/gen/apple/project.yml"
+version = json.load(open(conf, encoding="utf-8"))["version"]
+s = open(spec, encoding="utf-8").read()
+s, n = re.subn(r"(CFBundleShortVersionString: )\S+", r"\g<1>" + version, s)
+s = re.sub(r'(CFBundleVersion: )"[^"]*"', r'\g<1>"' + version + '"', s)
+assert n == 1, "CFBundleShortVersionString not found in project.yml"
+open(spec, "w", encoding="utf-8", newline="\n").write(s)
+print("iOS version", version)
+PY
 command -v xcodegen >/dev/null || brew install xcodegen
 # Externals (the Rust library) and assets (bundle > resources) are filled in by
 # the Tauri CLI during the build; XcodeGen only needs them to exist.
