@@ -47,7 +47,8 @@ jobs:
         github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') ||
         contains(github.event.head_commit.message, '[ios-testflight]')
       )
-    runs-on: macos-15
+    # App Store Connect only accepts builds made with the iOS 26 SDK or later.
+    runs-on: macos-26
     timeout-minutes: 90
     environment: testflight
     concurrency:
@@ -62,6 +63,13 @@ jobs:
       APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
       APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
     steps:
+      - name: Xcode 26 (App Store Connect needs the iOS 26 SDK)
+        run: |
+          xc=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          [ -n "$xc" ] || { echo "::error::No Xcode 26 on this runner"; exit 1; }
+          sudo xcode-select -s "$xc/Contents/Developer"
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
       - name: Signing secrets present?
         id: secrets
         run: |
