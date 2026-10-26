@@ -1702,9 +1702,9 @@
       "items": [
         {
           "name": "In-app help videos",
-          "benefit": "Seven short videos of the real app show each main task, and they work offline.",
-          "detail": "Getting started, Patients and visits, Recording a consult, Reviewing and signing, Templates, Client documents and PDFs, and Team and security, about 26 MB in all, each with written steps in the app's language. They were recorded on 2026-10-18 before Reprocess, the speech pack card and the progress boards were added, so those aren't shown yet.",
-          "evidence": "apps/desktop/public/help/*.webm (7 files, 26,477,487 bytes); apps/desktop/src/screens/Help.tsx HELP_TOPICS; last changed in commit 4dd018e",
+          "benefit": "Eight short videos of the real app show each main task, and they work offline.",
+          "detail": "Getting started, Patients and visits, Recording a consult, Reviewing and signing, Templates, Client documents and PDFs, Team and security, and Set up encrypted sync, each in a light and a dark version, with written steps in the app's language. The first seven were recorded on 2026-10-18 before Reprocess, the speech pack card and the progress boards were added, so those aren't shown yet.",
+          "evidence": "apps/desktop/public/help/*.webm (8 topics, light and dark; the light set 63,314,525 bytes); apps/desktop/src/screens/Help.tsx HELP_TOPICS",
           "status": "shipped"
         },
         {
