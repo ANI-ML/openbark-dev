@@ -6,6 +6,9 @@
 // docs/guide/README.md for the recipe, its neutral C:/OpenBark-demo paths and
 // the seeded patients the topics expect):
 //   OPENBARK_URL=http://localhost:4318 HELP_THEME=light node e2e/help-videos.mjs [topic ...]
+// The "sync" topic needs two demo servers built with OPENBARK_SYNC_PREVIEW:
+// OPENBARK_URL is the clinic computer that becomes the hub, OPENBARK_SYNC_URL
+// a second computer that joins it, both fresh (.github/workflows/help-videos.yml).
 // HELP_THEME is light (default) or dark. Topics share state in order (record
 // adds Pepper's recheck that patients opens, review signs Mochi's consult that
 // documents uses, team adds the first member), so reset the demo between the
@@ -26,6 +29,7 @@ import { chromium } from "@playwright/test";
 const OLD_NAV = ["record", "patients", "templates", "models", "settings", "help"]; // nav by name (data-nav, ADR-0027)
 
 const base = process.env.OPENBARK_URL ?? "http://localhost:4318";
+const joiner = process.env.OPENBARK_SYNC_URL ?? "http://localhost:4319";
 const outDir = resolve("public/help");
 const tmpDir = resolve("../../target/help-video-tmp");
 const fakeMic = resolve(process.env.FAKE_MIC ?? "../../packages/eval/fixtures/audio/smoke.wav");
@@ -505,15 +509,88 @@ const TOPICS = {
       4000,
     );
   },
+
+  async sync(page) {
+    const { caption, clear, click, type, point } = helpers(page);
+    const settingsRow = (label) => page.locator(".settings-nav-item, .settings-row", { hasText: label }).first();
+    // The clinic computer becomes the hub.
+    await page.goto(base);
+    await caption("Encrypted sync connects your iPhone and other computers through one computer at the clinic: the clinic hub.", 3600);
+    await clear();
+    await click(page.locator('.nav-item[data-nav="settings"]'));
+    await click(settingsRow("Clinic hub"));
+    await caption("On the clinic computer, open Settings, Clinic hub. Use a staff-only computer that stays on.", 3400);
+    await click(page.locator("label.opt-row", { hasText: "Make this computer the clinic hub" }));
+    await page.getByText(/Listening on port/).waitFor({ timeout: 20000 });
+    await caption("Turn on Make this computer the clinic hub. Nothing listens on the network until you do.", 3400);
+    await click(page.getByRole("button", { name: "New join code" }));
+    const joinBox = page.locator(".hub-join");
+    await joinBox.waitFor({ timeout: 20000 });
+    await point(joinBox.locator(".pair-words"));
+    await caption("New join code shows the code, the hub's address and a certificate check. A code works once, for 30 minutes.", 4200);
+    const code = (await joinBox.locator(".pair-words").innerText()).trim();
+    const address = (await joinBox.locator("p", { hasText: "Address" }).locator(".mono").innerText()).trim();
+    const check = (await joinBox.locator("p", { hasText: "Certificate check" }).locator(".mono").innerText()).trim();
+    await clear();
+
+    // Another device on the clinic network joins it.
+    await page.goto(joiner);
+    await caption("Now on the iPhone or another computer, on the same clinic network.", 3000);
+    await click(page.locator('.nav-item[data-nav="settings"]'));
+    await click(settingsRow("Encrypted sync"));
+    await caption("Open Settings, Encrypted sync, and choose Join your clinic hub.", 3000);
+    await click(page.getByRole("button", { name: "Join your clinic hub" }));
+    await clear();
+    await type(page.locator('input[placeholder="ABCD-EFGH"]'), code);
+    await caption("Type the join code from the hub.", 2400);
+    await type(page.locator("#hub-address"), address);
+    await caption("Type the hub's address, or choose Find on this network.", 2800);
+    await type(page.locator('input[placeholder="XXXXX-XXXXX"]'), check);
+    await caption("Then the certificate check. It proves this is your clinic's hub.", 3000);
+    await clear();
+    await type(page.locator('input[placeholder="Front desk PC"]'), "Exam room computer");
+    await caption("This is your first device: give it a name, then Join the hub.", 3000);
+    await click(page.getByRole("button", { name: "Join the hub" }));
+    const words = page.locator(".kit-words li");
+    await words.first().waitFor({ timeout: 30000 });
+    await clear();
+    await point(words.first());
+    await caption("These 24 words are your Recovery Kit. Print them, or keep them in your clinic's password manager.", 4200);
+    const kit = (await words.allInnerTexts()).map((w) => w.trim());
+    await click(page.getByRole("button", { name: "I've kept it safe" }));
+    await clear();
+    await caption("Type the two words OpenBark asks for. Syncing starts after this.", 2800);
+    const asked = page.locator("label.ob-field span.label", { hasText: /^Word \d+$/ });
+    for (const label of await asked.all()) {
+      const n = Number((await label.innerText()).replace(/\D+/g, ""));
+      await type(label.locator("xpath=..").locator("input"), kit[n - 1]);
+    }
+    await click(page.getByRole("button", { name: "Check and start syncing" }));
+    await page.getByRole("button", { name: "Done" }).waitFor({ timeout: 30000 });
+    await caption("Transcripts, notes and patient details now sync, encrypted. Recordings never leave the device that recorded them.", 4200);
+    await click(page.getByRole("button", { name: "Done" }));
+    await page.getByText(/Syncing with the clinic hub/).first().waitFor({ timeout: 30000 });
+    await point(page.getByText(/Syncing with the clinic hub/).first());
+    await caption("Devices sync every 30 seconds while OpenBark is open and they're on the clinic network.", 3400);
+    await point(page.getByRole("button", { name: "Add a device" }));
+    await caption("Your next device: join with a new code and choose I already use OpenBark on another device. Then type its 6 words here, in Add a device.", 5200);
+    await clear();
+    await caption("Preview: use test data only until the independent security review is finished.", 3400);
+  },
 };
 
-const wanted = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(TOPICS);
+// Every topic by default; sync only when its second server is named.
+const wanted = process.argv.slice(2).length
+  ? process.argv.slice(2)
+  : Object.keys(TOPICS).filter((id) => id !== "sync" || process.env.OPENBARK_SYNC_URL);
 const unknown = wanted.filter((id) => !TOPICS[id]);
 if (unknown.length) throw new Error(`unknown topics: ${unknown.join(", ")}`);
 
-// The folders shown in Settings, Storage must be neutral demo folders.
-for (const path of ["/api/storage", "/api/status"]) {
-  const text = await fetch(`${base}${path}`).then((r) => r.text());
+// The folders shown in Settings, Storage must be neutral demo folders (on
+// both servers when the sync topic is recorded).
+const servers = wanted.includes("sync") ? [base, joiner] : [base];
+for (const path of servers.flatMap((server) => ["/api/storage", "/api/status"].map((p) => `${server}${p}`))) {
+  const text = await fetch(path).then((r) => r.text());
   const hit = text.match(LEAK);
   if (hit) {
     console.error(`Refusing to record: ${path} shows "${hit[0]}". Start the demo server with neutral folders (docs/guide/README.md).`);

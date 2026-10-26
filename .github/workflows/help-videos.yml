@@ -1,0 +1,147 @@
+name: Help videos
+
+# Records the in-app Help video for setting up encrypted sync (Help, Set up
+# encrypted sync): apps/desktop/e2e/help-videos.mjs drives the real app in
+# Chromium against two demo servers on one runner, the clinic computer that
+# becomes the hub and a second computer that joins it, in the light and the
+# dark theme. Fresh demo folders under /openbark-demo (neutral paths, no
+# visits, a throwaway data key), so nothing private can show; the script also
+# refuses to record if a server shows the runner's own paths. The videos and a
+# few frames from each are uploaded as the "help-videos" artifact, to be
+# checked and committed to apps/desktop/public/help.
+#
+# Manual: run it from the Actions tab, or push a commit whose message contains
+# [help-videos] to a docs/, feat/, fix/, design/ or chore/ branch. It never
+# runs in the public copy of the source.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["docs/**", "feat/**", "fix/**", "design/**", "chore/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: help-videos-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  NODE_VERSION: "24.22.0"
+
+jobs:
+  sync:
+    name: Sync setup video (light and dark)
+    if: github.repository == 'ANI-ML/openbark-dev' && (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[help-videos]'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: System packages (libclang, ALSA)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev cmake libasound2-dev
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-help-videos/${{ github.repository }}/${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-help-videos/${{ github.repository }}/
+            cargo-hub-e2e/${{ github.repository }}/
+            cargo-linux/${{ github.repository }}/
+      # Sync and hub mode are offered only by builds made with this set.
+      - run: cargo build --release -p os-cli
+        env:
+          OPENBARK_SYNC_PREVIEW: "1"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: UI
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm --filter @openbark/desktop build
+          (cd apps/desktop && npx playwright install --with-deps chromium)
+      - name: Record (light, then dark, each from fresh demo servers)
+        shell: bash
+        run: |
+          bin="$PWD/target/release/openbark"
+          ui="$PWD/apps/desktop/dist"
+          demo=/openbark-demo
+          sudo mkdir -p "$demo" && sudo chown "$(id -u):$(id -g)" "$demo"
+          start() {
+            local name=$1 port=$2
+            mkdir -p "$demo/$name/visits" "$demo/$name/templates" "$demo/$name/models"
+            touch "$demo/$name/OPENBARK-DEMO"
+            # Run from the demo folder, with every path in it (docs/guide/README.md).
+            # Only the server is backgrounded, so the saved pid is the server's.
+            (cd "$demo/$name" || exit 1
+              env OPENBARK_SESSIONS_DIR="$demo/$name/visits" OPENBARK_TEMPLATES_DIR="$demo/$name/templates" \
+              OPENBARK_USERS_FILE="$demo/$name/users.json" OPENBARK_LOCATIONS_FILE="$demo/$name/locations.json" \
+              OPENBARK_ENGINES_DIR="$demo/$name/engines" OPENBARK_CONNECTIONS_DIR="$demo/$name/connections" \
+              OPENBARK_MODELS_DIR="$demo/$name/models" OPENBARK_SYNC_SECRETS_DIR="$demo/$name/sync-secrets" \
+              OPENBARK_VOCAB="$demo/$name/vocab.tsv" OPENBARK_DATA_KEY="$(head -c 32 /dev/urandom | base64)" \
+              OPENBARK_SYNC_PREVIEW=1 OPENBARK_SYNC_INTERVAL_SECS=5 OPENBARK_LOG=info \
+              "$bin" serve --port "$port" --ui-dir "$ui" >> "$demo/$name.log" 2>&1 &
+              echo $! > "$demo/$name.pid")
+            for _ in $(seq 1 150); do curl -fs "http://127.0.0.1:$port/api/status" > /dev/null && return; sleep 0.2; done
+            echo "$name didn't start"; tail -50 "$demo/$name.log"; exit 1
+          }
+          # Wait until both servers have exited, so the next pass can't reach the old ones.
+          stop() {
+            for name in hub computer; do kill "$(cat "$demo/$name.pid")" 2>/dev/null || true; done
+            for name in hub computer; do
+              pid="$(cat "$demo/$name.pid" 2>/dev/null)"
+              for _ in $(seq 1 150); do kill -0 "$pid" 2>/dev/null || break; sleep 0.2; done
+              kill -9 "$pid" 2>/dev/null || true
+            done
+            # Nothing of this pass may still hold its ports or the hub's (47110).
+            pkill -9 -f "$bin serve" 2>/dev/null || true
+            sleep 1
+            mkdir -p "$PWD/target/help-videos-logs"
+            for name in hub computer; do cp "$demo/$name.log" "$PWD/target/help-videos-logs/$1-$name.log" 2>/dev/null || true; done
+            rm -rf "$demo"/hub "$demo"/computer "$demo"/*.log "$demo"/*.pid
+          }
+          # Each theme on its own ports as well: a server left over can't answer for a new one.
+          for pass in light:4318 dark:4328; do
+            theme=${pass%%:*} port=${pass##*:}
+            start hub "$port"
+            start computer "$((port + 1))"
+            if ! (cd apps/desktop && OPENBARK_URL=http://localhost:$port OPENBARK_SYNC_URL=http://localhost:$((port + 1)) \
+              HELP_THEME=$theme node e2e/help-videos.mjs sync); then
+              # What the hub and the joining computer said, for the artifact.
+              mkdir -p target/help-videos-logs
+              curl -s "http://127.0.0.1:$port/api/clinic-hub" > "target/help-videos-logs/$theme-hub-status.json" || true
+              curl -s "http://127.0.0.1:$((port + 1))/api/sync" > "target/help-videos-logs/$theme-computer-sync.json" || true
+              cat "target/help-videos-logs/$theme-hub-status.json"; echo
+              stop "$theme"; exit 1
+            fi
+            stop "$theme"
+          done
+      - name: Frames to check
+        if: always()
+        run: |
+          mkdir -p target/screenshots
+          cd apps/desktop
+          # A failed recording is checked frame by frame too (never committed).
+          for f in ../../target/help-video-failed/*.webm; do
+            [ -f "$f" ] && cp "$f" "public/help/failed-$(basename "$f")"
+          done
+          for id in $(cd public/help && ls sync*.webm failed-*.webm 2>/dev/null | sed 's/\.webm$//'); do
+            node e2e/frames.mjs "$id" 3 12 22 32 45 58 70 85 | tee -a "$GITHUB_STEP_SUMMARY"
+          done
+          ls -l public/help/*sync*.webm | tee -a "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          # Demo servers with no visits: nothing private exists on CI.
+          name: help-videos
+          path: |
+            apps/desktop/public/help/sync*.webm
+            target/screenshots
+            target/help-video-failed
+            target/help-videos-logs
