@@ -399,7 +399,7 @@ button.ob-chip:active:not(:disabled) { transform: scale(var(--press-scale)); tra
 }
 /* Enter and exit run through Motion in the app (Toast.tsx): rise 12 px and
    fade in over 200 ms, leave the same way, quicker. */
-@media (max-width: 640px) { .ob-toast { top: 12px; bottom: auto; left: 16px; right: 16px; } }
+@media (max-width: 640px) { .ob-toast { top: calc(12px + env(safe-area-inset-top)); bottom: auto; left: 16px; right: 16px; } }
 /* Time left: a 2 px ink bar along the bottom edge that shrinks (scaleX only)
    and holds while the toast is held. Hidden with reduced motion; the toast
    still closes on its timer. */
@@ -429,10 +429,11 @@ button.ob-chip:active:not(:disabled) { transform: scale(var(--press-scale)); tra
 .ob-backdrop[data-closing] { opacity: 0; transition-timing-function: var(--ease-out); }
 .ob-sheet {
   position: fixed;
-  top: 12px;
-  right: 12px;
-  bottom: 12px;
-  width: min(560px, calc(100vw - 24px));
+  /* Clear of the status bar, notch and home indicator on a landscape iPhone (0 elsewhere). */
+  top: calc(12px + env(safe-area-inset-top));
+  right: calc(12px + env(safe-area-inset-right));
+  bottom: calc(12px + env(safe-area-inset-bottom));
+  width: min(560px, calc(100vw - 24px - env(safe-area-inset-left) - env(safe-area-inset-right)));
   z-index: 41;
   display: flex;
   flex-direction: column;
@@ -448,7 +449,7 @@ button.ob-chip:active:not(:disabled) { transform: scale(var(--press-scale)); tra
 @media (max-width: 640px) {
   .ob-sheet {
     top: auto; left: 0; right: 0; bottom: 0;
-    width: 100vw; max-height: 88dvh;
+    width: 100vw; max-height: min(88dvh, calc(100dvh - 12px - env(safe-area-inset-top)));
     border-radius: var(--r-xl) var(--r-xl) 0 0;
     border-bottom: 0;
     padding-bottom: env(safe-area-inset-bottom);
