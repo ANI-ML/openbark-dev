@@ -2,9 +2,19 @@
 
 All notable changes to OpenBark, newest first. Generated from `website/content/history.json` by `scripts/website-build.py`; edit that file, not this one. The same history is on the website's Version history page.
 
-## 0.2.1 (beta)
+## 0.2.2 (beta)
 
 ### Beta: Ready for clinics to try
+
+#### 2026-10-26: Sync between your iPhone and computers, through your clinic hub
+
+Turn one clinic computer into the hub and join your iPhone and other computers to it. A preview for testing with test data, off until you turn it on.
+
+- Encrypted sync and the clinic hub in the desktop installers, as a preview: off until you turn it on, and for test data only until the independent security review is finished. Recordings never sync. (being tested)
+- Help shows how to set up sync, step by step, with a short video. The iPhone walkthrough ends with how to join your clinic hub.
+- The iPhone app asks for the microphone the first time you record, and says where to turn it back on if it was refused. (being tested)
+- The iPhone app fits the screen: clear of the clock, the Dynamic Island and the home bar, and typing in a field no longer zooms the page. (being tested)
+- Settings, Encrypted sync says why sync isn't available instead of showing an empty page.
 
 #### 2026-10-26: OpenBark for iPhone, and a clinic hub for sync
 
