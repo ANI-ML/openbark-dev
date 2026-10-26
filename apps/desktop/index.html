@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover: on the iPhone the page runs edge to edge and the CSS
+         keeps clear of the status bar, Dynamic Island and home indicator with
+         env(safe-area-inset-*), which stay 0 without it. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>OpenBark</title>
   </head>
   <body>
