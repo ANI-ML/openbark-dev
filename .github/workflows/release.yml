@@ -33,6 +33,10 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # Encrypted sync and the clinic hub ship as a labelled preview ("use test
+  # data only") so phones and computers can be tested together (ADR-0029,
+  # decision of 2026-10-26).
+  OPENBARK_SYNC_PREVIEW: "1"
   NODE_VERSION: "24.22.0"
 
 jobs:
