@@ -21,7 +21,7 @@ What can't change:
 
 ### 1. A clinic is an organisation of accounts
 
-A clinic lives in the same Supabase project as the website portal and encrypted sync (`nmecovtmijnfnjuadicp` today). People sign in on the portal with the existing emailed code. A person may belong to several clinics (relief vets do); the limit is 20 per account, and an account may create 5 clinics a day.
+A clinic lives in the same Supabase project as the website portal and encrypted sync (retired by ADR-0029). People sign in on the portal with the existing emailed code. A person may belong to several clinics (relief vets do); the limit is 20 per account, and an account may create 5 clinics a day.
 
 Schema `clinic`, exposed to the REST API like `sync` (`supabase/config.toml` locally; Project Settings > Data API on the hosted project), not `public`. The portal's profile table sits in `public` because it is one table with plain row level security; the clinic tables are reached mostly through functions, as sync's are, and a schema of their own keeps their privileges in one place (`revoke all ... in schema clinic`) and keeps them out of the default `public` grants Supabase adds to new tables.
 
