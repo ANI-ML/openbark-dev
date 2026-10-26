@@ -29,7 +29,8 @@ if [ "$draft" = 1 ]; then
   bash "$repo/scripts/ci/fetch-test-gguf.sh" "$gguf" qwen2.5-0.5b
 fi
 
-# The newest available iPhone simulator.
+# The newest available Face ID iPhone simulator (safe areas at the top and
+# bottom show in the screenshot), or the newest iPhone if there is none.
 udid="$(xcrun simctl list devices available -j | python3 -c '
 import json, sys
 devs = json.load(sys.stdin)["devices"]
@@ -39,7 +40,7 @@ for runtime, items in devs.items():
         continue
     for d in items:
         if d.get("isAvailable") and d["name"].startswith("iPhone"):
-            key = (runtime, d["name"])
+            key = (runtime, "SE" not in d["name"], d["name"])
             if best is None or key > best[0]:
                 best = (key, d["udid"])
 print(best[1] if best else "")

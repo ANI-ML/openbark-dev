@@ -1,5 +1,7 @@
 // Every main screen, for design review: phone (390 x 844, light and dark)
-// and desktop (1440 x 900, light and dark), laid out as ADR-0027 describes.
+// and desktop (1440 x 900, light and dark), laid out as ADR-0027 describes,
+// plus light-only passes at the edges of the layout: a 375 px iPhone (SE,
+// mini) and 1024 and 820 px windows (iPad, a narrow desktop window).
 // It records, it doesn't assert: a screen it can't reach is listed, not fatal.
 //
 // Run ONLY against a demo server holding invented visits (the Design screens
@@ -37,12 +39,16 @@ mkdirSync(out, { recursive: true });
 
 const phone = { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 };
 const desktop = { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 };
+const small = { ...phone, viewport: { width: 375, height: 667 } };
 const all = [
   // WebKit for the phone: the iPhone app runs in WKWebView.
   { name: "phone-light", engine: webkit, colorScheme: "light", ...phone },
   { name: "phone-dark", engine: webkit, colorScheme: "dark", ...phone },
   { name: "desktop-light", engine: chromium, colorScheme: "light", ...desktop },
   { name: "desktop-dark", engine: chromium, colorScheme: "dark", ...desktop },
+  { name: "phone-375-light", engine: webkit, colorScheme: "light", ...small },
+  { name: "desktop-1024-light", engine: chromium, colorScheme: "light", ...desktop, viewport: { width: 1024, height: 768 } },
+  { name: "desktop-820-light", engine: chromium, colorScheme: "light", ...desktop, viewport: { width: 820, height: 1000 } },
 ];
 const want = (process.env.VARIANTS ?? "phone,desktop").split(",");
 const variants = all.filter((v) => want.some((w) => v.name.startsWith(w)));
