@@ -2,9 +2,19 @@
 
 All notable changes to OpenBark, newest first. Generated from `website/content/history.json` by `scripts/website-build.py`; edit that file, not this one. The same history is on the website's Version history page.
 
-## 0.2.0 (beta)
+## 0.2.1 (beta)
 
 ### Beta: Ready for clinics to try
+
+#### 2026-10-26: OpenBark for iPhone, and a clinic hub for sync
+
+The iPhone app records and transcribes in the exam room, with speech built in, and can write notes on iPhones with 8 GB or more. Sync is moving to your clinic's own computer, with nothing sent to us.
+
+- OpenBark for iPhone: record and transcribe in the exam room, offline, with the speech models built in. A short walkthrough the first time you open it. In testing with TestFlight before the App Store. (being tested)
+- Notes written on iPhones with 8 GB of memory or more, if you turn it on, with the note model that did best in our testing (Qwen3 4B). Smaller iPhones record and transcribe, and your computer writes the note. (being tested)
+- A clinic hub: one computer in your clinic syncs encrypted transcripts and notes with your phones and other computers over your own network. No accounts, no servers of ours. Recordings never sync. A preview, not yet turned on in the installers. (being tested)
+- The record of deleted visits stays exact when the hourly clean-up runs during a delete or restore.
+- The privacy page now says there are no OpenBark accounts and no servers of ours for sync.
 
 #### 2026-10-25: A new design: Record first, visits in one place
 
@@ -91,8 +101,8 @@ The core of OpenBark, running entirely on the clinic's own computer.
 
 Planned or being tested, not finished. No dates are promised.
 
-- An iPhone app that records and transcribes in the exam room, with encrypted sync of transcripts and notes to your computers.
-- A clinic dashboard: invite your team and see how OpenBark is used, with counts only and never patient data.
+- OpenBark for iPhone on the App Store, after testing on real phones in clinics.
+- Encrypted sync through your clinic hub, turned on for everyone after an independent security review.
+- A clinic dashboard on your clinic hub: invite your team and see how OpenBark is used, with counts only and never patient data.
 - PIMS integration.
 - Signed installers, so Windows and macOS don't warn on first install.
-- Summaries of a patient's past records.

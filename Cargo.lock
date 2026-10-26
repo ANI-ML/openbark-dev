@@ -1841,7 +1841,7 @@ dependencies = [
 
 [[package]]
 name = "fixture-tts"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -3955,7 +3955,7 @@ dependencies = [
 
 [[package]]
 name = "openbark-desktop"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "os-app",
  "os-engine",
@@ -4040,7 +4040,7 @@ dependencies = [
 
 [[package]]
 name = "os-app"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "chrono",
  "os-asr",
@@ -4059,7 +4059,7 @@ dependencies = [
 
 [[package]]
 name = "os-asr"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "cpal",
  "opus-decoder",
@@ -4073,7 +4073,7 @@ dependencies = [
 
 [[package]]
 name = "os-cli"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -4098,7 +4098,7 @@ dependencies = [
 
 [[package]]
 name = "os-connect"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "base64 0.23.1",
  "dirs",
@@ -4117,7 +4117,7 @@ dependencies = [
 
 [[package]]
 name = "os-diar"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "os-asr",
  "serde",
@@ -4126,7 +4126,7 @@ dependencies = [
 
 [[package]]
 name = "os-engine"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "apple-native-keyring-store",
  "argon2",
@@ -4156,7 +4156,7 @@ dependencies = [
 
 [[package]]
 name = "os-hub"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "chrono",
  "hex",
@@ -4182,7 +4182,7 @@ dependencies = [
 
 [[package]]
 name = "os-llm"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "jsonschema",
  "llama-cpp-2",
@@ -4196,7 +4196,7 @@ dependencies = [
 
 [[package]]
 name = "os-models"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "bzip2 0.5.2",
  "dirs",
@@ -4218,7 +4218,7 @@ dependencies = [
 
 [[package]]
 name = "os-server"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "axum",
  "chrono",
@@ -4239,7 +4239,7 @@ dependencies = [
 
 [[package]]
 name = "os-sync"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "argon2",
  "base64 0.23.1",
