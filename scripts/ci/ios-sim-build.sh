@@ -19,6 +19,8 @@ gen="$desktop/src-tauri/gen/apple"
 [ -d "$gen" ] || { echo "no $gen: run the iOS init job first (or tauri ios init)" >&2; exit 1; }
 
 args=(tauri ios build --target aarch64-sim --debug --ci)
+# Xcode doesn't pass OPENBARK_SYNC_PREVIEW on to cargo: ask for the feature.
+[ -n "${OPENBARK_SYNC_PREVIEW:-}" ] && features="${features:+$features,}sync-preview"
 [ -n "$features" ] && args+=(--features "$features")
 echo "== pnpm ${args[*]}"
 (cd "$desktop" && pnpm "${args[@]}")

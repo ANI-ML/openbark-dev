@@ -142,6 +142,8 @@ jobs:
           # The phone records, transcribes and (opt-in, 8 GB and up) drafts:
           # stt and inference unless other features are named.
           [ -n "$features" ] || features=stt,inference
+          # Xcode doesn't pass OPENBARK_SYNC_PREVIEW on to cargo: ask for the feature.
+          features="$features,sync-preview"
           args=(tauri ios build --export-method app-store-connect --ci --build-number "${{ github.run_number }}")
           [ -n "$features" ] && args+=(--features "$features")
           pnpm "${args[@]}"

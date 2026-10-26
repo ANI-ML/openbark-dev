@@ -48,7 +48,9 @@ pub enum CaptureError {
         "OpenBark isn't allowed to use the microphone. On a Mac: System Settings, Privacy & Security, Microphone, then turn on OpenBark. On Windows: Settings, Privacy & security, Microphone, then turn on microphone access for desktop apps."
     )]
     PermissionDenied,
-    #[error("OpenBark isn't allowed to use the microphone. Turn it on in the iPhone's Settings, OpenBark, Microphone, then press Record again.")]
+    #[error(
+        "OpenBark isn't allowed to use the microphone. Turn it on in the iPhone's Settings, OpenBark, Microphone, then press Record again."
+    )]
     PermissionDeniedPhone,
     #[error(
         "The microphone couldn't be started. Unplug it and plug it back in, or choose another microphone in Settings, then press Record again."

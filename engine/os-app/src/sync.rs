@@ -25,7 +25,8 @@ use crate::{App, AppError, Result};
 /// switch it on in a release installer, which is built without it.
 #[cfg(feature = "sync")]
 pub(crate) fn preview_enabled() -> bool {
-    option_env!("OPENBARK_SYNC_PREVIEW").is_some()
+    // The feature for builds through Xcode (iOS), which drops the variable.
+    cfg!(feature = "sync-preview") || option_env!("OPENBARK_SYNC_PREVIEW").is_some()
 }
 
 /// Why the last attempt to open sync failed, for Settings > Sync.

@@ -19,6 +19,9 @@ sync = ["dep:os-sync"]
 # This computer as the clinic hub (ADR-0029): the os-hub server. Desktop
 # builds only; phones take `sync` (the client) and never this.
 hub = ["sync", "dep:os-hub"]
+# The encrypted sync preview, as a feature: the iPhone build goes through
+# Xcode, which doesn't pass OPENBARK_SYNC_PREVIEW on to the compiler (src/sync.rs).
+sync-preview = ["sync"]
 # The end-to-end demo only (ADR-0023): a fault hook for calls (see phone.rs,
 # `fault`) and the fake Twilio. Never in builds clinics get.
 mock-twilio = ["os-connect/mock"]

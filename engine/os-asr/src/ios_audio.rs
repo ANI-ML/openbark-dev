@@ -48,7 +48,8 @@ pub(crate) fn prepare() -> Result<(), CaptureError> {
     }
     // Speaker rather than the earpiece for anything played back, and
     // Bluetooth headsets as microphones.
-    let options = AVAudioSessionCategoryOptions::DefaultToSpeaker | AVAudioSessionCategoryOptions::AllowBluetooth;
+    let options =
+        AVAudioSessionCategoryOptions::DefaultToSpeaker | AVAudioSessionCategoryOptions::AllowBluetooth;
     // SAFETY: the category and mode constants are provided by AVFAudio for the process lifetime.
     let (category, mode) = unsafe { (AVAudioSessionCategoryPlayAndRecord, AVAudioSessionModeDefault) };
     let (Some(category), Some(mode)) = (category, mode) else {
