@@ -100,8 +100,10 @@ fn status(app: State<'_, AppState>) -> os_app::Status {
         let dir = os_engine::session::default_root();
         let base = dir.parent().unwrap_or(&dir).to_path_buf();
         let models = serde_json::to_string_pretty(&status.models).unwrap_or_default();
+        let sync = serde_json::to_string_pretty(&app.sync_status()).unwrap_or_default();
         if let Err(e) = std::fs::create_dir_all(&base)
             .and_then(|_| std::fs::write(base.join("smoke-models.json"), models))
+            .and_then(|_| std::fs::write(base.join("smoke-sync.json"), sync))
             .and_then(|_| std::fs::write(base.join("smoke-webview.txt"), env!("CARGO_PKG_VERSION")))
         {
             tracing::warn!(error = %e, "couldn't write the smoke-test marker");

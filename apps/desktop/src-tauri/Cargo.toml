@@ -27,6 +27,7 @@ metal = ["os-llm/metal"]
 # builds always have both.
 stt = ["os-app/stt"]
 inference = ["os-app/inference"]
+sync-preview = ["os-app/sync-preview"]
 # CI only, never in the installers: drives the app and quits (src/selftest.rs).
 selftest = []
 

@@ -66,6 +66,19 @@ describe("Settings, Encrypted sync", () => {
   });
   afterEach(cleanup);
 
+  it("says sync isn't in this version instead of a blank page (a release built without the preview)", async () => {
+    mocked.syncStatus.mockResolvedValue({ available: false, phase: "off", reason: "not_in_this_version" });
+    show();
+    await screen.findByText(/isn't in this version of OpenBark yet/);
+    expect(screen.queryByRole("button", { name: "Join your clinic hub" })).toBeNull();
+  });
+
+  it("says why sync couldn't start when the preview build fails to open it", async () => {
+    mocked.syncStatus.mockResolvedValue({ available: false, phase: "off", reason: "failed", detail: "keychain refused" });
+    show();
+    expect((await screen.findByRole("alert")).textContent).toContain("keychain refused");
+  });
+
   it("is off by default, says what syncs and what never leaves, and calls nothing until asked", async () => {
     mocked.syncStatus.mockResolvedValue(OFF);
     show();

@@ -18,6 +18,8 @@
 	<string>0.1.1</string>
 	<key>CFBundleVersion</key>
 	<string>0.1.1</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>OpenBark records the visit so it can transcribe it on this iPhone. Recordings stay on the phone.</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

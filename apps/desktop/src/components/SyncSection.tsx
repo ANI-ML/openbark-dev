@@ -8,7 +8,7 @@ import { isIos } from "../visits";
 
 /** The accepted public wording (ADR-0017 owner decisions). */
 export const SYNC_PROMISE =
-  "Recordings and notes stay on your devices unless you turn on encrypted sync. Even then, only encrypted copies leave, and our servers can't read them.";
+  "Recordings and notes stay on your devices unless you turn on encrypted sync. Even then, only encrypted copies go to your clinic's hub, and nothing comes to us.";
 
 const BACKFILL: { days: number | null; label: string }[] = [
   { days: 30, label: "The last 30 days (recommended)" },
@@ -54,7 +54,27 @@ export function SyncSection() {
       </section>
     );
   }
-  if (!s.available) return null;
+  if (!s.available) {
+    return (
+      <section className="group sync-section">
+        <h2>{t("Encrypted sync")}</h2>
+        {s.reason === "failed" ? (
+          <p className="ob-notice" data-tone="warn" role="alert">
+            {t(
+              "Encrypted sync couldn't start on this device. Restart OpenBark; if it still doesn't start, send this to the OpenBark team: {detail}",
+              { detail: s.detail ?? "" },
+            )}
+          </p>
+        ) : (
+          <p className="small measure">
+            {t(
+              "Encrypted sync isn't in this version of OpenBark yet. It's in testing and arrives once the independent security review is finished. Until then, everything stays on this device.",
+            )}
+          </p>
+        )}
+      </section>
+    );
+  }
 
   const run = async (f: () => Promise<unknown>, done?: string) => {
     setError(null);

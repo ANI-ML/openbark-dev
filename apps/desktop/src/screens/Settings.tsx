@@ -176,7 +176,11 @@ function PhoneList({ title }: { title: (s: SettingsSection) => string }) {
   const syncSub =
     sync?.phase === "active"
       ? t("On")
-      : ios
+      : sync && !sync.available
+        ? sync.reason === "failed"
+          ? t("Couldn't start")
+          : t("Coming in a later version")
+        : ios
         ? t("Off. Visits stay on this iPhone")
         : t("Off. Visits stay on this computer");
   const s = (section: SettingsSection): Route => ({ screen: "settings", section });

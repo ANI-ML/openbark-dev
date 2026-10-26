@@ -133,6 +133,9 @@ jobs:
         run: python3 scripts/ci/ios-models.py build/ios-models
       - name: Simulator build (unsigned)
         id: build
+        # With sync, as TestFlight builds it (ios-testflight.yml).
+        env:
+          OPENBARK_SYNC_PREVIEW: "1"
         run: bash scripts/ci/ios-sim-build.sh "${{ inputs.features }}"
       - name: App size, with and without the speech models
         run: |
@@ -169,6 +172,8 @@ jobs:
             [ "$ort" -le 1 ] || { echo "::error::more than one ONNX Runtime in sherpa-onnx"; exit 1; }
           fi
       - name: WebView smoke test
+        env:
+          OPENBARK_SYNC_PREVIEW: "1"
         run: bash scripts/ci/ios-smoke.sh "${{ steps.build.outputs.app }}" target/ios-smoke
       # tauri-build also copies bundle > resources next to the Rust build:
       # keep those 0.7 GB out of the cargo cache.

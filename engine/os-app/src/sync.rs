@@ -25,22 +25,46 @@ use crate::{App, AppError, Result};
 /// installers). Nothing at run time can switch it on in a build without it.
 #[cfg(feature = "sync")]
 pub(crate) fn preview_enabled() -> bool {
-    option_env!("OPENBARK_SYNC_PREVIEW").is_some()
+    // The feature for builds through Xcode (iOS), which drops the variable.
+    cfg!(feature = "sync-preview") || option_env!("OPENBARK_SYNC_PREVIEW").is_some()
 }
+
+/// Why the last attempt to open sync failed, for Settings > Sync.
+#[cfg(feature = "sync")]
+static OPEN_ERROR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
 /// The sync service for a visits folder, or why there is none.
 #[cfg(feature = "sync")]
 pub(crate) fn open_service(root: &std::path::Path) -> Option<Arc<os_sync::SyncService>> {
     if !preview_enabled() {
+        tracing::info!("encrypted sync isn't in this build");
         return None;
     }
-    match os_sync::SyncService::for_root(root) {
-        Ok(s) => Some(Arc::new(s)),
+    let opened = os_sync::SyncService::for_root(root);
+    let mut last = OPEN_ERROR.lock().unwrap_or_else(|p| p.into_inner());
+    match opened {
+        Ok(s) => {
+            tracing::info!("encrypted sync is available");
+            *last = None;
+            Some(Arc::new(s))
+        }
         Err(e) => {
             tracing::warn!(error = %e, "encrypted sync is unavailable");
+            *last = Some(e.to_string());
             None
         }
     }
+}
+
+/// Why this install has no sync: `not_in_this_version` (a release built
+/// without the preview) or `failed` with the error.
+fn unavailable() -> Value {
+    #[cfg(feature = "sync")]
+    if preview_enabled() {
+        let detail = OPEN_ERROR.lock().unwrap_or_else(|p| p.into_inner()).clone();
+        return json!({"available": false, "phase": "off", "reason": "failed", "detail": detail});
+    }
+    json!({"available": false, "phase": "off", "reason": "not_in_this_version"})
 }
 
 #[cfg(feature = "sync")]
@@ -106,7 +130,7 @@ impl App {
             v["kit"] = serde_json::to_value(s.kit()).unwrap_or(Value::Null);
             return v;
         }
-        json!({"available": false, "phase": "off"})
+        unavailable()
     }
 
     /// Before signing in: the hosted service (`url` empty) or a clinic's own.

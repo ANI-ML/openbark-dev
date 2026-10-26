@@ -1,6 +1,6 @@
 # OpenBark user guide
 
-OpenBark records a consultation, transcribes it, and drafts the medical record for a veterinarian to check and sign. Everything runs on your computer. Recordings and notes stay on your devices unless you turn on encrypted sync. Even then, only encrypted copies leave, and our servers can't read them.
+OpenBark records a consultation, transcribes it, and drafts the medical record for a veterinarian to check and sign. Everything runs on your computer. Recordings and notes stay on your devices unless you turn on encrypted sync. Even then, only encrypted copies go to your clinic's hub, and nothing comes to us.
 
 The same walkthroughs are in the app under **Help** (on a phone, **Settings → Guides and videos**), each with a short video.
 

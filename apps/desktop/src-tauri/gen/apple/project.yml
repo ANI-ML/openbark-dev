@@ -45,6 +45,7 @@ targets:
       path: openbark-desktop_iOS/Info.plist
       properties:
         LSRequiresIPhoneOS: true
+        NSMicrophoneUsageDescription: OpenBark records the visit so it can transcribe it on this iPhone. Recordings stay on the phone.
         UILaunchStoryboardName: LaunchScreen
         UIRequiredDeviceCapabilities: [arm64, metal]
         UISupportedInterfaceOrientations:
