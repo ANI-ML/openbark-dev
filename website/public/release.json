@@ -1,42 +1,42 @@
 {
   "product": "OpenBark",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "published": true,
   "date": "2026-10-26",
-  "download_base": "https://github.com/ANI-ML/openbark-releases/releases/download/v0.2.1",
-  "all": "https://github.com/ANI-ML/openbark-releases/releases/tag/v0.2.1",
-  "notes": "https://github.com/ANI-ML/openbark-releases/releases/tag/v0.2.1",
+  "download_base": "https://github.com/ANI-ML/openbark-releases/releases/download/v0.2.2",
+  "all": "https://github.com/ANI-ML/openbark-releases/releases/tag/v0.2.2",
+  "notes": "https://github.com/ANI-ML/openbark-releases/releases/tag/v0.2.2",
   "app_store": null,
   "files": {
     "windows": [
       {
         "label": "Windows setup (.exe)",
         "name": "OpenBark-Setup.exe",
-        "size": "126 MB"
+        "size": "147 MB"
       }
     ],
     "mac": [
       {
         "label": "Disk image (.dmg)",
         "name": "OpenBark.dmg",
-        "size": "129 MB"
+        "size": "150 MB"
       }
     ],
     "linux": [
       {
         "label": "Any distribution (AppImage)",
         "name": "OpenBark.AppImage",
-        "size": "218 MB"
+        "size": "240 MB"
       },
       {
         "label": "Fedora (.rpm)",
         "name": "openbark.x86_64.rpm",
-        "size": "144 MB"
+        "size": "165 MB"
       },
       {
         "label": "Ubuntu, Debian (.deb)",
         "name": "openbark_amd64.deb",
-        "size": "144 MB"
+        "size": "165 MB"
       }
     ]
   }
