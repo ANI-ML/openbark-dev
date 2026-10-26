@@ -12,6 +12,8 @@
 
 mod audio;
 pub mod capture;
+#[cfg(all(feature = "capture", target_os = "ios"))]
+mod ios_audio;
 pub mod level;
 pub mod mic;
 mod recognizer;

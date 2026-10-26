@@ -1607,6 +1607,9 @@ export interface SyncKit {
 
 export interface SyncStatus {
   available: boolean;
+  /** Why sync isn't offered: a release without the preview, or it failed to start. */
+  reason?: "not_in_this_version" | "failed";
+  detail?: string | null;
   phase: SyncPhase;
   email?: string | null;
   server?: string;

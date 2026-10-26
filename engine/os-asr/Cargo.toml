@@ -22,6 +22,12 @@ rust-version.workspace = true
 [target.'cfg(any(windows, target_os = "linux", target_os = "android", target_os = "ios"))'.dependencies]
 sherpa-onnx = { workspace = true, features = ["shared"], optional = true }
 
+# The iPhone's audio session (src/ios_audio.rs); the versions cpal already uses.
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2 = { version = "0.6", optional = true }
+block2 = { version = "0.6", optional = true }
+objc2-avf-audio = { version = "0.3", default-features = false, features = ["std", "block2", "AVAudioSession", "AVAudioSessionTypes"], optional = true }
+
 [target.'cfg(not(any(windows, target_os = "linux", target_os = "android", target_os = "ios")))'.dependencies]
 sherpa-onnx = { workspace = true, features = ["static"], optional = true }
 
@@ -33,7 +39,7 @@ default = ["stt", "capture"]
 # (ADR-0018 section 1).
 stt = ["dep:sherpa-onnx"]
 # Microphone capture through cpal.
-capture = ["dep:cpal"]
+capture = ["dep:cpal", "dep:objc2", "dep:block2", "dep:objc2-avf-audio"]
 
 [dependencies]
 cpal = { workspace = true, optional = true }

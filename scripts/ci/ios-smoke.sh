@@ -164,6 +164,22 @@ if problems:
 print("Bundled speech models: all four found in the app, read-only; nothing downloaded.")
 EOF
 
+# Encrypted sync: a build made with OPENBARK_SYNC_PREVIEW (TestFlight's) must
+# offer it; otherwise Settings > Sync says it isn't in this version.
+python3 - "$support/smoke-sync.json" "${OPENBARK_SYNC_PREVIEW:-}" <<'EOF'
+import json, sys
+path, preview = sys.argv[1:3]
+try:
+    s = json.load(open(path))
+except (OSError, ValueError) as e:
+    sys.exit(f"the app didn't report its sync status ({e})")
+print(f"Encrypted sync on the simulator: {json.dumps(s)[:300]}")
+if preview and not s.get("available"):
+    sys.exit(f"Encrypted sync should be available in a preview build: {s.get('reason')} {s.get('detail') or ''}")
+if not preview and s.get("reason") != "not_in_this_version":
+    sys.exit("Encrypted sync should say it isn't in this version")
+EOF
+
 # The transcription: the app writes "ok: <first words>" or "error: <why>".
 if [ "$heard" -ne 1 ]; then
   echo "The app never wrote $transcript (transcribing the smoke clip with the built-in models)." >&2

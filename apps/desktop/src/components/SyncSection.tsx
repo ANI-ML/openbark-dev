@@ -54,7 +54,27 @@ export function SyncSection() {
       </section>
     );
   }
-  if (!s.available) return null;
+  if (!s.available) {
+    return (
+      <section className="group sync-section">
+        <h2>{t("Encrypted sync")}</h2>
+        {s.reason === "failed" ? (
+          <p className="ob-notice" data-tone="warn" role="alert">
+            {t(
+              "Encrypted sync couldn't start on this device. Restart OpenBark; if it still doesn't start, send this to the OpenBark team: {detail}",
+              { detail: s.detail ?? "" },
+            )}
+          </p>
+        ) : (
+          <p className="small measure">
+            {t(
+              "Encrypted sync isn't in this version of OpenBark yet. It's in testing and arrives once the independent security review is finished. Until then, everything stays on this device.",
+            )}
+          </p>
+        )}
+      </section>
+    );
+  }
 
   const run = async (f: () => Promise<unknown>, done?: string) => {
     setError(null);
