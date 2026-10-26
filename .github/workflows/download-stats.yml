@@ -19,7 +19,7 @@ jobs:
   snapshot:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Check out the stats branch
         run: |
           if git ls-remote --exit-code --heads origin stats >/dev/null; then
