@@ -83,7 +83,7 @@ jobs:
           else
             echo "ok=true" >> "$GITHUB_OUTPUT"
           fi
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: steps.secrets.outputs.ok == 'true'
       - name: gen/apple is committed
         if: steps.secrets.outputs.ok == 'true'
@@ -92,7 +92,7 @@ jobs:
             echo "::error::apps/desktop/src-tauri/gen/apple isn't committed. Run the iOS init job and commit its artifact."
             exit 1
           }
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: steps.secrets.outputs.ok == 'true'
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -101,7 +101,7 @@ jobs:
       - name: Rust target for iPhone
         if: steps.secrets.outputs.ok == 'true'
         run: rustup target add aarch64-apple-ios
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: steps.secrets.outputs.ok == 'true'
         with:
           path: |
@@ -114,7 +114,7 @@ jobs:
       # the catalog's sizes and SHA-256 (Tauri refuses to build without them).
       - name: Restore the bundled speech models
         if: steps.secrets.outputs.ok == 'true'
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: build/ios-models
           key: ios-models-${{ hashFiles('engine/os-models/catalog.json', 'scripts/ci/ios-models.py') }}
