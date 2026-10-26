@@ -89,17 +89,24 @@ jobs:
             for _ in $(seq 1 150); do curl -fs "http://127.0.0.1:$port/api/status" > /dev/null && return; sleep 0.2; done
             echo "$name didn't start"; tail -50 "$demo/$name.log"; exit 1
           }
+          # Wait until both servers have exited, so the next pass can't reach the old ones.
           stop() {
             for name in hub computer; do kill "$(cat "$demo/$name.pid")" 2>/dev/null || true; done
-            sleep 2
+            for name in hub computer; do
+              pid="$(cat "$demo/$name.pid" 2>/dev/null)"
+              for _ in $(seq 1 150); do kill -0 "$pid" 2>/dev/null || break; sleep 0.2; done
+              kill -9 "$pid" 2>/dev/null || true
+            done
             mkdir -p "$PWD/target/help-videos-logs"
             for name in hub computer; do cp "$demo/$name.log" "$PWD/target/help-videos-logs/$1-$name.log" 2>/dev/null || true; done
             rm -rf "$demo"/hub "$demo"/computer "$demo"/*.log "$demo"/*.pid
           }
-          for theme in light dark; do
-            start hub 4318
-            start computer 4319
-            (cd apps/desktop && OPENBARK_URL=http://localhost:4318 OPENBARK_SYNC_URL=http://localhost:4319 \
+          # Each theme on its own ports as well: a server left over can't answer for a new one.
+          for pass in light:4318 dark:4328; do
+            theme=${pass%%:*} port=${pass##*:}
+            start hub "$port"
+            start computer "$((port + 1))"
+            (cd apps/desktop && OPENBARK_URL=http://localhost:$port OPENBARK_SYNC_URL=http://localhost:$((port + 1)) \
               HELP_THEME=$theme node e2e/help-videos.mjs sync) || { stop "$theme"; exit 1; }
             stop "$theme"
           done
