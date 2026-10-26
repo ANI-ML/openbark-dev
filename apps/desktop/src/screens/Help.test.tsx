@@ -88,3 +88,16 @@ describe("Help videos follow the theme", () => {
     expect(videoSrc(container)).toBe("help/getting-started.webm");
   });
 });
+
+describe("Help, Set up encrypted sync", () => {
+  it("lists the topic, plays its recording and walks through the hub and the joining device", () => {
+    systemDark(false);
+    const { container, getByRole, getByText } = show();
+    fireEvent.click(getByRole("button", { name: /Set up encrypted sync/ }));
+    expect(videoSrc(container)).toBe("help/sync.webm");
+    expect(getByText(/Settings, Clinic hub, and turn on Make this computer the clinic hub/)).toBeTruthy();
+    expect(getByText(/Settings, Encrypted sync, and choose Join your clinic hub/)).toBeTruthy();
+    expect(getByText(/Recovery Kit: 24 words/)).toBeTruthy();
+    expect(getByText(/Recordings never leave the device that recorded them/)).toBeTruthy();
+  });
+});
