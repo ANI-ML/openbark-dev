@@ -78,7 +78,9 @@ jobs:
             mkdir -p "$demo/$name/visits" "$demo/$name/templates" "$demo/$name/models"
             touch "$demo/$name/OPENBARK-DEMO"
             # Run from the demo folder, with every path in it (docs/guide/README.md).
-            (cd "$demo/$name" && env OPENBARK_SESSIONS_DIR="$demo/$name/visits" OPENBARK_TEMPLATES_DIR="$demo/$name/templates" \
+            # Only the server is backgrounded, so the saved pid is the server's.
+            (cd "$demo/$name" || exit 1
+              env OPENBARK_SESSIONS_DIR="$demo/$name/visits" OPENBARK_TEMPLATES_DIR="$demo/$name/templates" \
               OPENBARK_USERS_FILE="$demo/$name/users.json" OPENBARK_LOCATIONS_FILE="$demo/$name/locations.json" \
               OPENBARK_ENGINES_DIR="$demo/$name/engines" OPENBARK_CONNECTIONS_DIR="$demo/$name/connections" \
               OPENBARK_MODELS_DIR="$demo/$name/models" OPENBARK_SYNC_SECRETS_DIR="$demo/$name/sync-secrets" \
@@ -97,6 +99,9 @@ jobs:
               for _ in $(seq 1 150); do kill -0 "$pid" 2>/dev/null || break; sleep 0.2; done
               kill -9 "$pid" 2>/dev/null || true
             done
+            # Nothing of this pass may still hold its ports or the hub's (47110).
+            pkill -9 -f "$bin serve" 2>/dev/null || true
+            sleep 1
             mkdir -p "$PWD/target/help-videos-logs"
             for name in hub computer; do cp "$demo/$name.log" "$PWD/target/help-videos-logs/$1-$name.log" 2>/dev/null || true; done
             rm -rf "$demo"/hub "$demo"/computer "$demo"/*.log "$demo"/*.pid
