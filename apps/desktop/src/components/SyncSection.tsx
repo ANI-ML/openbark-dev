@@ -8,7 +8,7 @@ import { isIos } from "../visits";
 
 /** The accepted public wording (ADR-0017 owner decisions). */
 export const SYNC_PROMISE =
-  "Recordings and notes stay on your devices unless you turn on encrypted sync. Even then, only encrypted copies leave, and our servers can't read them.";
+  "Recordings and notes stay on your devices unless you turn on encrypted sync. Even then, only encrypted copies go to your clinic's hub, and nothing comes to us.";
 
 const BACKFILL: { days: number | null; label: string }[] = [
   { days: 30, label: "The last 30 days (recommended)" },
