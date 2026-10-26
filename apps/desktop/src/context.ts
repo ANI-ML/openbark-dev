@@ -39,7 +39,7 @@ export interface Settings {
   /**
    * iPhone profile: draft notes on the phone itself, or leave drafting to a
    * computer (ADR-0027). Off until the person turns it on: drafting on the
-   * phone is opt-in (owner decision of 2026-10-19, ADR-0018 section 10), and
+   * phone is opt-in (decision of 2026-10-19, ADR-0018 section 10), and
    * iPhones with less than 8 GB never draft.
    */
   writeNotesHere: boolean;

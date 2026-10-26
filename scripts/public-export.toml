@@ -2067,7 +2067,7 @@ gitleaks_allow_fingerprints = [
 
 [[gate.allow]]
 pattern = "supabase-project-ref"
-files = ["website/src/portal.js", "website/dist/**", "scripts/website-build.py", "vercel.json", "website/vercel.json", "apps/desktop/e2e/website.mjs", "docs/network.md", "supabase/README.md", "supabase/functions/delete-account/index.ts", "engine/os-sync/src/lib.rs", "supabase/functions/revoke-device/index.ts", "apps/desktop/src/components/SyncSection.test.tsx"]
+files = ["website/src/portal.js", "website/dist/**", "scripts/website-build.py", "vercel.json", "website/vercel.json", "apps/desktop/e2e/website.mjs", "docs/network.md", "supabase/README.md", "supabase/functions/delete-account/index.ts", "engine/os-sync/src/lib.rs", "supabase/functions/revoke-device/index.ts", "apps/desktop/src/components/SyncSection.test.tsx", "apps/desktop/e2e/portal-clinic.mjs", "supabase/functions/clinic-invite/index.ts"]
 context = 'https://nmecovtmijnfnjuadicp\.supabase\.co|sb-nmecovtmijnfnjuadicp-auth-token|`nmecovtmijnfnjuadicp\.supabase\.co`|--project-ref nmecovtmijnfnjuadicp|^Project: `nmecovtmijnfnjuadicp`|"nmecovtmijnfnjuadicp\.supabase\.co"'
 reason = "The account portal's Supabase project. Its URL and session key are in the live website's code that every visitor downloads, the CSP must name it, and docs/network.md must list every host. Decided fine to publish. Encrypted sync is in the code since 0.2.0 (off in release builds until the security review), so os-sync's default server, its revoke-device deploy line and a sync test name it too; the scrubs that hide it in ADR-0017 and M3 remain, because those passages are about plans."
 
