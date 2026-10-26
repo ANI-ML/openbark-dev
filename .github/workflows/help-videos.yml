@@ -106,18 +106,30 @@ jobs:
             theme=${pass%%:*} port=${pass##*:}
             start hub "$port"
             start computer "$((port + 1))"
-            (cd apps/desktop && OPENBARK_URL=http://localhost:$port OPENBARK_SYNC_URL=http://localhost:$((port + 1)) \
-              HELP_THEME=$theme node e2e/help-videos.mjs sync) || { stop "$theme"; exit 1; }
+            if ! (cd apps/desktop && OPENBARK_URL=http://localhost:$port OPENBARK_SYNC_URL=http://localhost:$((port + 1)) \
+              HELP_THEME=$theme node e2e/help-videos.mjs sync); then
+              # What the hub and the joining computer said, for the artifact.
+              mkdir -p target/help-videos-logs
+              curl -s "http://127.0.0.1:$port/api/clinic-hub" > "target/help-videos-logs/$theme-hub-status.json" || true
+              curl -s "http://127.0.0.1:$((port + 1))/api/sync" > "target/help-videos-logs/$theme-computer-sync.json" || true
+              cat "target/help-videos-logs/$theme-hub-status.json"; echo
+              stop "$theme"; exit 1
+            fi
             stop "$theme"
           done
       - name: Frames to check
+        if: always()
         run: |
           mkdir -p target/screenshots
           cd apps/desktop
-          for id in sync sync-dark; do
+          # A failed recording is checked frame by frame too (never committed).
+          for f in ../../target/help-video-failed/*.webm; do
+            [ -f "$f" ] && cp "$f" "public/help/failed-$(basename "$f")"
+          done
+          for id in $(cd public/help && ls sync*.webm failed-*.webm 2>/dev/null | sed 's/\.webm$//'); do
             node e2e/frames.mjs "$id" 3 12 22 32 45 58 70 85 | tee -a "$GITHUB_STEP_SUMMARY"
           done
-          ls -l public/help/sync*.webm | tee -a "$GITHUB_STEP_SUMMARY"
+          ls -l public/help/*sync*.webm | tee -a "$GITHUB_STEP_SUMMARY" || true
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
