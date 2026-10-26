@@ -1,5 +1,5 @@
 {
-  "updated": "2026-10-18",
+  "updated": "2026-10-26",
   "headline_stats": [
     {
       "value": "0",
@@ -618,7 +618,7 @@
         {
           "name": "Browser version reachable only from this computer",
           "benefit": "The browser version can't be reached from phones or other computers on the network.",
-          "detail": "openbark serve listens only on 127.0.0.1, port 4317 by default. It won't listen on the clinic network until the Clinic Hub adds sign-in and encrypted connections.",
+          "detail": "openbark serve listens only on 127.0.0.1, port 4317 by default. The clinic hub, when a clinic turns it on, is a separate listener that only accepts signed, encrypted requests from devices that joined with a join code.",
           "evidence": "docs/network.md R3; install/README.md; engine/os-server/src/lib.rs (Ipv4Addr::LOCALHOST)",
           "status": "shipped"
         },
@@ -757,10 +757,10 @@
         },
         {
           "name": "Optional end-to-end encrypted sync",
-          "benefit": "A vet's notes, templates and settings could follow them across devices without the server being able to read them.",
-          "detail": "The accepted design is opt-in and off by default, encrypted on the device with keys the server never holds, and carries transcripts and notes only: recordings never leave the device that recorded them. It could be self-hosted. It hasn't been built yet.",
-          "evidence": "docs/adr/0017-accounts-and-encrypted-sync.md; docs/adr/0005-optional-cloud-sync.md; docs/network.md 'Planned'",
-          "status": "coming"
+          "benefit": "Transcripts, notes and patient details follow the vet between the iPhone and the clinic's computers, and nothing can read them on the way.",
+          "detail": "Off until it's turned on. Devices sync through the clinic hub, a computer at the clinic, over the clinic's own network: there are no OpenBark accounts or emails and no OpenBark servers. Everything is encrypted on the device with keys the hub never holds, and recordings never leave the device that recorded them. A 24-word Recovery Kit restores synced visits on a new device. It's a preview: use test data only until the independent security review is finished.",
+          "evidence": "docs/adr/0029-clinic-hub-instead-of-supabase.md; docs/adr/0017-accounts-and-encrypted-sync.md; docs/guide/sync.md; .github/workflows/hub-e2e.yml",
+          "status": "testing"
         },
         {
           "name": "Startup passphrase and per-user keys",
@@ -1100,10 +1100,10 @@
         },
         {
           "name": "Clinic Hub",
-          "benefit": "One clinic computer could serve phones and thin laptops across the clinic network.",
-          "detail": "Planned: discovery on the clinic network, pairing by QR code, encrypted connections, a shared clinic store, an audit log and an admin dashboard. It would stay off unless Hub mode is switched on.",
-          "evidence": "the product brief sections 4.7 and 6 (M4); docs/network.md 'Planned' M4",
-          "status": "coming"
+          "benefit": "One clinic computer connects the clinic's phones and computers, so a visit recorded on an iPhone can be finished at a desk.",
+          "detail": "Off unless a clinic turns on hub mode in Settings, Clinic hub. Devices join with a one-time join code and a certificate check, every request is signed by the device, and connections use TLS pinned to the hub's certificate. Only private network addresses may connect by default. The hub keeps encrypted copies it can't read. A usage dashboard on the hub comes later. It's a preview: use test data only until the independent security review is finished.",
+          "evidence": "docs/adr/0029-clinic-hub-instead-of-supabase.md; docs/security/hub-authorization.md; engine/os-hub; .github/workflows/hub-e2e.yml",
+          "status": "testing"
         }
       ]
     },
@@ -1478,10 +1478,10 @@
         },
         {
           "name": "Phone apps",
-          "benefit": "An iPhone app could record and transcribe the consult on the phone, with the note drafted on a computer. Android could follow.",
-          "detail": "The iPhone app is designed: recording and transcription run on the phone, and drafting stays on computers. A test of background recording on the phone is designed with pass and fail criteria. No phone app has been built or tested yet.",
-          "evidence": "docs/adr/0018-iphone-app.md; docs/plans/M3.md; docs/spikes/S1-mobile-audio-and-inference.md",
-          "status": "coming"
+          "benefit": "An iPhone app records and transcribes the consult on the phone, and the note can be finished on a computer through encrypted sync. Android could follow.",
+          "detail": "The iPhone app is in testing through TestFlight. Recording and transcription run on the phone with the speech models built in; iPhones with 8 GB of memory can also draft the note, as an option. A first-run walkthrough covers consent, the microphone and setting up sync.",
+          "evidence": "docs/adr/0018-iphone-app.md; .github/workflows/ios.yml; .github/workflows/ios-testflight.yml; apps/desktop/src/components/PhoneWalkthrough.tsx",
+          "status": "testing"
         },
         {
           "name": "Web app with models in the browser",
@@ -1702,9 +1702,16 @@
       "items": [
         {
           "name": "In-app help videos",
-          "benefit": "Seven short videos of the real app show each main task, and they work offline.",
-          "detail": "Getting started, Patients and visits, Recording a consult, Reviewing and signing, Templates, Client documents and PDFs, and Team and security, about 26 MB in all, each with written steps in the app's language. They were recorded on 2026-10-18 before Reprocess, the speech pack card and the progress boards were added, so those aren't shown yet.",
-          "evidence": "apps/desktop/public/help/*.webm (7 files, 26,477,487 bytes); apps/desktop/src/screens/Help.tsx HELP_TOPICS; last changed in commit 4dd018e",
+          "benefit": "Eight short videos of the real app show each main task, and they work offline.",
+          "detail": "Getting started, Patients and visits, Recording a consult, Reviewing and signing, Templates, Client documents and PDFs, Team and security, and Set up encrypted sync, each in a light and a dark version, with written steps in the app's language. The first seven were recorded on 2026-10-18 before Reprocess, the speech pack card and the progress boards were added, so those aren't shown yet.",
+          "evidence": "apps/desktop/public/help/*.webm (8 topics, light and dark; the light set 63,314,525 bytes); apps/desktop/src/screens/Help.tsx HELP_TOPICS",
+          "status": "shipped"
+        },
+        {
+          "name": "Sync setup in Help and the iPhone walkthrough",
+          "benefit": "Setting up the clinic hub and joining a phone or computer is shown step by step, in a video and in writing.",
+          "detail": "Help, Set up encrypted sync, has a recording of the real app making a computer the hub and a second computer joining it, with the steps written out in the app's language. The iPhone walkthrough's last screen gives the three steps and opens Encrypted sync.",
+          "evidence": "apps/desktop/src/screens/Help.tsx (sync topic); apps/desktop/e2e/help-videos.mjs (sync); .github/workflows/help-videos.yml; apps/desktop/src/components/PhoneWalkthrough.tsx; docs/guide/sync.md",
           "status": "shipped"
         },
         {

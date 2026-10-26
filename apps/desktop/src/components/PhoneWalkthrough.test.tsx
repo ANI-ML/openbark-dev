@@ -117,8 +117,11 @@ describe("The iPhone walkthrough", () => {
     expect((screen.getByRole("checkbox", { name: "Write notes on this iPhone" }) as HTMLInputElement).checked).toBe(false);
     next("Continue");
 
-    // 4. The clinic computer, then Record; finishing is remembered.
+    // 4. The clinic computer, with how to set up sync, then Record; finishing is remembered.
     expect(screen.getByRole("heading", { name: "Use it with your clinic computer" })).toBeTruthy();
+    expect(screen.getByText(/Settings, Clinic hub\. Turn it on and choose New join code/)).toBeTruthy();
+    expect(screen.getByText(/Settings, Encrypted sync, Join your clinic hub/)).toBeTruthy();
+    expect(screen.getByText(/24-word Recovery Kit/)).toBeTruthy();
     next("Later");
     expect(c.setSettings).toHaveBeenCalledWith({ walkthroughDoneAt: expect.any(String), showWalkthrough: false });
     expect(c.navigate).toHaveBeenCalledWith({ screen: "record" });

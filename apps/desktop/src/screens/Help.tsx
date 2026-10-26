@@ -236,6 +236,23 @@ export const HELP_TOPICS = [
       "Recordings, transcripts and notes are encrypted on this computer. Show the recovery key once and keep it somewhere safe.",
     ],
   },
+  {
+    id: "sync",
+    title: "Set up encrypted sync",
+    summary: "Connect your iPhone and other computers through a computer at the clinic. Preview: use test data only.",
+    steps: [
+      "Encrypted sync carries transcripts, notes and patient details between your devices. Recordings never leave the device that recorded them. It's a preview: use test data only until the independent security review is finished.",
+      "On the clinic computer, open Settings, Clinic hub, and turn on Make this computer the clinic hub. Use a staff-only computer with full-disk encryption, and leave it on. With a team set up, a veterinarian who manages it does this.",
+      "Choose New join code. The hub shows the code, its address and a certificate check. A code works once, for 30 minutes.",
+      "On the iPhone or another computer, on the same clinic network, open Settings, Encrypted sync, and choose Join your clinic hub.",
+      "Type the join code. Type the hub's address, or choose Find on this network and pick it, then type the certificate check.",
+      "For your first device, choose This is my first device, give it a name and choose Join the hub.",
+      "OpenBark shows your Recovery Kit: 24 words. Print it or keep it in your clinic's password manager, then type the two words it asks for. Syncing starts.",
+      "Your next device: join with a new join code and choose I already use OpenBark on another device. It shows 6 words. On a device that already syncs, open Settings, Encrypted sync, Add a device, type them, then type the code it shows on the new device.",
+      "To sync the hub computer itself, use Use this computer with its hub on the Clinic hub screen.",
+      "Devices sync every 30 seconds while OpenBark is open and they're on the clinic network. Remove a device from Settings, Encrypted sync, Devices.",
+    ],
+  },
 ] as const;
 
 export function Help() {

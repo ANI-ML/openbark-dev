@@ -182,14 +182,22 @@ export function PhoneWalkthrough({ onDone }: { onDone?: () => void } = {}) {
         )}
 
         {step === 3 && (
-          <p className="walkthrough-promise">
-            <RefreshCw size={20} aria-hidden />
-            <span>
-              {t(
-                "When your clinic sets up encrypted sync, transcripts and notes reach the clinic computer, encrypted. Recordings stay on this iPhone. It's in Settings, Encrypted sync.",
-              )}
-            </span>
-          </p>
+          <>
+            <p className="walkthrough-promise">
+              <RefreshCw size={20} aria-hidden />
+              <span>
+                {t(
+                  "When your clinic sets up encrypted sync, transcripts and notes reach the clinic computer, encrypted. Recordings stay on this iPhone. It's in Settings, Encrypted sync.",
+                )}
+              </span>
+            </p>
+            {/* How to set it up, in three steps (Help, Set up encrypted sync, has the rest). */}
+            <ol className="help-steps walkthrough-sync-steps">
+              <li>{t("On the clinic computer: Settings, Clinic hub. Turn it on and choose New join code.")}</li>
+              <li>{t("On this iPhone, on the clinic's Wi-Fi: Settings, Encrypted sync, Join your clinic hub. Type the code, the address and the certificate check.")}</li>
+              <li>{t("Keep the 24-word Recovery Kit it shows somewhere safe.")}</li>
+            </ol>
+          </>
         )}
       </div>
 

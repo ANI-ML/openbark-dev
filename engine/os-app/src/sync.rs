@@ -21,8 +21,8 @@ use crate::{App, AppError, Result};
 /// Encrypted sync (and the clinic hub, ADR-0029) is a preview until the
 /// independent security review is done: only builds made with
 /// `OPENBARK_SYNC_PREVIEW` set at build time offer it (development,
-/// TestFlight and the end-to-end tests' builds). Nothing at run time can
-/// switch it on in a release installer, which is built without it.
+/// TestFlight, the end-to-end tests' and, since 0.2.2, the release
+/// installers). Nothing at run time can switch it on in a build without it.
 #[cfg(feature = "sync")]
 pub(crate) fn preview_enabled() -> bool {
     // The feature for builds through Xcode (iOS), which drops the variable.

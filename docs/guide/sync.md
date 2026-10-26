@@ -1,14 +1,16 @@
-# Encrypted sync between your computers
+# Encrypted sync through your clinic hub
 
-**Preview.** Use test data only until the independent security review is finished (M3 phase 3).
+**Preview.** Use test data only until the independent security review is finished.
 
-Recordings and notes stay on your devices unless you turn on encrypted sync. Even then, only encrypted copies leave, and our servers can't read them.
+Encrypted sync carries transcripts, notes and patient details between your iPhone and your computers, through one computer at your clinic: the **clinic hub** (ADR-0029). Nothing goes to ANI.ML Health: there are no OpenBark accounts or emails, and we run no servers for sync. **Recordings never sync.** The audio stays on the device that recorded it.
 
-Encrypted sync is **off** until you turn it on. OpenBark works exactly the same without it, with no account.
+Encrypted sync is **off** until you turn it on. OpenBark works exactly the same without it.
+
+In the app: **Help → Set up encrypted sync** has a short video of the steps below.
 
 ## What syncs, and what never does
 
-| Syncs (encrypted on your computer first) | Never leaves the device |
+| Syncs (encrypted on your device first) | Never leaves the device |
 |---|---|
 | Transcripts | **Recordings.** The audio stays on the device that recorded it |
 | Drafts and signed notes, with their templates | Your models, keys and PINs |
@@ -16,73 +18,80 @@ Encrypted sync is **off** until you turn it on. OpenBark works exactly the same 
 | Patient details on the visit, and patient records | |
 | Tooth chart confirmations | |
 
-On another computer, a synced visit shows its transcript and notes, and says where the audio is: "Recorded on Front desk PC. The audio is on that device." You can draft, review and sign there. Transcribing again needs the computer that holds the recording.
+On another device, a synced visit shows its transcript and notes, and says where the audio is: "Recorded on Dr Rivera's iPhone. The audio is on that device." You can draft, review and sign there. Transcribing again needs the device that holds the recording.
 
-What the sync server can read: your email address, sign-in times, how many devices you have and their platforms, and, for each encrypted item, its kind, its padded size and when it changed. It can't read transcripts, notes, patient or owner names, species, reasons for visits, device names, signatures or consent records.
+The hub keeps encrypted copies it can't read, except for the accounts of people who use the hub computer themselves.
 
-## Turning it on (the first computer)
+## 1. Make one computer the clinic hub
 
-1. **Settings → Encrypted sync → Turn on encrypted sync.**
-2. Enter your email address and a name for this computer. Choose how far back this computer's visits upload (the last 30 days is recommended).
-3. Enter the 6-digit code from the email. There's no password.
-4. OpenBark shows your **Recovery Kit**: 24 words and a QR code. Print it, or keep it in your clinic's password manager. The same sheet shows this computer's own **Computer recovery key**.
-5. Type the two words OpenBark asks for. Syncing starts.
+Use a staff-only computer with full-disk encryption, and leave it on: devices sync only while it's on and they're on the clinic network.
 
-The two recovery secrets do different things:
+1. **Settings → Clinic hub**, and turn on **Make this computer the clinic hub**. Nothing listens on the network until you do. With a team set up, a veterinarian who manages it does this.
+2. The screen shows **Listening on port …** and this computer's address.
+3. Choose **New join code**. The hub shows a QR code, the **join code**, its **address** and a **certificate check**. A code works once, for 30 minutes; making a new code stops the old one.
+
+Only private network addresses may connect (**Hub settings → Allowed addresses**); within them, the join code is the only thing that stops a device from joining, so show it only to your own staff.
+
+## 2. Join from your first device
+
+On the iPhone or another computer, on the **same clinic network** (the clinic's Wi-Fi):
+
+1. **Settings → Encrypted sync → Join your clinic hub.**
+2. Type the **join code**. (Or paste the hub's link, from its QR code.)
+3. Type the hub's **address**, or choose **Find on this network** and pick the hub. A hub found on the network is only a hint: the join code and the certificate check decide which hub the device trusts.
+4. Type the **certificate check** shown beside the code.
+5. Choose **This is my first device**, give the device a name (only your devices can read it), choose how far back its visits upload (the last 30 days is recommended), then **Join the hub**.
+6. OpenBark shows your **Recovery Kit**: 24 words and a QR code. Print it, or keep it in your clinic's password manager. On a computer, the same sheet shows its own **Computer recovery key**.
+7. Choose **I've kept it safe**, type the two words OpenBark asks for, then **Check and start syncing**.
 
 | | Restores | Keep it |
 |---|---|---|
 | **Recovery Kit** (24 words) | Your synced visits, on any new device | Printed, or in a password manager |
 | **Computer recovery key** | One computer's own visit folder | The same way |
 
-Nobody else has a copy of the Recovery Kit, including ANI.ML Health. If every device and the Recovery Kit are lost, the synced copies can't be opened again. The visits already on each computer stay readable there.
+Nobody else has a copy of the Recovery Kit, including ANI.ML Health. If every device and the Recovery Kit are lost, the synced copies can't be opened again. The visits already on each device stay readable there.
 
-## Adding another computer
+## 3. Add your next device
 
-1. On the new computer: **Settings → Encrypted sync → Turn on encrypted sync**, and sign in with the **same** email.
-2. It shows **6 words** (and a QR code a phone can scan). They work for 10 minutes.
-3. On a computer that already syncs: **Settings → Encrypted sync → Add a device**, and type the 6 words.
-4. OpenBark checks that the words match that device, shows its name, and asks you to confirm. Choose **Add device**.
+1. On the hub, choose **New join code**.
+2. On the new device: **Settings → Encrypted sync → Join your clinic hub**, type the code, address and check, and choose **I already use OpenBark on another device**. It shows **6 words** (and a QR code). They work for 10 minutes.
+3. On a device that already syncs: **Settings → Encrypted sync → Add a device**, type the 6 words, check the name and platform, and choose **Add device**.
+4. It shows a code. Type it on the new device and choose **Confirm and start syncing**. Until then the new device syncs nothing.
 
-The new computer then receives your synced visits (transcripts and notes, never recordings).
+No other device at hand? On the new device choose **Use my Recovery Kit instead** and type the 24 words. They stay on that device and are never sent anywhere.
 
-No other computer at hand? On the new computer choose **Use my Recovery Kit instead** and type the 24 words. They stay on that computer and are never sent anywhere.
+**The hub computer itself** can sync like any other device: **Settings → Clinic hub → Use this computer with its hub**.
 
-Why typing the words matters: signing in only proves who you are. The keys come from a device you already use, or from your Recovery Kit, never from the server. The server can lock a device out, but it can never let one in.
+## Changes on two devices
 
-## Changes on two computers
+Each device syncs every 30 seconds while OpenBark is open and it can reach the hub, and keeps working offline; changes upload when it's back.
 
-Each computer syncs every 30 seconds while OpenBark is open, and keeps working offline; changes upload when it's back online.
+- **Patient details and other visit details:** the later change is kept. If both devices changed the same detail, the other value is listed under **Changed on two devices at once**, so nothing is lost.
+- **Drafts:** every draft from every device is kept.
+- **Signing is one-way.** If a note was signed on one device while another made a new draft, or signed a different draft, the first signature is the record. The other draft is shown beside it in Review with "Signed on [device] at [time]. Add this as an addendum?"
+- **Addenda:** every addendum from every device is kept.
+- **The same animal created on two devices** becomes one patient record.
 
-- **Patient details and other visit details:** the later change is kept. If both computers changed the same detail, the other value is listed under **Changed on two devices at once**, so nothing is lost.
-- **Drafts:** every draft from every computer is kept.
-- **Signing is one-way.** If a note was signed on one computer while another made a new draft, or signed a different draft, the first signature is the record. The other draft is shown beside it in Review with "Signed on [computer] at [time]. Add this as an addendum?"
-- **Addenda:** every addendum from every computer is kept.
-- **The same animal created on two computers** becomes one patient record.
+## Removing a device
 
-## Removing a computer
-
-**Settings → Encrypted sync → Devices → Remove.** The computer is locked out at once, and the keys change so it can't open anything synced from then on. The next time it connects, it erases its synced copies. Its own visits and recordings stay on it.
-
-The website account page can remove a device too; your next computer to come online then changes the keys.
+**Settings → Encrypted sync → Devices → Remove**, or on the hub, **Settings → Clinic hub → Connected devices → Remove**. The device is locked out at once, and the keys change so it can't open anything synced from then on. The next time it connects, it erases its synced copies. Its own visits and recordings stay on it.
 
 ## Deleting a visit
 
-Deleting a visit on one computer removes only that computer's copy; other computers keep theirs, and it doesn't come back to the computer it was deleted on. Restoring it from Deleted visits syncs it again. **Delete everywhere** comes in a later release.
+Deleting a visit on one device removes only that device's copy; other devices keep theirs, and it doesn't come back to the device it was deleted on. Restoring it from Deleted visits syncs it again.
 
 ## Turning sync off, and deleting the account
 
-- **Turn off sync on this computer** signs this computer out. Every visit stays on it. Turning sync on again with the same email needs no new approval.
-- **Delete my sync account** deletes every encrypted copy, device and key on the sync server. The visits on each of your computers stay where they are.
+- **Turn off sync on this computer** (or **this iPhone**) stops syncing there. Every visit stays on it.
+- **Delete my sync account** deletes every encrypted copy, device and key on the hub. The visits on each of your devices stay where they are.
 
-## Shared computers
+## If a device can't find or reach the hub
 
-At first, one account syncs per computer. With a team set up, the team member who turns sync on is linked: only visits they recorded, drafted or signed upload. A PIN is not a cryptographic boundary on a shared Windows account; real separation comes with the Clinic Hub or separate Windows accounts.
-
-## Your clinic's own server
-
-Before signing in, **Use my clinic's own server** takes the address and publishable key of your own Supabase project. Set it up with the files in `supabase/` (see `supabase/README.md`).
+- Both must be on the clinic network, and the hub computer must be on with OpenBark open.
+- **Find on this network** finds nothing on some networks (guest Wi-Fi, networks that block device discovery). Type the address shown on the hub instead.
+- A computer's firewall may ask to allow OpenBark the first time hub mode is on: allow it on private networks.
+- Remote access (for example Tailscale's 100.64.0.0/10) is off by default; add it under **Hub settings → Allowed addresses** only if the clinic uses it.
 
 ## Where the keys are kept
 
-The sync keys are kept in this computer's keychain (Windows Credential Manager, macOS Keychain, Secret Service on Linux), or, where there isn't one, in a protected file in the visits folder encrypted with this computer's own key. They never sync.
+The sync keys are kept in the computer's keychain (Windows Credential Manager, macOS Keychain, Secret Service on Linux), or, where there isn't one, in a protected file in the visits folder encrypted with this computer's own key. On the iPhone they're in its protected storage. They never sync.

@@ -14,7 +14,7 @@ The same walkthroughs are in the app under **Help** (on a phone, **Settings → 
 | 6 | [Team and security](team-and-security.md) | Team members and roles, encryption, the recovery key, moving computers |
 | 7 | [Models](models.md) | Choosing and downloading models, MLX on a Mac, gated models and tokens, adding and removing models |
 | 8 | [Phone calls](phone-and-email.md) | Calling clients through your clinic's own Twilio account, the announcement, and calls as visits |
-| 9 | [Encrypted sync](sync.md) | Preview: transcripts and notes between your computers, end-to-end encrypted; recordings never leave the device that made them |
+| 9 | [Encrypted sync](sync.md) | Preview: set up the clinic hub and join your iPhone and computers; transcripts and notes travel encrypted, recordings never leave the device that made them |
 | | [Languages](../languages.md) | The app's language, the note's language, and what to expect |
 | | [Troubleshooting](troubleshooting.md) | Common messages and what to do |
 
@@ -47,5 +47,7 @@ Record against a **demo** server with synthetic visits only, never a clinic's ow
 5. Record the light pass: `cd apps/desktop && OPENBARK_URL=http://localhost:4318 HELP_THEME=light node e2e/help-videos.mjs`. You can name topics (`record review`), but they build on each other in order: Record adds Pepper's recheck, which Patients finds by typing "Pepp"; Review redrafts, edits and signs Mochi's consult, which Documents uses; and Team adds the first member, after which every page asks who's using OpenBark. A failed topic is kept in `target/help-video-failed/` and never replaces the video in `public/help`. The recording topic plays a WAV as the microphone (`FAKE_MIC`, default `packages/eval/fixtures/audio/smoke.wav`); give it a copy of `smoke.wav` with a few seconds of silence at the end, because the browser loops the file.
 6. Stop the server, put the demo back (restore `visits` from your copy, empty `templates`, delete `users.json`), start it again, and record the dark pass with `HELP_THEME=dark`.
 7. Check frames with `node e2e/frames.mjs <topic> <seconds…>` (for example `record-dark 12 30`).
+
+The **sync** video (Help, Set up encrypted sync) needs two servers built with `OPENBARK_SYNC_PREVIEW`: the clinic computer that becomes the hub (`OPENBARK_URL`) and a second computer that joins it (`OPENBARK_SYNC_URL`), both fresh for each theme. It isn't part of a run without `OPENBARK_SYNC_URL`. The **Help videos** workflow (`.github/workflows/help-videos.yml`; run it from the Actions tab or push a commit containing `[help-videos]`) records it in both themes on a runner with neutral demo folders and uploads the videos and frames to check as the `help-videos` artifact; commit the two `.webm` files to `apps/desktop/public/help/`.
 
 The captions are in English. The written steps under each video are translated with the rest of the app (`scripts/i18n-keys.py` picks them up from `src/screens/Help.tsx`).
