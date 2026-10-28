@@ -159,7 +159,11 @@ for (const scheme of ["light", "dark"]) {
        <div class="copy">
          <div class="icon">${icon}</div>
          <h1>Record the visit.<br>Get the note.</h1>
-         <p>The free, open-source scribe for veterinary teams. Recordings stay on your iPhone.</p>
+         <p>The free, open-source scribe for veterinary teams.</p>
+         <ul class="local">
+           <li><i></i>Local models on your own devices</li>
+           <li><i></i>Never the cloud: recordings stay on your iPhone</li>
+         </ul>
        </div>
        <div class="devs">${a ? phone(a, "light", 400) : ""}${b ? phone(b, "light", 400) : ""}</div>
      </div>`,
@@ -168,6 +172,9 @@ for (const scheme of ["light", "dark"]) {
      .icon svg{width:132px;height:132px;display:block}
      h1{margin-top:44px;font-size:92px;line-height:1.04;font-weight:800;letter-spacing:-0.03em;color:#182230}
      p{margin-top:30px;max-width:620px;font-size:34px;line-height:1.38;font-weight:500;color:#4B5563}
+     .local{list-style:none;padding:0;margin-top:40px;display:flex;flex-direction:column;gap:16px}
+     .local li{display:flex;align-items:center;gap:16px;font-size:30px;font-weight:600;color:#182230}
+     .local i{width:14px;height:14px;border-radius:999px;background:#1F8A5B;flex:none}
      .devs{display:flex;gap:44px;align-self:start;padding-top:140px}
      .devs .phone:last-child{margin-top:90px}`,
   );
