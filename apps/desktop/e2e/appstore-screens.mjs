@@ -170,4 +170,84 @@ for (const scheme of ["light", "dark"]) {
   await browser.close();
 }
 
+// The 13" iPad in portrait: 1032 x 1376 points less its status bar (24) and
+// home indicator (20), x2 so the screen is 2064 px wide. At this width the app
+// shows its wide layout (the side rail, the transcript beside the note).
+const ipad = { viewport: { width: 1032, height: 1332 }, hasTouch: true, deviceScaleFactor: 2 };
+for (const scheme of ["light", "dark"]) {
+  const browser = await webkit.launch();
+  const ctx = await browser.newContext({ ...ipad, colorScheme: scheme });
+  await ctx.addInitScript(() => {
+    const key = "openbark.settings";
+    const current = JSON.parse(localStorage.getItem(key) ?? "{}");
+    const accepted = { consentAcknowledgedAt: "2026-10-17T20:00:00Z", walkthroughDoneAt: "2026-10-17T20:00:00Z" };
+    localStorage.setItem(key, JSON.stringify({ ...current, ...accepted, uiLanguage: "en" }));
+  });
+  const page = await ctx.newPage();
+  page.setDefaultTimeout(15000);
+  const shot = async (name) => {
+    await page.waitForTimeout(800);
+    const file = `ipad-${scheme}-${name}.png`;
+    await page.screenshot({ path: `${out}/${file}` });
+    taken.push(file);
+  };
+  const attempt = async (name, fn) => {
+    try {
+      await fn();
+    } catch (e) {
+      missed.push(`ipad ${scheme} ${name}: ${String(e).split("\n")[0]}`);
+    }
+  };
+  const nav = async (screen) => {
+    await page.locator(`.nav-item[data-nav="${screen}"]`).first().click();
+    await page.locator(".screen h1").first().waitFor({ timeout: 10000 });
+  };
+  const visit = async (animal) => {
+    await nav("visits");
+    await page.locator(".row-link:visible", { hasText: animal }).first().click();
+    await page.locator(".note:visible, .transcript:visible").first().waitFor({ timeout: 20000 });
+  };
+  await page.goto(base);
+  await page.locator(".recorder").waitFor({ timeout: 20000 });
+  await attempt("record", async () => {
+    await page.evaluate(() => {
+      const mic = document.querySelector(".stage-mic-name");
+      if (mic) mic.textContent = "iPad microphone";
+    });
+    await shot("record");
+  });
+  await attempt("visits", async () => {
+    await nav("visits");
+    await page.locator(".row-link:visible").first().waitFor({ timeout: 10000 });
+    await shot("visits");
+  });
+  await attempt("note", async () => {
+    await visit("Biscuit");
+    await shot("note");
+  });
+  await attempt("evidence", async () => {
+    await page.locator(".stmt").nth(2).click();
+    await page.waitForTimeout(600);
+    await shot("evidence");
+    await page.keyboard.press("Escape");
+  });
+  await attempt("dental", async () => {
+    await visit("Pepper");
+    const tooth = page.locator(".dc-tooth").first();
+    await tooth.waitFor({ timeout: 10000 });
+    await tooth.evaluate((el) => el.closest("svg")?.scrollIntoView({ block: "center" }));
+    await shot("dental");
+  });
+  await attempt("templates", async () => {
+    await nav("templates");
+    await shot("templates");
+  });
+  await attempt("sync", async () => {
+    await nav("settings");
+    await page.locator(".settings-nav-item", { hasText: "Encrypted sync" }).first().click();
+    await shot("sync");
+  });
+  await browser.close();
+}
+
 finish();

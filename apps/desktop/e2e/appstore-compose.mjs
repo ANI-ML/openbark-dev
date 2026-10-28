@@ -150,6 +150,63 @@ for (const scheme of ["light", "dark"]) {
   }
 }
 
+// The 13" iPad, portrait: 1032 x 1376 points, status bar (24), the app
+// (1332), home indicator (20).
+const IPAD_SLIDES = [
+  ["record", "Record the visit. Get the note.", "A free, open-source scribe for veterinary teams."],
+  ["note", "The note, with the transcript beside it", "Tap a sentence to see where it came from."],
+  ["visits", "Every visit, sorted by what needs you", "One clear status for each visit."],
+  ["dental", "Chart a dental as you talk", "Drafted from the conversation. You confirm every tooth."],
+  ["templates", "Templates for every kind of visit", "Wellness, dental, dermatology, exotics and more. Make them your own."],
+  ["sync", "Sync with your clinic's computers", "Encrypted, through your clinic's own computer, in preview."],
+];
+function ipadScreen(img, scheme, w) {
+  const s = w / 1032;
+  const fg = scheme === "dark" ? "#FFFFFF" : "#000000";
+  return `
+  <div class="screen" style="width:${w}px;height:${1376 * s}px;border-radius:${18 * s}px">
+    <div class="status" data-fill="top" style="height:${24 * s}px;padding:0 ${22 * s}px;font-size:${12 * s}px;color:${fg}">
+      <span>9:41&nbsp;&nbsp;Tue 28 Oct</span>
+      <svg viewBox="0 0 78 14" style="height:${10 * s}px" fill="${fg}">
+        <path d="M30.5 3.2a11 11 0 0 1 15 0l-1.5 1.6a8.8 8.8 0 0 0-12 0zM33.4 6.3a6.8 6.8 0 0 1 9.2 0l-1.6 1.6a4.6 4.6 0 0 0-6 0zM38 13l-2.6-2.7a3.6 3.6 0 0 1 5.2 0z"/>
+        <rect x="52.5" y="1" width="22" height="12" rx="3.6" fill="none" stroke="${fg}" stroke-opacity=".4"/>
+        <rect x="54.5" y="3" width="18" height="8" rx="2"/><rect x="75.5" y="4.6" width="1.6" height="4.6" rx=".8" fill-opacity=".4"/>
+      </svg>
+    </div>
+    <img src="${img}" style="width:${w}px;height:${1332 * s}px">
+    <div class="home" data-fill="bottom" style="height:${20 * s}px"><i style="width:${300 * s}px;height:${5 * s}px;border-radius:${3 * s}px;background:${fg}"></i></div>
+  </div>`;
+}
+for (const scheme of ["light", "dark"]) {
+  const t = T[scheme];
+  mkdirSync(`${dst}/ipad-screenshots-${scheme}`, { recursive: true });
+  mkdirSync(`${dst}/ipad-plain-${scheme}`, { recursive: true });
+  let n = 0;
+  for (const [name, title, sub] of IPAD_SLIDES) {
+    const img = png(`ipad-${scheme}-${name}`);
+    if (!img) continue;
+    n += 1;
+    const id = `${String(n).padStart(2, "0")}-${name}`;
+    const w = 1480;
+    const b = 44;
+    const captioned = page(
+      `<div class="slide"><h1>${title}</h1><p>${sub}</p>
+         <div class="dev"><div class="tablet" style="padding:${b}px;border-radius:${(18 * w) / 1032 + b}px;background:${t.frame}">${ipadScreen(img, scheme, w)}</div></div></div>`,
+      `body{background:${t.bg};width:2064px;height:2752px;overflow:hidden}
+       .slide{padding:150px 160px 0;text-align:center}
+       h1{font-size:104px;line-height:1.08;font-weight:800;letter-spacing:-0.025em;color:${t.ink};text-wrap:balance}
+       p{margin-top:30px;font-size:50px;line-height:1.3;font-weight:500;color:${t.text2};text-wrap:balance}
+       .dev{position:absolute;left:50%;top:590px;transform:translateX(-50%)}`,
+    );
+    await render(captioned, `${dst}/ipad-screenshots-${scheme}/${id}.png`, { width: 2064, height: 2752 });
+    await render(
+      page(ipadScreen(img, scheme, 2064), `body{width:2064px;height:2752px;overflow:hidden} .screen{border-radius:0!important}`),
+      `${dst}/ipad-plain-${scheme}/${id}.png`,
+      { width: 2064, height: 2752 },
+    );
+  }
+}
+
 // The header: what OpenBark is, beside two screens.
 {
   const a = png("light-record");
