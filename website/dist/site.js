@@ -182,6 +182,64 @@
     }
   };
 
+  // ---- Download counter: every installer downloaded from the public
+  // releases repo (checksums aren't installers), read live from GitHub's
+  // public API and checked again each minute. Hidden if GitHub can't be read.
+  var count = document.getElementById("dl-count");
+  var countN = document.getElementById("dl-count-n");
+  if (count && countN && window.fetch) {
+    var shown = 0;
+    var still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var fmt = function (n) { return n.toLocaleString("en"); };
+    var tick = function (to) {
+      var from = shown;
+      shown = to;
+      if (still || to <= from) { countN.textContent = fmt(to); return; }
+      var start = null;
+      var ms = from === 0 ? 1400 : 600;
+      var step = function (t) {
+        if (start === null) start = t;
+        var p = Math.min(1, (t - start) / ms);
+        var eased = 1 - Math.pow(1 - p, 3);
+        countN.textContent = fmt(Math.round(from + (to - from) * eased));
+        if (p < 1) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+      // A new download since the page opened: the number warms briefly.
+      if (from > 0) {
+        countN.setAttribute("data-bump", "");
+        setTimeout(function () { countN.removeAttribute("data-bump"); }, 1200);
+      }
+    };
+    var read = function () {
+      fetch("https://api.github.com/repos/ANI-ML/openbark-releases/releases?per_page=100", { cache: "no-store" })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (releases) {
+          if (!Array.isArray(releases)) return;
+          var total = 0;
+          releases.forEach(function (rel) {
+            (rel.assets || []).forEach(function (a) {
+              if (!/SHA256SUMS/i.test(a.name)) total += a.download_count || 0;
+            });
+          });
+          if (!total) return;
+          count.hidden = false;
+          // Count up the first time the counter comes into view.
+          if (!shown && window.IntersectionObserver && !still) {
+            var seen = new IntersectionObserver(function (entries) {
+              if (entries.some(function (e) { return e.isIntersecting; })) { seen.disconnect(); tick(total); }
+            });
+            seen.observe(count);
+          } else {
+            tick(total);
+          }
+        })
+        .catch(function () {});
+    };
+    read();
+    setInterval(function () { if (!document.hidden) read(); }, 60000);
+  }
+
   // The page works without release.json (it shows "coming soon").
   render(window.__RELEASE__ || null);
   if (window.fetch) {

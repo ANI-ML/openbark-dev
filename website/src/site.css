@@ -399,6 +399,15 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .dl .file .btn { white-space: normal; }
 .dl .req { font-size: 15px; line-height: 24px; color: var(--ink-2); }
 .dl .tag { font-size: 12px; line-height: 16px; color: var(--ink-3); text-align: center; }
+/* Download counter: label 500, value 800, as the brand's stat tiles. */
+.dl-count { display: grid; gap: 4px; margin: -16px 0 40px; padding: 24px 28px; border: 1px solid var(--line); border-radius: 14px; background: var(--bg); max-width: 420px; }
+.dl-count[hidden] { display: none; }
+.dl-count-label { font-size: 15px; line-height: 22px; font-weight: 500; color: var(--ink-2); }
+.dl-count-value { font-size: 56px; line-height: 60px; font-weight: 800; letter-spacing: -0.03em; color: var(--ink); }
+.dl-count-value span { display: inline-block; }
+.dl-count-value span[data-bump] { color: var(--accent-text); transition: color var(--dur-large) var(--ease-exit); }
+.dl-count-note { font-size: 13px; line-height: 18px; color: var(--ink-3); }
+@media (max-width: 760px) { .dl-count { margin: -8px 0 32px; max-width: none; } .dl-count-value { font-size: 44px; line-height: 48px; } }
 .release-line { margin-top: 24px; display: flex; flex-wrap: wrap; gap: 8px 24px; font-size: 15px; line-height: 24px; color: var(--ink-2); }
 @media (max-width: 1000px) { .downloads { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 520px) { .downloads { grid-template-columns: minmax(0, 1fr); } }
