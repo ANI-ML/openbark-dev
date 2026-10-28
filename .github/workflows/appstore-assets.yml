@@ -64,6 +64,9 @@ jobs:
           mkdir -p ~/kokoro target/appstore-audio
           curl -fsSL https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-en-v0_19.tar.bz2 | tar -xj -C ~/kokoro
           s=packages/eval/fixtures/scripts
+          # sherpa-onnx's shared library sits beside the build, not on the loader's path.
+          lib=$(find target/release -name 'libsherpa-onnx-c-api.so' | head -1)
+          [ -n "$lib" ] && export LD_LIBRARY_PATH="$(dirname "$lib"):${LD_LIBRARY_PATH:-}"
           target/release/fixture-tts --kokoro ~/kokoro/kokoro-int8-en-v0_19 --out target/appstore-audio --speed 0.9 \
             $s/canine-wellness.yaml $s/dental-feline.yaml $s/dermatology.yaml $s/feline-vomiting.yaml $s/exotics.yaml
           ls -la target/appstore-audio
