@@ -1,0 +1,126 @@
+name: App Store assets
+
+# The App Store listing's images: captioned and plain iPhone screenshots at
+# 1320 x 2868 (6.9"), light and dark, a header banner and a preview of how the
+# listing reads in search. The visits are synthetic consult scripts
+# (packages/eval/fixtures/scripts, invented, rendered with Kokoro on the
+# runner) under invented patients, so no clinic data is involved.
+#
+# Manual: run it from the Actions tab, or push to a chore/appstore-* branch.
+# It never runs in the public copy.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["chore/appstore-**"]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  NODE_VERSION: "24.22.0"
+
+jobs:
+  assets:
+    name: Screens and layout
+    if: github.repository == 'ANI-ML/openbark-dev'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: System packages (libclang, ALSA)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev cmake libasound2-dev
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-appstore/${{ github.repository }}/${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-appstore/${{ github.repository }}/
+            cargo-design-screens/${{ github.repository }}/
+            cargo-linux/${{ github.repository }}/
+      - run: cargo build --release -p os-cli -p fixture-tts
+      - name: Restore models
+        id: models
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/models
+          key: models-${{ hashFiles('engine/os-models/catalog.json') }}-appstore
+      - name: Download models
+        if: steps.models.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/models
+          export OPENBARK_MODELS_DIR=~/models
+          for id in silero-vad parakeet-tdt-0.6b-v3-int8 pyannote-segmentation-3.0 wespeaker-en-resnet34-lm gemma-4-e4b-it-q4_0; do
+            target/release/openbark models pull "$id"
+          done
+      - name: Consults (Kokoro)
+        run: |
+          mkdir -p ~/kokoro target/appstore-audio
+          curl -fsSL https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-en-v0_19.tar.bz2 | tar -xj -C ~/kokoro
+          s=packages/eval/fixtures/scripts
+          target/release/fixture-tts --kokoro ~/kokoro/kokoro-int8-en-v0_19 --out target/appstore-audio --speed 0.9 \
+            $s/canine-wellness.yaml $s/dental-feline.yaml $s/dermatology.yaml $s/feline-vomiting.yaml $s/exotics.yaml
+          ls -la target/appstore-audio
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: UI
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm --filter @openbark/desktop build
+          (cd apps/desktop && npx playwright install --with-deps webkit chromium)
+      - name: Demo visits and screens
+        shell: bash
+        run: |
+          demo="$PWD/target/appstore-demo"
+          rm -rf "$demo" && mkdir -p "$demo/models" && touch "$demo/OPENBARK-DEMO"
+          cp -r ~/models/. "$demo/models/"
+          export OPENBARK_SESSIONS_DIR="$demo/visits" OPENBARK_TEMPLATES_DIR="$demo/templates" \
+            OPENBARK_USERS_FILE="$demo/users.json" OPENBARK_LOCATIONS_FILE="$demo/locations.json" \
+            OPENBARK_ENGINES_DIR="$demo/engines" OPENBARK_MODELS_DIR="$demo/models" \
+            OPENBARK_CONNECTIONS_DIR="$demo/connections" \
+            OPENBARK_DATA_KEY="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" \
+            OPENBARK_PLATFORM=ios OPENBARK_DEVICE_RAM_GB=8
+          port=4339
+          target/release/openbark serve --port $port --ui-dir apps/desktop/dist >> "$demo/serve.log" 2>&1 &
+          for _ in $(seq 1 150); do curl -fs http://127.0.0.1:$port/api/status > /dev/null && break; sleep 0.2; done
+          curl -fs http://127.0.0.1:$port/api/status > /dev/null || { tail -50 "$demo/serve.log"; exit 1; }
+          q="consent_rule=all_parties&consent_method=verbal&consent_by=Dr%20Patel&diarize=true"
+          import() { # file animal family species reason
+            curl -fsS --max-time 900 -X POST -H 'x-openbark: 1' --data-binary @target/appstore-audio/$1.wav \
+              "http://127.0.0.1:$port/api/sessions?name=$1.wav&patient_name=$2&last_name=$3&species=$4&reason=$5&$q" \
+              | jq -r '.id // .session.id // empty'
+          }
+          draft() { # id template
+            [ -n "$1" ] || return 0
+            curl -fsS --max-time 1800 -X POST -H 'x-openbark: 1' -H 'content-type: application/json' \
+              -d "{\"llm\":\"gemma-4-e4b-it-q4_0\",\"template\":\"$2\"}" "http://127.0.0.1:$port/api/sessions/$1/notes" > /dev/null \
+              || echo "::warning::drafting $2 failed"
+          }
+          import exotics Ziggy Brennan Reptile "Not%20eating" > /dev/null
+          import feline-vomiting Mochi Tanaka Cat "Vomiting" > /dev/null
+          derm=$(import dermatology Bailey Morales Dog "Itchy%20skin")
+          dental=$(import dental-feline Pepper Lindqvist Cat "Dental")
+          wellness=$(import canine-wellness Biscuit Okafor Dog "Annual%20exam")
+          draft "$dental" dental
+          draft "$wellness" wellness
+          draft "$derm" dermatology
+          cd apps/desktop
+          OPENBARK_URL=http://localhost:$port OUT_DIR="$demo/screens" node e2e/appstore-screens.mjs "$demo" | tee -a "$GITHUB_STEP_SUMMARY"
+          node e2e/appstore-compose.mjs "$demo/screens" "$demo/assets" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          # Invented visits and logs only: no patient data exists on CI.
+          name: appstore-assets
+          path: |
+            target/appstore-demo/assets
+            target/appstore-demo/screens
+            target/appstore-demo/serve.log
