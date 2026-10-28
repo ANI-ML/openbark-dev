@@ -1,21 +1,21 @@
 # OpenBark downloads (internal)
 
-Updated 2026-10-27. Installer downloads from [ANI-ML/openbark-releases](https://github.com/ANI-ML/openbark-releases/releases), which is where every download button on www.openbark.io points.
+Updated 2026-10-28. Installer downloads from [ANI-ML/openbark-releases](https://github.com/ANI-ML/openbark-releases/releases), which is where every download button on www.openbark.io points.
 
 ## By platform
 
 | Platform | All time | Share | Last 7 days | Last 30 days |
 |---|---:|---:|---:|---:|
-| Windows | 49 | 35% | 36 | – |
-| macOS | 66 | 47% | 36 | – |
-| Linux | 25 | 18% | 18 | – |
-| **Total** | **140** | | **90** | **–** |
+| Windows | 50 | 35% | 20 | – |
+| macOS | 68 | 47% | 27 | – |
+| Linux | 26 | 18% | 11 | – |
+| **Total** | **144** | | **58** | **–** |
 
 ## By version
 
 | Version | Windows | macOS | Linux | Total |
 |---|---:|---:|---:|---:|
-| v0.2.2 | 0 | 1 | 0 | 1 |
+| v0.2.2 | 1 | 3 | 1 | 5 |
 | v0.2.1 | 2 | 1 | 1 | 4 |
 | v0.2.0 | 2 | 0 | 0 | 2 |
 | v0.1.3 | 18 | 26 | 9 | 53 |
@@ -28,12 +28,13 @@ Updated 2026-10-27. Installer downloads from [ANI-ML/openbark-releases](https://
 |---|---:|
 | .deb | 5 |
 | .rpm | 3 |
-| AppImage | 17 |
+| AppImage | 18 |
 
 ## New downloads per day (last 30 days)
 
 | Date | Windows | macOS | Linux | Total |
 |---|---:|---:|---:|---:|
+| 2026-10-28 | 1 | 2 | 1 | 4 |
 | 2026-10-27 | 1 | 2 | 1 | 4 |
 | 2026-10-26 | 2 | 0 | 0 | 2 |
 | 2026-10-25 | 4 | 1 | 7 | 12 |
