@@ -88,7 +88,10 @@ for (const scheme of ["light", "dark"]) {
 
   const { browser, page } = await open(scheme, false);
   const tab = async (screen) => {
-    await page.locator(`.nav-item[data-nav="${screen}"]`).click();
+    // A visit hides the tab bar on phones: back to the list first.
+    const item = page.locator(`.nav-item[data-nav="${screen}"]`);
+    if (!(await item.isVisible())) await page.locator(".back-top").first().click();
+    await item.click();
     await page.locator(".screen h1").first().waitFor({ timeout: 10000 });
   };
   const visit = async (animal) => {

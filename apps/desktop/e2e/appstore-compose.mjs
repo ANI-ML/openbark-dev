@@ -153,7 +153,7 @@ for (const scheme of ["light", "dark"]) {
 // The header: what OpenBark is, beside two screens.
 {
   const a = png("light-record");
-  const b = png("light-note") ?? png("light-evidence");
+  const b = png("light-note") ?? png("light-visits");
   const html = page(
     `<div class="hero">
        <div class="copy">

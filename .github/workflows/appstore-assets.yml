@@ -89,12 +89,17 @@ jobs:
             OPENBARK_USERS_FILE="$demo/users.json" OPENBARK_LOCATIONS_FILE="$demo/locations.json" \
             OPENBARK_ENGINES_DIR="$demo/engines" OPENBARK_MODELS_DIR="$demo/models" \
             OPENBARK_CONNECTIONS_DIR="$demo/connections" \
-            OPENBARK_DATA_KEY="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" \
-            OPENBARK_PLATFORM=ios OPENBARK_DEVICE_RAM_GB=8
+            OPENBARK_DATA_KEY="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
           port=4339
-          target/release/openbark serve --port $port --ui-dir apps/desktop/dist >> "$demo/serve.log" 2>&1 &
-          for _ in $(seq 1 150); do curl -fs http://127.0.0.1:$port/api/status > /dev/null && break; sleep 0.2; done
-          curl -fs http://127.0.0.1:$port/api/status > /dev/null || { tail -50 "$demo/serve.log"; exit 1; }
+          serve() {
+            target/release/openbark serve --port $port --ui-dir apps/desktop/dist >> "$demo/serve.log" 2>&1 &
+            echo $! > "$demo/serve.pid"
+            for _ in $(seq 1 150); do curl -fs http://127.0.0.1:$port/api/status > /dev/null && return; sleep 0.2; done
+            tail -50 "$demo/serve.log"; exit 1
+          }
+          # Imported and drafted as a computer would (the iPhone profile offers
+          # only phone-sized note models), then shown as an 8 GB iPhone shows them.
+          serve
           q="consent_rule=all_parties&consent_method=verbal&consent_by=Dr%20Patel&diarize=true"
           import() { # file animal family species reason
             curl -fsS --max-time 900 -X POST -H 'x-openbark: 1' --data-binary @target/appstore-audio/$1.wav \
@@ -115,6 +120,8 @@ jobs:
           draft "$dental" dental
           draft "$wellness" wellness
           draft "$derm" dermatology
+          kill "$(cat "$demo/serve.pid")"; sleep 1
+          OPENBARK_PLATFORM=ios OPENBARK_DEVICE_RAM_GB=8 serve
           cd apps/desktop
           OPENBARK_URL=http://localhost:$port OUT_DIR="$demo/screens" node e2e/appstore-screens.mjs "$demo" | tee -a "$GITHUB_STEP_SUMMARY"
           node e2e/appstore-compose.mjs "$demo/screens" "$demo/assets" | tee -a "$GITHUB_STEP_SUMMARY"
