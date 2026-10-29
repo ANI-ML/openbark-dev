@@ -25,7 +25,17 @@
 | "This model is gated" or "Hugging Face hasn't given your token access yet" | The publisher asks you to request access first | Choose **Request access**, then save a Hugging Face token. See [Models](models.md#gated-models-and-your-hugging-face-token). |
 | A model shows **Not found** | It was added from this computer to be used where it is, and the file or folder has moved or its drive is unplugged | Plug the drive back in, or choose **Forget** and add it again from its new place. |
 | The MLX engine card says it "didn't pass its check" | The MLX engine can't run on this Mac as it is | Choose **Try again**. GGUF models keep working; choose one under **In use**. |
-| Drafting is slow | The note model is sharing the graphics card, or the computer has no supported graphics card | Close games and video tools, or choose a smaller note model in **Models**. |
+| Drafting is slow | The note model is sharing the graphics card, or the computer has no supported graphics card, or the model doesn't fit this computer's memory | Watch the drafting board: **Reading the transcript** shows how far it has got and about how long is left; a long visit on a slow computer takes minutes. Close games and video tools, or choose a smaller note model in **Models** (it suggests one when yours won't fit). |
+| "Nothing new from the note model for … It may be stuck." | The model has written nothing for a minute while writing the note | Choose **Stop**, then draft again. If it happens again, choose a smaller note model in **Models**, and send us the diagnostics (below). |
+| "Drafting stopped. Nothing was saved." | You chose **Stop** on the drafting board | Draft again when you're ready. Earlier drafts are kept. |
+| "The note model started repeating itself …" | The model wrote the same thing over and over, so OpenBark stopped it | Draft again. If it keeps happening, choose another note model in **Models**. Nothing half-written is saved. |
+| "The note ran past its length limit …" | The draft didn't finish within its length limit | Draft again, or choose another note model in **Models**. Nothing half-written is saved. |
+
+## Sending diagnostics
+
+If drafting is slow, stops or seems stuck, open **Settings → About** and choose **Copy diagnostics**, then paste it into an email to us. It holds the app version, the computer (system, processor, memory, graphics), the note model and its settings, how long the last draft took and at what speed, and the end of OpenBark's log. Nothing from any visit is in it: the log never records names, transcripts, notes or what the model wrote.
+
+The log itself is in OpenBark's data folder, under `logs` (on Windows `%LOCALAPPDATA%\OpenBark\logs`, on a Mac `~/Library/Application Support/OpenBark/logs`, on Linux `~/.local/share/OpenBark/logs`). It stays under 4 MB.
 
 ## Microphone problems
 
