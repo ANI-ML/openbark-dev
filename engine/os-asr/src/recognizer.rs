@@ -162,6 +162,7 @@ impl AsrBackend for OfflineAsr {
         stream.accept_waveform(SAMPLE_RATE as i32, samples);
         self.recognizer.decode(&stream);
         let result = stream.get_result().ok_or(AsrError::Recognize)?;
+        tracing::debug!(tokens = ?result.tokens, timestamps = ?result.timestamps, durations = ?result.durations, "recognised");
         Ok(result.text.trim().to_string())
     }
 }

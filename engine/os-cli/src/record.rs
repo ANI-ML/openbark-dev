@@ -57,6 +57,10 @@ pub struct RecordArgs {
     /// A client on a phone on speaker in the room: pick up the quieter voice.
     #[arg(long)]
     pub speakerphone: bool,
+    /// Write the saved transcript here as JSON Lines once it's complete
+    /// (`--jsonl` prints segments as they're heard, before the final pass).
+    #[arg(long, hide = true)]
+    pub transcript_out: Option<PathBuf>,
     #[command(flatten)]
     pub llm: LlmArgs,
 }
@@ -192,6 +196,9 @@ pub fn record(store: &ModelStore, args: RecordArgs) -> Result<()> {
         result.stats.speakers,
         result.finish_ms as f64 / 1000.0
     );
+    if let Some(path) = &args.transcript_out {
+        std::fs::write(path, result.transcript.to_jsonl())?;
+    }
     if args.no_note || result.transcript.is_empty() {
         return Ok(());
     }

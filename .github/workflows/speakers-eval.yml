@@ -1,0 +1,135 @@
+name: Speaker labels eval
+
+# How well speaker labels hold up on harder synthetic consults than the M1
+# fixtures: turns 0.1 s apart, the same heard by a laptop's own microphone
+# across a room, two similar voices, a one-speaker dictation, and a client on
+# a phone on speaker (ADR-0026). Consults are rendered with Kokoro on the
+# runner (invented scripts, no clinic data), imported through the live
+# pipeline the app uses, and scored per word (packages/eval/speaker_suite.py).
+# The results are in the job summary and the artifact.
+#
+# Runs on pull requests that touch speech, speaker or eval code, and from the
+# Actions tab. Never in the public copy.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "engine/os-asr/**"
+      - "engine/os-diar/**"
+      - "engine/os-engine/src/live.rs"
+      - "engine/os-engine/src/speakers.rs"
+      - "engine/os-cli/src/record.rs"
+      - "tools/fixture-tts/**"
+      - "packages/eval/score_speakers.py"
+      - "packages/eval/speaker_suite.py"
+      - "scripts/ci/speaker-eval.sh"
+      - ".github/workflows/speakers-eval.yml"
+
+# A newer push waits for the running eval instead of cancelling it, so every
+# finished run leaves numbers.
+concurrency:
+  group: speakers-eval-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # Visits are encrypted at rest (ADR-0008); a throwaway key on the runner.
+  OPENBARK_DATA_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+
+jobs:
+  eval:
+    name: Speaker labels on harder consults
+    if: github.repository == 'ANI-ML/openbark-dev'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: System packages (libclang, ALSA)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev cmake libasound2-dev
+      # Restored from the main CI's cache, never saved: this job adds no
+      # cache of its own beside it.
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-linux/${{ github.repository }}/${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-linux/${{ github.repository }}/
+      - run: cargo build --release -p os-cli -p fixture-tts
+      - name: Restore models
+        id: models
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/models
+          key: models-${{ hashFiles('engine/os-models/catalog.json') }}-speakers
+      - name: Download models
+        if: steps.models.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/models
+          export OPENBARK_MODELS_DIR=~/models
+          for id in silero-vad parakeet-tdt-0.6b-v3-int8 wespeaker-en-resnet34-lm; do
+            target/release/openbark models pull "$id"
+          done
+      - name: Restore voiced lines
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/tts-cache
+          key: tts-lines-${{ hashFiles('packages/eval/fixtures/scripts/*.yaml', 'scripts/ci/speaker-eval.sh') }}
+          restore-keys: tts-lines-
+      - name: Consults (Kokoro)
+        run: |
+          mkdir -p ~/kokoro
+          curl -fsSL https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-en-v0_19.tar.bz2 | tar -xj -C ~/kokoro
+          # sherpa-onnx's shared library sits beside the build, not on the loader's path.
+          lib=$(find target/release -name 'libsherpa-onnx-c-api.so' | head -1)
+          [ -n "$lib" ] && export LD_LIBRARY_PATH="$(dirname "$lib"):${LD_LIBRARY_PATH:-}"
+          bash scripts/ci/speaker-eval.sh render target/release/fixture-tts ~/kokoro/kokoro-int8-en-v0_19 \
+            target/speakers/audio ~/tts-cache
+          ls -la target/speakers/audio
+      - name: What the recogniser returns (token times)
+        run: |
+          export OPENBARK_MODELS_DIR=~/models
+          lib=$(find target/release -name 'libsherpa-onnx-c-api.so' | head -1)
+          [ -n "$lib" ] && export LD_LIBRARY_PATH="$(dirname "$lib"):${LD_LIBRARY_PATH:-}"
+          OPENBARK_LOG=os_asr=debug OPENBARK_SESSIONS_DIR="$(mktemp -d)" target/release/openbark record \
+            --file target/speakers/audio/production-animal-tight.wav --no-note 2>&1 >/dev/null | grep recognised | head -3 || true
+      - name: Import every consult
+        run: |
+          export OPENBARK_MODELS_DIR=~/models
+          lib=$(find target/release -name 'libsherpa-onnx-c-api.so' | head -1)
+          [ -n "$lib" ] && export LD_LIBRARY_PATH="$(dirname "$lib"):${LD_LIBRARY_PATH:-}"
+          e=scripts/ci/speaker-eval.sh
+          bin=target/release/openbark
+          a=target/speakers/audio
+          o=target/speakers/runs
+          bash $e run $bin $a $o current
+      - name: Score
+        run: |
+          o=target/speakers/runs
+          python3 -I packages/eval/speaker_suite.py target/speakers/audio \
+            current=$o/current current-live=$o/current-live \
+            --json target/speakers/suite.json | tee target/speakers/suite.md
+          {
+            echo "## Speaker labels on harder consults"
+            echo
+            echo "WER, then the share of script words heard under their own speaker's label (labels mapped one-to-one), then the number of labels."
+            echo
+            cat target/speakers/suite.md
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          # Invented consults only: no clinic data exists on CI.
+          name: speakers-eval
+          path: |
+            target/speakers/runs
+            target/speakers/suite.json
+            target/speakers/suite.md
+            target/speakers/audio/*.ref.json

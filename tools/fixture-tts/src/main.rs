@@ -23,6 +23,9 @@ mod phone;
 
 const OUT_RATE: i32 = 16_000;
 
+/// The `--room` reverb and noise are the same on every run.
+const ROOM_SEED: u64 = 41;
+
 /// Speaker ids of kokoro-en-v0_19.
 const VOICES: &[&str] = &[
     "af",
@@ -69,6 +72,19 @@ struct Args {
     /// Speakerphone scripts: override the phone voice's level (dB re the vet).
     #[arg(long)]
     phone_level: Option<f32>,
+    /// Everyone in a room heard by one computer microphone (a laptop's own):
+    /// each line gets the room's reverb at this direct-to-reverberant ratio
+    /// (dB; 0 is as much echo as voice), and light background noise runs
+    /// under the mix. Scripts with `phone:` keep their own room.
+    #[arg(long)]
+    room: Option<f32>,
+    /// With --room: the background noise relative to the voices, in dB.
+    #[arg(long, default_value_t = -45.0)]
+    room_noise: f32,
+    /// Voice a speaker with another Kokoro voice, `role=voice` (for example
+    /// `client=bf_isabella`, two similar voices). Repeatable.
+    #[arg(long = "voice", value_parser = parse_voice)]
+    voices: Vec<(String, String)>,
     scripts: Vec<PathBuf>,
 }
 
@@ -87,6 +103,15 @@ struct Script {
 
 fn default_pause() -> f32 {
     0.6
+}
+
+/// `role=voice`, a Kokoro voice.
+fn parse_voice(s: &str) -> Result<(String, String), String> {
+    let (role, voice) = s.split_once('=').ok_or("expected role=voice, for example client=bf_isabella")?;
+    if !VOICES.contains(&voice) {
+        return Err(format!("unknown voice {voice}: one of {}", VOICES.join(", ")));
+    }
+    Ok((role.trim().to_string(), voice.to_string()))
 }
 
 #[derive(Serialize)]
@@ -132,8 +157,13 @@ fn main() -> Result<()> {
 
 fn render(tts: &OfflineTts, resampler: &LinearResampler, path: &Path, args: &Args) -> Result<()> {
     let out_dir = args.out.as_path();
-    let script: Script = serde_yaml_ng::from_str(&std::fs::read_to_string(path)?)
+    let mut script: Script = serde_yaml_ng::from_str(&std::fs::read_to_string(path)?)
         .with_context(|| format!("parsing {}", path.display()))?;
+    for (role, voice) in &args.voices {
+        if let Some(v) = script.speakers.get_mut(role) {
+            *v = voice.clone();
+        }
+    }
     // Voice every line first: a speakerphone mix needs the vet's level.
     let mut voiced: Vec<Vec<f32>> = Vec::new();
     for (speaker, text) in &script.lines {
@@ -163,9 +193,15 @@ fn render(tts: &OfflineTts, resampler: &LinearResampler, path: &Path, args: &Arg
     // What the room mic hears of each line (the dry line without `phone:`),
     // which may ring on past the line's end (reverb).
     let phone = if args.no_phone { None } else { script.phone.clone() };
-    let heard: Vec<Vec<f32>> = match &phone {
-        None => voiced.clone(),
-        Some(spec) => {
+    let heard: Vec<Vec<f32>> = match (&phone, args.room) {
+        // Everyone at a similar distance from the computer's microphone.
+        (None, Some(drr)) => voiced
+            .iter()
+            .enumerate()
+            .map(|(i, line)| phone::in_room(line, drr, ROOM_SEED + i as u64))
+            .collect(),
+        (None, None) => voiced.clone(),
+        (Some(spec), _) => {
             let level_db = args.phone_level.unwrap_or(spec.level_db);
             if !script.speakers.contains_key(&spec.speaker) {
                 bail!("phone speaker {} isn't one of the script's speakers", spec.speaker);
@@ -205,8 +241,12 @@ fn render(tts: &OfflineTts, resampler: &LinearResampler, path: &Path, args: &Arg
     let mut samples: Vec<f32> = Vec::new();
     let mut reference = Vec::new();
     let pause = (args.pause.unwrap_or(script.pause_secs) * OUT_RATE as f32) as usize;
+    // --room: the next line can start while this one's echo still rings (a
+    // short pause stays short). The speakerphone mix keeps its own rule.
+    let ring_on = phone.is_none() && args.room.is_some();
+    let mut next_at = 0usize;
     for (((speaker, text), line), dry) in script.lines.iter().zip(&heard).zip(&voiced) {
-        let at = samples.len();
+        let at = if ring_on { next_at } else { samples.len() };
         let start = at as f32 / OUT_RATE as f32;
         let end = (at + dry.len()) as f32 / OUT_RATE as f32;
         reference.push(RefLine { speaker, start, end, text });
@@ -215,8 +255,21 @@ fn render(tts: &OfflineTts, resampler: &LinearResampler, path: &Path, args: &Arg
             *s += x;
         }
         // The next line starts a pause after this one's dry end.
-        samples.resize(samples.len().max(at + dry.len() + pause), 0.0);
-        samples.truncate(at + dry.len() + pause.max(line.len().saturating_sub(dry.len())));
+        next_at = at + dry.len() + pause;
+        samples.resize(samples.len().max(next_at), 0.0);
+        if !ring_on {
+            samples.truncate(at + dry.len() + pause.max(line.len().saturating_sub(dry.len())));
+        }
+    }
+    if phone.is_none() && args.room.is_some() {
+        let all: Vec<&[f32]> = voiced.iter().map(Vec::as_slice).collect();
+        let level = phone::rms_of(&all) * 10f32.powf(args.room_noise / 20.0);
+        let noise = phone::room_noise(samples.len(), level, ROOM_SEED);
+        samples.iter_mut().zip(noise).for_each(|(s, n)| *s += n);
+        let peak = samples.iter().fold(0.0f32, |m, x| m.max(x.abs()));
+        if peak > 0.98 {
+            samples.iter_mut().for_each(|s| *s *= 0.98 / peak);
+        }
     }
     if let Some(spec) = &phone {
         let vet: Vec<&[f32]> = voiced
