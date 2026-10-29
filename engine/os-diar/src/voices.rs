@@ -378,7 +378,7 @@ mod tests {
 
     /// A unit vector near axis `axis` of 8, nudged by `jitter` along the next.
     fn unit(axis: usize, jitter: f32) -> Vec<f32> {
-        let mut v = vec![0.0f32; 8];
+        let mut v = [0.0f32; 8];
         v[axis] = 1.0;
         v[(axis + 1) % 8] = jitter;
         let n = v.iter().map(|x| x * x).sum::<f32>().sqrt();
