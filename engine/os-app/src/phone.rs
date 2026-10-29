@@ -738,7 +738,8 @@ impl App {
             s.set_call(call)?;
         }
         self.link_visit(&mut s)?;
-        tracing::info!(visit = %id, ?outcome, "call recording deleted");
+        // Never the visit id: its folder name carries the patient's name.
+        tracing::info!(?outcome, "call recording deleted");
         Ok(crate::view(&s, None))
     }
 

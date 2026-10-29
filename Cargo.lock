@@ -4056,6 +4056,7 @@ dependencies = [
  "sysinfo",
  "tempfile",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

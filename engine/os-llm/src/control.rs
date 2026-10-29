@@ -58,6 +58,11 @@ impl Control {
         self.0.cancelled.load(Ordering::SeqCst)
     }
 
+    /// `other` is a clone of this control.
+    pub fn same(&self, other: &Control) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+
     /// Tell the observer, if any, where the generation is.
     pub fn report(&self, phase: Phase) {
         if let Some(observer) = &self.0.observer {

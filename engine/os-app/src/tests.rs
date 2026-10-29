@@ -816,6 +816,9 @@ mod templates;
 #[path = "tests/phone.rs"]
 mod phone;
 
+#[path = "tests/drafting.rs"]
+mod drafting;
+
 /// A tooth chart edit (ADR-0021 decision 4): with no species entered, the vet
 /// chooses dog or cat in the chart editor; that choice goes into the new run's
 /// template snapshot, a second, different choice is refused, and a tooth the
