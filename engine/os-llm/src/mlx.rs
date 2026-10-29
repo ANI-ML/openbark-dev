@@ -720,9 +720,22 @@ fn run_generate(
         match ev {
             Event::Progress { prompt_done, prompt_total, .. } => {
                 tracing::trace!(prompt_done, prompt_total, "MLX worker reading the prompt");
+                if let Some(c) = &request.control {
+                    c.report(crate::Phase::Prompt { done: prompt_done, total: prompt_total });
+                    // Stop pressed while the prompt is read: no token will come to stop at.
+                    if c.is_cancelled() && !cancelled {
+                        cancelled = true;
+                        w.send(&Request::Cancel { id }).map_err(Err)?;
+                    }
+                }
             }
             Event::Token { text, .. } => {
                 if cancelled {
+                    continue;
+                }
+                if request.control.as_ref().is_some_and(crate::Control::is_cancelled) {
+                    cancelled = true;
+                    w.send(&Request::Cancel { id }).map_err(Err)?;
                     continue;
                 }
                 // The app is quitting (crate::shutdown): don't hold it up.
@@ -745,6 +758,9 @@ fn run_generate(
                     finish = ?finish,
                     "MLX generation finished"
                 );
+                if request.control.as_ref().is_some_and(crate::Control::is_cancelled) {
+                    return Err(Ok(LlmError::Cancelled));
+                }
                 let stopped_early = cancelled || finish == Finish::Cancelled;
                 return Ok(GenerateOutput {
                     text: if cancelled { streamed } else { text },

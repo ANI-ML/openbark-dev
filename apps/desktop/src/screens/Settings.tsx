@@ -26,6 +26,7 @@ import { DeletedVisits } from "../components/DeletedVisits";
 import { MicCheck } from "../components/MicCheck";
 import { PhoneDrafting } from "../components/PhoneDrafting";
 import { PhoneSettings } from "../components/PhoneSettings";
+import { CopyDiagnostics } from "../components/CopyDiagnostics";
 import { StorageSection } from "../components/StorageSection";
 import { SyncSection } from "../components/SyncSection";
 import { TeamSettings } from "../components/TeamSettings";
@@ -637,6 +638,7 @@ function SectionBody({ section }: { section: SettingsSection }) {
               ? t("Running locally. Encrypted sync is on: only encrypted copies of transcripts and notes leave this device, never recordings.")
               : t("Running locally. Nothing leaves this device.")}
           </p>
+          <CopyDiagnostics />
         </section>
       );
   }

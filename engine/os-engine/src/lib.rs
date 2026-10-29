@@ -85,6 +85,13 @@ pub enum EngineError {
     Template(String),
     #[error("model output is not valid JSON: {0}")]
     BadJson(String),
+    /// The draft reached its token budget before it was finished. Worded as
+    /// before so the eval's failure lines stay comparable.
+    #[error("model output is not valid JSON: {0} (output hit max_tokens)")]
+    RanOut(String),
+    /// The model started repeating itself and drafting was stopped early.
+    #[error("the note model started repeating itself")]
+    Repeating,
     #[error("model output does not match the template schema: {0}")]
     SchemaViolation(String),
     #[error("transcript is empty: no speech was recognised")]

@@ -5,6 +5,7 @@
 - Deciders: product owner (asked that every user get the speed their hardware allows, on Apple, NVIDIA, AMD or other graphics cards and on every operating system), engineering
 - Amends: ADR-0014 decisions 1 (thread counts) and 6 (Linux deferred). Leaves ADR-0009 (MLX only after measurement) standing.
 - Plan: [docs/plans/acceleration.md](../plans/acceleration.md)
+- Amended by: [ADR-0030](0030-drafting-on-weak-computers.md) (0.2.3): with only integrated graphics under Vulkan the note model runs on the processor until measurements here say otherwise; the hardware probe prefers a dedicated graphics card; the note model's threads follow the physical cores.
 
 ## Context
 

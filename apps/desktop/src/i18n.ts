@@ -93,6 +93,13 @@ export function withoutContext(text: string): string {
 export function hardwareLine(t: T, hw: Hardware | null | undefined): string {
   if (!hw) return "";
   const gb = (bytes: number) => Math.round(bytes / 1e9);
+  // Integrated graphics the note model doesn't use (ADR-0030).
+  if (hw.gpu && hw.gpu_integrated && hw.llm_gpu_layers === 0) {
+    return t("{gb} GB memory, {gpu} (integrated graphics, notes are written on the processor)", {
+      gb: gb(hw.ram_bytes),
+      gpu: hw.gpu,
+    });
+  }
   return hw.gpu
     ? t("{gpu}, {gb} GB graphics memory", { gpu: hw.gpu, gb: gb(hw.gpu_memory_bytes ?? 0) })
     : t("{gb} GB memory, no supported graphics card", { gb: gb(hw.ram_bytes) });

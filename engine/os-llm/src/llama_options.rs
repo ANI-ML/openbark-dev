@@ -9,8 +9,11 @@ pub struct LlamaCppOptions {
     pub gpu_layers: u32,
     /// Prompt-processing batch size.
     pub batch_size: u32,
-    /// CPU threads; `None` lets llama.cpp decide.
+    /// CPU threads for writing (one token at a time); `None` lets llama.cpp
+    /// decide (4, whatever the processor).
     pub threads: Option<i32>,
+    /// CPU threads for reading the prompt; `None` uses `threads`.
+    pub threads_batch: Option<i32>,
     /// Upper bound for per-request context; the model's trained length caps it.
     pub max_context: u32,
 }
@@ -22,6 +25,7 @@ impl LlamaCppOptions {
             gpu_layers: u32::MAX,
             batch_size: 2048,
             threads: None,
+            threads_batch: None,
             max_context: 32_768,
         }
     }

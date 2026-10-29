@@ -22,6 +22,7 @@ import { PatientFields } from "../components/PatientFields";
 import { PatientPicker } from "../components/PatientPicker";
 import { ProcessingBar } from "../components/ProcessingBar";
 import { SetupPanel } from "../components/SetupPanel";
+import { NoteModelAdvice } from "../components/NoteModelAdvice";
 import { TranscriptList } from "../components/TranscriptList";
 import { PHONE, useMediaQuery } from "../useMediaQuery";
 import { animalFamily, draftsOnThisDevice, inWhen, isIos, needsYou } from "../visits";
@@ -153,6 +154,15 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
   }, [phone, state]);
 
   const missing = app.status?.models.filter((m) => !m.installed) ?? [];
+
+  // A computer whose note model may not fit its memory: suggest the smaller
+  // one here too, where drafting starts (ADR-0030). Nothing changes by itself.
+  const [modelRows, setModelRows] = useState<engine.ModelRow[] | null>(null);
+  const statusLoaded = Boolean(app.status);
+  useEffect(() => {
+    if (!statusLoaded || phone) return;
+    engine.models().then(setModelRows, () => {});
+  }, [statusLoaded, phone, app.settings.llm]);
 
   // Load the speech models while the screen is open, so Record starts at
   // once; give the memory back when it closes.
@@ -513,6 +523,9 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
 
   const alerts = (
     <>
+      {state === "idle" && missing.length === 0 && (
+        <NoteModelAdvice rows={modelRows} onOpenModels={() => app.navigate({ screen: "models" })} />
+      )}
       {error && (
         <p className="ob-notice" data-tone="danger" role="alert">
           {t(error)}

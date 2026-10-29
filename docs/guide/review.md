@@ -8,6 +8,8 @@ On a computer the transcript, with the recording's player above it, is on the le
 
 On a phone, switch between them with **Note** and **Transcript**. **Ask for changes** and **Copy note** are at the bottom, and **More** is at the top right. Tap a line of the note to see what was said, with **Play this moment**.
 
+While a note is drafted, a board shows each step: loading the note model (the first draft after opening OpenBark), **Reading the transcript** (how much has been read, and about how long is left at this computer's speed), **Writing note…** (the heading being written, and how many tokens a second), then checking every number. **Stop** ends the draft; nothing is saved and earlier drafts are kept. If the model writes nothing for a minute while writing, the board says it may be stuck: choose **Stop** and draft again, or see [Troubleshooting](troubleshooting.md).
+
 ## Check the draft against the recording
 
 - **Rest on any line** of the note: the transcript lines it came from light up. **Click it** to play that moment of the recording.

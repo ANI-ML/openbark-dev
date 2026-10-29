@@ -131,6 +131,23 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status?.profile, status?.default_llm]);
 
+  // A computer starts with the note model that fits its memory (ADR-0030):
+  // Gemma 4 E4B, or E2B where E4B won't fit. Only a setting still on the old
+  // default whose model was never downloaded follows it; a computer that
+  // already drafts with E4B keeps it (Models and Record suggest switching).
+  useEffect(() => {
+    if (!status || status.profile === "ios" || !status.default_llm) return;
+    if (settings.llm !== "gemma-4-e4b-it-q4_0" || status.default_llm === settings.llm) return;
+    const wanted = status.default_llm;
+    engine.models().then(
+      (rows) => {
+        if (!rows.some((r) => r.id === "gemma-4-e4b-it-q4_0" && r.installed)) setSettings({ llm: wanted });
+      },
+      () => {},
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status?.profile, status?.default_llm]);
+
   useEffect(() => {
     refreshStatus();
     const off = engine.on("level", (l) => levels.push(l.level));
