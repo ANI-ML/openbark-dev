@@ -2,9 +2,20 @@
 
 All notable changes to OpenBark, newest first. Generated from `website/content/history.json` by `scripts/website-build.py`; edit that file, not this one. The same history is on the website's Version history page.
 
-## 0.2.3 (beta)
+## 0.2.4 (beta)
 
 ### Beta: Ready for clinics to try
+
+#### 2026-10-29: Drug names heard in context, your clinic's own words, and Speakers in the room
+
+After a clinic heard "Apoquel" written as "apple": drug names are suggested when a drug is being discussed, from a much larger list, and you can add your own. The transcript itself is never changed.
+
+- Drug names suggested from context: when a dose, a unit or another drug is nearby, a known mishearing like "apple" is offered as Apoquel for you to confirm. "She ate an apple" gets no suggestion.
+- About 3,200 brand names from government drug registers (US FDA, UK VMD, Health Canada, Australia's APVMA and the EU's EMA), credited in Settings, About.
+- Settings, Words and drug names: add your clinic's own drug and product names, and the words they tend to be heard as. In a team, an admin approves with their PIN.
+- Fewer wrong suggestions: everyday words like "certainly" or "rabbits" are no longer flagged as drug names.
+- The second listen follows the app's language, and re-hears any part of the visit where a drug is being discussed.
+- Speakers in the room (Auto, 2, 3 or 4) on the Record screen. Choosing 2 for a vet and a client gave the clearest labels in our tests. Speaker labels are labelled again from every voice when recording stops. (being tested)
 
 #### 2026-10-29: Drafting that finishes on slower computers, with a Stop button
 

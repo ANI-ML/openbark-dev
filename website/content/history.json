@@ -1,6 +1,6 @@
 {
   "_about": "Version history shown on history.html and written to CHANGELOG.md by scripts/website-build.py. Major changes only, newest first: a handful of items per milestone, each one a change a clinic would notice. Items marked 'testing' are built but not yet proven on real devices.",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "stage": "Beta",
   "next": [
     {"text": "OpenBark for iPhone on the App Store, after testing on real phones in clinics."},
@@ -15,6 +15,19 @@
       "name": "Beta",
       "tagline": "Ready for clinics to try",
       "entries": [
+        {
+          "date": "2026-10-29",
+          "title": "Drug names heard in context, your clinic's own words, and Speakers in the room",
+          "summary": "After a clinic heard \"Apoquel\" written as \"apple\": drug names are suggested when a drug is being discussed, from a much larger list, and you can add your own. The transcript itself is never changed.",
+          "items": [
+            {"text": "Drug names suggested from context: when a dose, a unit or another drug is nearby, a known mishearing like \"apple\" is offered as Apoquel for you to confirm. \"She ate an apple\" gets no suggestion.", "status": "shipped"},
+            {"text": "About 3,200 brand names from government drug registers (US FDA, UK VMD, Health Canada, Australia's APVMA and the EU's EMA), credited in Settings, About.", "status": "shipped"},
+            {"text": "Settings, Words and drug names: add your clinic's own drug and product names, and the words they tend to be heard as. In a team, an admin approves with their PIN.", "status": "shipped"},
+            {"text": "Fewer wrong suggestions: everyday words like \"certainly\" or \"rabbits\" are no longer flagged as drug names.", "status": "shipped"},
+            {"text": "The second listen follows the app's language, and re-hears any part of the visit where a drug is being discussed.", "status": "shipped"},
+            {"text": "Speakers in the room (Auto, 2, 3 or 4) on the Record screen. Choosing 2 for a vet and a client gave the clearest labels in our tests. Speaker labels are labelled again from every voice when recording stops.", "status": "testing"}
+          ]
+        },
         {
           "date": "2026-10-29",
           "title": "Drafting that finishes on slower computers, with a Stop button",
