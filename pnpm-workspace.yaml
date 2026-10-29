@@ -32,7 +32,7 @@ catalog:
   # Motion for React (MIT): exit and layout animations in the app only
   # (docs/plans/design-motion.md). 14.1.0 is the newest release at least
   # 7 days old on 2026-10-19; the website ships no JS animation library.
-  motion: 14.1.0
+  motion: 14.3.0
 
 # pnpm 11: dependency build scripts are denied unless allowed here.
 allowBuilds:
