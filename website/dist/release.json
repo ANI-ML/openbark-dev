@@ -1,11 +1,11 @@
 {
   "product": "OpenBark",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "published": true,
   "date": "2026-10-29",
-  "download_base": "https://github.com/ANI-ML/openbark-releases/releases/download/v0.2.3",
-  "all": "https://github.com/ANI-ML/openbark-releases/releases/tag/v0.2.3",
-  "notes": "https://github.com/ANI-ML/openbark-releases/releases/tag/v0.2.3",
+  "download_base": "https://github.com/ANI-ML/openbark-releases/releases/download/v0.2.4",
+  "all": "https://github.com/ANI-ML/openbark-releases/releases/tag/v0.2.4",
+  "notes": "https://github.com/ANI-ML/openbark-releases/releases/tag/v0.2.4",
   "app_store": null,
   "files": {
     "windows": [
