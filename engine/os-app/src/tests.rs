@@ -1481,11 +1481,11 @@ fn a_computer_keeps_every_model_and_its_defaults() {
     let status = app.status();
     assert_eq!(status.profile, Profile::Desktop);
     assert_eq!(status.mobile_tier, None);
-    assert_eq!(status.default_llm, os_engine::models::DEFAULT_LLM);
-    assert!(
-        status.models.iter().any(|m| m.id == os_engine::models::DEFAULT_LLM),
-        "drafting is set up at start"
-    );
+    // E4B unless it won't fit this computer, then E2B (ADR-0030).
+    let e4b = os_models::Catalog::builtin().get(policy::E4B).unwrap().total_size();
+    let expected = policy::default_note_model(e4b, app.hardware.gpu_memory_bytes, app.hardware.ram_bytes);
+    assert_eq!(status.default_llm, expected);
+    assert!(status.models.iter().any(|m| m.id == expected), "drafting is set up at start");
     let rows = app.models();
     assert!(rows.iter().any(|r| r.id == "gemma-4-12b-it-q4_0"));
     assert!(rows.iter().any(|r| r.id == "whisper-large-v3-turbo-int8"));

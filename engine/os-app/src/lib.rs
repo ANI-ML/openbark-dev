@@ -52,6 +52,7 @@ mod clinic_hub;
 pub mod demo;
 mod mic;
 mod phone;
+pub mod policy;
 mod sync;
 mod templates;
 pub use clinic_hub::{hub_dir, hub_inspect};
@@ -357,9 +358,21 @@ pub struct App {
 #[derive(Debug, Clone, Serialize)]
 pub struct Hardware {
     pub gpu: Option<String>,
+    /// The graphics memory the fit check counts: `None` when there is no
+    /// graphics card, or only integrated graphics the note model doesn't use.
     pub gpu_memory_bytes: Option<u64>,
     pub ram_bytes: u64,
     pub summary: String,
+    /// `gpu` is integrated graphics (sharing the processor's memory).
+    pub gpu_integrated: bool,
+    /// Layers of the note model on the graphics card: `None` all (or
+    /// llama.cpp's choice), 0 the processor only ([`policy::gpu_layers`]).
+    pub llm_gpu_layers: Option<u32>,
+    /// Physical and logical processor cores, and the note model's threads
+    /// ([`policy::llm_threads`]).
+    pub cpu_cores: Option<usize>,
+    pub cpu_threads: usize,
+    pub llm_threads: Option<i32>,
 }
 
 /// A phone (ADR-0018 section 10) says how much memory it has, which decides
@@ -375,17 +388,40 @@ fn on_this_device(mut hardware: Hardware) -> Hardware {
 fn probe_hardware() -> Hardware {
     let mut sys = sysinfo::System::new();
     sys.refresh_memory();
-    let gpu = os_llm::devices().into_iter().find(|d| d.backend != "CPU");
+    let devices = os_llm::devices();
+    let gpu = policy::main_gpu(&devices).cloned();
+    let layers = policy::gpu_layers(&devices, std::env::var(policy::GPU_LAYERS_ENV).ok().as_deref());
     let ram = sys.total_memory();
-    let summary = match &gpu {
-        Some(g) => format!("{}, {:.0} GB graphics memory", g.description, g.memory_total_bytes as f64 / 1e9),
-        None => format!("{:.0} GB memory, no supported graphics card", ram as f64 / 1e9),
+    // Integrated graphics the note model doesn't use: the fit check counts
+    // the computer's memory instead (ADR-0030).
+    let on_gpu = gpu.as_ref().filter(|_| layers != Some(0));
+    let summary = match (&gpu, on_gpu) {
+        (Some(g), Some(_)) => {
+            format!("{}, {:.0} GB graphics memory", g.description, g.memory_total_bytes as f64 / 1e9)
+        }
+        (Some(g), None) => format!(
+            "{:.0} GB memory, {} (integrated graphics, notes are written on the processor)",
+            ram as f64 / 1e9,
+            g.description
+        ),
+        (None, _) => format!("{:.0} GB memory, no supported graphics card", ram as f64 / 1e9),
     };
+    let cpu_threads = std::thread::available_parallelism().map_or(0, |n| n.get());
+    let cpu_cores = sysinfo::System::physical_core_count();
     Hardware {
         gpu: gpu.as_ref().map(|g| g.description.clone()),
-        gpu_memory_bytes: gpu.map(|g| g.memory_total_bytes),
+        gpu_memory_bytes: on_gpu.map(|g| g.memory_total_bytes),
         ram_bytes: ram,
         summary,
+        gpu_integrated: gpu.as_ref().is_some_and(|g| g.integrated),
+        llm_gpu_layers: layers,
+        cpu_cores,
+        cpu_threads,
+        llm_threads: policy::llm_threads(
+            cpu_cores,
+            cpu_threads,
+            std::env::var(policy::THREADS_ENV).ok().as_deref(),
+        ),
     }
 }
 
@@ -1180,12 +1216,17 @@ pub fn install_mlx_pack(store: &ModelStore, progress: &mut dyn FnMut(u64, u64)) 
 /// computer) or a path to a `.gguf` file: llama.cpp for GGUF, the MLX
 /// worker for MLX folders (ADR-0025). Refuses a model that can't be held to
 /// a JSON Schema: every draft is constrained (ADR-0006).
+///
+/// `gpu_layers`: layers on the graphics card; `None` follows
+/// [`policy::gpu_layers`] (the processor when there are only integrated
+/// graphics under Vulkan). Threads follow [`policy::llm_threads`].
 pub fn open_llm(store: &ModelStore, spec: &str, gpu_layers: Option<u32>) -> Result<Arc<dyn LlmBackend>> {
     let llama = |path: PathBuf| -> Result<Arc<dyn LlmBackend>> {
         let mut options = LlamaCppOptions::new(path);
-        if let Some(layers) = gpu_layers {
+        if let Some(layers) = gpu_layers.or_else(policy::gpu_layers_here) {
             options.gpu_layers = layers;
         }
+        options.threads = policy::threads_here();
         Ok(Arc::new(LlamaCppBackend::load(options)?))
     };
     let (name, backend) = if spec.to_ascii_lowercase().ends_with(".gguf") && Path::new(spec).is_file() {
@@ -1445,13 +1486,14 @@ impl App {
 
     pub fn status(&self) -> Status {
         let catalog = os_models::Catalog::builtin();
-        let models = os_engine::models::required_status_for(&self.store, Profile::current())
-            .into_iter()
-            .map(|(id, name, installed)| {
-                let bundled = catalog.get(&id).is_some_and(|m| self.store.is_bundled(m));
-                ModelStatus { id, name, installed, bundled }
-            })
-            .collect();
+        let models =
+            os_engine::models::required_status_with(&self.store, Profile::current(), &self.required_llm())
+                .into_iter()
+                .map(|(id, name, installed)| {
+                    let bundled = catalog.get(&id).is_some_and(|m| self.store.is_bundled(m));
+                    ModelStatus { id, name, installed, bundled }
+                })
+                .collect();
         Status {
             product: os_engine::PRODUCT_NAME,
             version: env!("CARGO_PKG_VERSION"),
@@ -1480,13 +1522,33 @@ impl App {
         })
     }
 
-    /// The default note model for this device.
+    /// The default note model for this device: on a computer, Gemma 4 E4B
+    /// unless it won't fit this computer's memory, then Gemma 4 E2B
+    /// ([`policy::default_note_model`]).
     pub fn default_llm(&self) -> String {
         match self.phone_tier() {
             Some(Some(t)) => t.default_llm.to_string(),
             Some(None) => String::new(),
-            None => os_engine::models::DEFAULT_LLM.to_string(),
+            None => {
+                let e4b = os_models::Catalog::builtin().get(policy::E4B).map_or(0, |m| m.total_size());
+                policy::default_note_model(e4b, self.hardware.gpu_memory_bytes, self.hardware.ram_bytes)
+                    .to_string()
+            }
         }
+    }
+
+    /// The note model setup asks for on a computer: the default, unless the
+    /// other built-in note model is already downloaded. An install that
+    /// already drafts with E4B is never sent to download E2B; the Models and
+    /// Record screens suggest switching instead.
+    fn required_llm(&self) -> String {
+        let default = self.default_llm();
+        let catalog = os_models::Catalog::builtin();
+        let installed = |id: &str| catalog.get(id).is_some_and(|m| self.store.is_installed(m, Verify::Size));
+        if installed(&default) {
+            return default;
+        }
+        [policy::E4B, policy::E2B].into_iter().find(|id| installed(id)).map_or(default, str::to_string)
     }
 
     /// Why a note model can't be used on this phone, if it can't.

@@ -97,6 +97,8 @@ pub struct ComputeDevice {
     pub description: String,
     pub backend: String,
     pub memory_total_bytes: u64,
+    /// Integrated graphics, sharing the processor's memory (ggml's IGPU type).
+    pub integrated: bool,
 }
 
 /// Devices visible to the compiled llama.cpp backends (CUDA, Metal, Vulkan, CPU).
@@ -116,6 +118,7 @@ pub fn devices() -> Vec<ComputeDevice> {
             description: d.description,
             backend: d.backend,
             memory_total_bytes: d.memory_total as u64,
+            integrated: d.device_type == llama_cpp_2::LlamaBackendDeviceType::IntegratedGpu,
         })
         .collect()
 }
