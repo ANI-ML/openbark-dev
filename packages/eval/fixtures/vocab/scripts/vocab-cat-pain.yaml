@@ -1,0 +1,18 @@
+# Synthetic consult snippet: written for OpenBark's vocabulary eval; not a real patient.
+id: vocab-cat-pain
+title: Older cat, Solensia and Metacam
+species: feline
+speakers:
+  dvm: bf_emma
+  client: am_michael
+pause_secs: 0.5
+lines:
+  - [client, "She's certainly not jumping onto the bed any more. It's a lot of silence at night now, no more racing around."]
+  - [dvm, "That's typical of arthritis in cats. Solensia is a monthly injection for that pain, and I'd give the first one today."]
+  - [dvm, "Her kidney values are normal, so for the next few days you can also give Metacam, point five milligrams once a day by mouth."]
+expected:
+  medications:
+    - { drug: metacam, dose: "0.5" }
+  must_mention: [solensia]
+vocab:
+  drugs: [solensia, metacam]

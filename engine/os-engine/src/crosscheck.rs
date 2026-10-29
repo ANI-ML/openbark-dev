@@ -65,10 +65,15 @@ const CLINICAL_ENDINGS: &[&str] = &[
     "coxib", "pine", "zine", "done", "olone", "sone", "mide",
 ];
 
-/// Does this segment merit a second recogniser? Numbers, existing hints, or
-/// words that look like drug or condition names.
+/// Does this segment merit a second recogniser? Numbers, existing hints,
+/// words that look like drug or condition names, or talk about medication
+/// ("give", "twice a day", "for itch"), where a brand name may have been
+/// heard as an ordinary word ("apple" for Apoquel).
 pub fn worth_checking(segment: &Segment) -> bool {
-    if !numbers(&segment.text).is_empty() || !segment.hints.is_empty() {
+    if !numbers(&segment.text).is_empty()
+        || !segment.hints.is_empty()
+        || crate::vocab::has_drug_cue(&segment.text)
+    {
         return true;
     }
     segment.text.split(|c: char| !c.is_alphabetic()).any(|w| {
@@ -78,7 +83,9 @@ pub fn worth_checking(segment: &Segment) -> bool {
 }
 
 /// Hints from the second reading: lexicon terms it heard that the primary
-/// text lacks, attached to the primary word that most resembles them.
+/// text lacks, attached to the primary word that most resembles them, or
+/// else to the word standing in the same place between words both readings
+/// share ("start apple sixteen" against "start Apoquel 16").
 pub fn second_opinion_hints(lexicon: &Lexicon, primary: &str, second: &str) -> Vec<Hint> {
     let primary_lower = primary.to_lowercase();
     lexicon
@@ -86,11 +93,9 @@ pub fn second_opinion_hints(lexicon: &Lexicon, primary: &str, second: &str) -> V
         .into_iter()
         .filter(|term| !primary_lower.contains(term.as_str()))
         .filter_map(|term| {
-            lexicon.closest_word(primary, &term).map(|heard| Hint {
-                heard,
-                likely: vec![term],
-                kind: "second recogniser".into(),
-            })
+            let heard =
+                lexicon.closest_word(primary, &term).or_else(|| lexicon.aligned_word(primary, second, &term));
+            heard.map(|heard| Hint { heard, likely: vec![term], kind: "second recogniser".into() })
         })
         .collect()
 }
@@ -133,6 +138,9 @@ mod tests {
         assert!(worth_checking(&seg("The artitis has resolved")));
         assert!(worth_checking(&seg("send home some mirtazapine")));
         assert!(!worth_checking(&seg("That's a relief, thank you so much.")));
+        // A brand heard as an ordinary word, in talk about medication.
+        assert!(worth_checking(&seg("We'll put her on apple for the itch")));
+        assert!(!worth_checking(&seg("She ate an apple this morning")));
     }
 
     #[test]
@@ -147,5 +155,19 @@ mod tests {
         assert_eq!(h[0].heard, "artitis");
         assert_eq!(h[0].likely, vec!["otitis"]);
         assert!(second_opinion_hints(&lex, "Give maropitant now.", "Give maropitant now.").is_empty());
+    }
+
+    #[test]
+    fn a_brand_heard_as_another_word_is_placed_by_its_neighbours() {
+        let lex = Lexicon::load(None);
+        let h = second_opinion_hints(
+            &lex,
+            "Start apple sixteen milligrams twice a day.",
+            "Start Apoquel 16 milligrams twice a day.",
+        );
+        assert_eq!(h.len(), 1, "{h:?}");
+        assert_eq!((h[0].heard.as_str(), h[0].likely[0].as_str()), ("apple", "apoquel"));
+        // Nothing in the same place: no hint.
+        assert!(second_opinion_hints(&lex, "Thank you so much.", "Apoquel.").is_empty());
     }
 }

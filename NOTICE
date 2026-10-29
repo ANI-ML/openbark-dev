@@ -85,4 +85,14 @@ each under its own license (full license texts are in the respective projects):
 - Other Rust crates and npm packages, under MIT, Apache-2.0, BSD or similar
   permissive licenses, as listed in Cargo.lock and pnpm-lock.yaml.
 
+Data shipped inside the app: veterinary drug names from public regulatory
+datasets (US FDA Green Book, public domain; UK VMD Product Information
+Database, Open Government Licence v3.0; Health Canada Drug Product Database,
+Open Government Licence - Canada; APVMA PubCRIS, CC BY 3.0 AU; names of
+veterinary medicines from the European Medicines Agency) and everyday English
+words from the SCOWL word lists. Their attribution and licences are in
+THIRD_PARTY_NOTICES, which ships with the app in licenses/vocabulary-data.txt
+(apps/desktop/public/licenses/vocabulary-data.txt), with SCOWL's notice in
+licenses/scowl-copyright.txt.
+
 Fonts bundled with the app: Manrope (Copyright 2019 The Manrope Project Authors) and JetBrains Mono (Copyright 2020 The JetBrains Mono Project Authors), both under the SIL Open Font License 1.1; see packages/ui/src/fonts/OFL.txt. Icons: Lucide (ISC License).

@@ -212,7 +212,7 @@ pub(crate) struct PendingUndo {
 const UNDO_FOR: Duration = Duration::from_secs(30 * 60);
 
 /// Who is looking, and how templates work for them.
-struct Ctx {
+pub(crate) struct Ctx {
     viewer: Viewer,
     user: Option<User>,
     who: Option<Who>,
@@ -280,7 +280,7 @@ impl App {
     }
 
     /// Changing anything: with a team, a team member must be chosen.
-    fn writer(&self, by: Option<&str>) -> Result<Ctx> {
+    pub(crate) fn writer(&self, by: Option<&str>) -> Result<Ctx> {
         let ctx = self.ctx(by)?;
         if ctx.mode != TemplatesMode::Alone && ctx.user.is_none() {
             return Err(AppError("Choose who you are first.".into()));
@@ -303,7 +303,7 @@ impl App {
 
     /// A change to the hospital's templates or settings: working alone,
     /// nothing to approve; with a team, an admin's PIN in this same call.
-    fn need_admin(&self, ctx: &Ctx, approver: Option<&Approver>) -> Result<Option<Who>> {
+    pub(crate) fn need_admin(&self, ctx: &Ctx, approver: Option<&Approver>) -> Result<Option<Who>> {
         if ctx.mode == TemplatesMode::Alone {
             return Ok(None);
         }

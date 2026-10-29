@@ -117,5 +117,22 @@ The recording keeps everything the microphone heard, even when a sentence didn't
 ## Tips for good transcripts
 
 - Put the computer or microphone between the people talking, not behind a monitor.
+- Use a headset, or a microphone close to the person speaking, if you can. A laptop's built-in microphone across the room catches drug names worst, more so with an accent.
 - Say numbers clearly: "thirty-nine point two degrees", "one milligram per kilo".
 - Name drugs as you would to a colleague. OpenBark suggests likely spellings for misheard drug names, but never changes what was heard.
+
+## Words and drug names
+
+Speech recognition knows everyday English best. A brand name it doesn't know can come out as an ordinary word: a clinic found "Apoquel" written as "apple". OpenBark shows a hint on that word in the transcript (a dotted underline with the likely name) and the note model reads the hint. The transcript itself is never changed.
+
+OpenBark already knows a few hundred terms written for it, a list of common mishearings ("apple" for Apoquel), and about three thousand brand and ingredient names from the public drug registers of the US, the UK, Canada, Australia and the EU (credited in **Settings → About**). Names from the registers, and mishearings of drug names, are hinted only when the talk around them is about medication: a dose, a unit, "give", "start him on", "twice a day", "for the itch", or another drug's name. "She ate an apple" gets no hint.
+
+To add your clinic's own names, open **Settings → Words and drug names**:
+
+1. Type the **word or name** (one or two words) and choose its **kind**: drug, vaccine, product, condition or procedure.
+2. If the transcript keeps writing it wrong, add what it writes under **Heard as**, separated by commas (for example `zen really a` for Zenrelia).
+3. Choose **Add**. In a team, an admin approves each change with their PIN, because the list is the whole hospital's.
+
+Changes apply from the next recording. The list is kept on this computer in `vocab.tsv` in OpenBark's data folder (on Windows `%LOCALAPPDATA%\OpenBark\vocab.tsv`; `OPENBARK_VOCAB` names another file).
+
+When the second speech recogniser is installed, segments where medication is discussed are heard twice. If it hears a known name where the first one heard something else, that becomes a hint too. It is told to expect the app's language (Settings → Language), so an accent isn't mistaken for another language.

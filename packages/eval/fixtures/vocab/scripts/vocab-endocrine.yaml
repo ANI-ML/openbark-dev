@@ -1,0 +1,18 @@
+# Synthetic consult snippet: written for OpenBark's vocabulary eval; not a real patient.
+id: vocab-endocrine
+title: Cushing's dog on Vetoryl, hypothyroid dog on Forthyron
+species: canine
+speakers:
+  dvm: am_adam
+  client: bf_emma
+pause_secs: 0.5
+lines:
+  - [dvm, "Her ACTH result is good, so we'll keep Vetoryl at thirty milligrams once a day in the morning with food."]
+  - [client, "And Biscuit's thyroid tablets?"]
+  - [dvm, "His level is still low. Increase the Forthyron to four hundred micrograms twice a day, and we'll recheck in four weeks."]
+expected:
+  medications:
+    - { drug: vetoryl, dose: "30" }
+    - { drug: forthyron, dose: "400" }
+vocab:
+  drugs: [vetoryl, forthyron]

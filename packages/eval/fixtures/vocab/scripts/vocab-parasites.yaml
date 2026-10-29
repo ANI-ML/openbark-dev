@@ -1,0 +1,18 @@
+# Synthetic consult snippet: written for OpenBark's vocabulary eval; not a real patient.
+id: vocab-parasites
+title: Puppy parasite prevention, Bravecto, Simparica, NexGard, Panacur
+species: canine
+speakers:
+  dvm: bm_lewis
+  client: af_nicole
+pause_secs: 0.5
+lines:
+  - [client, "We hike a lot, so ticks worry me. Bravo for asking about it, my last vet didn't."]
+  - [dvm, "For ticks and fleas, Bravecto is one chew every three months. Simparica Trio or NexGard Plus are monthly chews that also cover heartworm."]
+  - [dvm, "Her fecal showed roundworm eggs, so give Panacur, fifty milligrams per kilo once a day for three days."]
+expected:
+  medications:
+    - { drug: panacur, dose: "50", duration: "3" }
+  must_mention: [bravecto]
+vocab:
+  drugs: [bravecto, simparica, nexgard, panacur]

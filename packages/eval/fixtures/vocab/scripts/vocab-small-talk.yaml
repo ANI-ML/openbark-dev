@@ -1,0 +1,18 @@
+# Synthetic consult snippet: written for OpenBark's vocabulary eval; not a real patient.
+# No drugs at all: every hint here is a false hint.
+id: vocab-small-talk
+title: Wellness chat with ordinary words that resemble drug names
+species: canine
+speakers:
+  dvm: af_sarah
+  client: bm_lewis
+pause_secs: 0.5
+lines:
+  - [client, "She's certainly a happy girl. We found her at a shelter near the library, and she loves apples and bananas."]
+  - [dvm, "Bravo, she's a lovely weight. The rabbits in your garden won't hurt her, but keep her away from the cereal and the chocolate."]
+  - [client, "It's convenient that you're open on Saturdays. Should we continue the same food?"]
+  - [dvm, "Yes, continue the same food, and we'll see her next year for her annual visit."]
+expected:
+  must_mention: [library]
+vocab:
+  drugs: []

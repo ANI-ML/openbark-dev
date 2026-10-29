@@ -1,0 +1,22 @@
+# Synthetic consult snippet: written for OpenBark's vocabulary eval; not a real patient.
+# Simulated mishearings: the voice SAYS the words a recogniser wrote for a
+# brand name in the clinic report ("apple" for Apoquel), and the split forms
+# recognisers produce for unknown names. Text-to-speech can't reproduce an
+# accent, so this checks the hint path end to end instead.
+id: vocab-misheard
+title: Simulated mishearings of brand names
+species: canine
+speakers:
+  dvm: am_adam
+  client: af_bella
+pause_secs: 0.5
+lines:
+  - [dvm, "Let's start her on apple, sixteen milligrams twice a day for two weeks."]
+  - [dvm, "If that doesn't help, we can give cyto point, one injection a month."]
+  - [dvm, "For the pain, give meta cam once a day with food, and siren ya tablets for the nausea for two days."]
+  - [client, "She also stole an apple from the fruit bowl this morning."]
+expected:
+  must_mention: [apoquel]
+vocab:
+  drugs: [apoquel, cytopoint, metacam, cerenia]
+  simulated: true

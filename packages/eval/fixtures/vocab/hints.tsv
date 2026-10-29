@@ -1,0 +1,69 @@
+# OpenBark vocabulary eval, text only: transcript line<TAB>the drug that should be hinted, or "-" for none.
+# Written for OpenBark (Apache-2.0). Lines are the kind of thing speech recognition writes for a drug
+# name it doesn't know (a real word, a name split in two, a near spelling), and ordinary sentences
+# that must get no drug hint. Scored by the vocab.rs test `labelled_hint_set`.
+Let's start her on apple, sixteen milligrams twice a day.	apoquel
+We'll put him on apple kill for the itch.	apoquel
+Give a pickle, one tablet once a day with food.	apoquel
+Start apoquil at the usual dose.	apoquel
+We can give cyto point today for the itch.	cytopoint
+Give him the site of point injection every month.	cytopoint
+A psycho point injection lasts four to eight weeks.	cytopoint
+Start meta cam, point five milligrams once a day.	metacam
+Give medicam with food once a day for five days.	metacam
+Send home serenia tablets for the nausea.	cerenia
+Give siren ya, one tablet once a day for two days.	cerenia
+I'll give a con venia injection for the skin infection.	convenia
+Start libre la, the monthly injection, today.	librela
+Give the solentia injection once a month for the pain.	solensia
+Give silence ya once a month for her arthritis.	solensia
+Send home gallery plant, one hundred milligrams once a day.	galliprant
+Give gali prant once a day with food.	galliprant
+Start rim a dill, seventy five milligrams twice a day.	rimadyl
+Start vet medin, five milligrams twice a day before meals.	vetmedin
+Keep the vet oral at thirty milligrams once a day.	vetoryl
+Give pan a cure, fifty milligrams per kilo for three days.	panacur
+The brave ecto chew lasts three months for ticks.	bravecto
+Give next guard once a month with food.	nexgard
+Give heart guard once a month for heartworm.	heartgard
+Give the pro heart injection today; it lasts a year.	proheart
+Start gabby pentin, one hundred milligrams at night.	gabapentin
+Give car pro fen, seventy five milligrams twice a day.	carprofen
+Start marapitin at one milligram per kilo.	maropitant
+Send home myrtizepine ointment for the ear tips daily.	mirtazapine
+Give simply chef, one tablet once a day for ten days.	simplicef
+Start zen relia, twelve milligrams once a day.	zenrelia
+Give credo leo, one chewable tablet every month.	credelio
+Send home incurine, one tablet once a day.	incurin
+Start forthiron, four hundred micrograms twice a day.	forthyron
+Give vibravett, one tablet twice a day for two weeks.	vibravet
+Start miratas on the ear tips daily.	mirataz
+Give exolt with food once.	exzolt
+She ate an apple off the counter yesterday.	-
+An apple a week is fine as a treat.	-
+She's certainly a happy girl.	-
+We found her at a shelter near the library.	-
+Bravo, she's a lovely weight.	-
+The rabbits in the garden won't hurt her.	-
+Keep her away from the cereal and the chocolate.	-
+It's convenient that you're open on Saturdays.	-
+Should we continue the same food?	-
+He's a veteran of three moves.	-
+We tried to entice her with chicken.	-
+Her lactate was four point five.	-
+Flexion of the left fore is mildly positive.	-
+This is Doctor Lindqvist from the clinic.	-
+She loves romaine and cilantro.	-
+Let's start with the easy one first.	-
+Give me a call if anything changes.	-
+We'll send home a printed summary.	-
+The site of the incision looks clean.	-
+That's a simple plan, then.	-
+She had a sample taken last week.	-
+Their banana bread was a hit at the clinic party.	-
+He's on the second floor, next to the library.	-
+Give her a hug from us.	-
+The meta data and the cyto report came back.	-
+He was sick twice last night.	-
+I'd recommend a dental cleaning next year.	-
+Continue the same food and recheck in a month.	-

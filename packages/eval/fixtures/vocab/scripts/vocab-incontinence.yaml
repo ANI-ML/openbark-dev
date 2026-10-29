@@ -1,0 +1,18 @@
+# Synthetic consult snippet: written for OpenBark's vocabulary eval; not a real patient.
+id: vocab-incontinence
+title: Spayed dog leaking urine, Incurin, appetite and Entyce
+species: canine
+speakers:
+  dvm: bf_isabella
+  client: am_michael
+pause_secs: 0.5
+lines:
+  - [client, "She leaks on her bed when she's asleep, and she's off her food. We've tried to entice her with chicken."]
+  - [dvm, "Her urine is clear of infection. Start Incurin, one tablet once a day, and we'll lower it once she's dry."]
+  - [dvm, "For the appetite, give Entyce, one and a half millilitres once a day by mouth for four days."]
+expected:
+  medications:
+    - { drug: incurin, dose: "1" }
+    - { drug: entyce, dose: "1.5", duration: "4" }
+vocab:
+  drugs: [incurin, entyce]

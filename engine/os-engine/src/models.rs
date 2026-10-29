@@ -20,6 +20,36 @@ pub const EMBEDDING: &str = "wespeaker-en-resnet34-lm";
 pub const GPU_STT: &str = "parakeet-tdt-0.6b-v3-fp32";
 pub const GPU_SECOND_STT: &str = "whisper-large-v3-turbo-fp32";
 
+/// Languages Whisper can be told to expect, among the app's.
+const WHISPER_LANGUAGES: &[&str] = &["en", "fr", "es", "de", "pt"];
+
+/// The language the second recogniser (Whisper) is told to expect. Left to
+/// itself it guesses per utterance, and an accented English sentence can come
+/// back in another language; so it follows the app's language, English until
+/// the app says otherwise.
+static SPEECH_LANGUAGE: std::sync::Mutex<Option<&str>> = std::sync::Mutex::new(Some("en"));
+
+/// Set the language Whisper expects ("fr", or "fr-CA"); one it doesn't know
+/// (or None) leaves it to detect the language itself.
+pub fn set_speech_language(code: Option<&str>) {
+    let lang = code
+        .map(|c| c.split(['-', '_']).next().unwrap_or(c).to_ascii_lowercase())
+        .and_then(|c| WHISPER_LANGUAGES.iter().copied().find(|l| *l == c));
+    *SPEECH_LANGUAGE.lock().unwrap_or_else(|e| e.into_inner()) = lang;
+}
+
+pub fn speech_language() -> Option<&'static str> {
+    *SPEECH_LANGUAGE.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// `model` told to expect [`speech_language`] when it is Whisper.
+pub fn with_speech_language(mut model: AsrModel) -> AsrModel {
+    if let AsrModel::Whisper { language, .. } = &mut model {
+        *language = speech_language().map(String::from);
+    }
+    model
+}
+
 /// The recogniser to use for `id`: its full-precision version when the GPU
 /// speech pack and that model are installed, else `id` itself.
 pub fn best_stt(store: &ModelStore, id: &str) -> String {
@@ -169,4 +199,30 @@ pub fn required_status_with(
         .filter_map(|id| catalog.get(id))
         .map(|m| (m.id.clone(), m.display_name.clone(), store.is_installed(m, Verify::Size)))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn whisper_follows_the_app_language() {
+        let whisper = || AsrModel::Whisper {
+            encoder: "e".into(),
+            decoder: "d".into(),
+            tokens: "t".into(),
+            language: None,
+        };
+        let language = |m: AsrModel| match m {
+            AsrModel::Whisper { language, .. } => language,
+            _ => unreachable!(),
+        };
+        assert_eq!(language(with_speech_language(whisper())).as_deref(), Some("en"));
+        set_speech_language(Some("fr-CA"));
+        assert_eq!(language(with_speech_language(whisper())).as_deref(), Some("fr"));
+        // A language not offered here: Whisper detects it itself.
+        set_speech_language(Some("pl"));
+        assert_eq!(language(with_speech_language(whisper())), None);
+        set_speech_language(Some("en"));
+    }
 }

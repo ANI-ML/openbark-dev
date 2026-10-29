@@ -1,0 +1,53 @@
+OpenBark third-party data notices
+=================================
+
+This file covers data, not software, that ships inside OpenBark. Software and
+model notices are in NOTICE. A copy of this file ships with the app in
+licenses/vocabulary-data.txt (apps/desktop/public/licenses/vocabulary-data.txt)
+and its text is shown in Settings, About.
+
+
+Veterinary vocabulary data
+--------------------------
+
+OpenBark's drug-name list (packages/vocab/regulatory.tsv, made by
+scripts/vocab-import.py; retrieved 28 October 2026) includes names from these
+public regulatory datasets, reduced to brand and ingredient words and
+deduplicated. Source ids as used in that file are in brackets.
+
+- [us-fda-gb] US Food and Drug Administration, Approved Animal Drug Products
+  (Green Book), via Animal Drugs @ FDA
+  (https://animaldrugsatfda.fda.gov/). US government work, public domain.
+
+- [uk-vmd] Veterinary Medicines Directorate (UK), Product Information Database
+  (https://www.vmd.defra.gov.uk/ProductInformationDatabase/). Contains public
+  sector information licensed under the Open Government Licence v3.0
+  (https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/).
+
+- [ca-dpd] Health Canada, Drug Product Database
+  (https://www.canada.ca/en/health-canada/services/drugs-health-products/drug-products/drug-product-database.html).
+  Contains information licensed under the Open Government Licence - Canada
+  (https://open.canada.ca/en/open-government-licence-canada).
+
+- [au-apvma] Australian Pesticides and Veterinary Medicines Authority, PubCRIS
+  dataset for registered agricultural and veterinary chemical products
+  (data.gov.au), licensed under CC BY 3.0 AU
+  (https://creativecommons.org/licenses/by/3.0/au/). Changed: names extracted.
+
+- [eu-ema] Source: European Medicines Agency (EMA), medicines data
+  (https://www.ema.europa.eu/en/medicines/download-medicine-data); the names
+  of veterinary medicines only.
+
+None of these organisations endorses OpenBark. Brand names are trade marks of
+their owners and appear only so speech recognition can catch them.
+
+Everyday English words
+----------------------
+
+The list of everyday words that resemble a drug name
+(packages/vocab/everyday.tsv) is taken from the SCOWL word lists
+(http://wordlist.aspell.net/), which are also used to leave ordinary words out
+of the drug-name list. The collective work is Copyright 2000-2018 by Kevin
+Atkinson as well as the other copyrights named in its notice, which ships with
+the app in licenses/scowl-copyright.txt
+(apps/desktop/public/licenses/scowl-copyright.txt).

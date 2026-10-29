@@ -819,6 +819,25 @@ mod phone;
 #[path = "tests/drafting.rs"]
 mod drafting;
 
+/// The clinic's words and drug names (ADR-0031): anyone working alone; in a
+/// team, an admin's PIN, as for the hospital's templates.
+#[test]
+fn the_clinic_vocabulary_is_the_hospitals() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app = app_in(tmp.path());
+    app.need_vocabulary_admin(None, None).unwrap();
+    let view = app.vocabulary_at(&tmp.path().join("vocab.tsv")).unwrap();
+    assert!(view.terms.is_empty() && !view.needs_admin);
+    assert!(view.builtin > 300 && view.regulatory > 1000, "{} {}", view.builtin, view.regulatory);
+    let (dvm, rvt, _) = team(&app);
+    let pin = |p: &str| Approver { id: dvm.id.clone(), pin: p.into() };
+    assert!(app.need_vocabulary_admin(None, Some(&pin("2468"))).is_err(), "someone chosen first");
+    assert!(app.need_vocabulary_admin(Some(&rvt.id), None).is_err());
+    assert_eq!(err(app.need_vocabulary_admin(Some(&rvt.id), Some(&pin("0000")))), "That PIN isn't right.");
+    app.need_vocabulary_admin(Some(&rvt.id), Some(&pin("2468"))).unwrap();
+    assert!(app.vocabulary_at(&tmp.path().join("vocab.tsv")).unwrap().needs_admin);
+}
+
 /// A tooth chart edit (ADR-0021 decision 4): with no species entered, the vet
 /// chooses dog or cat in the chart editor; that choice goes into the new run's
 /// template snapshot, a second, different choice is refused, and a tooth the

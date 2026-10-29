@@ -1,0 +1,18 @@
+# Synthetic consult snippet: written for OpenBark's vocabulary eval; not a real patient.
+id: vocab-vomiting
+title: Vomiting dog, Cerenia and Convenia
+species: canine
+speakers:
+  dvm: am_michael
+  client: bf_isabella
+pause_secs: 0.5
+lines:
+  - [client, "He was sick twice last night. It was convenient that we were home, at least."]
+  - [dvm, "He's a little dehydrated. I'll give Cerenia now as an injection, one milligram per kilo, and send home Cerenia tablets for two more days."]
+  - [dvm, "The wound on his leg is infected too, so I'll give a Convenia injection, which lasts about two weeks."]
+expected:
+  medications:
+    - { drug: cerenia, dose: "1" }
+  must_mention: [convenia]
+vocab:
+  drugs: [cerenia, convenia]

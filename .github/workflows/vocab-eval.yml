@@ -1,0 +1,209 @@
+# The vocabulary eval (ADR-0031, docs/eval/vocabulary.md). Three builds of
+# the same pipeline transcribe and draft the same synthetic consults:
+#   main    origin/main, the hints before ADR-0031
+#   noreg   this commit with the register drug names off (OPENBARK_VOCAB_REGULATORY=off)
+#   branch  this commit as it ships
+# on two sets: every consult script (packages/eval/fixtures/scripts, facts
+# found and invented numbers), and short snippets that say brand drug names in
+# context (packages/eval/fixtures/vocab/scripts, hint recall and false hints).
+# The consults are rendered with Kokoro on the runner. Whisper (the second
+# recogniser) is installed, as on a clinic computer that downloaded it.
+#
+# Linux CPU runners; Gemma 4 E4B drafts on the CPU, so note times are CPU times.
+# Runs by hand, or on a push whose head commit message contains [vocab-eval].
+# Hours of Linux minutes: never on every push.
+name: Vocabulary eval
+
+on:
+  workflow_dispatch:
+  push:
+    branches-ignore: [main]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  MAIN_SHARDS: 6
+
+jobs:
+  plan:
+    name: Plan
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[vocab-eval]')
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - id: plan
+        run: |
+          python3 - <<'EOF' >> "$GITHUB_OUTPUT"
+          import json, os
+          shards = int(os.environ["MAIN_SHARDS"])
+          include = []
+          for arm in ["main", "noreg", "branch"]:
+              include.append({"arm": arm, "set": "vocab", "shard": 1, "of": 1})
+              include += [{"arm": arm, "set": "main", "shard": k, "of": shards} for k in range(1, shards + 1)]
+          print("matrix=" + json.dumps({"include": include}))
+          EOF
+
+  build:
+    name: Build (${{ matrix.ref }})
+    needs: plan
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        ref: [main, branch]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ matrix.ref == 'main' && 'main' || github.sha }}
+      - name: System packages (libclang, ALSA)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev cmake libasound2-dev
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-linux/${{ github.repository }}/${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-linux/${{ github.repository }}/
+      - run: cargo build --release -p os-cli -p fixture-tts
+      # The binaries and the shared libraries they load from target/
+      # (sherpa-onnx's C API and ONNX Runtime), so later jobs run them
+      # without building.
+      - name: Package the binaries with their libraries
+        run: |
+          mkdir -p target/vocab-eval-bin
+          cp target/release/openbark target/release/fixture-tts target/vocab-eval-bin/
+          for b in openbark fixture-tts; do
+            ldd "target/release/$b" | awk '/=>/ {print $3}' | grep "^$PWD/target" | xargs -r -I{} cp -L {} target/vocab-eval-bin/
+          done
+          LD_LIBRARY_PATH=target/vocab-eval-bin ldd target/vocab-eval-bin/openbark | grep -i "not found" && exit 1 || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: vocab-eval-bin-${{ matrix.ref }}
+          path: target/vocab-eval-bin
+          retention-days: 3
+
+  render:
+    name: Render the consults (Kokoro)
+    needs: build
+    runs-on: ubuntu-24.04
+    env:
+      LD_LIBRARY_PATH: ${{ github.workspace }}/target/bin
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: vocab-eval-bin-branch
+          path: target/bin
+      - name: Render
+        run: |
+          chmod +x target/bin/*
+          mkdir -p ~/kokoro
+          curl -fsSL https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-en-v0_19.tar.bz2 | tar -xj -C ~/kokoro
+          for set in main vocab; do
+            mkdir -p "target/sets/$set/scripts" "target/sets/$set/audio"
+          done
+          cp packages/eval/fixtures/scripts/*.yaml target/sets/main/scripts/
+          cp packages/eval/fixtures/vocab/scripts/*.yaml target/sets/vocab/scripts/
+          for set in main vocab; do
+            target/bin/fixture-tts --kokoro ~/kokoro/kokoro-int8-en-v0_19 --out "target/sets/$set/audio" --speed 0.9 \
+              target/sets/$set/scripts/*.yaml
+          done
+          ls -la target/sets/*/audio
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          # Synthetic consults only: no patient data exists on CI.
+          name: vocab-eval-sets
+          path: target/sets
+          retention-days: 3
+
+  eval:
+    name: ${{ matrix.arm }} ${{ matrix.set }} (${{ matrix.shard }}/${{ matrix.of }})
+    needs: [plan, render]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      OPENBARK_DATA_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      OPENBARK_MODELS_DIR: /home/runner/models
+      OPENBARK_SESSIONS_DIR: ${{ github.workspace }}/target/vocab-eval/sessions
+      OPENBARK_VOCAB: ${{ github.workspace }}/target/vocab-eval/no-clinic-vocab.tsv
+      OPENBARK_LOG: warn
+      LD_LIBRARY_PATH: ${{ github.workspace }}/target/bin
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: vocab-eval-bin-${{ matrix.arm == 'main' && 'main' || 'branch' }}
+          path: target/bin
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: vocab-eval-sets
+          path: target/sets
+      - name: Restore models
+        id: models
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: /home/runner/models
+          key: models-${{ hashFiles('engine/os-models/catalog.json') }}-vocab-eval
+      - name: Download models
+        if: steps.models.outputs.cache-hit != 'true'
+        run: |
+          chmod +x target/bin/*
+          for id in silero-vad parakeet-tdt-0.6b-v3-int8 pyannote-segmentation-3.0 wespeaker-en-resnet34-lm whisper-large-v3-turbo-int8 gemma-4-e4b-it-q4_0; do
+            target/bin/openbark models pull "$id"
+          done
+      - name: openbark eval
+        run: |
+          chmod +x target/bin/*
+          if [ "${{ matrix.arm }}" = noreg ]; then export OPENBARK_VOCAB_REGULATORY=off; fi
+          out="target/vocab-eval/out/${{ matrix.arm }}-${{ matrix.set }}-${{ matrix.shard }}"
+          mkdir -p "$out"
+          printf '{"arm": "%s", "set": "%s", "shard": %s}\n' "${{ matrix.arm }}" "${{ matrix.set }}" "${{ matrix.shard }}" > "$out/meta.json"
+          echo "OUT=$out" >> "$GITHUB_ENV"
+          set +e
+          target/bin/openbark eval --dir "target/sets/${{ matrix.set }}" --shard "${{ matrix.shard }}/${{ matrix.of }}" \
+            --llm gemma-4-e4b-it-q4_0 --gpu-layers 0 --template soap --json "$out/report.json" > "$out/eval.log" 2> "$out/stderr.log"
+          code=$?
+          set -e
+          echo "$code" > "$out/status.txt"
+          cat "$out/eval.log"
+          tail -20 "$out/stderr.log"
+          cp -r target/eval-cache "$out/transcripts" 2>/dev/null || true
+          cp -r target/eval "$out/notes" 2>/dev/null || true
+          exit "$code"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: vocab-eval-${{ matrix.arm }}-${{ matrix.set }}-${{ matrix.shard }}
+          path: ${{ env.OUT }}
+          retention-days: 30
+
+  summary:
+    name: Summary
+    needs: eval
+    if: always() && needs.eval.result != 'skipped'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: vocab-eval-*-*-*
+          path: target/vocab-eval/results
+      - name: Table
+        run: |
+          python3 scripts/ci/vocab-eval-summary.py target/vocab-eval/results | tee target/vocab-eval/results/summary.md
+          cat target/vocab-eval/results/summary.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: vocab-eval-summary
+          path: |
+            target/vocab-eval/results/summary.md
+            target/vocab-eval/results/summary.json
+          retention-days: 90

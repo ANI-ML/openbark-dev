@@ -1,0 +1,18 @@
+# Synthetic consult snippet: written for OpenBark's vocabulary eval; not a real patient.
+id: vocab-dental-pain
+title: After a dental, Rimadyl and gabapentin
+species: canine
+speakers:
+  dvm: bm_george
+  client: af_bella
+pause_secs: 0.5
+lines:
+  - [dvm, "Three teeth came out, and she woke up well. She's on a remedy for pain for the next few days."]
+  - [dvm, "Give Rimadyl, seventy-five milligrams twice a day with food for five days."]
+  - [dvm, "And gabapentin, one hundred milligrams at night for three nights, if she seems sore or restless."]
+expected:
+  medications:
+    - { drug: rimadyl, dose: "75", duration: "5" }
+    - { drug: gabapentin, dose: "100" }
+vocab:
+  drugs: [rimadyl, gabapentin]

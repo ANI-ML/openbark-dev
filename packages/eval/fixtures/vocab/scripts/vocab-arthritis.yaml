@@ -1,0 +1,19 @@
+# Synthetic consult snippet: written for OpenBark's vocabulary eval; not a real patient.
+id: vocab-arthritis
+title: Arthritic dog, Librela and Galliprant
+species: canine
+speakers:
+  dvm: af_bella
+  client: am_adam
+pause_secs: 0.5
+lines:
+  - [client, "He's slow on the stairs, especially in the morning. We borrowed a book from the library about older dogs."]
+  - [dvm, "His hips and elbows are stiff. I'd like to start Librela, a monthly injection, given today under the skin."]
+  - [dvm, "Until it takes effect, send him home with Galliprant, one hundred milligrams once a day with food."]
+  - [dvm, "Recheck in four weeks for the second Librela dose."]
+expected:
+  medications:
+    - { drug: galliprant, dose: "100" }
+  must_mention: [librela]
+vocab:
+  drugs: [librela, galliprant]

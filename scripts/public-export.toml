@@ -26,6 +26,7 @@ ref = "HEAD"
 required_files = [
   "LICENSE",
   "NOTICE",
+  "THIRD_PARTY_NOTICES",
   "README.md",
   "SECURITY.md",
   "CONTRIBUTING.md",
