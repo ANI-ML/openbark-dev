@@ -5,6 +5,7 @@
 //! backend, [`LlamaCppBackend`], over `llama-cpp-2`.
 
 mod chat_template;
+pub mod control;
 #[cfg(feature = "llama")]
 mod llama;
 #[cfg(not(feature = "llama"))]
@@ -15,6 +16,7 @@ pub mod mlx;
 pub mod shutdown;
 
 pub use chat_template::ChatMessage;
+pub use control::{Control, Phase};
 pub use llama::{LlamaCppBackend, LlamaCppOptions};
 pub use mlx::{MlxBackend, MlxDevice, MlxOptions, ModelCheck, PackCheck};
 
@@ -39,11 +41,13 @@ pub struct GenerateRequest {
     pub seed: u32,
     /// JSON Schema (as a string) the output must conform to.
     pub json_schema: Option<String>,
+    /// Stop button and progress (prompt batches, a writing heartbeat).
+    pub control: Option<Control>,
 }
 
 impl GenerateRequest {
     pub fn new(messages: Vec<ChatMessage>) -> Self {
-        Self { messages, max_tokens: 2048, temperature: 0.2, seed: 42, json_schema: None }
+        Self { messages, max_tokens: 2048, temperature: 0.2, seed: 42, json_schema: None, control: None }
     }
 }
 
@@ -81,6 +85,9 @@ pub enum LlmError {
     /// The process is shutting down ([`shutdown::begin`]).
     #[error("OpenBark is closing, so the note model stopped")]
     Stopped,
+    /// The person pressed Stop ([`Control::cancel`]).
+    #[error("Drafting stopped")]
+    Cancelled,
 }
 
 /// A compute device llama.cpp can use (GPU or CPU).

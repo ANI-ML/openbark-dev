@@ -1,0 +1,59 @@
+name: Drafting on weak computers
+
+# OpenBark 0.2.3: drafting must finish, fail visibly or stop when asked, even
+# for a long visit on a slow processor. The quick job compiles and lints the
+# whole workspace and runs the UI tests, for fast feedback on a branch; the
+# long-visit job drafts a note and a client summary of a long synthetic
+# consult on two CPU threads and checks that Stop works.
+#
+# The consults are synthetic scripts (packages/eval/fixtures/scripts,
+# invented, rendered with Kokoro on the runner), so no clinic data is
+# involved. It never runs in the public copy of the source.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["fix/drafting-weak-laptops"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: drafting-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  NODE_VERSION: "24.22.0"
+
+jobs:
+  quick:
+    name: Compile, lint and UI tests
+    if: github.repository == 'ANI-ML/openbark-dev'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: System packages (Tauri webview, libclang)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libclang-dev cmake libasound2-dev
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-drafting-quick/${{ github.repository }}/${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-drafting-quick/${{ github.repository }}/
+            cargo-linux/${{ github.repository }}/
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r run typecheck
+      - run: pnpm -r run test

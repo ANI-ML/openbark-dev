@@ -176,6 +176,7 @@ pub fn template_from_example(llm: &dyn LlmBackend, example: &str) -> Result<Load
         temperature: 0.0,
         seed: 42,
         json_schema: Some(draft_schema().to_string()),
+        control: None,
     };
     let output = llm.generate(&request, &mut |_| true)?;
     let draft: Value = serde_json::from_str(output.text.trim()).map_err(|e| {
