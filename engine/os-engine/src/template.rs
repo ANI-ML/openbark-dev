@@ -1132,7 +1132,7 @@ fn bound(node: &mut Value, key: Option<&str>) {
                     "properties" => {
                         if let Value::Object(props) = v {
                             for (name, prop) in props.iter_mut() {
-                                bound(prop, Some(name));
+                                bound(prop, Some(name.as_str()));
                             }
                         }
                     }
@@ -1140,7 +1140,7 @@ fn bound(node: &mut Value, key: Option<&str>) {
                     "anyOf" | "oneOf" | "allOf" | "items" => bound(v, key),
                     "$defs" | "definitions" => {
                         if let Value::Object(defs) = v {
-                            for (_, def) in defs.iter_mut() {
+                            for def in defs.values_mut() {
                                 bound(def, None);
                             }
                         }

@@ -1370,20 +1370,6 @@ mod tests {
         }
     }
 
-    fn one_line() -> Transcript {
-        Transcript {
-            segments: vec![Segment {
-                id: 0,
-                start: 0.0,
-                end: 1.0,
-                speaker: Some(0),
-                text: "She is eating well".into(),
-                hints: Vec::new(),
-                check: None,
-            }],
-        }
-    }
-
     #[test]
     fn a_looping_draft_stops_early_with_a_clear_error() {
         let soap = LoadedTemplate::builtin("soap").unwrap();

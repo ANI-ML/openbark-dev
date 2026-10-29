@@ -74,9 +74,9 @@ impl LlmBackend for Writer {
 fn soap_note_with(text: &str) -> String {
     let soap = LoadedTemplate::builtin("soap").unwrap();
     let mut note = os_engine::template::empty_note(&soap.template);
-    'found: for (_, section) in note.as_object_mut().unwrap() {
+    'found: for section in note.as_object_mut().unwrap().values_mut() {
         if let Some(parts) = section.as_object_mut() {
-            for (_, part) in parts {
+            for part in parts.values_mut() {
                 if part.is_array() {
                     *part = serde_json::json!([{ "text": text, "evidence": [0] }]);
                     break 'found;
