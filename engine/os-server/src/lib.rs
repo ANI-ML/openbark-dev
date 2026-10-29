@@ -21,6 +21,10 @@
 //!   `consent_method`, `consent_by`, `consent_script`; the same on `/api/live`,
 //!   where consent is required)
 //! - `POST /api/sessions/{id}/notes`        `{llm, template, language?}`
+//! - `POST /api/notes/cancel`               Stop the running draft (`true` when one was running);
+//!   it answers its own request with "Drafting stopped. Nothing was saved."
+//! - `GET  /api/diagnostics?note_model=`    Copy diagnostics: the computer, the note model, the
+//!   last draft's timings and the end of the log (nothing from any visit)
 //! - `POST /api/sessions/{id}/refine`       `{llm, heading, request, save_as_standard, by}`:
 //!   redraft one heading of the latest draft
 //! - `POST /api/sessions/{id}/edit`         `{heading, value, by}`: the vet's own version of a heading
@@ -76,7 +80,8 @@
 //!   `GET /api/clinic-hub`, `POST /api/clinic-hub` `{on?, port?, allowed?, quota_mb?, by}`, `POST /api/clinic-hub/code`
 //!   `{by}`, `POST /api/clinic-hub/join-self` `{device_name, existing, by}`, `POST /api/clinic-hub/devices/{did}/remove`
 //!   `{by}`. The hub's own listener is separate (os-hub): this server stays on 127.0.0.1.
-//! - `GET  /api/events`                     server-sent events: segment, token, level, download
+//! - `GET  /api/events`                     server-sent events: segment, token, level, download,
+//!   progress, draft (prompt reading, then a writing heartbeat)
 //! - Phone calls through the clinic's own Twilio account (ADR-0023; outgoing
 //!   only): `GET /api/phone`, `GET /api/phone/bin?caller_id=` (the outgoing
 //!   Bin's text), `POST /api/phone/connect` `{account_sid, api_key_sid,
@@ -150,6 +155,7 @@ enum ServerEvent {
     Progress(os_app::Progress),
     Moving { done: u64, total: u64 },
     Mic(os_app::MicHealth),
+    Draft(os_app::DraftPhase),
 }
 
 struct Broadcaster(broadcast::Sender<ServerEvent>);
@@ -175,6 +181,9 @@ impl Events for Broadcaster {
     }
     fn mic(&self, health: &os_app::MicHealth) {
         let _ = self.0.send(ServerEvent::Mic(health.clone()));
+    }
+    fn draft(&self, phase: &os_app::DraftPhase) {
+        let _ = self.0.send(ServerEvent::Draft(*phase));
     }
 }
 
@@ -283,6 +292,8 @@ fn router(state: St, ui_dir: &std::path::Path, port: u16) -> Router {
         .route("/api/sessions/{id}", get(open_session))
         .route("/api/sessions/{id}/audio", get(session_audio))
         .route("/api/sessions/{id}/notes", post(create_note))
+        .route("/api/notes/cancel", post(|State(s): State<St>| async move { Json(s.app().cancel_draft()) }))
+        .route("/api/diagnostics", get(diagnostics))
         .route("/api/sessions/{id}/sign", post(sign_note))
         .route("/api/sessions/{id}/chart/confirm", post(confirm_chart))
         .route("/api/sessions/{id}/patient", post(update_patient))
@@ -1517,6 +1528,9 @@ struct CreateSession {
     /// A client on a phone on speaker in the room.
     #[serde(default)]
     speakerphone: bool,
+    /// Speakers in the room (ADR-0030); absent: estimated.
+    #[serde(default)]
+    room_speakers: Option<u32>,
     #[serde(default)]
     name: Option<String>,
     #[serde(flatten)]
@@ -1541,6 +1555,7 @@ async fn create_session(
             &body,
             q.diarize,
             q.speakerphone,
+            q.room_speakers,
             q.patient.into_patient(),
             q.consent.into_consent(),
             q.by.as_deref(),
@@ -1585,6 +1600,19 @@ async fn create_note(
         )
     })
     .await
+}
+
+#[derive(Deserialize)]
+struct DiagnosticsQuery {
+    #[serde(default)]
+    note_model: Option<String>,
+}
+
+async fn diagnostics(
+    State(s): State<St>,
+    Query(q): Query<DiagnosticsQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || Ok(s.app().diagnostics(q.note_model.as_deref()))).await
 }
 
 #[derive(Deserialize)]
@@ -2054,6 +2082,9 @@ struct LiveQuery {
     /// A client on a phone on speaker in the room.
     #[serde(default)]
     speakerphone: bool,
+    /// Speakers in the room (ADR-0030); absent: estimated.
+    #[serde(default)]
+    room_speakers: Option<u32>,
     #[serde(default = "rate")]
     sample_rate: u32,
     #[serde(flatten)]
@@ -2133,6 +2164,7 @@ async fn live_session(s: St, mut q: LiveQuery, mut socket: WebSocket) {
                 RecordingSource::Stream(rx),
                 q.speakers,
                 q.speakerphone,
+                q.room_speakers,
                 patient,
                 consent,
                 q.by.as_deref(),
@@ -2202,6 +2234,9 @@ struct RecordStart {
     /// A client on a phone on speaker in the room.
     #[serde(default)]
     speakerphone: bool,
+    /// Speakers in the room (ADR-0030); absent: estimated.
+    #[serde(default)]
+    room_speakers: Option<u32>,
     #[serde(default)]
     patient: Option<Patient>,
     #[serde(default)]
@@ -2220,6 +2255,7 @@ async fn record_start(
             RecordingSource::Microphone(req.device),
             req.speakers,
             req.speakerphone,
+            req.room_speakers,
             req.patient,
             req.consent,
             req.by.as_deref(),

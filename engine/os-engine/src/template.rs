@@ -1043,6 +1043,116 @@ pub fn generate_schema(t: &Template) -> Value {
 /// At most this many findings in one chart (about 50 tokens each).
 pub const MAX_CHART_ITEMS: usize = 96;
 
+// Bounds on what the model may write while drafting (0.2.3). Without them a
+// small model on a slow processor could fill a heading with the same line
+// until it ran out of tokens, which took most of an hour on a clinic's
+// laptop. They apply to the drafting grammar only ([`bounded_for_drafting`]),
+// never to the saved schema, so the vet's own edits aren't limited.
+//
+// The source for each number: the longest drafts measured in the repository,
+// docs/perf/results/rtx4080-win11-20261017 (Gemma 4 E4B and 12B, SOAP, the
+// 9.6-minute paced feline-vomiting consult, 57 transcript lines), and the
+// fixture expectations in packages/eval/fixtures/scripts. A 60-minute visit
+// is 6.25 times as long, and every count that grows with the visit gets that
+// factor and half again as margin.
+
+/// Items in one statements heading: 11 in the longest heading measured
+/// (History, E4B), × 6.25 for a 60-minute visit, × 1.5.
+pub const MAX_STATEMENTS: usize = 104;
+/// Medications under one heading: 4 in the busiest fixture
+/// (dental-feline-multi-tr, anaesthesia and nerve blocks), × 6.25, × 1.5.
+pub const MAX_MEDICATIONS: usize = 38;
+/// Transcript lines one item cites: 3 at most in the measured drafts. A
+/// sentence summing up a long exchange may cite more; 32 leaves ten times
+/// that and still stops a count-up loop ("[12, 13, 14, …]") within about
+/// 64 tokens.
+pub const MAX_EVIDENCE: usize = 32;
+/// Characters in one statement or sentence: 159 in the longest measured (a
+/// return-if-worse instruction), × 3 for thorough templates and languages
+/// that run longer than English.
+pub const MAX_TEXT_CHARS: usize = 480;
+/// Characters in a measurement's value ("pink but a little tacky", 23):
+/// half a statement.
+pub const MAX_VALUE_CHARS: usize = 240;
+/// Characters in a medication's drug, dose, route, frequency or duration:
+/// under 40 in every measured draft and fixture, × 4.
+pub const MAX_MEDICATION_CHARS: usize = 160;
+/// Characters in a unit ("breaths per minute" is 18).
+pub const MAX_UNIT_CHARS: usize = 32;
+
+/// `schema` with a `maxItems` on every list and a `maxLength` on every free
+/// string that has neither, for the drafting grammar (llama.cpp's
+/// json-schema-to-grammar and llguidance on MLX both read them). Lists and
+/// strings that already have a bound, an enum or a pattern keep theirs.
+pub fn bounded_for_drafting(schema: &Value) -> Value {
+    let mut out = schema.clone();
+    bound(&mut out, None);
+    out
+}
+
+fn bound(node: &mut Value, key: Option<&str>) {
+    match node {
+        Value::Array(items) => items.iter_mut().for_each(|v| bound(v, key)),
+        Value::Object(map) => {
+            let kind = map.get("type").and_then(Value::as_str).map(str::to_owned);
+            match kind.as_deref() {
+                Some("array") if !map.contains_key("maxItems") => {
+                    let items = map.get("items");
+                    let item_ref = items.and_then(|i| i.get("$ref")).and_then(Value::as_str).unwrap_or("");
+                    let item_type = items.and_then(|i| i.get("type")).and_then(Value::as_str).unwrap_or("");
+                    let max = if item_type == "integer" {
+                        MAX_EVIDENCE
+                    } else if item_ref.ends_with("/medication") {
+                        MAX_MEDICATIONS
+                    } else if item_ref.ends_with("/tooth_finding") {
+                        MAX_CHART_ITEMS
+                    } else {
+                        MAX_STATEMENTS
+                    };
+                    map.insert("maxItems".into(), json!(max));
+                }
+                Some("string")
+                    if !["maxLength", "enum", "pattern", "const", "format"]
+                        .iter()
+                        .any(|k| map.contains_key(*k)) =>
+                {
+                    let max = match key {
+                        Some("drug" | "dose" | "route" | "frequency" | "duration") => MAX_MEDICATION_CHARS,
+                        Some("unit") => MAX_UNIT_CHARS,
+                        Some("value") => MAX_VALUE_CHARS,
+                        _ => MAX_TEXT_CHARS,
+                    };
+                    map.insert("maxLength".into(), json!(max));
+                }
+                _ => {}
+            }
+            for (k, v) in map.iter_mut() {
+                match k.as_str() {
+                    // A property's name says what its string holds.
+                    "properties" => {
+                        if let Value::Object(props) = v {
+                            for (name, prop) in props.iter_mut() {
+                                bound(prop, Some(name.as_str()));
+                            }
+                        }
+                    }
+                    // Alternatives and items keep the name they belong to.
+                    "anyOf" | "oneOf" | "allOf" | "items" => bound(v, key),
+                    "$defs" | "definitions" => {
+                        if let Value::Object(defs) = v {
+                            for def in defs.values_mut() {
+                                bound(def, None);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 /// One finding on one tooth (ADR-0021 decision 2). The tooth enum follows
 /// the dentition (the dog's when unknown: it holds every cat tooth), so the
 /// grammar can't emit a tooth the animal doesn't have.

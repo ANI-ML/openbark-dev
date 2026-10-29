@@ -23,6 +23,7 @@ use os_engine::template::{LoadedTemplate, Scope, Template};
 use os_engine::trash::{self, DeletedInfo, Recovered, Trash};
 use os_engine::users::{Role, User, UserStore, Who};
 use os_engine::{NoteOptions, Segment, TemplateStore, TranscribeStats, Transcript};
+pub use os_llm::Phase as DraftPhase;
 use os_llm::{
     LlamaCppBackend, LlamaCppOptions, LlmBackend, MlxBackend, MlxDevice, MlxOptions, ModelCheck, PackCheck,
 };
@@ -50,8 +51,10 @@ pub use templates::{
 mod clinic_hub;
 #[doc(hidden)]
 pub mod demo;
+pub mod logs;
 mod mic;
 mod phone;
+pub mod policy;
 mod sync;
 mod templates;
 mod vocabulary;
@@ -86,6 +89,9 @@ pub trait Events: Send + Sync {
     fn mic(&self, _health: &MicHealth) {}
     /// The microphone test's level, about 20 times a second.
     fn mic_test(&self, _level: &MicLevel) {}
+    /// Drafting: how far the model has read the transcript, then about once
+    /// a second while it writes, the tokens so far and tokens per second.
+    fn draft(&self, _phase: &DraftPhase) {}
 }
 
 /// Where models or visits are kept (Settings, Storage).
@@ -351,6 +357,10 @@ pub struct App {
     pub connect: ConnectStore,
     /// Tests: the loopback fake Twilio's address. Only loopback is accepted.
     pub twilio_base: Option<String>,
+    /// The draft running now, for the Stop button ([`App::cancel_draft`]).
+    drafting: Mutex<Option<os_llm::Control>>,
+    /// How the last draft in this run went, for Copy diagnostics.
+    last_draft: Mutex<Option<DraftTimings>>,
     /// The phone call being recorded, if any.
     call: Mutex<Option<phone::CallState>>,
     /// Who the main window asked the phone window to call.
@@ -360,9 +370,21 @@ pub struct App {
 #[derive(Debug, Clone, Serialize)]
 pub struct Hardware {
     pub gpu: Option<String>,
+    /// The graphics memory the fit check counts: `None` when there is no
+    /// graphics card, or only integrated graphics the note model doesn't use.
     pub gpu_memory_bytes: Option<u64>,
     pub ram_bytes: u64,
     pub summary: String,
+    /// `gpu` is integrated graphics (sharing the processor's memory).
+    pub gpu_integrated: bool,
+    /// Layers of the note model on the graphics card: `None` all (or
+    /// llama.cpp's choice), 0 the processor only ([`policy::gpu_layers`]).
+    pub llm_gpu_layers: Option<u32>,
+    /// Physical and logical processor cores, and the note model's threads
+    /// ([`policy::llm_threads`]).
+    pub cpu_cores: Option<usize>,
+    pub cpu_threads: usize,
+    pub llm_threads: Option<i32>,
 }
 
 /// A phone (ADR-0018 section 10) says how much memory it has, which decides
@@ -378,17 +400,40 @@ fn on_this_device(mut hardware: Hardware) -> Hardware {
 fn probe_hardware() -> Hardware {
     let mut sys = sysinfo::System::new();
     sys.refresh_memory();
-    let gpu = os_llm::devices().into_iter().find(|d| d.backend != "CPU");
+    let devices = os_llm::devices();
+    let gpu = policy::main_gpu(&devices).cloned();
+    let layers = policy::gpu_layers(&devices, std::env::var(policy::GPU_LAYERS_ENV).ok().as_deref());
     let ram = sys.total_memory();
-    let summary = match &gpu {
-        Some(g) => format!("{}, {:.0} GB graphics memory", g.description, g.memory_total_bytes as f64 / 1e9),
-        None => format!("{:.0} GB memory, no supported graphics card", ram as f64 / 1e9),
+    // Integrated graphics the note model doesn't use: the fit check counts
+    // the computer's memory instead (ADR-0030).
+    let on_gpu = gpu.as_ref().filter(|_| layers != Some(0));
+    let summary = match (&gpu, on_gpu) {
+        (Some(g), Some(_)) => {
+            format!("{}, {:.0} GB graphics memory", g.description, g.memory_total_bytes as f64 / 1e9)
+        }
+        (Some(g), None) => format!(
+            "{:.0} GB memory, {} (integrated graphics, notes are written on the processor)",
+            ram as f64 / 1e9,
+            g.description
+        ),
+        (None, _) => format!("{:.0} GB memory, no supported graphics card", ram as f64 / 1e9),
     };
+    let cpu_threads = std::thread::available_parallelism().map_or(0, |n| n.get());
+    let cpu_cores = sysinfo::System::physical_core_count();
     Hardware {
         gpu: gpu.as_ref().map(|g| g.description.clone()),
-        gpu_memory_bytes: gpu.map(|g| g.memory_total_bytes),
+        gpu_memory_bytes: on_gpu.map(|g| g.memory_total_bytes),
         ram_bytes: ram,
         summary,
+        gpu_integrated: gpu.as_ref().is_some_and(|g| g.integrated),
+        llm_gpu_layers: layers,
+        cpu_cores,
+        cpu_threads,
+        llm_threads: policy::llm_threads(
+            cpu_cores,
+            cpu_threads,
+            std::env::var(policy::THREADS_ENV).ok().as_deref(),
+        ),
     }
 }
 
@@ -641,6 +686,81 @@ pub struct Status {
     /// feature). Phone builds turn on transcription first; until one with
     /// `inference` ships, a phone doesn't offer drafting (ADR-0018 section 1).
     pub can_draft: bool,
+}
+
+/// How a draft went: timings and counts only, never what was said or written.
+#[derive(Debug, Clone, Serialize)]
+pub struct DraftTimings {
+    pub model: String,
+    pub template: String,
+    pub at: DateTime<Local>,
+    /// "saved", "stopped", or what went wrong ("repeating", "too_long", ...).
+    pub outcome: String,
+    pub load_ms: u64,
+    pub total_ms: u64,
+    pub prompt_tokens: Option<u32>,
+    pub completion_tokens: Option<u32>,
+    pub prompt_tokens_per_second: Option<f64>,
+    pub tokens_per_second: Option<f64>,
+    pub hit_max_tokens: Option<bool>,
+}
+
+/// What Copy diagnostics puts on the clipboard (Settings, About).
+#[derive(Debug, Clone, Serialize)]
+pub struct Diagnostics {
+    pub text: String,
+}
+
+/// What a stopped draft says.
+pub const DRAFT_STOPPED: &str = "Drafting stopped. Nothing was saved.";
+const DRAFT_REPEATING: &str = "The note model started repeating itself, so drafting stopped and nothing was saved. Try again, or choose another note model in Models.";
+const DRAFT_TOO_LONG: &str = "The note ran past its length limit before it was finished, so nothing was saved. Try again, or choose another note model in Models.";
+
+/// A drafting error's kind, for the log and diagnostics (never its message,
+/// which can quote what the model wrote).
+fn draft_error_kind(e: &os_engine::EngineError) -> &'static str {
+    use os_engine::EngineError as E;
+    match e {
+        E::Llm(os_llm::LlmError::Cancelled) => "stopped",
+        E::Llm(os_llm::LlmError::Stopped) => "closing",
+        E::Llm(os_llm::LlmError::ContextOverflow { .. }) => "context_overflow",
+        E::Llm(_) => "model_error",
+        E::Repeating => "repeating",
+        E::RanOut(_) => "too_long",
+        E::BadJson(_) => "bad_json",
+        E::SchemaViolation(_) => "schema",
+        E::EmptyTranscript => "empty_transcript",
+        _ => "other",
+    }
+}
+
+/// What the person sees when a draft fails: plain words for the cases 0.2.3
+/// handles, the engine's message otherwise.
+fn draft_error_message(e: &os_engine::EngineError) -> String {
+    use os_engine::EngineError as E;
+    match e {
+        E::Llm(os_llm::LlmError::Cancelled) => DRAFT_STOPPED.into(),
+        E::Repeating => DRAFT_REPEATING.into(),
+        E::RanOut(_) => DRAFT_TOO_LONG.into(),
+        other => other.to_string(),
+    }
+}
+
+/// Clears the drafting slot when a draft ends, unless another draft has
+/// taken it since, so a late Stop never reaches the next draft.
+struct ClearDraft<'a> {
+    slot: &'a Mutex<Option<os_llm::Control>>,
+    control: os_llm::Control,
+}
+
+impl Drop for ClearDraft<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut slot) = self.slot.lock()
+            && slot.as_ref().is_some_and(|c| c.same(&self.control))
+        {
+            *slot = None;
+        }
+    }
 }
 
 /// A visit as listed under a patient.
@@ -1183,12 +1303,17 @@ pub fn install_mlx_pack(store: &ModelStore, progress: &mut dyn FnMut(u64, u64)) 
 /// computer) or a path to a `.gguf` file: llama.cpp for GGUF, the MLX
 /// worker for MLX folders (ADR-0025). Refuses a model that can't be held to
 /// a JSON Schema: every draft is constrained (ADR-0006).
+///
+/// `gpu_layers`: layers on the graphics card; `None` follows
+/// [`policy::gpu_layers`] (the processor when there are only integrated
+/// graphics under Vulkan). Threads follow [`policy::llm_threads`].
 pub fn open_llm(store: &ModelStore, spec: &str, gpu_layers: Option<u32>) -> Result<Arc<dyn LlmBackend>> {
     let llama = |path: PathBuf| -> Result<Arc<dyn LlmBackend>> {
         let mut options = LlamaCppOptions::new(path);
-        if let Some(layers) = gpu_layers {
+        if let Some(layers) = gpu_layers.or_else(policy::gpu_layers_here) {
             options.gpu_layers = layers;
         }
+        options.threads = policy::threads_here();
         Ok(Arc::new(LlamaCppBackend::load(options)?))
     };
     let (name, backend) = if spec.to_ascii_lowercase().ends_with(".gguf") && Path::new(spec).is_file() {
@@ -1328,6 +1453,8 @@ impl App {
             hub: Mutex::new(None),
             connect: ConnectStore::default(),
             twilio_base: None,
+            drafting: Mutex::new(None),
+            last_draft: Mutex::new(None),
             call: Mutex::new(None),
             pending_call: Mutex::new(None),
         };
@@ -1448,13 +1575,14 @@ impl App {
 
     pub fn status(&self) -> Status {
         let catalog = os_models::Catalog::builtin();
-        let models = os_engine::models::required_status_for(&self.store, Profile::current())
-            .into_iter()
-            .map(|(id, name, installed)| {
-                let bundled = catalog.get(&id).is_some_and(|m| self.store.is_bundled(m));
-                ModelStatus { id, name, installed, bundled }
-            })
-            .collect();
+        let models =
+            os_engine::models::required_status_with(&self.store, Profile::current(), &self.required_llm())
+                .into_iter()
+                .map(|(id, name, installed)| {
+                    let bundled = catalog.get(&id).is_some_and(|m| self.store.is_bundled(m));
+                    ModelStatus { id, name, installed, bundled }
+                })
+                .collect();
         Status {
             product: os_engine::PRODUCT_NAME,
             version: env!("CARGO_PKG_VERSION"),
@@ -1483,13 +1611,33 @@ impl App {
         })
     }
 
-    /// The default note model for this device.
+    /// The default note model for this device: on a computer, Gemma 4 E4B
+    /// unless it won't fit this computer's memory, then Gemma 4 E2B
+    /// ([`policy::default_note_model`]).
     pub fn default_llm(&self) -> String {
         match self.phone_tier() {
             Some(Some(t)) => t.default_llm.to_string(),
             Some(None) => String::new(),
-            None => os_engine::models::DEFAULT_LLM.to_string(),
+            None => {
+                let e4b = os_models::Catalog::builtin().get(policy::E4B).map_or(0, |m| m.total_size());
+                policy::default_note_model(e4b, self.hardware.gpu_memory_bytes, self.hardware.ram_bytes)
+                    .to_string()
+            }
         }
+    }
+
+    /// The note model setup asks for on a computer: the default, unless the
+    /// other built-in note model is already downloaded. An install that
+    /// already drafts with E4B is never sent to download E2B; the Models and
+    /// Record screens suggest switching instead.
+    fn required_llm(&self) -> String {
+        let default = self.default_llm();
+        let catalog = os_models::Catalog::builtin();
+        let installed = |id: &str| catalog.get(id).is_some_and(|m| self.store.is_installed(m, Verify::Size));
+        if installed(&default) {
+            return default;
+        }
+        [policy::E4B, policy::E2B].into_iter().find(|id| installed(id)).map_or(default, str::to_string)
     }
 
     /// Why a note model can't be used on this phone, if it can't.
@@ -2005,20 +2153,22 @@ impl App {
     /// recordings get the same segmentation and speaker labels (the live
     /// tracker was more accurate than full-recording diarization on short
     /// clips; M1 tuning). `speakerphone`: a client on a phone on speaker
-    /// (see `LiveOptions::speakerphone`).
+    /// (see `LiveOptions::speakerphone`). `room_speakers`: "Speakers in the
+    /// room", or `None` to estimate (see `LiveOptions::room_speakers`).
     #[allow(clippy::too_many_arguments)]
     pub fn import_file(
         &self,
         path: &Path,
         label_speakers: bool,
         speakerphone: bool,
+        room_speakers: Option<u32>,
         patient: Option<PatientInfo>,
         consent: Option<Consent>,
         by: Option<&str>,
         events: &dyn Events,
     ) -> Result<SessionView> {
         let source = LiveSource::File { path: path.to_path_buf(), realtime: false };
-        self.import_source(source, label_speakers, speakerphone, patient, consent, by, events)
+        self.import_source(source, label_speakers, speakerphone, room_speakers, patient, consent, by, events)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2027,6 +2177,7 @@ impl App {
         source: LiveSource,
         label_speakers: bool,
         speakerphone: bool,
+        room_speakers: Option<u32>,
         patient: Option<PatientInfo>,
         consent: Option<Consent>,
         by: Option<&str>,
@@ -2044,6 +2195,7 @@ impl App {
         let mut options = LiveOptions::microphone();
         options.label_speakers = label_speakers;
         options.speakerphone = speakerphone;
+        options.room_speakers = room_speakers;
         options.patient = patient.filter(|p| !p.is_empty());
         options.consent = consent;
         options.recorded_by = recorded_by;
@@ -2087,6 +2239,7 @@ impl App {
         wav: &[u8],
         label_speakers: bool,
         speakerphone: bool,
+        room_speakers: Option<u32>,
         patient: Option<PatientInfo>,
         consent: Option<Consent>,
         by: Option<&str>,
@@ -2099,7 +2252,7 @@ impl App {
         let file = Path::new(name).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let name = if file.is_empty() { "recording.wav".to_string() } else { file };
         let source = LiveSource::Memory { name, bytes: wav.to_vec() };
-        self.import_source(source, label_speakers, speakerphone, patient, consent, by, events)
+        self.import_source(source, label_speakers, speakerphone, room_speakers, patient, consent, by, events)
     }
 
     // ---- live recording --------------------------------------------------
@@ -2113,13 +2266,15 @@ impl App {
     /// clinic's responsibility (the app shows a one-time notice); when the
     /// per-recording consent step is used, the consent is checked and saved.
     /// `speakerphone`: a client on a phone on speaker in the room (see
-    /// `LiveOptions::speakerphone`).
+    /// `LiveOptions::speakerphone`); `room_speakers`: "Speakers in the room",
+    /// or `None` to estimate.
     #[allow(clippy::too_many_arguments)]
     pub fn start_recording(
         &self,
         source: RecordingSource,
         label_speakers: bool,
         speakerphone: bool,
+        room_speakers: Option<u32>,
         patient: Option<PatientInfo>,
         consent: Option<Consent>,
         by: Option<&str>,
@@ -2143,6 +2298,7 @@ impl App {
         let mut options = LiveOptions::microphone();
         options.label_speakers = label_speakers;
         options.speakerphone = speakerphone;
+        options.room_speakers = room_speakers;
         options.patient = patient.filter(|p| !p.is_empty());
         options.consent = consent;
         options.recorded_by = recorded_by;
@@ -2277,26 +2433,258 @@ impl App {
                 Some(os_engine::note::Reference::from_note(&saved["note"], &markdown))
             })
         };
-        let backend = self.load_llm_with_progress(llm, events)?;
         let transcript = s.load_transcript()?;
-        let options = NoteOptions { reference, ..self.note_options(&s, language.map(String::from)) };
-        // The drafting board (Review): reading, then writing from the first word.
-        events.progress(&Progress::new(Stage::ReadTranscript, 0.0, transcript.segments.len() as f32));
-        let mut first = true;
-        let mut result =
-            os_engine::generate_note(backend.as_ref(), &template, &transcript, &options, &mut |p| {
-                if std::mem::take(&mut first) {
-                    events.progress(&Progress::new(Stage::Write, 0.0, 0.0));
-                }
-                events.token(p);
+        self.drafting_with(events, |control| {
+            let started = std::time::Instant::now();
+            let template_id = template.template.id.clone();
+            tracing::info!(
+                template = %template_id,
+                model = %llm,
+                segments = transcript.segments.len(),
+                "drafting started"
+            );
+            let backend = self.load_llm_with_progress(llm, events)?;
+            let load_ms = started.elapsed().as_millis() as u64;
+            let failed =
+                |e: os_engine::EngineError| self.draft_failed(llm, &template_id, started, load_ms, &e);
+            // Stop pressed while the model loaded (minutes on a slow disk).
+            if control.is_cancelled() {
+                return Err(failed(os_llm::LlmError::Cancelled.into()));
+            }
+            let options = NoteOptions {
+                reference,
+                control: Some(control.clone()),
+                ..self.note_options(&s, language.map(String::from))
+            };
+            // The drafting board (Review): reading, then writing from the first word.
+            events.progress(&Progress::new(Stage::ReadTranscript, 0.0, transcript.segments.len() as f32));
+            let mut first = true;
+            let mut result =
+                os_engine::generate_note(backend.as_ref(), &template, &transcript, &options, &mut |p| {
+                    if std::mem::take(&mut first) {
+                        events.progress(&Progress::new(Stage::Write, 0.0, 0.0));
+                    }
+                    events.token(p);
+                    true
+                })
+                .map_err(failed)?;
+            events.progress(&Progress::new(Stage::Verify, 1.0, 1.0));
+            // Stop pressed during the check: nothing is saved.
+            if control.is_cancelled() {
+                return Err(failed(os_llm::LlmError::Cancelled.into()));
+            }
+            result.by = who;
+            result.markdown = with_header(&s, &result.markdown);
+            events.progress(&Progress::new(Stage::Save, 0.0, 1.0));
+            s.save_run(llm, &result, &template)?;
+            self.draft_done(llm, &template_id, started, load_ms, &result.stats);
+            Ok(NoteResponse {
+                markdown: result.markdown.clone(),
+                run: serde_json::to_value(&result)?,
+                notice,
+            })
+        })
+    }
+
+    /// Stop the draft running now (the drafting board's Stop button). It
+    /// ends at the model's next prompt batch or token, and nothing is saved.
+    /// True when a draft was running.
+    pub fn cancel_draft(&self) -> bool {
+        let control = self.drafting.lock().ok().and_then(|slot| slot.clone());
+        match control {
+            Some(c) => {
+                c.cancel();
+                tracing::info!("drafting: Stop pressed");
                 true
-            })?;
-        events.progress(&Progress::new(Stage::Verify, 1.0, 1.0));
-        result.by = who;
-        result.markdown = with_header(&s, &result.markdown);
-        events.progress(&Progress::new(Stage::Save, 0.0, 1.0));
-        s.save_run(llm, &result, &template)?;
-        Ok(NoteResponse { markdown: result.markdown.clone(), run: serde_json::to_value(&result)?, notice })
+            }
+            None => false,
+        }
+    }
+
+    /// Run one draft with a [`os_llm::Control`]: registered for
+    /// [`App::cancel_draft`], and its progress passed on to `events`. The
+    /// model reports from inside the generation, so a helper thread does the
+    /// passing on.
+    fn drafting_with<T>(
+        &self,
+        events: &dyn Events,
+        work: impl FnOnce(&os_llm::Control) -> Result<T>,
+    ) -> Result<T> {
+        let (tx, rx) = std::sync::mpsc::channel::<DraftPhase>();
+        let control = os_llm::Control::observed(move |p| {
+            let _ = tx.send(p);
+        });
+        if let Ok(mut slot) = self.drafting.lock() {
+            *slot = Some(control.clone());
+        }
+        let _clear = ClearDraft { slot: &self.drafting, control: control.clone() };
+        let done = std::sync::atomic::AtomicBool::new(false);
+        let done = &done;
+        std::thread::scope(|scope| {
+            scope.spawn(move || {
+                loop {
+                    match rx.recv_timeout(std::time::Duration::from_millis(100)) {
+                        Ok(DraftPhase::Generated) => events.progress(&Progress::new(Stage::Verify, 0.0, 1.0)),
+                        Ok(phase) => events.draft(&phase),
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                            if done.load(std::sync::atomic::Ordering::SeqCst) {
+                                break;
+                            }
+                        }
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                    }
+                }
+            });
+            let result = work(&control);
+            done.store(true, std::sync::atomic::Ordering::SeqCst);
+            result
+        })
+    }
+
+    /// A draft failed or was stopped: log its kind (never its message), keep
+    /// the timings for diagnostics, and say it plainly.
+    fn draft_failed(
+        &self,
+        model: &str,
+        template: &str,
+        started: std::time::Instant,
+        load_ms: u64,
+        e: &os_engine::EngineError,
+    ) -> AppError {
+        let kind = draft_error_kind(e);
+        let total_ms = started.elapsed().as_millis() as u64;
+        if kind == "stopped" {
+            tracing::info!(total_ms, "drafting stopped; nothing saved");
+        } else {
+            tracing::warn!(kind, total_ms, "drafting failed; nothing saved");
+        }
+        self.keep_timings(DraftTimings {
+            model: model.to_string(),
+            template: template.to_string(),
+            at: Local::now(),
+            outcome: kind.to_string(),
+            load_ms,
+            total_ms,
+            prompt_tokens: None,
+            completion_tokens: None,
+            prompt_tokens_per_second: None,
+            tokens_per_second: None,
+            hit_max_tokens: None,
+        });
+        AppError(draft_error_message(e))
+    }
+
+    /// A draft was saved: log and keep its timings.
+    fn draft_done(
+        &self,
+        model: &str,
+        template: &str,
+        started: std::time::Instant,
+        load_ms: u64,
+        stats: &os_llm::GenerateStats,
+    ) {
+        let total_ms = started.elapsed().as_millis() as u64;
+        let prompt_tps = stats.prompt_tokens as f64 * 1000.0 / stats.time_to_first_token_ms.max(1) as f64;
+        tracing::info!(
+            load_ms,
+            total_ms,
+            prompt_tokens = stats.prompt_tokens,
+            completion_tokens = stats.completion_tokens,
+            prompt_tokens_per_second = prompt_tps,
+            tokens_per_second = stats.tokens_per_second,
+            hit_max_tokens = stats.hit_max_tokens,
+            "drafting finished; saved"
+        );
+        self.keep_timings(DraftTimings {
+            model: model.to_string(),
+            template: template.to_string(),
+            at: Local::now(),
+            outcome: "saved".into(),
+            load_ms,
+            total_ms,
+            prompt_tokens: Some(stats.prompt_tokens),
+            completion_tokens: Some(stats.completion_tokens),
+            prompt_tokens_per_second: Some(prompt_tps),
+            tokens_per_second: Some(stats.tokens_per_second),
+            hit_max_tokens: Some(stats.hit_max_tokens),
+        });
+    }
+
+    fn keep_timings(&self, timings: DraftTimings) {
+        if let Ok(mut last) = self.last_draft.lock() {
+            *last = Some(timings);
+        }
+    }
+
+    /// How the last draft in this run went, if there was one.
+    pub fn last_draft(&self) -> Option<DraftTimings> {
+        self.last_draft.lock().ok().and_then(|l| l.clone())
+    }
+
+    /// Copy diagnostics (Settings, About): the version, the computer, the
+    /// note model, the last draft's timings and the end of the log. Nothing
+    /// from any visit. `note_model`: the one chosen on this device.
+    pub fn diagnostics(&self, note_model: Option<&str>) -> Diagnostics {
+        self.diagnostics_from(note_model, &logs::dir())
+    }
+
+    /// [`App::diagnostics`] with the log read from `log_dir`.
+    fn diagnostics_from(&self, note_model: Option<&str>, log_dir: &Path) -> Diagnostics {
+        let hw = &self.hardware;
+        let mut sys = sysinfo::System::new();
+        sys.refresh_cpu_all();
+        let cpu = sys.cpus().first().map(|c| c.brand().trim().to_string()).unwrap_or_default();
+        let loaded = self.llm.try_lock().ok().and_then(|slot| slot.as_ref().map(|(id, _)| id.clone()));
+        let gb = |b: u64| b as f64 / 1e9;
+        let mut out = vec![
+            format!("OpenBark {}", env!("CARGO_PKG_VERSION")),
+            format!(
+                "System: {} ({} {})",
+                sysinfo::System::long_os_version().unwrap_or_else(|| std::env::consts::OS.to_string()),
+                std::env::consts::OS,
+                std::env::consts::ARCH
+            ),
+            format!(
+                "Processor: {cpu}, {} physical cores, {} threads",
+                hw.cpu_cores.map_or("?".to_string(), |c| c.to_string()),
+                hw.cpu_threads
+            ),
+            format!("Memory: {:.1} GB", gb(hw.ram_bytes)),
+            format!("Graphics: {}", hw.summary),
+            format!(
+                "Note model: {} (chosen), {} (loaded); threads {}, graphics layers {}",
+                note_model.filter(|m| !m.is_empty()).unwrap_or("none"),
+                loaded.as_deref().unwrap_or("none"),
+                hw.llm_threads.map_or("default".to_string(), |t| t.to_string()),
+                match hw.llm_gpu_layers {
+                    Some(0) => "0 (processor only)".to_string(),
+                    Some(n) => n.to_string(),
+                    None => "all".to_string(),
+                }
+            ),
+            format!("Default note model for this computer: {}", self.default_llm()),
+        ];
+        match self.last_draft() {
+            Some(d) => out.push(format!(
+                "Last draft: {} with {} at {}: {}; model load {} ms, total {} ms, prompt {} tokens at {} tokens/s, wrote {} tokens at {} tokens/s, hit the limit: {}",
+                d.template,
+                d.model,
+                d.at.format("%Y-%m-%d %H:%M:%S"),
+                d.outcome,
+                d.load_ms,
+                d.total_ms,
+                d.prompt_tokens.map_or("?".into(), |n| n.to_string()),
+                d.prompt_tokens_per_second.map_or("?".into(), |n| format!("{n:.1}")),
+                d.completion_tokens.map_or("?".into(), |n| n.to_string()),
+                d.tokens_per_second.map_or("?".into(), |n| format!("{n:.1}")),
+                d.hit_max_tokens.map_or("?".into(), |b| if b { "yes".to_string() } else { "no".to_string() }),
+            )),
+            None => out.push("Last draft: none since OpenBark started".into()),
+        }
+        out.push(String::new());
+        out.push("Log (most recent last):".into());
+        out.push(logs::scrub(&logs::tail(log_dir, 150)));
+        Diagnostics { text: out.join("\n") }
     }
 
     /// Re-prompt one heading of the latest draft ("plan/medications", or a
@@ -2341,27 +2729,48 @@ impl App {
             None
         };
         let _awake = AwakeGuard::acquire(AwakeReason::Processing);
-        let backend = self.load_llm_with_progress(&request.llm, events)?;
         let transcript = s.load_transcript()?;
-        let options = self.note_options(&s, request.language.clone());
-        events.progress(&Progress::new(Stage::ReadTranscript, 0.0, transcript.segments.len() as f32));
-        let mut first = true;
-        let mut result = os_engine::refine_note(
-            backend.as_ref(),
-            &template,
-            &transcript,
-            &note,
-            &request.heading,
-            &request.request,
-            &options,
-            &mut |p| {
-                if std::mem::take(&mut first) {
-                    events.progress(&Progress::new(Stage::Write, 0.0, 0.0));
-                }
-                events.token(p);
-                true
-            },
-        )?;
+        let mut result = self.drafting_with(events, |control| {
+            let started = std::time::Instant::now();
+            let template_id = format!("{} (redraft)", template.template.id);
+            tracing::info!(template = %template_id, model = %request.llm, "drafting started");
+            let backend = self.load_llm_with_progress(&request.llm, events)?;
+            let load_ms = started.elapsed().as_millis() as u64;
+            let failed = |e: os_engine::EngineError| {
+                self.draft_failed(&request.llm, &template_id, started, load_ms, &e)
+            };
+            if control.is_cancelled() {
+                return Err(failed(os_llm::LlmError::Cancelled.into()));
+            }
+            let options = NoteOptions {
+                control: Some(control.clone()),
+                ..self.note_options(&s, request.language.clone())
+            };
+            events.progress(&Progress::new(Stage::ReadTranscript, 0.0, transcript.segments.len() as f32));
+            let mut first = true;
+            let result = os_engine::refine_note(
+                backend.as_ref(),
+                &template,
+                &transcript,
+                &note,
+                &request.heading,
+                &request.request,
+                &options,
+                &mut |p| {
+                    if std::mem::take(&mut first) {
+                        events.progress(&Progress::new(Stage::Write, 0.0, 0.0));
+                    }
+                    events.token(p);
+                    true
+                },
+            )
+            .map_err(failed)?;
+            if control.is_cancelled() {
+                return Err(failed(os_llm::LlmError::Cancelled.into()));
+            }
+            self.draft_done(&request.llm, &template_id, started, load_ms, &result.stats);
+            Ok(result)
+        })?;
         events.progress(&Progress::new(Stage::Verify, 1.0, 1.0));
         if let Some(scope) = scope {
             self.save_standard_after_refine(

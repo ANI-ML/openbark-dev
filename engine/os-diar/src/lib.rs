@@ -18,6 +18,9 @@ use os_asr::sherpa_onnx::{
 use os_asr::{Audio, SpeechSpan};
 use serde::Serialize;
 
+mod voices;
+pub use voices::{ClusterOptions, SplitOptions, Voice, change_points, recluster};
+
 #[derive(Debug, thiserror::Error)]
 pub enum DiarError {
     #[error("model file not found: {0}")]
@@ -101,6 +104,23 @@ impl SpeakerTracker {
     }
 
     pub fn assign(&mut self, _samples: &[f32]) -> Option<u32> {
+        match self._never {}
+    }
+
+    pub fn voice(&self, _samples: &[f32]) -> Option<Voice> {
+        match self._never {}
+    }
+
+    pub fn assign_voice(&mut self, _voice: &Voice) -> Option<u32> {
+        match self._never {}
+    }
+
+    pub fn voice_changes(
+        &self,
+        _samples: &[f32],
+        _word_starts: &[usize],
+        _options: &SplitOptions,
+    ) -> Vec<usize> {
         match self._never {}
     }
 
@@ -257,7 +277,9 @@ fn nearest_speaker(span: &SpeechSpan, turns: &[SpeakerTurn]) -> Option<u32> {
 
 /// Live speaker labelling: one voice embedding per utterance, matched to the
 /// speakers heard so far by cosine similarity (new speaker below the
-/// threshold). No pass over the whole recording is needed after stop.
+/// threshold). These are the labels shown while recording; once it's
+/// complete, [`recluster`] labels every utterance again from all the voices
+/// at once (ADR-0030).
 ///
 /// A voice through a telephone (a client on a phone on speaker) carries
 /// almost nothing above 3.4 kHz, while a voice in the room reaches 8 kHz.
@@ -303,8 +325,8 @@ impl Centroid {
 }
 
 /// Utterances shorter than this give unreliable embeddings: they are matched
-/// to an existing speaker but never start a new one.
-#[cfg(feature = "stt")]
+/// to an existing speaker but never start a new one (live), or join the
+/// nearest speaker after the others are grouped ([`recluster`]).
 const MIN_EMBED_SECS: f32 = 1.0;
 
 /// Below this high-band level (dB, see [`high_band_db`]) an utterance sounds
@@ -402,10 +424,38 @@ impl SpeakerTracker {
 
     /// Speaker index for one utterance (16 kHz mono), or `None` if unknown.
     pub fn assign(&mut self, samples: &[f32]) -> Option<u32> {
+        let voice = self.voice(samples)?;
+        self.assign_voice(&voice)
+    }
+
+    /// One utterance's voice (16 kHz mono): its embedding, length and high
+    /// band, or `None` when it's too short to embed.
+    pub fn voice(&self, samples: &[f32]) -> Option<Voice> {
         let embedding = self.embed(samples)?;
         let secs = samples.len() as f32 / os_asr::SAMPLE_RATE as f32;
+        Some(Voice { embedding, secs, band: high_band_db(samples) })
+    }
+
+    /// Where the voice changes inside one utterance (16 kHz mono): sample
+    /// offsets among `word_starts`, see [`change_points`].
+    pub fn voice_changes(
+        &self,
+        samples: &[f32],
+        word_starts: &[usize],
+        options: &SplitOptions,
+    ) -> Vec<usize> {
+        change_points(samples.len(), word_starts, options, &mut |a: usize, b: usize| {
+            self.embed(&samples[a..b])
+        })
+    }
+
+    /// The live speaker index for a voice, or `None` if unknown: the nearest
+    /// speaker heard so far, or a new one (see the type's documentation).
+    pub fn assign_voice(&mut self, voice: &Voice) -> Option<u32> {
+        let embedding = voice.embedding.as_slice();
+        let secs = voice.secs;
         let long_enough = secs >= MIN_EMBED_SECS;
-        let band = self.band_cue.then(|| high_band_db(samples));
+        let band = self.band_cue.then_some(voice.band);
         // A short utterance's high band is less certain: it needs a wider gap.
         let gap = if long_enough { 10.0 } else { 16.0 };
         let best = self
@@ -416,20 +466,20 @@ impl SpeakerTracker {
                 (Some(b), Some(cb)) => !band_apart(b, cb, gap),
                 _ => true,
             })
-            .map(|(i, c)| (i, c.similarity(&embedding)))
+            .map(|(i, c)| (i, c.similarity(embedding)))
             .max_by(|a, b| a.1.total_cmp(&b.1));
         let learn = if long_enough { band } else { None };
         match best {
             Some((i, sim)) if sim >= self.threshold || !long_enough => {
                 if long_enough {
-                    self.speakers[i].add(&embedding, learn);
+                    self.speakers[i].add(embedding, learn);
                 }
                 Some(i as u32)
             }
             _ if long_enough => {
                 let mut c =
                     Centroid { sum: vec![0.0; embedding.len()], count: 0, band_sum: 0.0, band_count: 0 };
-                c.add(&embedding, learn);
+                c.add(embedding, learn);
                 self.speakers.push(c);
                 Some(self.speakers.len() as u32 - 1)
             }
@@ -439,7 +489,7 @@ impl SpeakerTracker {
                 .speakers
                 .iter()
                 .enumerate()
-                .map(|(i, c)| (i, c.similarity(&embedding)))
+                .map(|(i, c)| (i, c.similarity(embedding)))
                 .max_by(|a, b| a.1.total_cmp(&b.1))
                 .map(|(i, _)| i as u32),
             _ => None,

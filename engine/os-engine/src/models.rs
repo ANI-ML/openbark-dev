@@ -179,11 +179,21 @@ pub fn required_status_for(
     store: &ModelStore,
     profile: os_models::platform::Profile,
 ) -> Vec<(String, String, bool)> {
+    required_status_with(store, profile, DEFAULT_LLM)
+}
+
+/// [`required_status_for`] with the computer's note model: the app picks it
+/// from the computer's memory (os-app's `policy::default_note_model`).
+pub fn required_status_with(
+    store: &ModelStore,
+    profile: os_models::platform::Profile,
+    llm: &str,
+) -> Vec<(String, String, bool)> {
     let catalog = Catalog::builtin();
     let ids: &[&str] = if profile.is_mobile() {
         &[VAD, os_models::platform::MOBILE_STT, SEGMENTATION, EMBEDDING]
     } else {
-        &[VAD, DEFAULT_STT, SEGMENTATION, EMBEDDING, DEFAULT_LLM]
+        &[VAD, DEFAULT_STT, SEGMENTATION, EMBEDDING, llm]
     };
     ids.iter()
         .filter_map(|id| catalog.get(id))

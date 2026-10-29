@@ -14,6 +14,7 @@ use llama_cpp_2::token::LlamaToken;
 use llama_cpp_2::token::data::LlamaTokenData;
 use llama_cpp_2::token::data_array::LlamaTokenDataArray;
 
+use crate::control::{Control, Heartbeat, Phase};
 pub use crate::llama_options::LlamaCppOptions;
 use crate::{
     GenerateOutput, GenerateRequest, GenerateStats, LlmBackend, LlmCapabilities, LlmError, chat_template,
@@ -56,7 +57,14 @@ impl LlamaCppBackend {
         // The file name identifies the exact quant; `general.name` is often
         // uninformative (Google's Gemma 4 GGUFs say "Hf").
         let model_name = options.model_path.file_stem().unwrap_or_default().to_string_lossy().into_owned();
-        tracing::info!(model = %model_name, has_template = chat_template.is_some(), "llm loaded");
+        tracing::info!(
+            model = %model_name,
+            has_template = chat_template.is_some(),
+            gpu_layers = options.gpu_layers,
+            threads = ?options.threads,
+            threads_batch = ?options.threads_batch,
+            "llm loaded"
+        );
         Ok(Self { model, backend, options, chat_template, model_name, _live: live })
     }
 
@@ -120,30 +128,49 @@ impl LlmBackend for LlamaCppBackend {
             .with_n_batch(n_batch)
             .with_n_ubatch(n_batch.min(512));
         if let Some(threads) = self.options.threads {
-            ctx_params = ctx_params.with_n_threads(threads).with_n_threads_batch(threads);
+            ctx_params = ctx_params.with_n_threads(threads);
+        }
+        if let Some(threads) = self.options.threads_batch.or(self.options.threads) {
+            ctx_params = ctx_params.with_n_threads_batch(threads);
         }
         let mut ctx = self
             .model
             .new_context(&self.backend, ctx_params)
             .map_err(|e| LlmError::Inference(e.to_string()))?;
 
-        // Prompt processing in batch-sized chunks; logits only for the last token.
+        // Prompt processing in micro-batch-sized chunks (the size llama.cpp
+        // computes in anyway), so a long transcript on a slow processor
+        // reports progress and can be stopped every few seconds rather than
+        // every 2048 tokens. Logits only for the last token.
+        let control = request.control.as_ref();
+        let chunk_len = n_batch.min(512) as usize;
         let mut batch = LlamaBatch::new(n_batch as usize, 1);
         let last = tokens.len() - 1;
-        for (chunk_idx, chunk) in tokens.chunks(n_batch as usize).enumerate() {
+        if let Some(c) = control {
+            c.report(Phase::Prompt { done: 0, total: prompt_tokens });
+        }
+        for (chunk_idx, chunk) in tokens.chunks(chunk_len).enumerate() {
             if crate::shutdown::stopping() {
                 return Err(LlmError::Stopped);
             }
+            if control.is_some_and(Control::is_cancelled) {
+                return Err(LlmError::Cancelled);
+            }
             batch.clear();
             for (i, token) in chunk.iter().enumerate() {
-                let pos = chunk_idx * n_batch as usize + i;
+                let pos = chunk_idx * chunk_len + i;
                 batch
                     .add(*token, pos as i32, &[0], pos == last)
                     .map_err(|e| LlmError::Inference(e.to_string()))?;
             }
             ctx.decode(&mut batch).map_err(|e| LlmError::Inference(e.to_string()))?;
+            if let Some(c) = control {
+                let done = ((chunk_idx + 1) * chunk_len).min(tokens.len()) as u32;
+                c.report(Phase::Prompt { done, total: prompt_tokens });
+            }
         }
         let first_token_at = Instant::now();
+        let mut heartbeat = Heartbeat::new();
 
         let mut sampler = Sampler::new(&self.model, request)?;
         let mut text = String::new();
@@ -157,12 +184,16 @@ impl LlmBackend for LlamaCppBackend {
             if crate::shutdown::stopping() {
                 return Err(LlmError::Stopped);
             }
+            if control.is_some_and(Control::is_cancelled) {
+                return Err(LlmError::Cancelled);
+            }
             let token = sampler.next(&ctx, batch.n_tokens() - 1)?;
             if vocab.is_eog(token) {
                 hit_max_tokens = false;
                 break;
             }
             completion_tokens += 1;
+            heartbeat.tick(control, completion_tokens);
             pending.extend(vocab.token_to_piece(token, false, None));
             let valid = match std::str::from_utf8(&pending) {
                 Ok(s) => s.len(),
@@ -187,17 +218,27 @@ impl LlmBackend for LlamaCppBackend {
         }
 
         let gen_secs = first_token_at.elapsed().as_secs_f64();
-        Ok(GenerateOutput {
-            text,
-            stats: GenerateStats {
-                prompt_tokens,
-                completion_tokens,
-                time_to_first_token_ms: (first_token_at - started).as_millis() as u64,
-                total_ms: started.elapsed().as_millis() as u64,
-                tokens_per_second: if gen_secs > 0.0 { completion_tokens as f64 / gen_secs } else { 0.0 },
-                hit_max_tokens,
-            },
-        })
+        let stats = GenerateStats {
+            prompt_tokens,
+            completion_tokens,
+            time_to_first_token_ms: (first_token_at - started).as_millis() as u64,
+            total_ms: started.elapsed().as_millis() as u64,
+            tokens_per_second: if gen_secs > 0.0 { completion_tokens as f64 / gen_secs } else { 0.0 },
+            hit_max_tokens,
+        };
+        // Counts and timings only: never the prompt or the text.
+        tracing::info!(
+            prompt_tokens,
+            completion_tokens,
+            max_tokens = request.max_tokens,
+            prompt_ms = stats.time_to_first_token_ms,
+            prompt_tokens_per_second =
+                prompt_tokens as f64 * 1000.0 / stats.time_to_first_token_ms.max(1) as f64,
+            tokens_per_second = stats.tokens_per_second,
+            hit_max_tokens,
+            "llm generation finished"
+        );
+        Ok(GenerateOutput { text, stats })
     }
 }
 

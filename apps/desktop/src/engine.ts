@@ -328,9 +328,17 @@ export interface DocumentView {
 
 export interface Hardware {
   gpu: string | null;
+  /** The graphics memory the fit check counts: null with no card, or integrated graphics the note model doesn't use. */
   gpu_memory_bytes: number | null;
   ram_bytes: number;
   summary: string;
+  /** `gpu` is integrated graphics. */
+  gpu_integrated?: boolean;
+  /** Layers of the note model on the graphics card: null all, 0 the processor only (ADR-0030). */
+  llm_gpu_layers?: number | null;
+  cpu_cores?: number | null;
+  cpu_threads?: number;
+  llm_threads?: number | null;
 }
 
 export interface Status {
@@ -1259,6 +1267,25 @@ export const generateNote = (id: string, llm: string, tpl: string, language?: st
         post({ llm, template: tpl, language: language ?? null, pet: pet ?? null, by: actor }),
       );
 
+/** Stop the draft running now: it ends at the model's next step and nothing is saved. True when one was running. */
+export const cancelDraft = () =>
+  isDesktop ? invoke<boolean>("cancel_draft") : api<boolean>("/api/notes/cancel", post({}));
+
+/** What a stopped draft says (os-app DRAFT_STOPPED). */
+export const DRAFT_STOPPED = "Drafting stopped. Nothing was saved.";
+
+/** Copy diagnostics: the computer, the note model, the last draft's timings and the end of the log. Nothing from any visit. */
+export const diagnostics = (noteModel: string | null) =>
+  isDesktop
+    ? invoke<{ text: string }>("diagnostics", { noteModel })
+    : api<{ text: string }>(`/api/diagnostics${noteModel ? `?note_model=${enc(noteModel)}` : ""}`);
+
+/** Where a draft is (os-llm Phase): reading the prompt, then a heartbeat while writing. */
+export type DraftPhase =
+  | { phase: "prompt"; done: number; total: number }
+  | { phase: "writing"; tokens: number; tokens_per_second: number }
+  | { phase: "generated" };
+
 /** Clinic letterhead and paper size for PDFs. */
 export interface PdfRequest {
   clinic: { name: string; lines: string[] };
@@ -1964,9 +1991,15 @@ export interface ProcessingProgress {
   total: number;
 }
 
+/** "Speakers in the room" as a query parameter: absent for Auto. */
+function roomSpeakersQuery(roomSpeakers: number | null): Record<string, string> {
+  return roomSpeakers ? { room_speakers: String(roomSpeakers) } : {};
+}
+
 export async function importRecording(
   speakers: boolean,
   speakerphone: boolean,
+  roomSpeakers: number | null,
   patient: Patient | null,
   consent: RecordingConsent | null,
   onPicked: () => void,
@@ -1977,7 +2010,15 @@ export async function importRecording(
     const picked = await open({ multiple: false, filters: [{ name: "Recording", extensions: AUDIO_EXTENSIONS }] });
     if (typeof picked !== "string") return null;
     onPicked();
-    return invoke<SessionView>("import_file", { path: picked, speakers, speakerphone, patient: p, consent, by: actor });
+    return invoke<SessionView>("import_file", {
+      path: picked,
+      speakers,
+      speakerphone,
+      roomSpeakers,
+      patient: p,
+      consent,
+      by: actor,
+    });
   }
   const file = await pickBrowserFile();
   if (!file) return null;
@@ -1986,6 +2027,7 @@ export async function importRecording(
     const q = new URLSearchParams({
       diarize: String(speakers),
       speakerphone: String(speakerphone),
+      ...roomSpeakersQuery(roomSpeakers),
       name,
       patient_name: p?.name ?? "",
       others: (p?.others ?? [])
@@ -2028,11 +2070,12 @@ export interface Recording {
 async function startDesktopRecording(
   speakers: boolean,
   speakerphone: boolean,
+  roomSpeakers: number | null,
   device: string | null,
   patient: Patient | null,
   consent: RecordingConsent | null,
 ): Promise<Recording> {
-  await invoke<string>("start_recording", { device, speakers, speakerphone, patient, consent, by: actor });
+  await invoke<string>("start_recording", { device, speakers, speakerphone, roomSpeakers, patient, consent, by: actor });
   return { stop: () => invoke<SessionView>("stop_recording") };
 }
 
@@ -2044,6 +2087,7 @@ async function startDesktopRecording(
 async function startBrowserRecording(
   speakers: boolean,
   speakerphone: boolean,
+  roomSpeakers: number | null,
   deviceId: string | null,
   patient: Patient | null,
   consent: RecordingConsent | null,
@@ -2054,6 +2098,7 @@ async function startBrowserRecording(
     const q = new URLSearchParams({
       speakers: String(speakers),
       speakerphone: String(speakerphone),
+      ...roomSpeakersQuery(roomSpeakers),
       sample_rate: String(sampleRate),
       patient_name: patient?.name ?? "",
       others: (patient?.others ?? [])
@@ -2097,6 +2142,7 @@ export type { MicHealth, MicQuality };
 export function startRecording(
   speakers: boolean,
   speakerphone: boolean,
+  roomSpeakers: number | null,
   device: string | null,
   patient: Patient | null,
   consent: RecordingConsent | null,
@@ -2105,8 +2151,8 @@ export function startRecording(
   const p = hasPatient(patient) ? patient : null;
   const h = typeof hooks === "function" ? { onLevel: hooks } : hooks;
   return isDesktop
-    ? startDesktopRecording(speakers, speakerphone, device, p, consent)
-    : startBrowserRecording(speakers, speakerphone, device, p, consent, h);
+    ? startDesktopRecording(speakers, speakerphone, roomSpeakers, device, p, consent)
+    : startBrowserRecording(speakers, speakerphone, roomSpeakers, device, p, consent, h);
 }
 
 /**
@@ -2329,6 +2375,8 @@ type Handlers = {
   download: Set<(d: { model: string; done: number; total: number }) => void>;
   progress: Set<(p: ProcessingProgress) => void>;
   moving: Set<(m: { done: number; total: number }) => void>;
+  /** Drafting: the prompt being read, then the writing heartbeat. */
+  draft: Set<(d: DraftPhase) => void>;
 };
 const handlers: Handlers = {
   mic: new Set(),
@@ -2339,6 +2387,7 @@ const handlers: Handlers = {
   download: new Set(),
   progress: new Set(),
   moving: new Set(),
+  draft: new Set(),
 };
 let source: EventSource | null = null;
 
@@ -2360,6 +2409,7 @@ const TAURI_EVENT: Record<keyof Handlers, string> = {
   download: "download-progress",
   progress: "processing-progress",
   moving: "move-progress",
+  draft: "draft-progress",
 };
 
 export async function on<K extends keyof Handlers>(

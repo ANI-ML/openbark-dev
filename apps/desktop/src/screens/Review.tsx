@@ -16,14 +16,14 @@ import {
 import { MoreMenu } from "../components/MoreMenu";
 import { PHONE, useMediaQuery } from "../useMediaQuery";
 import { animalFamily, draftsOnThisDevice, isIos, noPhoneDrafting, phoneCanDraft, recordedLine, thisDevice } from "../visits";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DeleteRecordingDialog } from "../components/DeleteRecordingDialog";
 import { DeleteVisitMenu } from "../components/DeleteVisitMenu";
 import { listNames, patientIdFor } from "../deleting";
 import { NoteView } from "../components/NoteView";
 import { PatientFields } from "../components/PatientFields";
 import { DocumentSheet } from "../components/DocumentSheet";
-import { DraftBoard, useDraftTracker } from "../components/DraftProgress";
+import { DraftBoard, draftErrorText, useDraftTracker } from "../components/DraftProgress";
 import { HeadingEditor } from "../components/HeadingEditor";
 import { DentalChartEditor } from "../components/DentalChartEditor";
 import { asItems, dentitionOf, useLowerInner, type Dentition } from "../dental";
@@ -207,7 +207,7 @@ export function Review({
       if (done.notice) app.toast(t(done.notice));
       app.announce(t("Draft ready"));
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(draftErrorText(t, e));
     } finally {
       tracker.stop();
       setGenerating(false);
@@ -229,7 +229,9 @@ export function Review({
         await load();
         app.announce(t("Draft ready"));
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        // Stop ends the whole round: the next animal isn't started.
+        setError(draftErrorText(t, e));
+        void load();
       } finally {
         tracker.stop();
         setPetRound(null);
@@ -249,7 +251,7 @@ export function Review({
       await engine.generateNote(id, app.settings.llm, templateId, language, pet);
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(draftErrorText(t, e));
       setOpenDoc(null);
     } finally {
       tracker.stop();
@@ -324,7 +326,7 @@ export function Review({
       );
       app.announce(t("{heading} redrafted", { heading: title }));
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(draftErrorText(t, e));
     } finally {
       tracker.stop();
       setRefining(false);
@@ -346,12 +348,19 @@ export function Review({
     if (first) seek(first);
   }
 
-  function seek(s: engine.Segment) {
+  // Stable, so the memoised transcript list doesn't redraw with the board.
+  const seek = useCallback((s: engine.Segment) => {
     const a = audio.current;
     if (!a) return;
     a.currentTime = s.start;
     void a.play();
-  }
+  }, []);
+  const callLabel = view?.call?.clinic_label;
+  const speakerNames = useMemo(
+    () => (callLabel ? [t(callLabel), t("Client")] : undefined),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [callLabel, app.settings.uiLanguage],
+  );
 
   function onTime() {
     const now = audio.current?.currentTime ?? 0;
@@ -585,6 +594,7 @@ export function Review({
       }
       lines={lines}
       lastSecs={lastSecs}
+      onStop={tracker.cancel}
     />
   );
 
@@ -921,7 +931,7 @@ export function Review({
               highlighted={lit}
               playingId={playingId}
               onSeek={seek}
-              speakerNames={view?.call ? [t(view.call.clinic_label), t("Client")] : undefined}
+              speakerNames={speakerNames}
             />
           ) : view?.call && view.consent?.outcome === "declined" ? (
             <p className="pane-pad muted">{t("Not recorded. The client declined.")}</p>
@@ -1061,6 +1071,7 @@ export function Review({
                           template={null}
                           title={t("Redrafting {heading}", { heading: engine.headingTitle(template, heading) })}
                           lines={lines}
+                          onStop={tracker.cancel}
                         />
                       }
                       onSubmit={(request, save, choice) => void refine(heading, request, save, choice)}
@@ -1329,6 +1340,7 @@ export function Review({
               })}
               subtitle={t("Written from your note, with your corrections, in plain language.")}
               lines={lines}
+              onStop={tracker.cancel}
             />
           }
           onCopy={(doc) =>

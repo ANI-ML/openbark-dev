@@ -28,7 +28,7 @@ pub use sherpa_onnx;
 pub use resample::Resampler;
 
 pub use audio::{Audio, AudioError, SAMPLE_RATE};
-pub use recognizer::{AsrModel, OfflineAsr};
+pub use recognizer::{AsrModel, OfflineAsr, Recognised, TimedToken};
 pub use resample::StreamResampler;
 pub use vad::{SileroVad, SpeechSpan, StreamingVad, Utterance, VadOptions};
 pub use wav::{AudioSink, WavWriter};

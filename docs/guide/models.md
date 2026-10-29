@@ -10,6 +10,10 @@ Under **In use**, **Notes** is the model that writes your notes on this device. 
 - most laptops: Gemma 4 E4B (about 5 GB), the everyday choice;
 - a graphics card with 10 GB or more, or a Mac with 24 GB or more: Gemma 4 12B (about 7 GB).
 
+A new computer starts with Gemma 4 E4B, or with Gemma 4 E2B when E4B won't fit its memory (about 13 GB or less, without a dedicated graphics card). If the model you use won't fit, Models and Record suggest the smaller one, with its download size; nothing changes or downloads until you choose. E2B drafts faster, but in OpenBark's tests it found slightly fewer facts (90% against 95%) and wrote two numbers wrong across 23 visits, so check doses and weights closely. Decisions: [ADR-0030](../adr/0030-drafting-on-weak-computers.md).
+
+On Windows and Linux, a computer with only integrated graphics (graphics built into the processor) writes notes on the processor: that's what the Models screen means by "integrated graphics, notes are written on the processor". A dedicated graphics card and Apple silicon are used as before. To try the integrated graphics anyway, start OpenBark with the environment variable `OPENBARK_GPU_LAYERS=all`. The note model uses one processor thread per core; `OPENBARK_LLM_THREADS` sets another number.
+
 The speech models are chosen for you. OpenBark needs them to transcribe visits, so they can't be removed.
 
 ## Downloading a model

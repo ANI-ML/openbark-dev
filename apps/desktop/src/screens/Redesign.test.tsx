@@ -85,7 +85,7 @@ describe("Record (ADR-0027)", () => {
     phoneWidth(true);
     let level: ((level: number, seconds: number) => void) | undefined;
     mocked.startRecording.mockImplementation(async (...args) => {
-      const hooks = args[5] as { onLevel?: (level: number, seconds: number) => void } | undefined;
+      const hooks = args[6] as { onLevel?: (level: number, seconds: number) => void } | undefined;
       level = hooks?.onLevel;
       return { stop: vi.fn() };
     });

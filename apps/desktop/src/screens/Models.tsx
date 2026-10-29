@@ -9,6 +9,7 @@ import { GpuCard } from "../components/GpuCard";
 import { HfTokenField } from "../components/HfTokenField";
 import { MLX_CARD_ID, MlxCard } from "../components/MlxCard";
 import { ModelGuide, ModelMeaning, ModelTags } from "../components/ModelGuide";
+import { NoteModelAdvice } from "../components/NoteModelAdvice";
 import { RemoveModelDialog, rowBytes } from "../components/RemoveModelDialog";
 import { PHONE_STARTERS, STARTERS } from "../modelGuide";
 import { PHONE, useMediaQuery } from "../useMediaQuery";
@@ -210,6 +211,7 @@ export function Models() {
             })
           : hardwareLine(t, app.status?.hardware)}
       </p>
+      <NoteModelAdvice rows={rows} onDownload={(id) => void download(id)} />
       {error && (
         <p className="ob-notice" data-tone="danger" role="alert">
           {error}

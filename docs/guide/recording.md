@@ -6,11 +6,36 @@ Video: **Help → Recording a consult** in the app.
 2. Choose the **Template**, for example SOAP note or your clinic's own: a list beside the Record button on a computer, a row under it on a phone.
 3. Press the Record button (the large round one in the middle), or the Space bar, to start.
 4. Talk as you normally would. Each sentence appears in the live transcript once it's finished, with the speaker labelled. The level meter shows that the microphone is hearing you. On a phone, recording fills the screen: the patient at the top, the time, the level meter and the latest lines of the transcript.
-5. Press the button again (on a phone, **Stop and save**) to stop. There's no pause: stop, and record again if you need to. The transcript is finished within seconds. With **Draft the note when I stop** ticked, the note is drafted straight away and opens in Review.
+5. Press the button again (on a phone, **Stop and save**) to stop. There's no pause: stop, and record again if you need to. The transcript is finished within seconds, with every line's speaker checked once more ([Speaker labels](#speaker-labels)). With **Draft the note when I stop** ticked, the note is drafted straight away and opens in Review.
 
 Under the Record button, a line says how consent is handled (**Change** opens the consent settings), and another names the microphone, with its level and **Change**.
 
 While recording and drafting, the computer doesn't go to sleep. The recording is saved as it happens, encrypted, so a power cut keeps everything up to that moment.
+
+## Speaker labels
+
+With **Label speakers** ticked, each line of the transcript is labelled **Speaker 1**, **Speaker 2** and so on, numbered in the order people first speak. While you record, a line gets its label as soon as it's finished, from the voices heard so far. When you stop, or when an import finishes, OpenBark compares all the voices in the visit together and labels every line again. That's more accurate than the live labels, so some lines can change speaker at this point. Their words, times and order never change, so anything that points to a line still finds it.
+
+People often answer each other with no pause in between, and a room's echo can fill the short gaps that remain. OpenBark then hears two people's words as one sentence. When that happens, it splits the line where the voice changes, so each person's words get their own line and label.
+
+### Speakers in the room
+
+**Speakers in the room** is in the options beside the Record button (under it on a phone). It tells OpenBark how many people talk during the visit: **Auto**, **2**, **3** or **4**.
+
+- With **Auto**, OpenBark counts the voices itself. Most consults are a vet and a client, so it leans towards two. It finds one voice for a dictation, and three or more when a technician or another family member talks for long enough.
+- If you know the number, choose it, for example when a technician helps or a family brings two pets. OpenBark then sorts the voices into exactly that many speakers.
+
+The setting is remembered on this computer and applies to imports too. Calls made through OpenBark don't use it: each side of a call has its own channel, labelled **Vet** or **Client**.
+
+### Getting good speaker labels
+
+Speaker labels depend on how clearly the microphone hears each voice. A small laptop's built-in microphone, across an exam room, picks up a lot of echo, and echo makes voices sound alike. These help most, in this order:
+
+- **A microphone near the conversation.** A USB desk microphone or a clip-on microphone between you and the client, or the OpenBark iPhone app on the table near you both, hears each voice clearly. This helps more than anything else.
+- **Take turns.** OpenBark separates people answering each other quickly, but two people talking at the same time end up on one line.
+- **Set Speakers in the room** when you know the number.
+
+Labels help you read the transcript and tell the note who said what. A line with the wrong label still has the right words. Check the note before you sign, as always.
 
 ## In the browser (web mode)
 

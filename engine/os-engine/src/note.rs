@@ -1,6 +1,8 @@
 //! Template-constrained note generation.
 
-use os_llm::{ChatMessage, GenerateRequest, GenerateStats, LlmBackend};
+use os_llm::{
+    ChatMessage, Control, GenerateOutput, GenerateRequest, GenerateStats, LlmBackend, LlmError, Phase,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -26,6 +28,9 @@ pub struct NoteOptions {
     /// Multi-pet visits: the animal this note is about, and the others.
     pub pet: Option<String>,
     pub other_pets: Vec<String>,
+    /// The Stop button and the drafting board's progress, shared with the
+    /// model while it runs.
+    pub control: Option<Control>,
 }
 
 /// "This visit covered several animals… write only about Mango."
@@ -73,6 +78,7 @@ pub fn attribute_lines(
     llm: &dyn LlmBackend,
     transcript: &Transcript,
     pets: &[String],
+    control: Option<&Control>,
 ) -> Result<(std::collections::BTreeMap<u32, String>, GenerateStats), EngineError> {
     let names = pets.join(", ");
     let system = format!(
@@ -116,8 +122,12 @@ pub fn attribute_lines(
         temperature: 0.0,
         seed: 42,
         json_schema: Some(schema.to_string()),
+        control: control.cloned(),
     };
     let output = llm.generate(&request, &mut |_| true)?;
+    if control.is_some_and(Control::is_cancelled) {
+        return Err(LlmError::Cancelled.into());
+    }
     let parsed: Value = serde_json::from_str(output.text.trim())
         .map_err(|e| EngineError::BadJson(format!("line labels: {e}")))?;
     let labels = parsed["lines"]
@@ -215,6 +225,7 @@ impl Default for NoteOptions {
             language: None,
             pet: None,
             other_pets: Vec::new(),
+            control: None,
         }
     }
 }
@@ -278,8 +289,23 @@ pub const CHART_MAX_TOKENS: u32 = 8192;
 /// The drafting budget: `default`, or [`CHART_MAX_TOKENS`] when the template
 /// has a chart and `default` is smaller.
 pub fn max_tokens_for(template: &LoadedTemplate, default: u32) -> u32 {
-    if template.chart().is_some() { default.max(CHART_MAX_TOKENS) } else { default }
+    if template.chart().is_some() {
+        default.max(CHART_MAX_TOKENS)
+    } else if !template.template.document.is_record() {
+        default.min(CLIENT_MAX_TOKENS)
+    } else {
+        default
+    }
 }
+
+/// The drafting budget for a client document (a summary, discharge
+/// instructions): they are written to be read in a minute or two, about 250
+/// to 400 words, which with the JSON keys and the cited line numbers comes to
+/// well under 1,000 tokens. Twice that leaves room for a long visit and stops
+/// a runaway heading at half the note budget (a clinic's client summary ran
+/// on, unfinished, for most of an hour on a slow laptop). Checked against the
+/// long-visit CI job (.github/workflows/drafting.yml).
+pub const CLIENT_MAX_TOKENS: u32 = 2048;
 
 /// The JSON formats for a template: the tooth line and the finding guide only
 /// when it has a chart.
@@ -633,12 +659,14 @@ fn user_message(transcript: &Transcript, context: Option<&str>) -> String {
 
 /// The schema the drafting grammar follows: the template's, with tooth
 /// findings in their drafting names ([`crate::dental::DRAFT_NAMES`]).
+/// Every list and free string is bounded ([`crate::template::bounded_for_drafting`]).
 pub fn drafting_schema_text(template: &LoadedTemplate) -> String {
-    if template.chart().is_some() {
-        crate::dental::drafting_schema(&template.schema).to_string()
-    } else {
-        template.schema_text.clone()
-    }
+    drafting_schema_for(&template.schema).to_string()
+}
+
+/// [`drafting_schema_text`] for one heading's schema (re-prompting).
+fn drafting_schema_for(schema: &Value) -> Value {
+    crate::template::bounded_for_drafting(&crate::dental::drafting_schema(schema))
 }
 
 /// System and user messages for a template + transcript.
@@ -685,6 +713,99 @@ pub fn build_refine_messages(
     vec![ChatMessage::system(system), ChatMessage::user(user)]
 }
 
+/// The model's JSON. A draft cut off at the token budget is never parsed into
+/// a note: it says so ([`EngineError::RanOut`]).
+fn parse_output(output: &GenerateOutput) -> Result<Value, EngineError> {
+    serde_json::from_str(output.text.trim()).map_err(|e| {
+        if output.stats.hit_max_tokens {
+            EngineError::RanOut(e.to_string())
+        } else {
+            EngineError::BadJson(e.to_string())
+        }
+    })
+}
+
+/// Run the model with the repetition guard and the Stop button: a draft that
+/// starts repeating itself stops early ([`EngineError::Repeating`]), one that
+/// was stopped comes back as [`LlmError::Cancelled`], and the control hears
+/// [`Phase::Generated`] before the caller checks the output.
+fn generate_guarded(
+    llm: &dyn LlmBackend,
+    request: &GenerateRequest,
+    on_token: &mut dyn FnMut(&str) -> bool,
+) -> Result<GenerateOutput, EngineError> {
+    let control = request.control.as_ref();
+    let mut guard = RepeatGuard::default();
+    let mut repeating = false;
+    let output = llm.generate(request, &mut |piece| {
+        if control.is_some_and(Control::is_cancelled) {
+            return false;
+        }
+        if guard.push(piece) {
+            repeating = true;
+            return false;
+        }
+        on_token(piece)
+    })?;
+    if control.is_some_and(Control::is_cancelled) {
+        return Err(LlmError::Cancelled.into());
+    }
+    if repeating {
+        tracing::warn!(
+            completion_tokens = output.stats.completion_tokens,
+            "drafting stopped: the model repeated itself"
+        );
+        return Err(EngineError::Repeating);
+    }
+    if let Some(c) = control {
+        c.report(Phase::Generated);
+    }
+    Ok(output)
+}
+
+/// Spots a model stuck repeating itself: the end of what it has written is
+/// one short stretch (a phrase, a line, a whole statement) said over and over.
+/// Legitimate notes repeat words and keys, never the same run of text ten
+/// times in a row, and tooth-chart items (over 100 characters each, merged
+/// when repeated: [`crate::dental::merge_repeats`]) are longer than any
+/// period checked here.
+#[derive(Default)]
+pub struct RepeatGuard {
+    tail: Vec<u8>,
+    pieces: usize,
+}
+
+impl RepeatGuard {
+    /// Longest repeating stretch looked for, in bytes.
+    const MAX_PERIOD: usize = 100;
+    /// Times a stretch must repeat back to back.
+    const REPEATS: usize = 10;
+    /// Bytes the repeats must cover at least, so a short run of the same
+    /// character never counts.
+    const MIN_SPAN: usize = 200;
+    const KEEP: usize = 4096;
+
+    /// Add a piece of output; true when the output has started repeating.
+    pub fn push(&mut self, piece: &str) -> bool {
+        self.tail.extend_from_slice(piece.as_bytes());
+        if self.tail.len() > 2 * Self::KEEP {
+            self.tail.drain(..self.tail.len() - Self::KEEP);
+        }
+        self.pieces += 1;
+        // Every few pieces is plenty: a loop goes on for hundreds.
+        self.pieces.is_multiple_of(8) && self.repeating()
+    }
+
+    fn repeating(&self) -> bool {
+        let t = &self.tail;
+        let n = t.len();
+        (1..=Self::MAX_PERIOD).any(|p| {
+            let span = (p * Self::REPEATS).max(Self::MIN_SPAN);
+            span + p <= n && (n - span..n).all(|i| t[i] == t[i - p])
+        })
+    }
+}
+
 /// Generate a draft note. `on_token` streams raw JSON text as it is produced.
 pub fn generate_note(
     llm: &dyn LlmBackend,
@@ -702,11 +823,14 @@ pub fn generate_note(
         (Some(pet), false) => {
             let pets: Vec<String> =
                 std::iter::once(pet.to_string()).chain(options.other_pets.iter().cloned()).collect();
-            match attribute_lines(llm, transcript, &pets) {
+            match attribute_lines(llm, transcript, &pets, options.control.as_ref()) {
                 Ok((labels, stats)) => {
                     labelling_ms = stats.total_ms;
                     std::borrow::Cow::Owned(lines_for_pet(transcript, &labels, pet))
                 }
+                // Stop pressed while the lines were labelled: stop, don't draft.
+                Err(EngineError::Llm(LlmError::Cancelled)) => return Err(LlmError::Cancelled.into()),
+                Err(EngineError::Llm(LlmError::Stopped)) => return Err(LlmError::Stopped.into()),
                 // Labelling failed: draft from the whole visit, with the multi-pet instruction.
                 Err(_) => std::borrow::Cow::Borrowed(transcript),
             }
@@ -731,12 +855,10 @@ pub fn generate_note(
         temperature: options.temperature,
         seed: options.seed,
         json_schema: Some(drafting_schema_text(template)),
+        control: options.control.clone(),
     };
-    let output = llm.generate(&request, on_token)?;
-    let mut note: Value = serde_json::from_str(output.text.trim()).map_err(|e| {
-        let hint = if output.stats.hit_max_tokens { " (output hit max_tokens)" } else { "" };
-        EngineError::BadJson(format!("{e}{hint}"))
-    })?;
+    let output = generate_guarded(llm, &request, on_token)?;
+    let mut note: Value = parse_output(&output)?;
     crate::dental::rename_for_drafting(&mut note, false);
     // A runaway repeat ("404 normal" seventeen times) becomes one item.
     crate::dental::merge_repeats(&mut note);
@@ -816,13 +938,11 @@ pub fn refine_note(
         max_tokens: max_tokens_for(template, options.max_tokens),
         temperature: options.temperature,
         seed: options.seed,
-        json_schema: Some(crate::dental::drafting_schema(&schema).to_string()),
+        json_schema: Some(drafting_schema_for(&schema).to_string()),
+        control: options.control.clone(),
     };
-    let output = llm.generate(&generate, on_token)?;
-    let mut redrafted: Value = serde_json::from_str(output.text.trim()).map_err(|e| {
-        let hint = if output.stats.hit_max_tokens { " (output hit max_tokens)" } else { "" };
-        EngineError::BadJson(format!("{e}{hint}"))
-    })?;
+    let output = generate_guarded(llm, &generate, on_token)?;
+    let mut redrafted: Value = parse_output(&output)?;
     crate::dental::rename_for_drafting(&mut redrafted, false);
     crate::dental::merge_repeats(&mut redrafted);
     let mut note = note.clone();
@@ -1121,9 +1241,161 @@ mod tests {
             template.schema_text.contains("\"resorption\"")
                 && !template.schema_text.contains("resorption_stage")
         );
-        // Templates without a chart draft with their own schema.
+        // Templates without a chart draft with their own schema, bounded.
         let soap = LoadedTemplate::builtin("soap").unwrap();
-        assert_eq!(drafting_schema_text(&soap), soap.schema_text);
+        assert_eq!(
+            drafting_schema_text(&soap),
+            crate::template::bounded_for_drafting(&soap.schema).to_string()
+        );
+        assert!(!soap.schema_text.contains("maxLength"), "the saved schema has no bounds");
+    }
+
+    /// Lists and free strings are bounded in the drafting grammar (0.2.3),
+    /// and every built-in template's bounded schema still converts quickly.
+    #[test]
+    fn drafting_schemas_are_bounded_and_still_convert() {
+        use crate::template::{
+            MAX_EVIDENCE, MAX_MEDICATION_CHARS, MAX_MEDICATIONS, MAX_STATEMENTS, MAX_TEXT_CHARS,
+            MAX_UNIT_CHARS,
+        };
+        for id in LoadedTemplate::builtin_ids() {
+            let t = LoadedTemplate::builtin(id).unwrap();
+            let text = drafting_schema_text(&t);
+            let bounded: Value = serde_json::from_str(&text).unwrap();
+            let defs = &bounded["$defs"];
+            assert_eq!(defs["statements"]["maxItems"], MAX_STATEMENTS, "{id}");
+            assert_eq!(defs["evidence"]["maxItems"], MAX_EVIDENCE, "{id}");
+            assert_eq!(defs["evidence"]["minItems"], 1, "{id}: existing bounds stay");
+            assert_eq!(defs["statement"]["properties"]["text"]["maxLength"], MAX_TEXT_CHARS, "{id}");
+            assert_eq!(defs["medication"]["properties"]["drug"]["maxLength"], MAX_MEDICATION_CHARS, "{id}");
+            assert_eq!(
+                defs["field"]["anyOf"][1]["properties"]["unit"]["anyOf"][1]["maxLength"], MAX_UNIT_CHARS,
+                "{id}"
+            );
+            for node in bounded["properties"].as_object().unwrap().values() {
+                if node["items"]["$ref"] == "#/$defs/medication" {
+                    assert_eq!(node["maxItems"], MAX_MEDICATIONS, "{id}");
+                }
+            }
+            let started = std::time::Instant::now();
+            let grammar = os_llm::grammar_for_schema(&text).unwrap();
+            assert!(grammar.contains("{0,"), "{id}: the bounds reach the grammar");
+            assert!(started.elapsed().as_millis() < 2000, "{id}: {:?}", started.elapsed());
+        }
+        // The tooth chart keeps its own cap; enums aren't given a length.
+        let dental = LoadedTemplate::builtin("dental").unwrap();
+        let bounded: Value = serde_json::from_str(&drafting_schema_text(&dental)).unwrap();
+        assert_eq!(bounded["properties"]["dental_chart"]["maxItems"], crate::template::MAX_CHART_ITEMS);
+        assert!(bounded["$defs"]["tooth_finding"]["properties"]["tooth"].get("maxLength").is_none());
+    }
+
+    /// Client documents get a smaller budget; notes keep theirs.
+    #[test]
+    fn client_documents_draft_with_a_smaller_budget() {
+        for id in ["client-summary", "discharge", "estimate-explanation", "euthanasia-aftercare"] {
+            let t = LoadedTemplate::builtin(id).unwrap();
+            assert_eq!(max_tokens_for(&t, 4096), CLIENT_MAX_TOKENS, "{id}");
+        }
+        let soap = LoadedTemplate::builtin("soap").unwrap();
+        assert_eq!(max_tokens_for(&soap, 4096), 4096);
+    }
+
+    #[test]
+    fn the_repeat_guard_stops_loops_and_lets_notes_through() {
+        // A phrase said over and over inside a string.
+        let mut guard = RepeatGuard::default();
+        assert!((0..200).any(|_| guard.push("and the ")));
+        // The same statement again and again.
+        let mut guard = RepeatGuard::default();
+        let item = r#"{"text": "Recheck in two weeks", "evidence": [40]}, "#;
+        assert!((0..40).any(|_| guard.push(item)));
+        // A real note, streamed in small pieces, never trips it.
+        let note =
+            include_str!("../../../docs/perf/results/rtx4080-win11-20261017/feline-vomiting-paced.e4b.md");
+        let mut guard = RepeatGuard::default();
+        let chars: Vec<char> = note.chars().collect();
+        for piece in chars.chunks(3) {
+            assert!(!guard.push(&piece.iter().collect::<String>()));
+        }
+        // Nor does a long list of different evidence ids.
+        let mut guard = RepeatGuard::default();
+        for n in 0..300 {
+            assert!(!guard.push(&format!("{n}, ")));
+        }
+    }
+
+    /// Writes the same statement until told to stop.
+    struct Looping;
+
+    impl LlmBackend for Looping {
+        fn capabilities(&self) -> os_llm::LlmCapabilities {
+            Canned { text: String::new(), requests: Default::default() }.capabilities()
+        }
+
+        fn generate(
+            &self,
+            request: &GenerateRequest,
+            on_token: &mut dyn FnMut(&str) -> bool,
+        ) -> Result<os_llm::GenerateOutput, os_llm::LlmError> {
+            let mut text = String::from(r#"{"subjective": {"history": ["#);
+            for n in 0..request.max_tokens {
+                let piece = r#"{"text": "Eating well", "evidence": [0]}, "#;
+                text.push_str(piece);
+                if !on_token(piece) {
+                    let stats = GenerateStats { completion_tokens: n, ..Default::default() };
+                    return Ok(os_llm::GenerateOutput { text, stats });
+                }
+            }
+            let stats = GenerateStats { hit_max_tokens: true, ..Default::default() };
+            Ok(os_llm::GenerateOutput { text, stats })
+        }
+    }
+
+    /// Answers with `text`, cut off at the token budget.
+    struct CutOff(&'static str);
+
+    impl LlmBackend for CutOff {
+        fn capabilities(&self) -> os_llm::LlmCapabilities {
+            Looping.capabilities()
+        }
+
+        fn generate(
+            &self,
+            _request: &GenerateRequest,
+            on_token: &mut dyn FnMut(&str) -> bool,
+        ) -> Result<os_llm::GenerateOutput, os_llm::LlmError> {
+            on_token(self.0);
+            let stats = GenerateStats { hit_max_tokens: true, ..Default::default() };
+            Ok(os_llm::GenerateOutput { text: self.0.into(), stats })
+        }
+    }
+
+    #[test]
+    fn a_looping_draft_stops_early_with_a_clear_error() {
+        let soap = LoadedTemplate::builtin("soap").unwrap();
+        let mut streamed = 0;
+        let err = generate_note(&Looping, &soap, &one_line(), &NoteOptions::default(), &mut |_| {
+            streamed += 1;
+            true
+        })
+        .unwrap_err();
+        assert!(matches!(err, EngineError::Repeating), "{err}");
+        assert!(streamed < 100, "stopped after {streamed} pieces, not at the budget");
+    }
+
+    #[test]
+    fn a_stopped_draft_says_so_and_a_cut_off_one_never_parses() {
+        let soap = LoadedTemplate::builtin("soap").unwrap();
+        let control = Control::new();
+        control.cancel();
+        let options = NoteOptions { control: Some(control), ..Default::default() };
+        let err = generate_note(&Looping, &soap, &one_line(), &options, &mut |_| true).unwrap_err();
+        assert!(matches!(err, EngineError::Llm(LlmError::Cancelled)), "{err}");
+        let cut = CutOff(r#"{"subjective": {"history": [{"text": "Eat"#);
+        let err =
+            generate_note(&cut, &soap, &one_line(), &NoteOptions::default(), &mut |_| true).unwrap_err();
+        assert!(matches!(err, EngineError::RanOut(_)), "{err}");
+        assert!(err.to_string().ends_with("(output hit max_tokens)"));
     }
 
     #[test]

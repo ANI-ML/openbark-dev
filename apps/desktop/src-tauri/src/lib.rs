@@ -2,8 +2,9 @@
 //!
 //! Web mode (`openbark serve`) exposes the same operations over HTTP, so the
 //! UI behaves identically in both. Events: `transcript-segment`, `note-token`,
-//! `audio-level`, `download-progress`, `phone-call-saved`, `mic-status` (the
-//! recording's microphone health) and `mic-test` (the microphone test's level).
+//! `draft-progress` (prompt reading, then a writing heartbeat), `audio-level`,
+//! `download-progress`, `phone-call-saved`, `mic-status` (the recording's
+//! microphone health) and `mic-test` (the microphone test's level).
 //!
 //! Phone calls (ADR-0023 section 4) run in a second window, `phone`, the only
 //! window allowed to reach Twilio and the only one granted the microphone. It
@@ -71,6 +72,9 @@ impl Events for TauriEvents {
     fn mic_test(&self, level: &os_app::MicLevel) {
         let _ = self.0.emit("mic-test", level);
     }
+    fn draft(&self, phase: &os_app::DraftPhase) {
+        let _ = self.0.emit("draft-progress", phase);
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -136,7 +140,8 @@ fn status(app: State<'_, AppState>) -> os_app::Status {
                     Ok(_) => "error: the transcript is empty".to_string(),
                     Err(e) => format!("error: {}", e.0),
                 };
-                tracing::info!(result = %line, "smoke-test transcription");
+                // The words go to the file the script reads, never to the log.
+                tracing::info!(words = words.len(), ok = transcript.is_ok(), "smoke-test transcription");
                 if let Err(e) = std::fs::write(&out, line) {
                     tracing::warn!(error = %e, "couldn't write the smoke-test transcript");
                 }
@@ -658,6 +663,7 @@ async fn import_file(
     path: String,
     speakers: bool,
     speakerphone: Option<bool>,
+    room_speakers: Option<u32>,
     patient: Option<Patient>,
     consent: Option<RecordingConsent>,
     by: Option<String>,
@@ -668,6 +674,7 @@ async fn import_file(
             Path::new(&path),
             speakers,
             speakerphone.unwrap_or(false),
+            room_speakers,
             patient,
             consent,
             by.as_deref(),
@@ -685,6 +692,7 @@ async fn start_recording(
     device: Option<String>,
     speakers: bool,
     speakerphone: Option<bool>,
+    room_speakers: Option<u32>,
     patient: Option<Patient>,
     consent: Option<RecordingConsent>,
     by: Option<String>,
@@ -695,6 +703,7 @@ async fn start_recording(
             RecordingSource::Microphone(device),
             speakers,
             speakerphone.unwrap_or(false),
+            room_speakers,
             patient,
             consent,
             by.as_deref(),
@@ -745,6 +754,24 @@ async fn generate_note(
         )
     })
     .await
+}
+
+/// The drafting board's Stop button: the running draft ends at its next
+/// prompt batch or token, and nothing is saved.
+#[tauri::command]
+fn cancel_draft(app: State<'_, AppState>) -> bool {
+    app.cancel_draft()
+}
+
+/// Copy diagnostics (Settings, About): the computer, the note model, the
+/// last draft's timings and the end of the log. Nothing from any visit.
+#[tauri::command]
+async fn diagnostics(
+    app: State<'_, AppState>,
+    note_model: Option<String>,
+) -> Result<os_app::Diagnostics, String> {
+    let app = app.inner().clone();
+    work(move || Ok(app.diagnostics(note_model.as_deref()))).await
 }
 
 #[tauri::command]
@@ -1491,6 +1518,9 @@ fn for_wry<F: Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool>(f: F) -> F {
 /// Android Tauri calls it as the mobile entry point (ADR-0018 section 7).
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // The log file and panics in it (`<data>/OpenBark/logs`): release builds
+    // have no console. Counts and timings only, never what was said.
+    os_app::logs::init();
     let app: AppState =
         Arc::new(App::new(ModelStore::default_location(), os_engine::session::default_root()));
     // Deleted visits (ADR-0022): recover what a crash left, remove what's due, then hourly.
@@ -1521,6 +1551,8 @@ pub fn run() {
         start_recording,
         stop_recording,
         generate_note,
+        cancel_draft,
+        diagnostics,
         sign_note,
         confirm_chart,
         update_patient,

@@ -1,0 +1,233 @@
+name: Drafting on weak computers
+
+# OpenBark 0.2.3: drafting must finish, fail visibly or stop when asked, even
+# for a long visit on a slow processor. The quick job compiles and lints the
+# whole workspace and runs the UI tests, for fast feedback on a branch; the
+# long-visit job drafts a note and a client summary of a long synthetic
+# consult on two CPU threads and checks that Stop works.
+#
+# The consults are synthetic scripts (packages/eval/fixtures/scripts,
+# invented, rendered with Kokoro on the runner), so no clinic data is
+# involved. It never runs in the public copy of the source.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["fix/drafting-weak-laptops"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: drafting-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  NODE_VERSION: "24.22.0"
+
+jobs:
+  quick:
+    name: Compile, lint and UI tests
+    if: github.repository == 'ANI-ML/openbark-dev'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: System packages (Tauri webview, libclang)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libclang-dev cmake libasound2-dev
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-drafting-quick/${{ github.repository }}/${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-drafting-quick/${{ github.repository }}/
+            cargo-linux/${{ github.repository }}/
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r run typecheck
+      - run: pnpm -r run test
+
+  long-visit:
+    name: Long visit on two threads (note, client summary, Stop)
+    if: github.repository == 'ANI-ML/openbark-dev'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: System packages (libclang, ALSA)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev cmake libasound2-dev jq
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-drafting-long/${{ github.repository }}/${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-drafting-long/${{ github.repository }}/
+            cargo-appstore/${{ github.repository }}/
+            cargo-design-screens/${{ github.repository }}/
+            cargo-linux/${{ github.repository }}/
+      - run: cargo build --release -p os-cli -p fixture-tts
+      - name: Restore models
+        id: models
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/models
+          key: models-${{ hashFiles('engine/os-models/catalog.json') }}-e2b
+      - name: Download models
+        if: steps.models.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/models
+          export OPENBARK_MODELS_DIR=~/models
+          for id in silero-vad parakeet-tdt-0.6b-v3-int8 pyannote-segmentation-3.0 wespeaker-en-resnet34-lm gemma-4-e2b-it-q4_0; do
+            target/release/openbark models pull "$id"
+          done
+      - name: A long synthetic visit (Kokoro, eight consults back to back)
+        run: |
+          mkdir -p ~/kokoro target/long-visit/parts
+          curl -fsSL https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-en-v0_19.tar.bz2 | tar -xj -C ~/kokoro
+          s=packages/eval/fixtures/scripts
+          # sherpa-onnx's shared library sits beside the build, not on the loader's path.
+          lib=$(find target/release -name 'libsherpa-onnx-c-api.so' | head -1)
+          [ -n "$lib" ] && export LD_LIBRARY_PATH="$(dirname "$lib"):${LD_LIBRARY_PATH:-}"
+          ids="canine-wellness feline-vomiting dermatology emergency oncology surgery equine exotics"
+          target/release/fixture-tts --kokoro ~/kokoro/kokoro-int8-en-v0_19 --out target/long-visit/parts --speed 0.9 \
+            $(for id in $ids; do echo "$s/$id.yaml"; done)
+          # One recording: the parts back to back, a second and a half apart.
+          python3 -I - target/long-visit/long-visit.wav $(for id in $ids; do echo "target/long-visit/parts/$id.wav"; done) <<'PY'
+          import sys, wave
+          out, parts = sys.argv[1], sys.argv[2:]
+          with wave.open(parts[0]) as first:
+              params = first.getparams()
+          gap = b"\0" * int(params.framerate * 1.5) * params.sampwidth * params.nchannels
+          with wave.open(out, "wb") as w:
+              w.setparams(params)
+              for p in parts:
+                  with wave.open(p) as r:
+                      fmt = (r.getframerate(), r.getsampwidth(), r.getnchannels())
+                      assert fmt == (params.framerate, params.sampwidth, params.nchannels), p
+                      w.writeframes(r.readframes(r.getnframes()))
+                  w.writeframes(gap)
+          with wave.open(out) as r:
+              print(f"{out}: {r.getnframes() / r.getframerate() / 60:.1f} minutes")
+          PY
+      - name: Draft a note and a client summary on two threads, then Stop twice
+        shell: bash
+        run: |
+          set -u
+          demo="$PWD/target/long-visit/demo"
+          rm -rf "$demo" && mkdir -p "$demo/models" && touch "$demo/OPENBARK-DEMO"
+          cp -r ~/models/. "$demo/models/"
+          export OPENBARK_SESSIONS_DIR="$demo/visits" OPENBARK_TEMPLATES_DIR="$demo/templates" \
+            OPENBARK_USERS_FILE="$demo/users.json" OPENBARK_LOCATIONS_FILE="$demo/locations.json" \
+            OPENBARK_ENGINES_DIR="$demo/engines" OPENBARK_MODELS_DIR="$demo/models" \
+            OPENBARK_CONNECTIONS_DIR="$demo/connections" \
+            OPENBARK_DATA_KEY="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" \
+            OPENBARK_LLM_THREADS=2 OPENBARK_LOG=info
+          port=4341
+          base="http://127.0.0.1:$port"
+          # The API is what's tested, so the web UI isn't built here; the
+          # server only needs an index.html to start.
+          mkdir -p "$demo/ui" && echo '<!doctype html><title>OpenBark</title>' > "$demo/ui/index.html"
+          target/release/openbark serve --port $port --ui-dir "$demo/ui" >> "$demo/serve.log" 2>&1 &
+          for _ in $(seq 1 300); do curl -fs "$base/api/status" > /dev/null && break; sleep 0.2; done
+          curl -fs "$base/api/status" > "$demo/status.json" || { echo "::error::the server didn't start"; tail -50 "$demo/serve.log"; exit 1; }
+          jq '.hardware' "$demo/status.json"
+          summary() { echo "$*" | tee -a "$GITHUB_STEP_SUMMARY"; }
+          summary "## Long visit on two threads (Gemma 4 E2B, CPU)"
+          # Every server-sent event, to see when the model is reading or writing.
+          curl -sN "$base/api/events" > "$demo/events.log" &
+          q="consent_rule=all_parties&consent_method=verbal&consent_by=Dr%20Rivera&diarize=true"
+          started=$(date +%s)
+          # The answer holds the transcript, so it stays out of the uploaded files.
+          code=$(curl -sS --max-time 3600 -o "$demo/import.out" -w '%{http_code}' -X POST -H 'x-openbark: 1' \
+            --data-binary @target/long-visit/long-visit.wav \
+            "$base/api/sessions?name=long-visit.wav&patient_name=Biscuit&last_name=Okafor&species=Dog&reason=Long%20visit&$q") || code="timeout"
+          id=$(jq -r '.id // .session.id // empty' "$demo/import.out" 2>/dev/null) || id=""
+          [ -n "$id" ] || {
+            summary "- Import failed (HTTP $code): $(jq -r '.error // empty' "$demo/import.out" 2>/dev/null)"
+            echo "::error::import failed (HTTP $code)"; tail -50 "$demo/serve.log"; exit 1
+          }
+          view=$(curl -fsS "$base/api/sessions/$id")
+          dir=$(echo "$view" | jq -r '.dir')
+          lines=$(echo "$view" | jq '.transcript.segments | length')
+          summary "- Imported and transcribed in $(( $(date +%s) - started )) s: $lines transcript lines"
+          # No runs folder yet counts as none (pipefail would end the step).
+          runs() { ls "$dir/runs" 2>/dev/null | wc -l || true; }
+          fail=0
+          # Each draft must finish, or fail with a message, within 40 minutes.
+          draft() { # template
+            local t0 code secs
+            t0=$(date +%s)
+            code=$(curl -sS --max-time 2400 -o "$demo/$1.json" -w '%{http_code}' -X POST -H 'x-openbark: 1' \
+              -H 'content-type: application/json' -d "{\"llm\":\"gemma-4-e2b-it-q4_0\",\"template\":\"$1\"}" \
+              "$base/api/sessions/$id/notes") || code="timeout"
+            secs=$(( $(date +%s) - t0 ))
+            if [ "$code" = "200" ]; then
+              summary "- $1: saved in $secs s; $(jq -r '.run.stats | "prompt \(.prompt_tokens) tokens, wrote \(.completion_tokens) tokens at \(.tokens_per_second * 10 | round / 10) tokens/s, hit the limit: \(.hit_max_tokens)"' "$demo/$1.json")"
+            elif [ "$code" = "timeout" ] || [ "$code" = "000" ]; then
+              summary "- $1: **no answer after $secs s** (stalled)"
+              fail=1
+            else
+              summary "- $1: failed visibly in $secs s (HTTP $code): $(jq -r '.error' "$demo/$1.json")"
+              echo "::warning::$1 failed: $(jq -r '.error' "$demo/$1.json")"
+            fi
+          }
+          draft soap
+          draft client-summary
+          # Stop: once while the transcript is read, once while the note is written.
+          stop_during() { # phase
+            local before code t0 secs err from pid waited=0
+            before=$(runs)
+            from=$(wc -l < "$demo/events.log")
+            curl -sS --max-time 2400 -o "$demo/stop-$1.json" -w '%{http_code}' -X POST -H 'x-openbark: 1' \
+              -H 'content-type: application/json' -d '{"llm":"gemma-4-e2b-it-q4_0","template":"soap"}' \
+              "$base/api/sessions/$id/notes" > "$demo/stop-$1.code" &
+            pid=$!
+            # Not grep -q: tail would die of SIGPIPE and pipefail would call it a miss.
+            until tail -n +"$((from + 1))" "$demo/events.log" | grep "\"phase\":\"$1\"" > /dev/null; do
+              sleep 1; waited=$((waited + 1))
+              [ $waited -lt 1800 ] || { summary "- Stop while $1: the draft never got there"; fail=1; return; }
+            done
+            sleep 3
+            t0=$(date +%s)
+            [ "$(curl -fsS -X POST -H 'x-openbark: 1' "$base/api/notes/cancel")" = "true" ] || { summary "- Stop while $1: nothing to stop"; fail=1; }
+            wait $pid || true
+            secs=$(( $(date +%s) - t0 ))
+            code=$(cat "$demo/stop-$1.code")
+            err=$(jq -r '.error // empty' "$demo/stop-$1.json" 2>/dev/null) || err=""
+            if [ "$code" = "400" ] && [ "$err" = "Drafting stopped. Nothing was saved." ] && [ "$secs" -le 60 ] && [ "$(runs)" = "$before" ]; then
+              summary "- Stop while $1: stopped $secs s after Stop, nothing saved"
+            else
+              summary "- Stop while $1: **failed** (HTTP $code, \"$err\", $secs s, runs $before then $(runs))"
+              fail=1
+            fi
+          }
+          stop_during prompt
+          stop_during writing
+          # The log holds counts and timings, never the patient's name.
+          if grep -qi -e biscuit -e okafor "$demo/serve.log"; then summary "- **The patient's name reached the log**"; fail=1; fi
+          grep -E "llm (loaded|generation finished)|drafting" "$demo/serve.log" | tail -20 || true
+          exit $fail
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          # A synthetic visit and logs only: no patient data exists on CI.
+          name: long-visit
+          path: |
+            target/long-visit/demo/*.json
+            target/long-visit/demo/serve.log

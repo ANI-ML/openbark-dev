@@ -723,7 +723,7 @@ impl App {
                 let dir = recorder.session_dir.clone();
                 // A recorder that failed still had its folder: delete what it wrote.
                 if let Err(e) = recorder.discard() {
-                    tracing::warn!(visit = %id, error = %e, "the call's recorder had failed; deleting what it wrote");
+                    tracing::warn!(error = %e, "the call's recorder had failed; deleting what it wrote");
                 }
                 dir
             }
@@ -738,7 +738,8 @@ impl App {
             s.set_call(call)?;
         }
         self.link_visit(&mut s)?;
-        tracing::info!(visit = %id, ?outcome, "call recording deleted");
+        // Never the visit id: its folder name carries the patient's name.
+        tracing::info!(?outcome, "call recording deleted");
         Ok(crate::view(&s, None))
     }
 
@@ -793,7 +794,7 @@ impl App {
         let transcript = match recorder.map(|r| r.stop()) {
             Some(Ok(result)) => Some(result.transcript),
             Some(Err(e)) => {
-                tracing::warn!(visit = %state.id, error = %e, "the call's recorder failed");
+                tracing::warn!(error = %e, "the call's recorder failed");
                 None
             }
             None => None,
