@@ -2,9 +2,20 @@
 
 All notable changes to OpenBark, newest first. Generated from `website/content/history.json` by `scripts/website-build.py`; edit that file, not this one. The same history is on the website's Version history page.
 
-## 0.2.2 (beta)
+## 0.2.3 (beta)
 
 ### Beta: Ready for clinics to try
+
+#### 2026-10-29: Drafting that finishes on slower computers, with a Stop button
+
+After a clinic's report of a note stuck at 87% on a laptop: drafting now shows what it is doing, can be stopped, and picks a note model that fits the computer.
+
+- New installs pick the note model by the computer's memory: the smaller Gemma 4 E2B when the larger one won't fit. If you already have a model, OpenBark suggests the smaller one instead of switching for you.
+- A Stop button while a note is drafting. A stopped draft saves nothing and says so.
+- Drafting shows each step: reading the transcript with time left, then writing with its speed, and a notice if it seems stuck.
+- Notes and client documents have a sensible length limit, and a draft that starts repeating itself stops with a plain message instead of running on.
+- Computers with only built-in graphics draft on the processor, which is steadier, and drafting uses the processor's real core count.
+- A log file with no patient names, transcript words or note text, and Settings, About, Copy diagnostics to send us when something goes wrong.
 
 #### 2026-10-26: Sync between your iPhone and computers, through your clinic hub
 

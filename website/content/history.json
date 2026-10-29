@@ -1,6 +1,6 @@
 {
   "_about": "Version history shown on history.html and written to CHANGELOG.md by scripts/website-build.py. Major changes only, newest first: a handful of items per milestone, each one a change a clinic would notice. Items marked 'testing' are built but not yet proven on real devices.",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "stage": "Beta",
   "next": [
     {"text": "OpenBark for iPhone on the App Store, after testing on real phones in clinics."},
@@ -15,6 +15,19 @@
       "name": "Beta",
       "tagline": "Ready for clinics to try",
       "entries": [
+        {
+          "date": "2026-10-29",
+          "title": "Drafting that finishes on slower computers, with a Stop button",
+          "summary": "After a clinic's report of a note stuck at 87% on a laptop: drafting now shows what it is doing, can be stopped, and picks a note model that fits the computer.",
+          "items": [
+            {"text": "New installs pick the note model by the computer's memory: the smaller Gemma 4 E2B when the larger one won't fit. If you already have a model, OpenBark suggests the smaller one instead of switching for you.", "status": "shipped"},
+            {"text": "A Stop button while a note is drafting. A stopped draft saves nothing and says so.", "status": "shipped"},
+            {"text": "Drafting shows each step: reading the transcript with time left, then writing with its speed, and a notice if it seems stuck.", "status": "shipped"},
+            {"text": "Notes and client documents have a sensible length limit, and a draft that starts repeating itself stops with a plain message instead of running on.", "status": "shipped"},
+            {"text": "Computers with only built-in graphics draft on the processor, which is steadier, and drafting uses the processor's real core count.", "status": "shipped"},
+            {"text": "A log file with no patient names, transcript words or note text, and Settings, About, Copy diagnostics to send us when something goes wrong.", "status": "shipped"}
+          ]
+        },
         {
           "date": "2026-10-26",
           "title": "Sync between your iPhone and computers, through your clinic hub",
