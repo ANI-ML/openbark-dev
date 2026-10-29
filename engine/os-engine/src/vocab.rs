@@ -1240,7 +1240,7 @@ mod tests {
         );
         assert_eq!(remove_clinic_term(&path, "ZORBIFLEX").unwrap().len(), 1);
         // The engine reads what was saved.
-        let lex = Lexicon::load(Some(&path));
+        let lex = Lexicon::load(Some(path.as_path()));
         assert!(lex.terms.iter().any(|t| t.text == "nobivac lepto" && t.kind == "vaccine"));
         // Refused: three words, a separator, an unknown kind. Tabs and line
         // breaks are only spaces.
