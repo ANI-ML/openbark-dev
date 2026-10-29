@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { fmtTime } from "../context";
 import type { Hint, Segment } from "../engine";
 import { useT } from "../i18n";
@@ -41,8 +41,11 @@ export interface TranscriptListProps {
  * mono 15/26 in secondary ink, with the utterance being heard now in ink
  * while following a live recording. Speaker labels are captions at weight
  * 600 and are never colour-coded.
+ *
+ * Memoised: Review redraws while a note is drafted, and a long visit's
+ * transcript (700 lines and more) shouldn't redraw with it.
  */
-export function TranscriptList({
+export const TranscriptList = memo(function TranscriptList({
   segments,
   follow,
   highlighted,
@@ -128,4 +131,4 @@ export function TranscriptList({
       )}
     </div>
   );
-}
+});

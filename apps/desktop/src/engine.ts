@@ -328,9 +328,17 @@ export interface DocumentView {
 
 export interface Hardware {
   gpu: string | null;
+  /** The graphics memory the fit check counts: null with no card, or integrated graphics the note model doesn't use. */
   gpu_memory_bytes: number | null;
   ram_bytes: number;
   summary: string;
+  /** `gpu` is integrated graphics. */
+  gpu_integrated?: boolean;
+  /** Layers of the note model on the graphics card: null all, 0 the processor only (ADR-0030). */
+  llm_gpu_layers?: number | null;
+  cpu_cores?: number | null;
+  cpu_threads?: number;
+  llm_threads?: number | null;
 }
 
 export interface Status {
@@ -1226,6 +1234,25 @@ export const generateNote = (id: string, llm: string, tpl: string, language?: st
         `/api/sessions/${enc(id)}/notes`,
         post({ llm, template: tpl, language: language ?? null, pet: pet ?? null, by: actor }),
       );
+
+/** Stop the draft running now: it ends at the model's next step and nothing is saved. True when one was running. */
+export const cancelDraft = () =>
+  isDesktop ? invoke<boolean>("cancel_draft") : api<boolean>("/api/notes/cancel", post({}));
+
+/** What a stopped draft says (os-app DRAFT_STOPPED). */
+export const DRAFT_STOPPED = "Drafting stopped. Nothing was saved.";
+
+/** Copy diagnostics: the computer, the note model, the last draft's timings and the end of the log. Nothing from any visit. */
+export const diagnostics = (noteModel: string | null) =>
+  isDesktop
+    ? invoke<{ text: string }>("diagnostics", { noteModel })
+    : api<{ text: string }>(`/api/diagnostics${noteModel ? `?note_model=${enc(noteModel)}` : ""}`);
+
+/** Where a draft is (os-llm Phase): reading the prompt, then a heartbeat while writing. */
+export type DraftPhase =
+  | { phase: "prompt"; done: number; total: number }
+  | { phase: "writing"; tokens: number; tokens_per_second: number }
+  | { phase: "generated" };
 
 /** Clinic letterhead and paper size for PDFs. */
 export interface PdfRequest {
@@ -2297,6 +2324,8 @@ type Handlers = {
   download: Set<(d: { model: string; done: number; total: number }) => void>;
   progress: Set<(p: ProcessingProgress) => void>;
   moving: Set<(m: { done: number; total: number }) => void>;
+  /** Drafting: the prompt being read, then the writing heartbeat. */
+  draft: Set<(d: DraftPhase) => void>;
 };
 const handlers: Handlers = {
   mic: new Set(),
@@ -2307,6 +2336,7 @@ const handlers: Handlers = {
   download: new Set(),
   progress: new Set(),
   moving: new Set(),
+  draft: new Set(),
 };
 let source: EventSource | null = null;
 
@@ -2328,6 +2358,7 @@ const TAURI_EVENT: Record<keyof Handlers, string> = {
   download: "download-progress",
   progress: "processing-progress",
   moving: "move-progress",
+  draft: "draft-progress",
 };
 
 export async function on<K extends keyof Handlers>(
