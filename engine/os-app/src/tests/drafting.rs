@@ -129,7 +129,7 @@ fn stop_ends_a_draft_with_a_plain_message_and_saves_nothing() {
     }
     let pressed = Instant::now();
     assert!(app.cancel_draft());
-    let err = worker.join().unwrap().unwrap_err();
+    let err = worker.join().unwrap().err().expect("the draft was stopped");
     assert!(pressed.elapsed() < Duration::from_secs(5), "stopped promptly");
     assert_eq!(err.0, DRAFT_STOPPED);
     assert_eq!(Session::open(&s.dir).unwrap().meta.runs.len(), runs, "no half-saved note");
@@ -161,7 +161,8 @@ fn the_log_never_holds_names_transcript_words_or_note_text() {
         load_fake(&app, "writer", Arc::new(Writer(soap_note_with("Zanzibarite drops in both ears"))));
         app.generate_note(&id, "writer", "soap", None, None, None, &Quiet).unwrap();
         load_fake(&app, "broken", Arc::new(Writer("{\"Zanzibarite\": ".into())));
-        let err = app.generate_note(&id, "broken", "soap", None, None, None, &Quiet).unwrap_err();
+        let err =
+            app.generate_note(&id, "broken", "soap", None, None, None, &Quiet).err().expect("bad JSON fails");
         assert!(!err.0.is_empty());
         let reading = Arc::new(AtomicBool::new(false));
         load_fake(&app, "slow", Arc::new(SlowReader { reading: reading.clone() }));
