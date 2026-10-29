@@ -1226,15 +1226,15 @@ mod tests {
             heard: heard.iter().map(|h| h.to_string()).collect(),
         };
         let terms =
-            save_clinic_term(&path, &t("  Nobivac  Lepto ", "vaccine", &["no be vac lepto", ""])).unwrap();
+            save_clinic_term(&path, &t("  Nobivac  Lepto ", "vaccine", &["nobi vac lepto", ""])).unwrap();
         assert_eq!(terms.len(), 2);
-        assert_eq!(terms[1], t("nobivac lepto", "vaccine", &["no be vac lepto"]));
+        assert_eq!(terms[1], t("nobivac lepto", "vaccine", &["nobi vac lepto"]));
         // Replacing keeps one row; no "heard as" words writes two columns.
         save_clinic_term(&path, &t("Zorbiflex", "product", &[])).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(
             text.starts_with(
-                "# our list\nzorbiflex\tproduct\nnobivac lepto\tvaccine\tclinic\tno be vac lepto\n"
+                "# our list\nzorbiflex\tproduct\nnobivac lepto\tvaccine\tclinic\tnobi vac lepto\n"
             ),
             "{text}"
         );
