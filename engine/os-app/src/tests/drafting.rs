@@ -156,6 +156,14 @@ fn the_log_never_holds_names_transcript_words_or_note_text() {
     let id = id_of(&s);
     let logs_dir = tmp.path().join("logs");
     let dispatch = logs::dispatcher(&logs_dir).unwrap();
+    // While only one dispatcher exists, tracing asks the thread that first
+    // reaches a log line whether it's wanted and remembers the answer. The
+    // other drafting test runs the same lines at the same time with no
+    // logger, so its "no" would switch them off here for good ("drafting
+    // stopped" went missing on CI). With a second, silent dispatcher alive,
+    // tracing asks every dispatcher instead. The app sets one global logger,
+    // so this only matters to tests.
+    let _second = tracing::Dispatch::new(tracing_subscriber::registry());
     tracing::dispatcher::with_default(&dispatch, || {
         // A draft that is saved, one that fails, and one that is stopped.
         load_fake(&app, "writer", Arc::new(Writer(soap_note_with("Zanzibarite drops in both ears"))));

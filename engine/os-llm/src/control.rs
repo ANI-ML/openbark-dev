@@ -81,11 +81,15 @@ impl std::fmt::Debug for Control {
 }
 
 /// Reports [`Phase::Writing`] at most once a second, from the token loop.
+/// Only llama.cpp's token loop has one, so builds without llama.cpp (the
+/// phone) leave it out.
+#[cfg(any(feature = "llama", test))]
 pub(crate) struct Heartbeat {
     started: std::time::Instant,
     last: Option<std::time::Instant>,
 }
 
+#[cfg(any(feature = "llama", test))]
 impl Heartbeat {
     pub(crate) fn new() -> Self {
         Self { started: std::time::Instant::now(), last: None }

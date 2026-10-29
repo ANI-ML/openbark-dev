@@ -140,25 +140,34 @@ jobs:
             OPENBARK_LLM_THREADS=2 OPENBARK_LOG=info
           port=4341
           base="http://127.0.0.1:$port"
-          mkdir -p apps/desktop/dist
-          target/release/openbark serve --port $port --ui-dir apps/desktop/dist >> "$demo/serve.log" 2>&1 &
-          for _ in $(seq 1 150); do curl -fs "$base/api/status" > /dev/null && break; sleep 0.2; done
-          curl -fs "$base/api/status" | jq '.hardware'
+          # The API is what's tested, so the web UI isn't built here; the
+          # server only needs an index.html to start.
+          mkdir -p "$demo/ui" && echo '<!doctype html><title>OpenBark</title>' > "$demo/ui/index.html"
+          target/release/openbark serve --port $port --ui-dir "$demo/ui" >> "$demo/serve.log" 2>&1 &
+          for _ in $(seq 1 300); do curl -fs "$base/api/status" > /dev/null && break; sleep 0.2; done
+          curl -fs "$base/api/status" > "$demo/status.json" || { echo "::error::the server didn't start"; tail -50 "$demo/serve.log"; exit 1; }
+          jq '.hardware' "$demo/status.json"
           summary() { echo "$*" | tee -a "$GITHUB_STEP_SUMMARY"; }
           summary "## Long visit on two threads (Gemma 4 E2B, CPU)"
           # Every server-sent event, to see when the model is reading or writing.
           curl -sN "$base/api/events" > "$demo/events.log" &
           q="consent_rule=all_parties&consent_method=verbal&consent_by=Dr%20Rivera&diarize=true"
           started=$(date +%s)
-          id=$(curl -fsS --max-time 3600 -X POST -H 'x-openbark: 1' --data-binary @target/long-visit/long-visit.wav \
-            "$base/api/sessions?name=long-visit.wav&patient_name=Biscuit&last_name=Okafor&species=Dog&reason=Long%20visit&$q" \
-            | jq -r '.id // .session.id // empty')
-          [ -n "$id" ] || { echo "::error::import failed"; tail -50 "$demo/serve.log"; exit 1; }
+          # The answer holds the transcript, so it stays out of the uploaded files.
+          code=$(curl -sS --max-time 3600 -o "$demo/import.out" -w '%{http_code}' -X POST -H 'x-openbark: 1' \
+            --data-binary @target/long-visit/long-visit.wav \
+            "$base/api/sessions?name=long-visit.wav&patient_name=Biscuit&last_name=Okafor&species=Dog&reason=Long%20visit&$q") || code="timeout"
+          id=$(jq -r '.id // .session.id // empty' "$demo/import.out" 2>/dev/null) || id=""
+          [ -n "$id" ] || {
+            summary "- Import failed (HTTP $code): $(jq -r '.error // empty' "$demo/import.out" 2>/dev/null)"
+            echo "::error::import failed (HTTP $code)"; tail -50 "$demo/serve.log"; exit 1
+          }
           view=$(curl -fsS "$base/api/sessions/$id")
           dir=$(echo "$view" | jq -r '.dir')
           lines=$(echo "$view" | jq '.transcript.segments | length')
           summary "- Imported and transcribed in $(( $(date +%s) - started )) s: $lines transcript lines"
-          runs() { ls "$dir/runs" 2>/dev/null | wc -l; }
+          # No runs folder yet counts as none (pipefail would end the step).
+          runs() { ls "$dir/runs" 2>/dev/null | wc -l || true; }
           fail=0
           # Each draft must finish, or fail with a message, within 40 minutes.
           draft() { # template
@@ -189,17 +198,18 @@ jobs:
               -H 'content-type: application/json' -d '{"llm":"gemma-4-e2b-it-q4_0","template":"soap"}' \
               "$base/api/sessions/$id/notes" > "$demo/stop-$1.code" &
             pid=$!
-            until tail -n +"$((from + 1))" "$demo/events.log" | grep -q "\"phase\":\"$1\""; do
+            # Not grep -q: tail would die of SIGPIPE and pipefail would call it a miss.
+            until tail -n +"$((from + 1))" "$demo/events.log" | grep "\"phase\":\"$1\"" > /dev/null; do
               sleep 1; waited=$((waited + 1))
               [ $waited -lt 1800 ] || { summary "- Stop while $1: the draft never got there"; fail=1; return; }
             done
             sleep 3
             t0=$(date +%s)
             [ "$(curl -fsS -X POST -H 'x-openbark: 1' "$base/api/notes/cancel")" = "true" ] || { summary "- Stop while $1: nothing to stop"; fail=1; }
-            wait $pid
+            wait $pid || true
             secs=$(( $(date +%s) - t0 ))
             code=$(cat "$demo/stop-$1.code")
-            err=$(jq -r '.error // empty' "$demo/stop-$1.json")
+            err=$(jq -r '.error // empty' "$demo/stop-$1.json" 2>/dev/null) || err=""
             if [ "$code" = "400" ] && [ "$err" = "Drafting stopped. Nothing was saved." ] && [ "$secs" -le 60 ] && [ "$(runs)" = "$before" ]; then
               summary "- Stop while $1: stopped $secs s after Stop, nothing saved"
             else
