@@ -7,10 +7,10 @@ tools/fixture-tts writes it). Each NAME=DIR is one run of the settings NAME:
 DIR holds `<fixture>.jsonl` transcripts (and optionally `<fixture>.secs`, the
 seconds the import took). Every transcript is scored with score_speakers.py.
 
-Prints Markdown: per fixture, the WER and the speaker accuracy per word of
-each run, the labels found against the speakers in the script; then totals
-per group of fixtures (the part of the name after the script id, such as
-"tight" or "room"), word-weighted.
+Prints Markdown: for each run, the WER and the speaker accuracy per word per
+group of fixtures (the end of the name, such as "tight" or "room"),
+word-weighted, with how many fixtures got the right number of labels; then
+the same per fixture.
 """
 
 import json
@@ -58,7 +58,38 @@ def main(argv):
             results[fixture][name] = s
     names = [n for n, _ in runs]
 
-    print("| fixture | speakers | " + " | ".join(f"{n}: WER / speaker per word / labels" for n in names) + " |")
+    # Totals: a row per run, a column per group of fixtures.
+    groups = [g for g in GROUPS + ["other"] if any(group_of(f) == g for f in results)] + ["all"]
+    totals = {}
+    for n in names:
+        for g in groups:
+            got = [results[f][n] for f in results if (g == "all" or group_of(f) == g) and n in results[f]]
+            if not got:
+                continue
+            words = sum(s["words"] for s in got)
+            totals.setdefault(n, {})[g] = {
+                "wer": sum(s["wer"] * s["words"] for s in got) / words,
+                "speaker_acc": sum(s["speaker_acc"] * s["words"] for s in got) / words,
+                "count_right": sum(1 for s in got if s["labels"] == s["true_speakers"]),
+                "fixtures": len(got),
+                "secs": sum(s["secs"] or 0 for s in got),
+            }
+    print("Per group: WER / speaker per word / fixtures with the right number of labels (word-weighted).")
+    print()
+    print("| run | " + " | ".join(f"{g} ({sum(1 for f in results if g == 'all' or group_of(f) == g)})" for g in groups) + " | secs |")
+    print("|---|" + "---|" * (len(groups) + 1))
+    for n in names:
+        t = totals.get(n, {})
+        cells = [
+            f"{t[g]['wer']:.1%} / {t[g]['speaker_acc']:.1%} / {t[g]['count_right']}" if g in t else "-" for g in groups
+        ]
+        secs = t.get("all", {}).get("secs", 0)
+        print(f"| {n} | " + " | ".join(cells) + f" | {secs:.0f} |")
+
+    print()
+    print("Per fixture: WER / speaker per word / labels found.")
+    print()
+    print("| fixture | speakers | " + " | ".join(names) + " |")
     print("|---|---|" + "---|" * len(names))
     for fixture in sorted(results, key=lambda f: (GROUPS.index(group_of(f)) if group_of(f) in GROUPS else 99, f)):
         row = results[fixture]
@@ -68,29 +99,6 @@ def main(argv):
             s = row.get(n)
             cells.append(f"{s['wer']:.1%} / {s['speaker_acc']:.1%} / {s['labels']}" if s else "-")
         print(f"| {fixture} | {true} | " + " | ".join(cells) + " |")
-
-    print()
-    print("| group | fixtures | " + " | ".join(f"{n}: WER / speaker per word / right speaker count / secs" for n in names) + " |")
-    print("|---|---|" + "---|" * len(names))
-    totals = {}
-    for g in GROUPS + ["other", "all"]:
-        fixtures = [f for f in results if g == "all" or group_of(f) == g]
-        if not fixtures:
-            continue
-        cells = []
-        for n in names:
-            got = [results[f][n] for f in fixtures if n in results[f]]
-            if not got:
-                cells.append("-")
-                continue
-            words = sum(s["words"] for s in got)
-            wer = sum(s["wer"] * s["words"] for s in got) / words
-            acc = sum(s["speaker_acc"] * s["words"] for s in got) / words
-            count = sum(1 for s in got if s["labels"] == s["true_speakers"])
-            secs = sum(s["secs"] or 0 for s in got)
-            totals.setdefault(n, {})[g] = {"wer": wer, "speaker_acc": acc, "count_right": count, "fixtures": len(got)}
-            cells.append(f"{wer:.1%} / {acc:.1%} / {count} of {len(got)} / {secs:.0f}")
-        print(f"| {g} | {len(fixtures)} | " + " | ".join(cells) + " |")
 
     if out_json:
         with open(out_json, "w", encoding="utf-8") as f:

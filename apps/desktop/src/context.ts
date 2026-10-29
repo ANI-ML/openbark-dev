@@ -8,6 +8,11 @@ export interface Settings {
   labelSpeakers: boolean;
   /** A client on a phone on speaker in the room: pick up the quieter voice (ADR-0026). */
   phoneOnSpeaker: boolean;
+  /**
+   * Speakers in the room (ADR-0030): how many people talk in a consult, or
+   * null (Auto) to let the engine estimate it when recording stops.
+   */
+  roomSpeakers: number | null;
   llm: string;
   /** The desktop microphone, by name; null is the system default. */
   device: string | null;
@@ -66,6 +71,7 @@ export const DEFAULT_CONSENT_SCRIPT =
 const DEFAULTS: Settings = {
   labelSpeakers: true,
   phoneOnSpeaker: false,
+  roomSpeakers: null,
   llm: "gemma-4-e4b-it-q4_0",
   device: null,
   browserMic: null,

@@ -109,12 +109,28 @@ jobs:
           bin=target/release/openbark
           a=target/speakers/audio
           o=target/speakers/runs
-          bash $e run $bin $a $o current
+          # legacy: labels as before ADR-0030 (one per utterance, live only).
+          # new: the app's defaults; new-live is what showed while recording.
+          # The rest change one setting at a time (ADR-0030 lists them).
+          bash $e run $bin $a $o legacy --legacy-speakers
+          bash $e run $bin $a $o new
+          bash $e run $bin $a $o recluster-only --split-threshold 0
+          bash $e run $bin $a $o vad-only --legacy-speakers --vad-min-silence 0.2 --vad-max-speech 10
+          bash $e run $bin $a $o new-vad --vad-min-silence 0.2 --vad-max-speech 10
+          bash $e run $bin $a $o split-0.35 --split-threshold 0.35
+          bash $e run $bin $a $o split-0.55 --split-threshold 0.55
+          bash $e run $bin $a $o cluster-0.35 --cluster-threshold 0.35
+          bash $e run $bin $a $o cluster-0.55 --cluster-threshold 0.55
+          bash $e run $bin $a $o two-speakers --speakers 2
       - name: Score
+        if: always()
         run: |
           o=target/speakers/runs
-          python3 -I packages/eval/speaker_suite.py target/speakers/audio \
-            current=$o/current current-live=$o/current-live \
+          runs=()
+          for name in legacy new new-live recluster-only vad-only new-vad split-0.35 split-0.55 cluster-0.35 cluster-0.55 two-speakers; do
+            [ -d "$o/$name" ] && runs+=("$name=$o/$name")
+          done
+          python3 -I packages/eval/speaker_suite.py target/speakers/audio "${runs[@]}" \
             --json target/speakers/suite.json | tee target/speakers/suite.md
           {
             echo "## Speaker labels on harder consults"

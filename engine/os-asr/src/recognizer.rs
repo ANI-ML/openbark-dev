@@ -37,6 +37,50 @@ impl AsrModel {
     }
 }
 
+/// What the recogniser heard, with when each token began.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Recognised {
+    pub text: String,
+    /// The tokens as the recogniser spells them (a token that starts a word
+    /// begins with a space or `▁`), in order. Empty when the model reports no
+    /// times (Whisper) or the times don't match the tokens.
+    pub tokens: Vec<TimedToken>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TimedToken {
+    pub text: String,
+    /// Seconds from the start of the audio.
+    pub start: f32,
+    /// Seconds, when the model reports it (Parakeet TDT does); else 0.
+    pub duration: f32,
+}
+
+impl TimedToken {
+    /// Does this token start a new word?
+    pub fn starts_word(&self) -> bool {
+        self.text.starts_with(' ') || self.text.starts_with('\u{2581}')
+    }
+}
+
+/// Tokens paired with their times, or none when the times are missing or
+/// don't line up with the tokens.
+#[cfg_attr(not(feature = "stt"), allow(dead_code))]
+fn timed_tokens(
+    tokens: Vec<String>,
+    starts: Option<Vec<f32>>,
+    durations: Option<Vec<f32>>,
+) -> Vec<TimedToken> {
+    let Some(starts) = starts.filter(|s| s.len() == tokens.len()) else { return Vec::new() };
+    let durations = durations.filter(|d| d.len() == tokens.len()).unwrap_or_else(|| vec![0.0; tokens.len()]);
+    tokens
+        .into_iter()
+        .zip(starts)
+        .zip(durations)
+        .map(|((text, start), duration)| TimedToken { text, start, duration })
+        .collect()
+}
+
 #[cfg(feature = "stt")]
 pub struct OfflineAsr {
     recognizer: OfflineRecognizer,
@@ -59,6 +103,10 @@ impl OfflineAsr {
     pub fn with_threads(model: AsrModel, threads: i32) -> Result<Self, AsrError> {
         let _ = (model, threads);
         Err(AsrError::NotInThisBuild)
+    }
+
+    pub fn recognise(&self, _samples: &[f32]) -> Result<Recognised, AsrError> {
+        match self._never {}
     }
 }
 
@@ -139,6 +187,19 @@ impl OfflineAsr {
         );
         Ok(Self { recognizer, model })
     }
+
+    /// Recognise one utterance (16 kHz mono), keeping when each token began.
+    pub fn recognise(&self, samples: &[f32]) -> Result<Recognised, AsrError> {
+        let stream = self.recognizer.create_stream();
+        stream.accept_waveform(SAMPLE_RATE as i32, samples);
+        self.recognizer.decode(&stream);
+        let result = stream.get_result().ok_or(AsrError::Recognize)?;
+        tracing::debug!(tokens = ?result.tokens, timestamps = ?result.timestamps, durations = ?result.durations, "recognised");
+        Ok(Recognised {
+            text: result.text.trim().to_string(),
+            tokens: timed_tokens(result.tokens, result.timestamps, result.durations),
+        })
+    }
 }
 
 #[cfg(feature = "stt")]
@@ -158,11 +219,27 @@ impl AsrBackend for OfflineAsr {
     }
 
     fn transcribe(&self, samples: &[f32]) -> Result<String, AsrError> {
-        let stream = self.recognizer.create_stream();
-        stream.accept_waveform(SAMPLE_RATE as i32, samples);
-        self.recognizer.decode(&stream);
-        let result = stream.get_result().ok_or(AsrError::Recognize)?;
-        tracing::debug!(tokens = ?result.tokens, timestamps = ?result.timestamps, durations = ?result.durations, "recognised");
-        Ok(result.text.trim().to_string())
+        Ok(self.recognise(samples)?.text)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn token_times_are_kept_only_when_they_line_up() {
+        let tokens = || vec![" He".to_string(), "'s".to_string(), " fine".to_string(), ".".to_string()];
+        let t = timed_tokens(tokens(), Some(vec![0.0, 0.16, 0.32, 0.64]), Some(vec![0.16, 0.08, 0.24, 0.08]));
+        assert_eq!(t.len(), 4);
+        assert_eq!((t[2].text.as_str(), t[2].start, t[2].duration), (" fine", 0.32, 0.24));
+        let starts: Vec<bool> = t.iter().map(TimedToken::starts_word).collect();
+        assert_eq!(starts, [true, false, true, false]);
+        // No durations: zero.
+        assert_eq!(timed_tokens(tokens(), Some(vec![0.0, 0.1, 0.2, 0.3]), None)[1].duration, 0.0);
+        // Whisper gives no times; a mismatch is no times either.
+        assert!(timed_tokens(tokens(), None, None).is_empty());
+        assert!(timed_tokens(tokens(), Some(vec![0.0]), None).is_empty());
+        assert!(TimedToken { text: "\u{2581}dog".into(), start: 0.0, duration: 0.0 }.starts_word());
     }
 }
