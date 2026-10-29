@@ -2,7 +2,9 @@
 //! voice detection, speech-to-text and speaker labels while the consult runs.
 //!
 //! When the user presses stop, only the last utterance remains to be
-//! recognised; the note can be drafted immediately.
+//! recognised, and every segment's speaker is decided again from all the
+//! voices at once ([`crate::speakers`], ADR-0030); the note can be drafted
+//! immediately.
 //!
 //! ```text
 //! capture thread ──blocks──▶ worker: resample 16 kHz ─▶ audio.wav
@@ -41,6 +43,7 @@ use serde::Serialize;
 use crate::awake::{AwakeGuard, AwakeReason};
 use crate::mic_health::{HealthTiming, HealthTracker, MicHealth};
 use crate::session::Session;
+use crate::speakers::SpeakerTuning;
 use crate::transcribe::TranscribeStats;
 use crate::transcript::{Segment, Transcript};
 use crate::{EngineError, models};
@@ -110,6 +113,11 @@ pub struct LiveOptions {
     /// utterance reaches the recogniser and the speaker model at a normal
     /// level. The saved recording is untouched.
     pub speakerphone: bool,
+    /// "Speakers in the room" (ADR-0030): the number of people talking, when
+    /// the clinic sets it; `None` (Auto) estimates it when recording stops.
+    pub room_speakers: Option<u32>,
+    /// How speakers are found in a room recording ([`SpeakerTuning`]).
+    pub tuning: SpeakerTuning,
 }
 
 impl LiveOptions {
@@ -123,6 +131,8 @@ impl LiveOptions {
             recorded_by: None,
             call: None,
             speakerphone: false,
+            room_speakers: None,
+            tuning: SpeakerTuning::default(),
         }
     }
 }
@@ -208,6 +218,8 @@ pub struct SpeechModels {
     speaker_threshold: f32,
     /// The voice detector was built for Phone on speaker (ADR-0026).
     speakerphone: bool,
+    /// The voice detector's pause and longest utterance (room recordings).
+    vad_turns: (f32, f32),
 }
 
 impl SpeechModels {
@@ -216,6 +228,12 @@ impl SpeechModels {
     pub fn load(store: &ModelStore, options: &LiveOptions, is_call: bool) -> Result<Self, EngineError> {
         let started = Instant::now();
         let mut vad_options = os_asr::VadOptions::new(models::single_file(store, models::VAD)?);
+        // A room recording's turns (ADR-0030); each side of a call keeps the
+        // detector's own settings.
+        let vad_turns = (options.tuning.min_silence_secs, options.tuning.max_speech_secs);
+        if !is_call {
+            (vad_options.min_silence_secs, vad_options.max_speech_secs) = vad_turns;
+        }
         // Phone on speaker (ADR-0026). A call has each side on its own
         // channel at a good level, so it never needs it.
         let speakerphone = options.speakerphone && !is_call;
@@ -241,16 +259,18 @@ impl SpeechModels {
             stt: options.stt.clone(),
             speaker_threshold: options.speaker_threshold,
             speakerphone,
+            vad_turns,
         })
     }
 
-    /// Loaded for the same recogniser, speaker and Phone on speaker settings
-    /// as `options` (a recording, not a call).
+    /// Loaded for the same recogniser, speaker, Phone on speaker and voice
+    /// detection settings as `options` (a recording, not a call).
     pub fn suits(&self, options: &LiveOptions) -> bool {
         self.stt == options.stt
             && self.tracker.is_some() == options.label_speakers
             && self.speaker_threshold == options.speaker_threshold
             && self.speakerphone == options.speakerphone
+            && self.vad_turns == (options.tuning.min_silence_secs, options.tuning.max_speech_secs)
     }
 }
 
@@ -655,6 +675,10 @@ fn run(
 
     let mut checks_queued = 0usize;
     let speakerphone = options.speakerphone;
+    let tuning = options.tuning;
+    // Each segment's voice, for the final labels (ADR-0030). Kept in memory
+    // only: voice embeddings are never saved.
+    let mut voices: Vec<Option<os_diar::Voice>> = Vec::new();
     let mut handle_utterances = |utterances: Vec<os_asr::Utterance>,
                                  transcript: &mut Transcript,
                                  sink: &mut Box<dyn LiveSink>,
@@ -670,34 +694,53 @@ fn run(
             let heard = levelled.as_deref().unwrap_or(&u.samples);
             let phone_voice =
                 phone_asr.as_ref().filter(|_| os_diar::high_band_db(&u.samples) < os_diar::PHONE_BAND_DB);
-            let text = match phone_voice {
-                Some(whisper) => whisper.transcribe(heard)?,
-                None => asr.transcribe(heard)?,
+            let recognised = match phone_voice {
+                Some(whisper) => os_asr::Recognised { text: whisper.transcribe(heard)?, tokens: Vec::new() },
+                None => asr.recognise(heard)?,
             };
-            let speaker = tracker.as_mut().and_then(|tr| tr.assign(heard));
-            *asr_ms += t.elapsed().as_millis() as u64;
-            if text.is_empty() {
-                continue;
-            }
-            let segment = Segment {
-                id: transcript.segments.len() as u32,
-                start: u.start,
-                end: u.end(),
-                speaker,
-                hints: lexicon.hints(&text),
-                check: None,
-                text,
+            // Two voices in one utterance: a piece each (their own segments).
+            let pieces = match (&tracker, &tuning.split) {
+                (Some(tr), Some(split)) if !recognised.text.is_empty() => {
+                    crate::speakers::split_utterance(tr, heard, &recognised, split)
+                }
+                _ => vec![crate::speakers::Piece { from: 0, to: heard.len(), text: recognised.text }],
             };
-            sink.segment(&segment);
-            // A phone voice's utterance was heard by the second recogniser already.
-            if let Some(tx) = &job_tx
-                && phone_voice.is_none()
-                && crate::crosscheck::worth_checking(&segment)
-                && tx.send((transcript.segments.len(), heard.to_vec(), segment.text.clone())).is_ok()
-            {
-                checks_queued += 1;
+            let last = pieces.len() - 1;
+            for (n, piece) in pieces.into_iter().enumerate() {
+                let audio = &heard[piece.from..piece.to];
+                let voice = tracker.as_ref().and_then(|tr| tr.voice(audio));
+                let speaker = match (tracker.as_mut(), &voice) {
+                    (Some(tr), Some(v)) => tr.assign_voice(v),
+                    _ => None,
+                };
+                if n == last {
+                    *asr_ms += t.elapsed().as_millis() as u64;
+                }
+                if piece.text.is_empty() {
+                    continue;
+                }
+                let at = |offset: usize| u.start + offset as f32 / SAMPLE_RATE as f32;
+                let segment = Segment {
+                    id: transcript.segments.len() as u32,
+                    start: at(piece.from),
+                    end: if n == last { u.end() } else { at(piece.to) },
+                    speaker,
+                    hints: lexicon.hints(&piece.text),
+                    check: None,
+                    text: piece.text,
+                };
+                sink.segment(&segment);
+                // A phone voice's utterance was heard by the second recogniser already.
+                if let Some(tx) = &job_tx
+                    && phone_voice.is_none()
+                    && crate::crosscheck::worth_checking(&segment)
+                    && tx.send((transcript.segments.len(), audio.to_vec(), segment.text.clone())).is_ok()
+                {
+                    checks_queued += 1;
+                }
+                transcript.segments.push(segment);
+                voices.push(voice);
             }
-            transcript.segments.push(segment);
         }
         Ok(())
     };
@@ -806,6 +849,24 @@ fn run(
         let _ = checker.join();
     }
     sink.progress(&Progress::new(Stage::Save, 0.0, 1.0));
+    // The final labels, from every voice heard at once (ADR-0030); a set
+    // number of speakers in the room is used as given.
+    let mut speakers_ms = 0u64;
+    if let Some(cluster) = tuning.recluster
+        && tracker.is_some()
+    {
+        let t = Instant::now();
+        let cluster = os_diar::ClusterOptions { speakers: options.room_speakers, ..cluster };
+        if crate::speakers::relabel(&mut transcript, &voices, &cluster) {
+            speakers_ms = t.elapsed().as_millis() as u64;
+            tracing::info!(
+                ms = speakers_ms,
+                segments = voices.len(),
+                speakers = transcript.speaker_count(),
+                "speakers labelled from the whole recording"
+            );
+        }
+    }
     let audio_secs = wav.finish().map_err(|e| EngineError::Session(e.to_string()))?;
     // Every microphone the recording used, in order, when it switched.
     if devices_used.len() > 1 {
@@ -816,7 +877,7 @@ fn run(
     let stats = TranscribeStats {
         audio_secs,
         vad_ms: 0,
-        diarization_ms: 0,
+        diarization_ms: speakers_ms,
         asr_ms,
         total_ms: started.elapsed().as_millis() as u64,
         rtf: if audio_secs > 0.0 { asr_ms as f32 / 1000.0 / audio_secs } else { 0.0 },

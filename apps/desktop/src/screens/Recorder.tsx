@@ -10,6 +10,7 @@ import {
   Square,
   Upload,
   Users,
+  UsersRound,
   X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -233,6 +234,7 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
       recording.current = await engine.startRecording(
         app.settings.labelSpeakers,
         app.settings.phoneOnSpeaker,
+        app.settings.roomSpeakers,
         engine.isDesktop ? app.settings.device : app.settings.browserMic,
         patient,
         consent,
@@ -285,6 +287,7 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
       const view = await engine.importRecording(
         app.settings.labelSpeakers,
         app.settings.phoneOnSpeaker,
+        app.settings.roomSpeakers,
         patient,
         consent,
         () => {
@@ -473,6 +476,31 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
         icon: phone ? <Users size={20} aria-hidden className="opt-icon" /> : undefined,
         disabled: locked,
       })}
+      <div className="opt-item">
+        <label className="opt-row">
+          {phone && <UsersRound size={20} aria-hidden className="opt-icon" />}
+          <span className="opt-text">{t("Speakers in the room")}</span>
+          <select
+            className="ob-select opt-select"
+            value={app.settings.roomSpeakers ?? "auto"}
+            onChange={(e) =>
+              app.setSettings({ roomSpeakers: e.target.value === "auto" ? null : Number(e.target.value) })
+            }
+            disabled={locked || !app.settings.labelSpeakers}
+            aria-describedby="room-speakers-hint"
+          >
+            <option value="auto">{t("Auto")}</option>
+            {[2, 3, 4].map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </label>
+        <span className="small muted opt-hint" id="room-speakers-hint">
+          {t("Labels are checked again when you stop. Auto counts the voices.")}
+        </span>
+      </div>
       {checkRow(t("Draft the note when I stop"), app.settings.draftOnStop, (v) => app.setSettings({ draftOnStop: v }), {
         icon: phone ? <FileText size={20} aria-hidden className="opt-icon" /> : undefined,
       })}

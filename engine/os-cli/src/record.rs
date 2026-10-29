@@ -5,8 +5,10 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 
 use anyhow::Result;
+use os_diar::{ClusterOptions, SplitOptions};
 use os_engine::live::{LiveOptions, LiveRecorder, LiveSink, LiveSource};
 use os_engine::session::{self, Consent, ConsentMethod, ConsentRule, Session};
+use os_engine::speakers::SpeakerTuning;
 use os_engine::{LoadedTemplate, Segment, generate_note};
 use os_models::ModelStore;
 
@@ -57,8 +59,78 @@ pub struct RecordArgs {
     /// A client on a phone on speaker in the room: pick up the quieter voice.
     #[arg(long)]
     pub speakerphone: bool,
+    /// Write the saved transcript here as JSON Lines once it's complete
+    /// (`--jsonl` prints segments as they're heard, before the final pass).
+    #[arg(long, hide = true)]
+    pub transcript_out: Option<PathBuf>,
+    /// Speakers in the room: the number of people talking (default: estimated
+    /// when recording stops).
+    #[arg(long, value_parser = clap::value_parser!(u32).range(1..=8))]
+    pub speakers: Option<u32>,
+    #[command(flatten)]
+    pub tuning: TuningArgs,
     #[command(flatten)]
     pub llm: LlmArgs,
+}
+
+/// Speaker labelling settings, for measuring them (speaker labels eval,
+/// ADR-0030). Hidden: the defaults are what the app uses.
+#[derive(clap::Args)]
+pub struct TuningArgs {
+    /// Labels as before ADR-0030 (one per utterance, as shown live); the
+    /// options below then change that.
+    #[arg(long, hide = true)]
+    pub legacy_speakers: bool,
+    /// Voice detection: the pause that ends an utterance, seconds.
+    #[arg(long, hide = true)]
+    pub vad_min_silence: Option<f32>,
+    /// Voice detection: the longest utterance, seconds.
+    #[arg(long, hide = true)]
+    pub vad_max_speech: Option<f32>,
+    /// Cut an utterance where the voices either side of a word are less
+    /// alike than this; 0 never cuts.
+    #[arg(long, hide = true)]
+    pub split_threshold: Option<f32>,
+    #[arg(long, hide = true)]
+    pub split_window: Option<f32>,
+    #[arg(long, hide = true)]
+    pub split_hop: Option<f32>,
+    /// Final labels: voices at least this alike are one speaker; 0 keeps the
+    /// labels shown while recording.
+    #[arg(long, hide = true)]
+    pub cluster_threshold: Option<f32>,
+    #[arg(long, hide = true)]
+    pub cluster_prior: Option<f32>,
+    #[arg(long, hide = true)]
+    pub cluster_min_speech: Option<f32>,
+}
+
+impl TuningArgs {
+    pub fn tuning(&self) -> SpeakerTuning {
+        let mut t = if self.legacy_speakers { SpeakerTuning::legacy() } else { SpeakerTuning::default() };
+        if let Some(s) = self.vad_min_silence {
+            t.min_silence_secs = s;
+        }
+        if let Some(s) = self.vad_max_speech {
+            t.max_speech_secs = s;
+        }
+        if let Some(x) = self.split_threshold {
+            t.split = (x > 0.0).then(|| SplitOptions { threshold: x, ..t.split.unwrap_or_default() });
+        }
+        if let Some(split) = &mut t.split {
+            split.window_secs = self.split_window.unwrap_or(split.window_secs);
+            split.hop_secs = self.split_hop.unwrap_or(split.hop_secs);
+        }
+        if let Some(x) = self.cluster_threshold {
+            t.recluster =
+                (x > 0.0).then(|| ClusterOptions { threshold: x, ..t.recluster.unwrap_or_default() });
+        }
+        if let Some(cluster) = &mut t.recluster {
+            cluster.prior = self.cluster_prior.unwrap_or(cluster.prior);
+            cluster.min_speaker_secs = self.cluster_min_speech.unwrap_or(cluster.min_speaker_secs);
+        }
+        t
+    }
 }
 
 struct TerminalSink {
@@ -163,6 +235,8 @@ pub fn record(store: &ModelStore, args: RecordArgs) -> Result<()> {
     }
     options.label_speakers = !args.no_speakers;
     options.speakerphone = args.speakerphone;
+    options.room_speakers = args.speakers;
+    options.tuning = args.tuning.tuning();
     if let Some(t) = args.speaker_threshold {
         options.speaker_threshold = t;
     }
@@ -192,6 +266,9 @@ pub fn record(store: &ModelStore, args: RecordArgs) -> Result<()> {
         result.stats.speakers,
         result.finish_ms as f64 / 1000.0
     );
+    if let Some(path) = &args.transcript_out {
+        std::fs::write(path, result.transcript.to_jsonl())?;
+    }
     if args.no_note || result.transcript.is_empty() {
         return Ok(());
     }

@@ -25,13 +25,26 @@ For each script speaker it reports:
   with each label mapped to one script speaker (so two speakers sharing one
   label can't both score). Plus the number of labels found.
 
+For the whole transcript it also reports the WER over every script word, and
+the speaker accuracy per word: the share of script words that, at the time
+they were said (each line's words spread evenly over the line), fall in a
+segment labelled with their speaker, after mapping labels one-to-one to
+script speakers in the way that gets the most words right. Unlike "labelled
+right", a segment holding two speakers' turns counts the other speaker's
+words as wrong, so it shows turns merged into one segment.
+
 Numbers are compared as words ("4.8" and "four point eight" alike).
 """
 
 import json
 import re
 import sys
+from bisect import bisect_right
 from collections import Counter, defaultdict
+from itertools import permutations
+
+# A word said when no segment was on screen.
+MISSING = object()
 
 ONES = "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen".split()
 TENS = "_ _ twenty thirty forty fifty sixty seventy eighty ninety".split()
@@ -102,6 +115,54 @@ def overlap(a0, a1, b0, b1):
     return max(0.0, min(a1, b1) - max(a0, b0))
 
 
+def best_mapping(confusion, roles, labels):
+    """The one-to-one label -> script speaker mapping with the most words in
+    common (every assignment tried; a few labels and speakers at most)."""
+    labels = list(labels)
+    if len(labels) > 8:
+        # Too many labels to try every assignment: keep the 8 most used.
+        labels = sorted(labels, key=lambda l: -sum(confusion[r][l] for r in roles))[:8]
+    best, best_map = -1, {}
+    # Padding, so a speaker can also go without a label.
+    slots = labels + [MISSING] * len(roles)
+    for perm in permutations(slots, len(roles)):
+        hits = sum(confusion[r][l] for r, l in zip(roles, perm) if l is not MISSING)
+        if hits > best:
+            best, best_map = hits, {r: l for r, l in zip(roles, perm) if l is not MISSING}
+    return best_map
+
+
+def word_speaker_accuracy(segs, ref):
+    """Per word: is the word, at the time it was said, inside a segment whose
+    label belongs to the speaker who said it? Each script line's words are
+    spread evenly over the line's time. Labels map one-to-one to script
+    speakers, the mapping that gets the most words right. Words in no segment
+    count as wrong (`speaker_acc`); `speaker_acc_heard` leaves them out."""
+    roles = sorted({r["speaker"] for r in ref})
+    segs = sorted(segs, key=lambda s: s["start"])
+    starts = [s["start"] for s in segs]
+    said = []  # (script speaker, label or MISSING)
+    for r in ref:
+        n = len(words(r["text"]))
+        for i in range(n):
+            t = r["start"] + (i + 0.5) / n * (r["end"] - r["start"])
+            k = bisect_right(starts, t) - 1
+            label = segs[k].get("speaker") if k >= 0 and segs[k]["end"] > t else MISSING
+            said.append((r["speaker"], label))
+    confusion = defaultdict(Counter)
+    for role, label in said:
+        confusion[role][label] += 1
+    # An unlabelled segment (no voice heard) is never right.
+    labels = {l for _, l in said if l is not MISSING and l is not None}
+    mapping = best_mapping(confusion, roles, labels)
+    right = sum(1 for role, label in said if label is not MISSING and mapping.get(role, MISSING) == label)
+    heard = sum(1 for _, label in said if label is not MISSING)
+    return {
+        "speaker_acc": round(right / len(said), 4) if said else 0.0,
+        "speaker_acc_heard": round(right / heard, 4) if heard else 0.0,
+    }
+
+
 def score(segs, ref):
     roles = sorted({r["speaker"] for r in ref})
     ref_words, ref_role, ref_line = [], [], []
@@ -153,7 +214,15 @@ def score(segs, ref):
         if role not in owner and lab not in owner.values():
             owner[role] = lab
 
-    out = {"labels": len({s.get("speaker") for s in segs}), "segments": len(segs), "speakers": {}}
+    out = {
+        "labels": len({s.get("speaker") for s in segs}),
+        "segments": len(segs),
+        "true_speakers": len(roles),
+        "words": len(ref_words),
+        "wer": round(sum(errors.values()) / len(ref_words), 4) if ref_words else 0.0,
+        **word_speaker_accuracy(segs, ref),
+        "speakers": {},
+    }
     for role in roles:
         lines = [r for r in ref if r["speaker"] == role]
         line_ids = [n for n, r in enumerate(ref) if r["speaker"] == role]
@@ -191,7 +260,11 @@ def main(argv):
     if as_json:
         print(json.dumps(result))
         return
-    print(f"{result['segments']} segments, {result['labels']} speaker labels")
+    print(
+        f"{result['segments']} segments, {result['labels']} speaker labels ({result['true_speakers']} speakers), "
+        f"WER {result['wer']:.1%}, speaker per word {result['speaker_acc']:.1%} "
+        f"({result['speaker_acc_heard']:.1%} of words in a segment)"
+    )
     for role, s in result["speakers"].items():
         print(
             f"  {role:<8} captured {s['captured']:.0%}  WER {s['wer']:.1%}  covered {s['covered']:.0%}  "
