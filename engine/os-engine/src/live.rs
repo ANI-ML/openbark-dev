@@ -327,7 +327,10 @@ impl LiveRecorder {
         // Second recogniser for segments that matter (M1 item 4); optional.
         // It's the larger model, so it loads in the background once recording
         // has started rather than delaying the start (segments wait for it).
-        let second = models::asr_model(store, &models::best_stt(store, SECOND_STT)).ok().map(SecondAsr::load);
+        let second = models::asr_model(store, &models::best_stt(store, SECOND_STT))
+            .ok()
+            .map(models::with_speech_language)
+            .map(SecondAsr::load);
         if second.is_none() {
             tracing::info!("second recogniser not installed; number cross-check off");
         }

@@ -1,0 +1,36 @@
+# OpenBark known mishearings: heard<TAB>term. Written for OpenBark (Apache-2.0).
+# Ways speech recognition writes a drug name that the spelling match can't reach:
+# a real word ("apple" for Apoquel) or a name broken into several words. Each
+# becomes a visible hint, never a change to the transcript, and for drugs only
+# where the words around it are about medication (a dose, a unit, "give",
+# "twice a day"...). "heard" is one to three words; "term" must be in
+# veterinary.tsv. Clinics add their own in Settings, Words and drug names.
+apple	apoquel
+apple kill	apoquel
+apple quill	apoquel
+a pickle	apoquel
+appo kill	apoquel
+medicam	metacam
+medic am	metacam
+sirenia	cerenia
+siren ya	cerenia
+serene ya	cerenia
+sereneia	cerenia
+site of point	cytopoint
+sight of point	cytopoint
+psycho point	cytopoint
+silence ya	solensia
+salencia	solensia
+gallery plant	galliprant
+rim a dill	rimadyl
+rim a dull	rimadyl
+pan a cure	panacur
+panna cure	panacur
+car pro fen	carprofen
+mel oxy cam	meloxicam
+gabby pentin	gabapentin
+vet oral	vetoryl
+simply chef	simplicef
+on sure	onsior
+next guard	nexgard
+heart guard	heartgard

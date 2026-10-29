@@ -105,9 +105,10 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{delete, get, post};
 use os_app::{
-    App, AppError, Approver, AudioBlock, CallBlock, CallEnd, CallRequest, CallStart, ConnectRequest,
-    ConsentMethod, ConsentOutcome, ConsentRule, DeleteRequest, Events, Patient, PdfRequest, PhonePrefs,
-    RecordingConsent, RecordingSource, RefineRequest, SaveTemplateRequest, ShareMode, TemplateMode,
+    App, AppError, Approver, AudioBlock, CallBlock, CallEnd, CallRequest, CallStart, ClinicTerm,
+    ConnectRequest, ConsentMethod, ConsentOutcome, ConsentRule, DeleteRequest, Events, Patient, PdfRequest,
+    PhonePrefs, RecordingConsent, RecordingSource, RefineRequest, SaveTemplateRequest, ShareMode,
+    TemplateMode,
 };
 use os_engine::Segment;
 use os_engine::template::{Scope, Template};
@@ -312,6 +313,10 @@ fn router(state: St, ui_dir: &std::path::Path, port: u16) -> Router {
         .route("/api/sessions/{id}/template", get(run_template_view))
         .route("/api/team/settings", get(team_settings).post(set_team_settings))
         .route("/api/team/notice/dismiss", post(dismiss_setup_notice))
+        .route("/api/vocabulary", get(vocabulary))
+        .route("/api/vocabulary/save", post(save_vocabulary_term))
+        .route("/api/vocabulary/remove", post(remove_vocabulary_term))
+        .route("/api/speech-language", post(set_speech_language))
         .route("/api/users/{uid}/admin", post(set_user_admin))
         .route("/api/users/{uid}/profile", get(profile_summary))
         .route("/api/live", get(live))
@@ -1890,6 +1895,55 @@ async fn dismiss_setup_notice(
     Json(req): Json<ByBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     blocking(move || s.app().dismiss_setup_notice(req.by.as_deref())).await
+}
+
+/// The clinic's words and drug names (ADR-0030).
+async fn vocabulary(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().vocabulary()).await
+}
+
+#[derive(Deserialize)]
+struct VocabularySaveBody {
+    term: ClinicTerm,
+    #[serde(default)]
+    by: Option<String>,
+    #[serde(default)]
+    approver: Option<Approver>,
+}
+
+async fn save_vocabulary_term(
+    State(s): State<St>,
+    Json(req): Json<VocabularySaveBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().save_vocabulary_term(&req.term, req.by.as_deref(), req.approver.as_ref())).await
+}
+
+#[derive(Deserialize)]
+struct VocabularyRemoveBody {
+    term: String,
+    #[serde(default)]
+    by: Option<String>,
+    #[serde(default)]
+    approver: Option<Approver>,
+}
+
+async fn remove_vocabulary_term(
+    State(s): State<St>,
+    Json(req): Json<VocabularyRemoveBody>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().remove_vocabulary_term(&req.term, req.by.as_deref(), req.approver.as_ref()))
+        .await
+}
+
+#[derive(Deserialize)]
+struct SpeechLanguageBody {
+    language: String,
+}
+
+/// The app's language, which the second recogniser is told to expect.
+async fn set_speech_language(Json(req): Json<SpeechLanguageBody>) -> StatusCode {
+    os_engine::models::set_speech_language(Some(&req.language));
+    StatusCode::NO_CONTENT
 }
 
 #[derive(Deserialize)]

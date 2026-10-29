@@ -54,6 +54,7 @@ mod mic;
 mod phone;
 mod sync;
 mod templates;
+mod vocabulary;
 pub use clinic_hub::{hub_dir, hub_inspect};
 pub use mic::{MicLevel, MicTestStarted};
 pub use os_connect::{ConnectStore, PhonePrefs};
@@ -62,10 +63,12 @@ pub use os_engine::mic_health::{MicHealth, MicQuality, MicState};
 pub use os_engine::session::PatientInfo as Patient;
 pub use os_engine::session::{CallDirection, CallInfo, ConsentOutcome};
 pub use os_engine::session::{Consent as RecordingConsent, ConsentMethod, ConsentRule};
+pub use os_engine::vocab::ClinicTerm;
 pub use phone::{
     CALL_SAMPLE_RATES, CallEnd, CallRequest, CallStart, CallTarget, ConnectRequest, Connected, Disconnected,
     PhoneToken, PhoneView, SetupCheck, TwilioView, check_call_sample_rate,
 };
+pub use vocabulary::VocabularyView;
 
 /// Progress notifications for the UI.
 pub trait Events: Send + Sync {

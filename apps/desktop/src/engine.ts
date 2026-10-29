@@ -1186,6 +1186,38 @@ export const setUserAdmin = (uid: string, admin: boolean, approver: Approver | n
   isDesktop
     ? invoke<User>("set_user_admin", { uid, admin, by: actor, approver })
     : api<User>(`/api/users/${enc(uid)}/admin`, post({ by: actor, admin, approver }));
+/** A clinic's own word or drug name (Settings, Words and drug names; ADR-0030). */
+export interface ClinicTerm {
+  term: string;
+  kind: VocabularyKind;
+  /** How speech recognition writes it ("heard as"), one to three words each. */
+  heard: string[];
+}
+export type VocabularyKind = "drug" | "vaccine" | "product" | "condition" | "procedure";
+export interface VocabularyView {
+  terms: ClinicTerm[];
+  /** Terms that come with OpenBark: written for it, and from public drug registers. */
+  builtin: number;
+  regulatory: number;
+  file: string;
+  /** Changing the list needs an admin's PIN (a team). */
+  needs_admin: boolean;
+}
+export const vocabulary = () =>
+  isDesktop ? invoke<VocabularyView>("vocabulary") : api<VocabularyView>("/api/vocabulary");
+export const saveVocabularyTerm = (term: ClinicTerm, approver: Approver | null) =>
+  isDesktop
+    ? invoke<VocabularyView>("save_vocabulary_term", { term, by: actor, approver })
+    : api<VocabularyView>("/api/vocabulary/save", post({ term, by: actor, approver }));
+export const removeVocabularyTerm = (term: string, approver: Approver | null) =>
+  isDesktop
+    ? invoke<VocabularyView>("remove_vocabulary_term", { term, by: actor, approver })
+    : api<VocabularyView>("/api/vocabulary/remove", post({ term, by: actor, approver }));
+/** The app's language, which the second speech recogniser is told to expect. */
+export const setSpeechLanguage = (language: string) =>
+  isDesktop
+    ? invoke<void>("set_speech_language", { language })
+    : api<void>("/api/speech-language", post({ language }));
 /** What a team member keeps in their profile, before removing them. */
 export const profileSummary = (uid: string) =>
   isDesktop

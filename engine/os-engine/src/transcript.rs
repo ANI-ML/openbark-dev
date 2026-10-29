@@ -129,4 +129,20 @@ mod tests {
         assert_eq!(sample().speaker_count(), 2);
         assert_eq!(mmss(125.9), "02:05");
     }
+
+    #[test]
+    fn a_known_mishearing_reaches_the_prompt_as_a_hint() {
+        // "apple" for Apoquel, in talk about medication: the note model sees
+        // the hint like any other; the transcript text is unchanged.
+        let text = "Start her on apple, sixteen milligrams twice a day.";
+        let mut t = sample();
+        t.segments[1].text = text.into();
+        t.segments[1].hints = crate::vocab::Lexicon::load(None).hints(text);
+        assert!(
+            t.for_prompt().ends_with(&format!("{text} [heard \"apple\", likely apoquel]\n")),
+            "{}",
+            t.for_prompt()
+        );
+        assert_eq!(t.segments[1].text, text);
+    }
 }
