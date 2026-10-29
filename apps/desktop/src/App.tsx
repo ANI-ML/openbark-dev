@@ -207,6 +207,8 @@ export function App() {
 
   useEffect(() => {
     document.documentElement.lang = settings.uiLanguage;
+    // The second speech recogniser expects the app's language (ADR-0031).
+    engine.setSpeechLanguage(settings.uiLanguage).catch(() => {});
   }, [settings.uiLanguage]);
 
   // A recorded call was saved in the phone window: open it, drafted with the

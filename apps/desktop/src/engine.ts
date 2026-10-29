@@ -1186,7 +1186,7 @@ export const setUserAdmin = (uid: string, admin: boolean, approver: Approver | n
   isDesktop
     ? invoke<User>("set_user_admin", { uid, admin, by: actor, approver })
     : api<User>(`/api/users/${enc(uid)}/admin`, post({ by: actor, admin, approver }));
-/** A clinic's own word or drug name (Settings, Words and drug names; ADR-0030). */
+/** A clinic's own word or drug name (Settings, Words and drug names; ADR-0031). */
 export interface ClinicTerm {
   term: string;
   kind: VocabularyKind;

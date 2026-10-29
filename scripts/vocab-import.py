@@ -59,6 +59,8 @@ OUT = os.path.join(ROOT, "packages", "vocab", "regulatory.tsv")
 BUILTIN = os.path.join(ROOT, "packages", "vocab", "veterinary.tsv")
 MISHEARD = os.path.join(ROOT, "packages", "vocab", "mishearings.tsv")
 EVERYDAY = os.path.join(ROOT, "packages", "vocab", "everyday.tsv")
+# everyday.tsv is taken from SCOWL, so its notice ships with the app.
+SCOWL_NOTICE = os.path.join(ROOT, "apps", "desktop", "public", "licenses", "scowl-copyright.txt")
 VOCAB_RS = os.path.join(ROOT, "engine", "os-engine", "src", "vocab.rs")
 REFS = os.path.join(ROOT, "packages", "eval", "fixtures", "audio")
 
@@ -353,6 +355,11 @@ def read_scowl(path: str) -> tuple[set[str], set[str]]:
     )
     with tarfile.open(path) as t:
         for m in t.getmembers():
+            # The collection's own notice, at the top of the archive.
+            if m.name.count("/") == 1 and m.name.endswith("/Copyright"):
+                notice = t.extractfile(m).read().decode("latin-1").replace("\r\n", "\n")
+                with open(SCOWL_NOTICE, "w", encoding="utf-8", newline="\n") as f:
+                    f.write(notice)
             hit = pattern.search(m.name)
             if not hit or int(hit.group(4)) > SCOWL_MAX_LEVEL:
                 continue

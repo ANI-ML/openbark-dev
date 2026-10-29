@@ -1,0 +1,18 @@
+# Synthetic consult snippet: written for OpenBark's vocabulary eval; not a real patient.
+id: vocab-cardiac
+title: Dog with mitral valve disease, Vetmedin and furosemide
+species: canine
+speakers:
+  dvm: af_sarah
+  client: bm_george
+pause_secs: 0.5
+lines:
+  - [client, "He's a veteran of three moves and he's never been this tired."]
+  - [dvm, "The x-rays show his heart is enlarged. Start Vetmedin, five milligrams twice a day, an hour before meals."]
+  - [dvm, "His lungs have some fluid, so add furosemide, twenty milligrams twice a day, and count his sleeping breaths at home."]
+expected:
+  medications:
+    - { drug: vetmedin, dose: "5" }
+    - { drug: furosemide, dose: "20" }
+vocab:
+  drugs: [vetmedin, furosemide]

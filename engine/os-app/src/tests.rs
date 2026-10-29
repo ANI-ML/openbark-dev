@@ -816,7 +816,7 @@ mod templates;
 #[path = "tests/phone.rs"]
 mod phone;
 
-/// The clinic's words and drug names (ADR-0030): anyone working alone; in a
+/// The clinic's words and drug names (ADR-0031): anyone working alone; in a
 /// team, an admin's PIN, as for the hospital's templates.
 #[test]
 fn the_clinic_vocabulary_is_the_hospitals() {

@@ -1,5 +1,5 @@
 //! The clinic's own words and drug names (Settings, Words and drug names;
-//! ADR-0030). They live in one file on this computer
+//! ADR-0031). They live in one file on this computer
 //! (`os_engine::vocab::user_file`), read at the start of each recording, so a
 //! change applies from the next recording. The file is the hospital's: in a
 //! team, changing it needs an admin's PIN, as the hospital's templates do

@@ -13,7 +13,7 @@
 //! word that merely looks like a term ("certainly", Cerenia; "rabbits",
 //! rabies: `packages/vocab/everyday.tsv`) is never hinted by spelling alone.
 //!
-//! Some slips need the words around them (ADR-0030). Only where the talk is
+//! Some slips need the words around them (ADR-0031). Only where the talk is
 //! about medication (a dose, a unit, "give", "twice a day", another drug's
 //! name):
 //! - known mishearings (`packages/vocab/mishearings.tsv`, and a clinic's own
@@ -782,7 +782,10 @@ impl Lexicon {
     /// Whether one heard word would get a hand-written term's hint on its own.
     fn single_match(&self, word: &str) -> bool {
         let lower = word.to_lowercase();
-        if lower.chars().filter(|c| c.is_alphabetic()).count() < 5 || self.is_term(&lower) {
+        if lower.chars().filter(|c| c.is_alphabetic()).count() < 5
+            || self.is_term(&lower)
+            || self.everyday.contains(&lower)
+        {
             return false;
         }
         let key = sound_key(&lower);
@@ -1246,6 +1249,35 @@ mod tests {
         assert_eq!(check_clinic_term(&t("zorbi\tflex\n", "drug", &[])).unwrap().term, "zorbi flex");
         assert!(check_clinic_term(&t("zorbiflex", "food", &[])).is_err());
         assert!(check_clinic_term(&t("zorbiflex", "drug", &["a b c d"])).is_err());
+    }
+
+    /// packages/eval/fixtures/vocab/hints.tsv: what recognisers write for drug
+    /// names they don't know, and ordinary sentences (docs/eval/vocabulary.md).
+    #[test]
+    fn labelled_hint_set() {
+        let l = lex();
+        let set = include_str!("../../../packages/eval/fixtures/vocab/hints.tsv");
+        let (mut found, mut drugs, mut false_hints, mut quiet, mut plain) = (0, 0, Vec::new(), 0, 0);
+        for line in set.lines().filter(|l| !l.starts_with('#') && !l.trim().is_empty()) {
+            let (text, want) = line.split_once('\t').expect("text<TAB>drug");
+            let hints = l.hints(text);
+            if want == "-" {
+                plain += 1;
+                quiet += usize::from(hints.is_empty());
+            } else {
+                drugs += 1;
+                found += usize::from(hints.iter().any(|h| h.likely.iter().any(|x| x == want)));
+            }
+            false_hints.extend(
+                hints
+                    .iter()
+                    .filter(|h| !h.likely.iter().any(|x| x == want))
+                    .map(|h| format!("{text}: {h:?}")),
+            );
+        }
+        let summary = format!("recall {found}/{drugs}, quiet {quiet}/{plain}, false {false_hints:#?}");
+        assert!(found * 100 >= drugs * 90, "{summary}");
+        assert!(false_hints.len() <= 1 && quiet + 1 >= plain, "{summary}");
     }
 
     #[test]

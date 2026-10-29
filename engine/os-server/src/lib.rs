@@ -1897,7 +1897,7 @@ async fn dismiss_setup_notice(
     blocking(move || s.app().dismiss_setup_notice(req.by.as_deref())).await
 }
 
-/// The clinic's words and drug names (ADR-0030).
+/// The clinic's words and drug names (ADR-0031).
 async fn vocabulary(State(s): State<St>) -> Result<impl IntoResponse, ApiError> {
     blocking(move || s.app().vocabulary()).await
 }

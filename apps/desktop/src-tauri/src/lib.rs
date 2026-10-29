@@ -1186,7 +1186,7 @@ fn dismiss_setup_notice(app: State<'_, AppState>, by: Option<String>) -> Result<
     app.dismiss_setup_notice(by.as_deref()).map_err(|e| e.0)
 }
 
-/// The clinic's words and drug names (ADR-0030).
+/// The clinic's words and drug names (ADR-0031).
 #[tauri::command]
 fn vocabulary(app: State<'_, AppState>) -> Result<VocabularyView, String> {
     app.vocabulary().map_err(|e| e.0)

@@ -9,6 +9,7 @@
 export const SETTINGS_SECTIONS = [
   "you",
   "recording",
+  "vocabulary",
   "language",
   "phone",
   "pdf",

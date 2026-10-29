@@ -6,6 +6,7 @@ import {
   CircleHelp,
   FileText,
   Signpost,
+  SpellCheck,
   Info,
   Languages,
   Lock,
@@ -28,6 +29,7 @@ import { PhoneDrafting } from "../components/PhoneDrafting";
 import { PhoneSettings } from "../components/PhoneSettings";
 import { StorageSection } from "../components/StorageSection";
 import { SyncSection } from "../components/SyncSection";
+import { VocabularySection } from "../components/VocabularySection";
 import { TeamSettings } from "../components/TeamSettings";
 import type { Route, SettingsSection } from "../routes";
 import { PHONE, useMediaQuery } from "../useMediaQuery";
@@ -37,6 +39,7 @@ import { isIos } from "../visits";
 const TITLE: Record<SettingsSection, string> = {
   you: "You and your team",
   recording: "Recording and consent",
+  vocabulary: "Words and drug names",
   language: "Language and appearance",
   phone: "Phone calls",
   pdf: "PDFs and copying",
@@ -197,6 +200,7 @@ function PhoneList({ title }: { title: (s: SettingsSection) => string }) {
         <ul className="inset-list">
           <Row icon={<NotebookText size={20} />} label={t("Templates")} to={{ screen: "templates" }} />
           <Row icon={<Languages size={20} />} label={t("Note language")} value={noteLanguage} to={s("language")} />
+          <Row icon={<SpellCheck size={20} />} label={title("vocabulary")} to={s("vocabulary")} />
           {ios && <PhoneDrafting />}
         </ul>
       </section>
@@ -623,6 +627,9 @@ function SectionBody({ section }: { section: SettingsSection }) {
     case "deleted":
       return app.can.notes ? <DeletedVisits /> : null;
 
+    case "vocabulary":
+      return <VocabularySection />;
+
     case "about":
       return (
         <section className="group">
@@ -637,7 +644,51 @@ function SectionBody({ section }: { section: SettingsSection }) {
               ? t("Running locally. Encrypted sync is on: only encrypted copies of transcripts and notes leave this device, never recordings.")
               : t("Running locally. Nothing leaves this device.")}
           </p>
+          <VocabularyCredits />
         </section>
       );
   }
+}
+
+/**
+ * Attribution for the drug names from public registers (THIRD_PARTY_NOTICES,
+ * packages/vocab/regulatory.tsv). The licences ask for it to ship with the
+ * app; the full text is in licenses/vocabulary-data.txt. Kept in English, as
+ * licence notices are.
+ */
+function VocabularyCredits() {
+  const t = useT();
+  return (
+    <div>
+      <h3>{t("Veterinary vocabulary data")}</h3>
+      <p className="small muted measure" lang="en">
+        OpenBark&apos;s drug-name list includes names from these public regulatory datasets, reduced to brand and
+        ingredient words and deduplicated (retrieved 28 October 2026):
+      </p>
+      <ul className="small muted measure" lang="en">
+        <li>
+          US Food and Drug Administration, Approved Animal Drug Products (Green Book), via Animal Drugs @ FDA. US
+          government work, public domain.
+        </li>
+        <li>
+          Veterinary Medicines Directorate (UK), Product Information Database. Contains public sector information
+          licensed under the Open Government Licence v3.0
+          (https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/).
+        </li>
+        <li>
+          Health Canada, Drug Product Database. Contains information licensed under the Open Government Licence
+          &ndash; Canada (https://open.canada.ca/en/open-government-licence-canada).
+        </li>
+        <li>
+          Australian Pesticides and Veterinary Medicines Authority, PubCRIS dataset (data.gov.au), licensed under CC BY
+          3.0 AU (https://creativecommons.org/licenses/by/3.0/au/); changed: names extracted.
+        </li>
+        <li>Source: European Medicines Agency (EMA), medicines data (veterinary medicine names).</li>
+      </ul>
+      <p className="small muted measure" lang="en">
+        None of these organisations endorses OpenBark. Brand names are trade marks of their owners and appear only so
+        speech recognition can catch them. The full notice ships with the app in licenses/vocabulary-data.txt.
+      </p>
+    </div>
+  );
 }

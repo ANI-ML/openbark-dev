@@ -1,0 +1,18 @@
+# Synthetic consult snippet: written for OpenBark's vocabulary eval; not a real patient.
+id: vocab-newer
+title: Newer brands, Zenrelia, Credelio, ProHeart
+species: canine
+speakers:
+  dvm: am_michael
+  client: af_sky
+pause_secs: 0.5
+lines:
+  - [dvm, "Apoquel didn't control his itch, so let's switch to Zenrelia, twelve milligrams once a day."]
+  - [dvm, "For fleas and ticks, give Credelio, one chewable tablet every month with food."]
+  - [dvm, "And his ProHeart injection for heartworm is due today; it covers him for twelve months."]
+expected:
+  medications:
+    - { drug: zenrelia, dose: "12" }
+  must_mention: [credelio, proheart]
+vocab:
+  drugs: [apoquel, zenrelia, credelio, proheart]

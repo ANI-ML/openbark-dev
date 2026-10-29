@@ -1,0 +1,20 @@
+# Synthetic consult snippet: written for OpenBark's vocabulary eval; not a real patient.
+# Brand drug names said in context, plus ordinary words that resemble them.
+id: vocab-itch
+title: Itchy dog, starting Apoquel, Cytopoint discussed
+species: canine
+speakers:
+  dvm: bm_george
+  client: af_sarah
+pause_secs: 0.5
+lines:
+  - [client, "She's been licking her paws all week, and she ate an apple off the counter yesterday, if that matters."]
+  - [dvm, "The apple won't be the cause. This looks like her allergies again."]
+  - [dvm, "Let's start her on Apoquel, sixteen milligrams twice a day for fourteen days, then once a day."]
+  - [dvm, "If the tablets are hard to give, a Cytopoint injection every four to eight weeks is the other option."]
+expected:
+  medications:
+    - { drug: apoquel, dose: "16", duration: "14" }
+  must_mention: [cytopoint]
+vocab:
+  drugs: [apoquel, cytopoint]

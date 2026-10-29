@@ -131,6 +131,12 @@ INDIRECT = [
     "Twilio is getting too many requests from this account. Wait a minute and try again.",
     "The line is busy.", "The call was declined.", "That number couldn't be reached. Check it and try again.",
     "Read the announcement to the client first.", "The recording of this call was already deleted.",
+    # Words and drug names (ADR-0031): Settings TITLE, VocabularySection KIND_LABEL,
+    # and engine messages (os-engine vocab.rs, os-app vocabulary.rs) shown through t(error).
+    "Words and drug names", "Vaccine", "Product", "Condition", "Procedure",
+    "Type the word or name.", "Use letters, numbers, hyphens and apostrophes, up to 40 characters.",
+    "A term is one or two words.", "Choose what kind of term it is.", "\"Heard as\" is one to three words.",
+    "This computer has no folder for OpenBark's data.",
 ]
 
 
