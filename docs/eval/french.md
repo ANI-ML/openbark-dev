@@ -38,6 +38,8 @@ Not used: Kokoro's multilingual model has only one French voice (`ff_siwis`, fro
 
 `.github/workflows/french-eval.yml`, by hand from the Actions tab or on a push whose head commit message contains `[fr-eval]`. Linux CPU runners.
 
+The recognisers compared: Parakeet TDT 0.6B v3 (int8, detecting the language itself, as today), Canary 180M Flash (int8) told the language (`canary-fr`, and `canary-en` on the English fixtures) and Whisper large-v3-turbo (int8) told the language (`whisper-fr`, `whisper-en`).
+
 1. **Recognisers alone** (`scripts/ci/french-eval.sh`): each recogniser transcribes every fixture with `openbark transcribe` (voice detection and one recogniser: no speaker labels, no second listen) on two threads (`OPENBARK_ASR_THREADS=2`), one after another on the same runner so their speeds compare. Six English fixtures run the same way, as a regression check. Scored by `packages/eval/score_language.py`.
 2. **Notes** (`openbark eval`): each transcript is drafted as the app would with a French interface: the default template (SOAP), Gemma 4 E4B on the processor, notes written in French (`--note-language fr`, Settings, Language, Write notes in), and Whisper's second listen told to expect French (`--spoken-language fr`, what OpenBark 0.2.4 does with a French interface). The `reference` arm drafts from the script itself, with no recognition errors, as a control. Summarised by `scripts/ci/french-eval-summary.py`.
 

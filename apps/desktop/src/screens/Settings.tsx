@@ -343,6 +343,34 @@ function SectionBody({ section }: { section: SettingsSection }) {
               </p>
             )}
           </section>
+          {!ios && (
+            <section className="group">
+              <label className="ob-field narrow">
+                <span className="label">{t("Spoken language")}</span>
+                <select
+                  className="ob-select"
+                  value={s.spokenLanguage ?? ""}
+                  onChange={(e) => app.setSettings({ spokenLanguage: e.target.value || null })}
+                >
+                  <option value="">{t("Auto")}</option>
+                  {UI_LANGUAGES.map((l) => (
+                    <option key={l.code} value={l.code}>
+                      {l.name}
+                    </option>
+                  ))}
+                </select>
+                <span className="ob-help">
+                  {s.spokenLanguage
+                    ? t(
+                        "The second listen expects this language, so sentences don't come back in another one. Choose Auto if your consultations mix languages.",
+                      )
+                    : t(
+                        "Auto detects the language of each sentence, for consultations that mix languages. The second listen expects the app's language.",
+                      )}
+                </span>
+              </label>
+            </section>
+          )}
           <div className="opt-list">
             {toggle(
               t("Label speakers"),

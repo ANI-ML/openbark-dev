@@ -3771,6 +3771,8 @@ impl App {
             .into_iter()
             // The GPU recognisers come with the GPU speech pack, not one by one.
             .filter(|m| m.id != os_engine::models::GPU_STT && m.id != os_engine::models::GPU_SECOND_STT)
+            // Canary only when a spoken language uses it (ADR-0032).
+            .filter(|m| os_engine::models::offered(&m.id))
             // A phone lists mobile models only; a computer doesn't list the
             // ones made for small phones (ADR-0018 section 10).
             .filter(|m| if phone { m.mobile } else { !PHONE_ONLY.contains(&m.id.as_str()) })

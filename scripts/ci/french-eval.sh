@@ -15,10 +15,12 @@ set -euo pipefail
 # arm=recogniser:language ("" lets it detect the language; Parakeet takes none).
 FR_ARMS=(
   "parakeet=parakeet-tdt-0.6b-v3-int8:"
+  "canary-fr=canary-180m-flash-int8:fr"
   "whisper-fr=whisper-large-v3-turbo-int8:fr"
 )
 EN_ARMS=(
   "parakeet=parakeet-tdt-0.6b-v3-int8:"
+  "canary-en=canary-180m-flash-int8:en"
   "whisper-en=whisper-large-v3-turbo-int8:en"
 )
 

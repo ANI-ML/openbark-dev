@@ -594,7 +594,7 @@ pub fn fold_accents(s: &str) -> String {
 
 /// A French word without its elided article or pronoun: "l'oeil" is
 /// "oeil", "d'ecoulement" is "ecoulement", "n'a" is "a".
-fn without_elision(w: &str) -> &str {
+pub(crate) fn without_elision(w: &str) -> &str {
     for prefix in ["qu'", "l'", "d'", "n'", "j'", "s'", "c'", "m'", "t'"] {
         if let Some(rest) = w.strip_prefix(prefix)
             && rest.chars().next().is_some_and(char::is_alphanumeric)

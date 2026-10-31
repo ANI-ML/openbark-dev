@@ -341,6 +341,41 @@ const CUE_WORDS: &[&str] = &[
     "preventive",
     "sedative",
     "painkiller",
+    // French, with and without accents: doses, forms, prescribing
+    // (ADR-0032). None of these is an English word outside medication.
+    "milligramme",
+    "milligrammes",
+    "comprimé",
+    "comprimés",
+    "comprime",
+    "comprimes",
+    "gélule",
+    "gélules",
+    "gelule",
+    "gelules",
+    "goutte",
+    "gouttes",
+    "onguent",
+    "onguents",
+    "pommade",
+    "pommades",
+    "sirop",
+    "appliquer",
+    "appliquez",
+    "administrer",
+    "administrez",
+    "donner",
+    "donnez",
+    "médicament",
+    "médicaments",
+    "medicament",
+    "medicaments",
+    "ordonnance",
+    "posologie",
+    "antibiotique",
+    "antibiotiques",
+    "vermifuge",
+    "antiparasitaire",
 ];
 
 /// Word pairs that do the same: frequencies, "put him on", "send home",
@@ -378,15 +413,82 @@ const CUE_PAIRS: &[(&str, &str)] = &[
     ("anti", "itch"),
     ("anti", "nausea"),
     ("anti", "inflammatory"),
+    // French frequencies ("deux fois par jour") and indications.
+    ("par", "jour"),
+    ("par", "semaine"),
+    ("par", "mois"),
+    ("par", "kilo"),
+    ("par", "kg"),
+    ("chaque", "jour"),
+    ("chaque", "matin"),
+    ("chaque", "soir"),
+    ("anti", "inflammatoire"),
+    ("anti", "inflammatoires"),
 ];
 
-/// Whether `text` has any of the cue words or pairs (lexicon-free), for
-/// choosing segments worth a second listen.
+/// Three-word cues: "matin et soir".
+const CUE_TRIPLES: &[(&str, &str, &str)] = &[("matin", "et", "soir"), ("soir", "et", "matin")];
+
+/// A count, in digits or French words, for "pendant dix jours".
+fn is_count(w: &str) -> bool {
+    (!w.is_empty() && w.chars().all(|c| c.is_ascii_digit()))
+        || matches!(
+            w,
+            "un" | "une"
+                | "deux"
+                | "trois"
+                | "quatre"
+                | "cinq"
+                | "six"
+                | "sept"
+                | "huit"
+                | "neuf"
+                | "dix"
+                | "onze"
+                | "douze"
+                | "quatorze"
+                | "quinze"
+                | "vingt"
+                | "trente"
+        )
+}
+
+/// How many words the cue starting at `words[i]` takes (a cue word, a pair,
+/// "matin et soir", or "pendant <n> jours"), or 0 for none. `words` are
+/// lowercase.
+fn cue_len(words: &[String], i: usize) -> usize {
+    let w = |k: usize| words.get(i + k).map(String::as_str).unwrap_or_default();
+    if CUE_WORDS.contains(&w(0)) {
+        1
+    } else if i + 1 < words.len() && CUE_PAIRS.contains(&(w(0), w(1))) {
+        2
+    } else if i + 2 < words.len()
+        && (CUE_TRIPLES.contains(&(w(0), w(1), w(2)))
+            || (w(0) == "pendant"
+                && is_count(w(1))
+                && matches!(w(2), "jour" | "jours" | "semaine" | "semaines" | "mois")))
+    {
+        3
+    } else {
+        0
+    }
+}
+
+/// A word without a French elided article or pronoun ("l'apple" is
+/// "apple"), so a name heard after one is still found. The prefixes are
+/// ASCII, so lowercasing them keeps the word's byte offsets.
+fn without_elision(w: &str) -> &str {
+    let lower = w.to_ascii_lowercase();
+    let cut = lower.len() - crate::align::without_elision(&lower).len();
+    &w[cut..]
+}
+
+/// Whether `text` has any of the cue words, pairs or phrases (lexicon-free),
+/// for choosing segments worth a second listen.
 pub fn has_drug_cue(text: &str) -> bool {
     let words: Vec<String> =
         text.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).map(str::to_lowercase).collect();
-    words.iter().any(|w| CUE_WORDS.contains(&w.as_str()))
-        || words.windows(2).any(|p| CUE_PAIRS.contains(&(p[0].as_str(), p[1].as_str())))
+    (0..words.len()).any(|i| cue_len(&words, i) > 0)
 }
 
 /// Register names are on unless `OPENBARK_VOCAB_REGULATORY` is "0" or "off"
@@ -722,12 +824,10 @@ impl Lexicon {
         let outside = |i: usize| i < from || i >= to;
         (lo..hi).filter(|&i| outside(i)).any(|i| {
             let w = words[i].as_str();
-            CUE_WORDS.contains(&w)
+            let cue = cue_len(words, i);
+            (cue > 0 && i + cue <= hi && (i..i + cue).all(outside))
                 || self.is_drug_name(w)
-                || (i + 1 < hi
-                    && outside(i + 1)
-                    && (CUE_PAIRS.contains(&(w, words[i + 1].as_str()))
-                        || self.is_drug_name(&format!("{w} {}", words[i + 1]))))
+                || (i + 1 < hi && outside(i + 1) && self.is_drug_name(&format!("{w} {}", words[i + 1])))
         })
     }
 
@@ -810,6 +910,7 @@ impl Lexicon {
         let words: Vec<&str> = text
             .split(|c: char| c.is_whitespace() || c == '-')
             .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric() && c != '\''))
+            .map(without_elision)
             .filter(|w| !w.is_empty())
             .collect();
         let lowered: Vec<String> = words.iter().map(|w| w.to_lowercase()).collect();
@@ -1285,6 +1386,45 @@ mod tests {
         assert!(has_drug_cue("We'll send home some pills"));
         assert!(has_drug_cue("twice a day with food"));
         assert!(!has_drug_cue("She ate an apple this morning"));
+    }
+
+    #[test]
+    fn french_doses_and_frequencies_are_drug_cues() {
+        for said in [
+            "Un comprimé deux fois par jour.",
+            "Cinq virgule quatre mg le matin.",
+            "Appliquer sur la plaie.",
+            "Trois gouttes dans l'oreille droite.",
+            "Un peu d'onguent sur l'œil.",
+            "Le matin et soir, avec le repas.",
+            "Il le prend pendant dix jours.",
+            "Pendant 14 jours, puis on arrête.",
+            "Une gélule, et on donne la pommade.",
+        ] {
+            assert!(has_drug_cue(said), "{said}");
+        }
+        for said in [
+            "Il est venu ce matin avec sa famille.",
+            "Pendant les vacances, il a couru au parc.",
+            "Elle a mangé une pomme ce soir.",
+        ] {
+            assert!(!has_drug_cue(said), "{said}");
+        }
+    }
+
+    #[test]
+    fn apple_is_apoquel_in_french_drug_talk_too() {
+        let l = lex();
+        let apple = |said: &str| l.hints(said).iter().any(|h| h.heard == "apple" && h.likely[0] == "apoquel");
+        for said in [
+            "On commence l'apple, un comprimé deux fois par jour.",
+            "Donnez l'apple matin et soir pendant quatorze jours.",
+        ] {
+            assert!(apple(said), "{said}: {:?}", l.hints(said));
+        }
+        // Not about medication: no hint, and the transcript is never changed.
+        let said = "Elle a mangé une apple ce matin.";
+        assert!(!apple(said), "{said}: {:?}", l.hints(said));
     }
 
     #[test]

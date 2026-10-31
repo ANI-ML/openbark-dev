@@ -4,14 +4,14 @@ OpenBark separates three languages:
 
 | What | Languages | Where to set it |
 |---|---|---|
-| The consultation (what's said) | English plus 24 European languages, recognised by Parakeet TDT v3 with no setting needed | Automatic |
+| The consultation (what's said) | English plus 24 European languages, recognised by Parakeet TDT v3, which detects each sentence's language | Settings → Recording → **Spoken language**: Auto (the default) or one language, which the second listen is told to expect (ADR-0032) |
 | The note (what the model writes) | English, French, Spanish, German, Portuguese, Italian, Dutch | Settings → Language → **Write notes in** |
 | The app (menus, buttons, messages) | English, French, Spanish, German, Portuguese | Settings → Language → **App language** (starts in the browser's language when available) |
 
 Notes:
 - **Note language.** The model is told to write every statement in the chosen language, whatever language the consultation was in, and to keep drug names, doses, units and numbers exactly as said. Headings come from the template, so a team writing in French should name its template headings in French.
 - **PDFs** use the note language for their own words (Patient, Signed by, Not discussed, Page 1 of 2).
-- **Number checks** compare the note's numbers with the transcript. Spoken numbers are read in English ("thirty-nine point two") and French ("trente-neuf virgule deux", and the decimal comma, "39,2"); in other languages a number said in words can be flagged for checking even when it's right. Vocabulary hints are English-only.
+- **Number checks** compare the note's numbers with the transcript. Spoken numbers are read in English ("thirty-nine point two") and French ("trente-neuf virgule deux", and the decimal comma, "39,2"); in other languages a number said in words can be flagged for checking even when it's right. Vocabulary hints are English-only, but talk about medication is recognised in French too ("comprimé", "deux fois par jour", "pendant dix jours"), so drug hints and the second listen apply to French consultations.
 - **French** has its own eval on synthetic standard French consults (`docs/eval/french.md`): transcription accuracy, words heard in the wrong language, and facts found in French notes. It says nothing about Quebec French or real clinic speech.
 - **App translations** were generated, and need review by native-speaking veterinary staff before release. They're keyed by the English text. A string without a translation shows in English. The newest, for deleting visits and recordings (ADR-0022, 2026-10-18), haven't been reviewed by anyone yet. Nor have those for MLX, gated models, adding models from this computer and removing models (ADR-0025, 2026-10-19). Nor have those for the redesigned screens (ADR-0027, 2026-10-24).
 

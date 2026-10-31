@@ -29,6 +29,8 @@ pub(crate) struct WarmKey {
     stt: String,
     label_speakers: bool,
     speakerphone: bool,
+    /// The spoken language can choose the main recogniser (ADR-0032).
+    spoken: Option<&'static str>,
 }
 
 impl WarmKey {
@@ -37,6 +39,7 @@ impl WarmKey {
             stt: options.stt.clone(),
             label_speakers: options.label_speakers,
             speakerphone: options.speakerphone,
+            spoken: os_engine::models::spoken_language(),
         }
     }
 }

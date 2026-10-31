@@ -37,6 +37,17 @@ Speaker labels depend on how clearly the microphone hears each voice. A small la
 
 Labels help you read the transcript and tell the note who said what. A line with the wrong label still has the right words. Check the note before you sign, as always.
 
+## Spoken language
+
+**Settings → Recording → Spoken language** tells OpenBark which language is spoken in your consultations: **Auto** (the default), **English**, **Français**, **Español**, **Deutsch** or **Português**. It's separate from the app's language: you can use the app in French and speak a mix.
+
+- **Auto** suits consultations that mix languages. The speech recogniser detects the language of each sentence by itself, and the second listen (which re-hears numbers and drug talk) expects the app's language. This is how OpenBark worked before version 0.2.5.
+- **A language** makes the second listen expect it, so a sentence isn't heard as another language. Choose it if everyone in the room speaks that language.
+
+The main recogniser still detects the language of each sentence itself; it can't be told one. If your transcripts flip into another language mid-visit, choose your language here and use a microphone close to the conversation. The French results are in `docs/eval/french.md`. They come from synthetic standard French, not Quebec French or real clinic recordings.
+
+The setting is kept on this device and applies to recordings and imports. It isn't on the iPhone, which has no second listen.
+
 ## In the browser (web mode)
 
 When you use OpenBark in a browser on this computer, the browser asks for permission to use the microphone the first time. Allow it. If you blocked it, allow the microphone for the page in the browser's address bar, then try again. Open OpenBark at `http://localhost` on this computer: browsers only allow the microphone on a secure page, and the computer's network address isn't one.
@@ -135,4 +146,4 @@ To add your clinic's own names, open **Settings → Words and drug names**:
 
 Changes apply from the next recording. The list is kept on this computer in `vocab.tsv` in OpenBark's data folder (on Windows `%LOCALAPPDATA%\OpenBark\vocab.tsv`; `OPENBARK_VOCAB` names another file).
 
-When the second speech recogniser is installed, segments where medication is discussed are heard twice. If it hears a known name where the first one heard something else, that becomes a hint too. It is told to expect the app's language (Settings → Language), so an accent isn't mistaken for another language.
+When the second speech recogniser is installed, segments where medication is discussed are heard twice. If it hears a known name where the first one heard something else, that becomes a hint too. It is told to expect the spoken language you chose ([Spoken language](#spoken-language)), or with **Auto** the app's language, so an accent isn't mistaken for another language. Talk about medication is recognised in French too ("un comprimé deux fois par jour", "matin et soir", "pendant dix jours", "appliquer la pommade"), so French drug talk gets the same hints.

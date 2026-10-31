@@ -1261,6 +1261,12 @@ fn set_speech_language(language: String) {
     os_engine::models::set_speech_language(Some(&language));
 }
 
+/// Settings, Recording, Spoken language ("fr"); None is Auto (ADR-0032).
+#[tauri::command]
+fn set_spoken_language(language: Option<String>) {
+    os_engine::models::set_spoken_language(language.as_deref());
+}
+
 #[tauri::command]
 async fn set_user_admin(
     app: State<'_, AppState>,
@@ -1634,6 +1640,7 @@ pub fn run() {
         save_vocabulary_term,
         remove_vocabulary_term,
         set_speech_language,
+        set_spoken_language,
         set_user_admin,
         profile_summary,
         models,
