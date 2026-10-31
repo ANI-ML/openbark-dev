@@ -156,6 +156,9 @@ pub struct TemplateView {
     /// Team standards this person turned off for themselves.
     pub muted: Vec<String>,
     pub mode: TemplatesMode,
+    /// A preview of a draft that can't be drafted with yet (no name, a heading
+    /// with no title): why, in plain words. What they may do still comes with it.
+    pub problem: Option<String>,
 }
 
 /// A reset, and the token that undoes it (for the toast's Undo).
@@ -230,6 +233,14 @@ impl Ctx {
 
     fn member_id(&self) -> Option<String> {
         self.user.as_ref().map(|u| u.id.clone())
+    }
+
+    /// Where a new template of theirs goes: their own in "each person's own", else the team's.
+    fn new_layer(&self) -> Layer {
+        match self.mode {
+            TemplatesMode::Personal if self.writes_notes() => Layer::Personal,
+            _ => Layer::Team,
+        }
     }
 }
 
@@ -320,20 +331,23 @@ impl App {
     }
 
     fn can(&self, ctx: &Ctx, r: &Resolved) -> TemplateCan {
-        let id = r.loaded.template.id.as_str();
-        let changed = r.original_changed.is_some();
-        let own = r.layer == Layer::Personal && r.original.is_none();
-        let team_made = r.layer == Layer::Team && r.original.is_none();
+        self.can_for(ctx, &r.loaded.template.id, r.layer, r.original.is_some(), r.original_changed.is_some())
+    }
+
+    /// What this person may do with template `id` in `layer`. A new one has no
+    /// id yet, so its permissions never depend on what's typed in it.
+    fn can_for(&self, ctx: &Ctx, id: &str, layer: Layer, has_original: bool, changed: bool) -> TemplateCan {
+        let own = layer == Layer::Personal && !has_original;
+        let team_made = layer == Layer::Team && !has_original;
         let team_version = self.team_version(id);
-        let base =
-            TemplateCan { change_document: r.original.is_none(), admin: ctx.admin(), ..Default::default() };
+        let base = TemplateCan { change_document: !has_original, admin: ctx.admin(), ..Default::default() };
         match ctx.mode {
             TemplatesMode::Alone => TemplateCan {
                 edit: true,
                 save_to: Some(Layer::Team),
-                reset: r.layer == Layer::Team && r.original.is_some(),
+                reset: layer == Layer::Team && has_original,
                 delete: team_made,
-                keep: r.layer == Layer::Team && changed,
+                keep: layer == Layer::Team && changed,
                 duplicate: true,
                 ..base
             },
@@ -351,14 +365,14 @@ impl App {
                     },
                     save_needs_pin: !writes && admin,
                     save_for_hospital: writes && admin && !own,
-                    reset: writes && r.layer == Layer::Personal && r.original.is_some(),
-                    share: writes && r.layer == Layer::Personal,
+                    reset: writes && layer == Layer::Personal && has_original,
+                    share: writes && layer == Layer::Personal,
                     reset_team: admin && team_version,
                     delete: (writes && own) || (admin && team_made),
                     delete_needs_pin: team_made,
-                    keep: (writes && r.layer == Layer::Personal && changed)
-                        || (admin && r.layer == Layer::Team && changed),
-                    keep_needs_pin: r.layer == Layer::Team,
+                    keep: (writes && layer == Layer::Personal && changed)
+                        || (admin && layer == Layer::Team && changed),
+                    keep_needs_pin: layer == Layer::Team,
                     duplicate: writes || admin,
                     standards_personal: writes,
                     standards_team_needs_pin: true,
@@ -374,7 +388,7 @@ impl App {
                     reset_team: admin && team_version,
                     delete: admin && team_made,
                     delete_needs_pin: true,
-                    keep: admin && r.layer == Layer::Team && changed,
+                    keep: admin && layer == Layer::Team && changed,
                     keep_needs_pin: true,
                     duplicate: admin,
                     standards_team_needs_pin: true,
@@ -417,6 +431,7 @@ impl App {
             not_used: r.not_used,
             muted: r.muted,
             mode: ctx.mode,
+            problem: None,
             template: r.loaded.template,
         }
     }
@@ -440,6 +455,7 @@ impl App {
             not_used: Vec::new(),
             muted: Vec::new(),
             mode,
+            problem: None,
             template: loaded.template,
         }
     }
@@ -477,7 +493,10 @@ impl App {
     }
 
     /// Check an unsaved template and show what the model would be told: the
-    /// fixed rules of the current built-in, and the standards that apply.
+    /// fixed rules of the current built-in, and the standards that apply. A
+    /// draft that can't be drafted with yet comes back with its `problem`, and
+    /// with what this person may do: that comes from who they are and what's
+    /// stored, never from the draft, so a new template is editable from the start.
     pub fn preview_template(&self, template: Template, by: Option<&str>) -> Result<TemplateView> {
         let ctx = self.ctx(by)?;
         let mut t = template;
@@ -487,7 +506,33 @@ impl App {
         }
         let current =
             (!t.id.is_empty()).then(|| self.templates.resolve_for(&t.id, &ctx.viewer).ok()).flatten();
-        let mut loaded = LoadedTemplate::new(t)?;
+        let can = match &current {
+            Some(r) => self.can(&ctx, r),
+            None => self.can_for(&ctx, "", ctx.new_layer(), false, false),
+        };
+        let mut loaded = match LoadedTemplate::new(t.clone()) {
+            Ok(loaded) => loaded,
+            Err(e) => {
+                return Ok(TemplateView {
+                    prompt: String::new(),
+                    lint: Vec::new(),
+                    always_applied: always_applied(&t.fixed_rules),
+                    builtin: self.templates.is_builtin(&t.id),
+                    team_version: self.team_version(&t.id),
+                    layer: current.as_ref().map_or_else(|| ctx.new_layer(), |r| r.layer),
+                    origin: None,
+                    original: None,
+                    original_changed: None,
+                    has_base: false,
+                    can,
+                    not_used: Vec::new(),
+                    muted: Vec::new(),
+                    mode: ctx.mode,
+                    problem: Some(e.to_string()),
+                    template: t,
+                });
+            }
+        };
         match current {
             Some(r) => {
                 let (applied, not_used): (Vec<Standard>, Vec<Standard>) = r
@@ -500,23 +545,19 @@ impl App {
                     .partition(|s| s.heading.is_empty() || loaded.heading_title(&s.heading).is_some());
                 loaded.template.standards = applied;
                 loaded.template.origin = r.loaded.template.origin.clone();
-                Ok(self.view(&ctx, Resolved { loaded, not_used, ..r }))
+                Ok(TemplateView { can, ..self.view(&ctx, Resolved { loaded, not_used, ..r }) })
             }
             None => {
-                let layer = match ctx.mode {
-                    TemplatesMode::Personal if ctx.writes_notes() => Layer::Personal,
-                    _ => Layer::Team,
-                };
                 let r = Resolved {
                     loaded,
-                    layer,
+                    layer: ctx.new_layer(),
                     original: None,
                     original_changed: None,
                     not_used: Vec::new(),
                     muted: Vec::new(),
                     has_base: false,
                 };
-                Ok(self.view(&ctx, r))
+                Ok(TemplateView { can, ..self.view(&ctx, r) })
             }
         }
     }

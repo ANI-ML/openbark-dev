@@ -783,6 +783,8 @@ export interface TemplateView {
   not_used?: Standard[];
   muted?: string[];
   mode: TemplatesMode;
+  /** A previewed draft that can't be drafted with yet: why. `can` still comes with it. */
+  problem?: string | null;
 }
 
 /** A reset, and the token its Undo sends. */

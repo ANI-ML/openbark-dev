@@ -300,6 +300,75 @@ fn a_new_template_is_only_its_makers_until_shared() {
     assert!(app.list_templates(Some(&dvm.id)).unwrap().iter().any(|t| t.id == id));
 }
 
+/// A new template starts with no name and a heading with no title: the
+/// preview says what's missing, and what this person may do comes with it, the
+/// same whether or not the draft is complete (the editor's inputs follow it).
+#[test]
+fn a_blank_new_template_previews_with_its_problem_and_the_same_permissions() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app = app_in(tmp.path());
+    let blank = || {
+        let mut t = soap_with("x");
+        t.id = String::new();
+        t.name = String::new();
+        t.sections.truncate(1);
+        t.sections[0].id = String::new();
+        t.sections[0].title = String::new();
+        t
+    };
+    let untitled_heading = || {
+        let mut t = soap_with("x");
+        t.id = String::new();
+        t.name = "Dental procedure".into();
+        t.sections[0].title = " ".into();
+        t
+    };
+    let complete = || {
+        let mut t = soap_with("x");
+        t.id = String::new();
+        t.name = "Soap".into();
+        t
+    };
+    let can = |by: Option<&str>, t: Template| {
+        let v = app.preview_template(t, by).unwrap();
+        (serde_json::to_value(&v.can).unwrap(), v.problem)
+    };
+    let alone = app.preview_template(blank(), Some("Dr Ahmed")).unwrap();
+    assert_eq!(alone.problem.as_deref(), Some("Give the template a name."));
+    assert!(alone.can.edit && !alone.can.save_needs_pin);
+    assert_eq!((alone.can.save_to, alone.mode), (Some(Layer::Team), TemplatesMode::Alone));
+
+    let (dvm, rvt, desk) = team(&app);
+    // The hospital's own SOAP: a new template named "Soap" still can't reset it.
+    save_for_hospital(&app, &dvm.id, soap_with("Hospital."), Some(approver(&dvm, "2468"))).unwrap();
+    for by in [&dvm.id, &rvt.id, &desk.id] {
+        let (blank_can, problem) = can(Some(by.as_str()), blank());
+        assert_eq!(problem.as_deref(), Some("Give the template a name."));
+        let (heading_can, problem) = can(Some(by.as_str()), untitled_heading());
+        assert_eq!(problem.as_deref(), Some("A heading has no title."));
+        let (complete_can, problem) = can(Some(by.as_str()), complete());
+        assert_eq!(problem, None);
+        assert_eq!(blank_can, complete_can, "{by}");
+        assert_eq!(heading_can, complete_can, "{by}");
+        assert_eq!(complete_can["reset_team"], false, "{by}");
+    }
+    let tech = app.preview_template(blank(), Some(&rvt.id)).unwrap();
+    assert!(tech.can.edit && !tech.can.save_needs_pin);
+    assert_eq!((tech.can.save_to, tech.layer), (Some(Layer::Personal), Layer::Personal));
+    assert!(!app.preview_template(blank(), Some(&desk.id)).unwrap().can.edit, "reception reads");
+    // An admin at reception saves new templates for the hospital, with a PIN.
+    app.set_user_admin(&desk.id, true, Some(&dvm.id), Some(&approver(&dvm, "2468"))).unwrap();
+    let desk_admin = app.preview_template(blank(), Some(&desk.id)).unwrap();
+    assert!(desk_admin.can.edit && desk_admin.can.save_needs_pin);
+    assert_eq!(desk_admin.can.save_to, Some(Layer::Team));
+    // Shared by the hospital: only an admin edits.
+    app.set_template_mode(TemplateMode::Hospital, Some(&dvm.id), Some(&approver(&dvm, "2468"))).unwrap();
+    assert!(!app.preview_template(blank(), Some(&rvt.id)).unwrap().can.edit);
+    let admin = app.preview_template(blank(), Some(&dvm.id)).unwrap();
+    assert!(admin.can.edit && admin.can.save_needs_pin);
+    assert_eq!((admin.can.save_to, admin.mode), (Some(Layer::Team), TemplatesMode::Hospital));
+}
+
 #[test]
 fn the_first_member_gets_the_setup_notice_and_removal_takes_the_profile() {
     let tmp = tempfile::tempdir().unwrap();
