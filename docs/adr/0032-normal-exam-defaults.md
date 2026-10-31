@@ -73,7 +73,9 @@ On 2026-10-31, after this report, the product owner approved normal-exam default
 - A label that is a common word in conversation ("Général", "Comportement") rarely gets its default. Short, specific labels work best; the guide says so.
 - The drafting grammar is a little larger for a heading with defaults (one enum per statement). Templates without defaults draft with byte-identical prompts and grammars; their fingerprints don't change, since the key isn't written when empty.
 - A 0.2.4 device computes a template's fingerprint without `defaults`, so a template with defaults has a different fingerprint there than on 0.2.5. That can show a spurious "Newer original" notice on a 0.2.4 device until it updates.
+- A template saved on a 0.2.4 device (a personal version, or the hospital's by an admin there) is saved without its normal findings, since 0.2.4 doesn't know the field. Clinics using them should update every device to 0.2.5.
 - The comparison of template versions (`template_diff.rs`) doesn't list a change to a heading's normal findings yet.
+- `note.md` files written before 0.2.5 still hold any "null" the model wrote; Review, Copy and the PDF read the note itself and skip it, but a draft from another device offered as an addendum (which starts from that run's `note.md`) can show it.
 - The MLX golden check now also compiles a drafting schema with defaults (`examples/write_schemas.rs`), so llguidance covers the tagged statements.
 
 ## Alternatives considered

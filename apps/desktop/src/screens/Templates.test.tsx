@@ -197,8 +197,7 @@ describe("Templates: the editor", () => {
     open(ctx(), view());
     const box = (await screen.findByLabelText("Normal findings for Plan")) as HTMLTextAreaElement;
     expect(screen.getByText("Normal findings (used only when not discussed)")).toBeTruthy();
-    fireEvent.change(box, { target: { value: "Eyes: Normal, no discharge
-- Ears : Clean" } });
+    fireEvent.change(box, { target: { value: "Eyes: Normal, no discharge\n- Ears : Clean" } });
     await waitFor(() => {
       const sent = mocked.previewTemplate.mock.calls.at(-1)?.[0];
       expect(sent?.sections[0]?.defaults).toEqual([
@@ -231,8 +230,7 @@ describe("Templates: the editor", () => {
     expect(screen.getByText(/findings pasted here can end up in the note as if they were said/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Move these lines into Normal findings" }));
     expect((screen.getByLabelText("Instruction for Plan") as HTMLTextAreaElement).value).toBe("List the findings the veterinarian states, by system.");
-    expect((screen.getByLabelText("Normal findings for Plan") as HTMLTextAreaElement).value).toBe("Yeux: Normal, aucun écoulement
-Oreilles: Propres");
+    expect((screen.getByLabelText("Normal findings for Plan") as HTMLTextAreaElement).value).toBe("Yeux: Normal, aucun écoulement\nOreilles: Propres");
   });
 
   it("is read-only for reception", async () => {

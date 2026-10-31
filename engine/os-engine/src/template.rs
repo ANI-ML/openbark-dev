@@ -1600,32 +1600,16 @@ sections:
         assert!(!LoadedTemplate::builtin("soap").unwrap().to_yaml().contains("defaults"));
 
         let err = |yaml: &str| LoadedTemplate::from_yaml(yaml).unwrap_err().to_string();
-        let fields = "name: X
-sections:
-  - { title: Vitals, kind: fields, fields: [{ label: Weight }], defaults: [{ label: T, text: normal }] }
-";
+        let fields = "name: X\nsections:\n  - { title: Vitals, kind: fields, fields: [{ label: Weight }], defaults: [{ label: T, text: normal }] }\n";
         assert!(err(fields).contains("only a heading of bullet points"), "{}", err(fields));
-        let twice = "name: X
-sections:
-  - { title: Exam, kind: statements, defaults: [{ label: Eyes, text: a }, { label: eyes, text: b }] }
-";
+        let twice = "name: X\nsections:\n  - { title: Exam, kind: statements, defaults: [{ label: Eyes, text: a }, { label: eyes, text: b }] }\n";
         assert!(err(twice).contains("two normal findings for"), "{}", err(twice));
-        let empty = "name: X
-sections:
-  - { title: Exam, kind: statements, defaults: [{ label: Eyes, text: '' }] }
-";
+        let empty = "name: X\nsections:\n  - { title: Exam, kind: statements, defaults: [{ label: Eyes, text: '' }] }\n";
         assert!(err(empty).contains("has no text"), "{}", err(empty));
-        let client = "name: X
-document: client
-sections:
-  - { title: Exam, kind: statements, defaults: [{ label: Eyes, text: Normal }] }
-";
+        let client = "name: X\ndocument: client\nsections:\n  - { title: Exam, kind: statements, defaults: [{ label: Eyes, text: Normal }] }\n";
         assert!(err(client).contains("not a document for the client"), "{}", err(client));
         // Blank lines are dropped, and a bullet before the system goes.
-        let tidy = "name: X
-sections:
-  - { title: Exam, kind: statements, defaults: [{ label: ' - Eyes ', text: ' Normal ' }, { label: '', text: '' }] }
-";
+        let tidy = "name: X\nsections:\n  - { title: Exam, kind: statements, defaults: [{ label: ' - Eyes ', text: ' Normal ' }, { label: '', text: '' }] }\n";
         let t = LoadedTemplate::from_yaml(tidy).unwrap();
         let eyes = DefaultLine { label: "Eyes".into(), text: "Normal".into() };
         assert_eq!(t.template.sections[0].defaults, [eyes]);

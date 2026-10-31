@@ -1104,6 +1104,34 @@ mod tests {
         String::from_utf8_lossy(pdf).into_owned()
     }
 
+    /// ADR-0032: a note saved before blanks were tidied after drafting (0.2.4)
+    /// never prints "null" or "n/a", in the PDF or the markdown.
+    #[test]
+    fn a_note_with_null_values_never_prints_them() {
+        let soap = LoadedTemplate::builtin("soap").unwrap();
+        let mut note = crate::template::empty_note(&soap.template);
+        note["patient"]["name"] = json!({"value": "null", "unit": null, "evidence": [1]});
+        note["objective"]["vitals"]["temperature"] = json!({"value": 38.9, "unit": "null", "evidence": [2]});
+        note["objective"]["physical_exam"] = json!([
+            {"text": "Tartre : null", "evidence": [3]},
+            {"text": "T: null P: null R: null", "evidence": [3]},
+            {"text": "Heart: grade 2 murmur", "evidence": [4]}
+        ]);
+        note["plan"]["medications"] = json!([
+            {"drug": "Meloxicam", "dose": "n/a", "route": "PO", "frequency": "null", "duration": null, "evidence": [5]},
+            {"drug": "null", "dose": null, "route": null, "frequency": null, "duration": null, "evidence": [6]}
+        ]);
+        let pdf = text_of(&note_pdf(&soap, &note, &header()));
+        let empty = crate::transcript::Transcript { segments: Vec::new() };
+        let md = crate::render::markdown(&soap, &note, &empty, &Default::default());
+        for text in [&pdf, &md] {
+            assert!(!text.to_lowercase().contains("null") && !text.contains("n/a"), "{text}");
+            assert!(text.contains("Heart: grade 2 murmur") && text.contains("Meloxicam: PO"), "{text}");
+        }
+        assert!(md.contains("- Temperature: 38.9 [2]"), "{md}");
+        assert!(md.contains("## Patient\n\nNot discussed.\n"), "{md}");
+    }
+
     #[test]
     fn writes_a_well_formed_pdf_with_every_heading() {
         let soap = LoadedTemplate::builtin("soap").unwrap();
