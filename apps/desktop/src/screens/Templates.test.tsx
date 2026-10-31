@@ -259,3 +259,89 @@ describe("Templates: the editor", () => {
     expect(screen.getByRole("dialog")).toBeTruthy();
   });
 });
+
+describe("Templates: a new template", () => {
+  function startNew(c: Ctx = ctx()) {
+    mocked.listTemplates.mockResolvedValue([]);
+    render(
+      <AppContext.Provider value={c}>
+        <Templates />
+      </AppContext.Provider>,
+    );
+    return screen.findByRole("button", { name: "New template" }).then((b) => fireEvent.click(b));
+  }
+  const input = (label: string) => screen.getByLabelText(label) as HTMLInputElement;
+
+  it("can be typed in before it has a name, even when the check fails", async () => {
+    mocked.previewTemplate.mockRejectedValue(new Error("Give the template a name."));
+    await startNew();
+    expect(input("Name").disabled).toBe(false);
+    expect(document.activeElement).toBe(input("Name"));
+    expect(input("Heading 1 title").disabled).toBe(false);
+    expect(await screen.findByText("Give the template a name.")).toBeTruthy();
+    fireEvent.change(input("Name"), { target: { value: "Dental procedure" } });
+    expect(input("Name").value).toBe("Dental procedure");
+    expect(input("Name").disabled).toBe(false);
+  });
+
+  it("adds, moves and removes headings while a heading has no title", async () => {
+    mocked.previewTemplate.mockRejectedValue(new Error("A heading has no title."));
+    await startNew();
+    fireEvent.click(screen.getByRole("button", { name: "Add heading" }));
+    fireEvent.change(input("Heading 2 title"), { target: { value: "Teeth" } });
+    fireEvent.click(screen.getByRole("button", { name: "Move Teeth up" }));
+    expect(input("Heading 1 title").value).toBe("Teeth");
+    expect(input("Heading 2 title").value).toBe("");
+    fireEvent.click(screen.getByRole("button", { name: "Remove Heading 2" }));
+    expect(screen.queryByLabelText("Heading 2 title")).toBeNull();
+    expect(input("Heading 1 title").value).toBe("Teeth");
+    expect(await screen.findByText("A heading has no title.")).toBeTruthy();
+    expect(input("Heading 1 title").disabled).toBe(false);
+    expect(screen.getByRole("button", { name: "Add heading" })).toBeTruthy();
+  });
+
+  it("keeps Save going to the same place while the draft is incomplete", async () => {
+    const hospital: engine.TemplateCan = { ...editable, save_to: "team", save_needs_pin: true, standards_personal: false, admin: true };
+    // The engine answers every check with what this person may do, and says what's missing.
+    mocked.previewTemplate.mockImplementation(async (t) =>
+      view({
+        template: t,
+        builtin: false,
+        layer: "team",
+        prompt: "",
+        mode: "hospital",
+        can: hospital,
+        problem: !t.name.trim() ? "Give the template a name." : t.sections.some((s) => !s.title.trim()) ? "A heading has no title." : null,
+      }),
+    );
+    await startNew(
+      ctx({
+        status: { team: true, templates: "hospital" } as engine.Status,
+        user: { id: "u-vet", name: "Dr Rivera", role: "dvm", admin: true },
+        actor: "u-vet",
+        can: { notes: true, sign: true, team: true, admin: true },
+      }),
+    );
+    const save = () => screen.getByRole("button", { name: "Save for the hospital" }) as HTMLButtonElement;
+    expect(await screen.findByText("Give the template a name.")).toBeTruthy();
+    expect(save().disabled).toBe(true);
+    fireEvent.change(input("Name"), { target: { value: "Dental procedure" } });
+    fireEvent.change(input("Heading 1 title"), { target: { value: "Teeth" } });
+    await waitFor(() => expect(save().disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Add heading" }));
+    expect(await screen.findByText("A heading has no title.")).toBeTruthy();
+    expect(save().disabled).toBe(true);
+    expect(input("Heading 2 title").disabled).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Remove Heading 2" }));
+    await waitFor(() => expect(save().disabled).toBe(false));
+    fireEvent.change(input("Name"), { target: { value: "" } });
+    expect(await screen.findByText("Give the template a name.")).toBeTruthy();
+    expect(input("Name").disabled).toBe(false);
+    fireEvent.change(input("Name"), { target: { value: "Dental procedure" } });
+    await waitFor(() => expect(save().disabled).toBe(false));
+    // The hospital's templates: an admin's PIN before anything is saved.
+    fireEvent.click(save());
+    expect(await screen.findByRole("dialog")).toBeTruthy();
+    expect(mocked.saveTemplate).not.toHaveBeenCalled();
+  });
+});

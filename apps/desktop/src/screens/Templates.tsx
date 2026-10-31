@@ -324,6 +324,7 @@ export function Templates({ initialOpen, initialHeading }: { initialOpen?: strin
         id={open.id}
         from={open.from}
         heading={open.heading}
+        mayCreate={mayCreate}
         onClose={() => {
           setOpen(null);
           void refresh();
@@ -475,6 +476,8 @@ interface BuilderProps {
   from?: Template;
   /** Open scrolled to this heading ("plan/medications"), from Review's Ask. */
   heading?: string;
+  /** This person may create templates: a new one or a copy is editable from the start. */
+  mayCreate: boolean;
   onClose: () => void;
   onOpen: (id: string | null, from?: Template) => void;
   onSaved: () => void;
@@ -507,7 +510,7 @@ const NO_EDIT: TemplateCan = {
   admin: false,
 };
 
-function Builder({ id, from, heading, onClose, onOpen, onSaved }: BuilderProps) {
+function Builder({ id, from, heading, mayCreate, onClose, onOpen, onSaved }: BuilderProps) {
   const app = useApp();
   const t = useT();
   /** The template as stored for this person (null for a new one). */
@@ -515,6 +518,8 @@ function Builder({ id, from, heading, onClose, onOpen, onSaved }: BuilderProps) 
   const [draft, setDraft] = useState<Template | null>(from ? withUids(from) : null);
   const [saved, setSaved] = useState<Template | null>(null);
   const [preview, setPreview] = useState<TemplateView | null>(null);
+  /** What this person may do, from the latest check, whether or not the draft was complete. */
+  const [access, setAccess] = useState<Pick<TemplateView, "can" | "mode"> | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
@@ -567,8 +572,13 @@ function Builder({ id, from, heading, onClose, onOpen, onSaved }: BuilderProps) 
     const timer = setTimeout(() => {
       engine.previewTemplate(clean(draft)).then(
         (v) => {
-          setPreview(v);
-          setProblem(null);
+          setAccess({ can: v.can, mode: v.mode });
+          if (v.problem) {
+            setProblem(v.problem);
+          } else {
+            setPreview(v);
+            setProblem(null);
+          }
         },
         (e) => setProblem(e instanceof Error ? e.message : String(e)),
       );
@@ -580,11 +590,12 @@ function Builder({ id, from, heading, onClose, onOpen, onSaved }: BuilderProps) 
     () => !saved || (draft != null && JSON.stringify(clean(draft)) !== JSON.stringify(saved)),
     [draft, saved],
   );
-  const can: TemplateCan = view?.can ?? preview?.can ?? NO_EDIT;
+  const can: TemplateCan = view?.can ?? access?.can ?? NO_EDIT;
   const isNew = !saved;
-  const readOnly = !can.edit;
+  // A new template starts incomplete (no name yet), so whether it can be typed in never waits for a check.
+  const readOnly = isNew ? !mayCreate : !can.edit;
   const builtinId = view?.builtin ?? false;
-  const mode: TemplatesMode = view?.mode ?? preview?.mode ?? app.status?.templates ?? "alone";
+  const mode: TemplatesMode = view?.mode ?? access?.mode ?? app.status?.templates ?? "alone";
 
   if (!draft) {
     return (
@@ -873,8 +884,13 @@ function Builder({ id, from, heading, onClose, onOpen, onSaved }: BuilderProps) 
               {t("Save for the hospital")}
             </Button>
           )}
+          {/* Where a new template is saved comes from the engine: Save waits for its first answer. */}
           {!readOnly && (
-            <Button variant="primary" onClick={() => void save()} disabled={busy || !dirty || problem != null}>
+            <Button
+              variant="primary"
+              onClick={() => void save()}
+              disabled={busy || !dirty || problem != null || (isNew && !access)}
+            >
               {primaryLabel}
             </Button>
           )}
