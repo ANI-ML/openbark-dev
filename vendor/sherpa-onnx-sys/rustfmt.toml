@@ -1,0 +1,2 @@
+# Upstream code, kept as published: rustfmt leaves it alone.
+disable_all_formatting = true

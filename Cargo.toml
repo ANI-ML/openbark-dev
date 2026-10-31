@@ -15,6 +15,9 @@ members = [
     "tools/fixture-tts",
     "apps/desktop/src-tauri",
 ]
+# A patched copy of a crates.io dependency (see [patch.crates-io] below), not a
+# member of this workspace.
+exclude = ["vendor/sherpa-onnx-sys"]
 
 [workspace.package]
 version = "0.2.4"
@@ -54,7 +57,9 @@ sysinfo = { version = "0.39.6", default-features = false }
 # GPU speech pack archives (ADR-0014); the versions already in Cargo.lock.
 bzip2 = "=0.5.2"
 tar = "=0.4.46"
-zip = { version = "=2.6.1", default-features = false, features = ["deflate"] }
+# zip 9.1 (critical GHSA-m665-v7pm-7grj and the other pre-9 advisories): reading
+# only needs DEFLATE through flate2's zlib-rs, which flate2 below already uses.
+zip = { version = "=9.1.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 # MLX engine pack: CPython archive (ADR-0025); the version already in Cargo.lock.
 flate2 = "=1.1.10"
 minijinja = { version = "3.0.1", features = ["serde", "json", "loop_controls", "preserve_order"] }
@@ -109,6 +114,13 @@ os-sync = { path = "engine/os-sync" }
 os-hub = { path = "engine/os-hub" }
 os-server = { path = "engine/os-server" }
 os-app = { path = "engine/os-app", default-features = false }
+
+# sherpa-onnx-sys 1.13.8 unchanged except its build script's zip, moved from
+# ^2 to the workspace's zip 9.1 so no zip older than 9.0.5 stays in Cargo.lock
+# (GHSA-m665-v7pm-7grj). Upstream made the same change in 2.0.0; drop this
+# patch when sherpa-onnx moves to 2.x (vendor/sherpa-onnx-sys/Cargo.toml).
+[patch.crates-io]
+sherpa-onnx-sys = { path = "vendor/sherpa-onnx-sys" }
 
 [profile.release]
 lto = "thin"
