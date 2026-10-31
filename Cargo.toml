@@ -96,7 +96,7 @@ http-body-util = "=0.1.5"
 # The hub's self-signed certificate (ECDSA P-256 with ring).
 rcgen = { version = "=0.14.10", default-features = false, features = ["crypto", "ring"] }
 # mDNS / DNS-SD: the hub advertises _openbark-hub._tcp, devices browse.
-mdns-sd = { version = "=0.21.5", default-features = false }
+mdns-sd = { version = "=0.21.6", default-features = false }
 # The hub computer's own addresses, for its join code (the version mdns-sd uses).
 if-addrs = "=0.15.0"
 # An IPv6-only listener beside the IPv4 one (the version tokio uses).
