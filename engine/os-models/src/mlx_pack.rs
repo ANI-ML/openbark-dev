@@ -522,9 +522,13 @@ fn unpack_python(archive: &Path, dest: &Path, root: &str) -> io::Result<()> {
 fn unpack_wheel(archive: &Path, base: &Path, site: &Path) -> io::Result<()> {
     let mut zip = zip::ZipArchive::new(fs::File::open(archive)?).map_err(io::Error::other)?;
     let wheel = archive.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    // Every local header must match its central directory entry, with no
+    // duplicate or overlapping entries, before anything is written: the name
+    // checked below is then the only name any zip reader would see.
+    zip.validate_header_consistency().map_err(|e| bad(format!("{wheel} is not a consistent zip: {e}")))?;
     for i in 0..zip.len() {
         let mut item = zip.by_index(i).map_err(io::Error::other)?;
-        let name = item.name().to_string();
+        let name = item.name().map_err(|e| bad(format!("unsafe path in {wheel}: {e}")))?.into_owned();
         let rel = safe_rel(&name).ok_or_else(|| bad(format!("unsafe path in {wheel}: {name}")))?;
         if item.enclosed_name().is_none() {
             return Err(bad(format!("unsafe path in {wheel}: {name}")));
@@ -1365,6 +1369,31 @@ mod tests {
         assert!(e.contains("unsafe path"), "{e}");
         let e = wheel_refused(&[("pkg/../../evil.py", b"x")]);
         assert!(e.contains("unsafe path"), "{e}");
+    }
+
+    /// Zip cloaking: the central directory says `ok/evil.py`, the local
+    /// header in front of the data says `../evil.py`. Refused before anything
+    /// is written, whichever name a reader would believe.
+    #[test]
+    fn wheel_whose_headers_disagree_is_refused() {
+        let fx = fixture();
+        good_python(&fx);
+        let path = fx.downloads.join("bad-1.0-py3-none-any.whl");
+        wheel(&path, &[("ok/evil.py", b"x")]);
+        let mut bytes = fs::read(&path).unwrap();
+        // The only entry's local header starts the file; its name follows
+        // the 30-byte fixed part.
+        assert_eq!(&bytes[..4], b"PK\x03\x04");
+        assert_eq!(&bytes[30..40], b"ok/evil.py");
+        bytes[30..40].copy_from_slice(b"../evil.py");
+        fs::write(&path, &bytes).unwrap();
+        let lock = test_lock(&fx.downloads, "py.tar.gz", &["bad-1.0-py3-none-any.whl"]);
+        let err =
+            unpack_with(&fx.downloads, &lock, "0123456789ab", &fx.engines, false, |_, _| {}).unwrap_err();
+        assert!(err.to_string().contains("not a consistent zip"), "{err}");
+        assert!(!fx.engines.join("mlx").join("0123456789ab").exists());
+        assert!(!fx.engines.join("mlx").join("0123456789ab.tmp").exists());
+        assert!(!fx.engines.join("evil.py").exists());
     }
 
     #[test]

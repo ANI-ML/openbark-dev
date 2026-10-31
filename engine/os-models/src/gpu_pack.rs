@@ -269,12 +269,22 @@ pub fn unpack(store: &ModelStore, mut progress: impl FnMut(usize, usize)) -> io:
             }
         } else {
             let mut zip = zip::ZipArchive::new(fs::File::open(&path)?).map_err(io::Error::other)?;
+            // Every local header must match its central directory entry (no
+            // duplicate or overlapping entries), so no reader could see a
+            // different file under the same entry.
+            zip.validate_header_consistency()
+                .map_err(|e| io::Error::other(format!("{} is not a consistent zip: {e}", archive.name)))?;
             for i in 0..zip.len() {
                 let mut item = zip.by_index(i).map_err(io::Error::other)?;
-                let name = Path::new(item.name())
-                    .file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_default();
+                // Only the last component is used, and only when it is one of
+                // the libraries listed above: nothing lands outside `dir`.
+                let name = item
+                    .name()
+                    .map_err(io::Error::other)?
+                    .rsplit(['/', '\\'])
+                    .next()
+                    .unwrap_or_default()
+                    .to_string();
                 if name.ends_with(".dll") && wanted(&name) {
                     put(&name, &mut item)?;
                 }
