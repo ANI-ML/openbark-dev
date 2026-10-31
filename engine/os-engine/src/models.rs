@@ -29,12 +29,17 @@ const WHISPER_LANGUAGES: &[&str] = &["en", "fr", "es", "de", "pt"];
 /// the app says otherwise.
 static SPEECH_LANGUAGE: std::sync::Mutex<Option<&str>> = std::sync::Mutex::new(Some("en"));
 
+/// One of [`WHISPER_LANGUAGES`] for a language code ("fr", "fr-CA"), or
+/// None for one it doesn't offer (and for "auto").
+fn whisper_language(code: &str) -> Option<&'static str> {
+    let c = code.split(['-', '_']).next().unwrap_or(code).to_ascii_lowercase();
+    WHISPER_LANGUAGES.iter().copied().find(|l| *l == c)
+}
+
 /// Set the language Whisper expects ("fr", or "fr-CA"); one it doesn't know
 /// (or None) leaves it to detect the language itself.
 pub fn set_speech_language(code: Option<&str>) {
-    let lang = code
-        .map(|c| c.split(['-', '_']).next().unwrap_or(c).to_ascii_lowercase())
-        .and_then(|c| WHISPER_LANGUAGES.iter().copied().find(|l| *l == c));
+    let lang = code.and_then(whisper_language);
     *SPEECH_LANGUAGE.lock().unwrap_or_else(|e| e.into_inner()) = lang;
 }
 
@@ -96,6 +101,17 @@ pub fn single_file(store: &ModelStore, id: &str) -> Result<String, EngineError> 
     }
 }
 
+/// [`asr_model`] told to expect `language` ("fr") when it takes one
+/// (Whisper). None, "auto" or a language it doesn't offer: it detects the
+/// language itself.
+pub fn asr_model_in(store: &ModelStore, id: &str, language: Option<&str>) -> Result<AsrModel, EngineError> {
+    let mut model = asr_model(store, id)?;
+    if let AsrModel::Whisper { language: lang, .. } = &mut model {
+        *lang = language.and_then(whisper_language).map(String::from);
+    }
+    Ok(model)
+}
+
 pub fn asr_model(store: &ModelStore, id: &str) -> Result<AsrModel, EngineError> {
     let catalog = Catalog::builtin();
     let m = installed(&catalog, store, id)?;
@@ -134,10 +150,14 @@ pub fn llm_path(store: &ModelStore, spec: &str) -> Result<PathBuf, EngineError> 
     }
 }
 
-/// Build the transcription pipeline from installed models.
+/// Build the transcription pipeline from installed models. `language`: the
+/// language the recogniser is told to expect, when it takes one
+/// ([`asr_model_in`]).
+#[allow(clippy::too_many_arguments)]
 pub fn transcriber(
     store: &ModelStore,
     stt: &str,
+    language: Option<&str>,
     diarize: bool,
     num_speakers: Option<u32>,
     cluster_threshold: Option<f32>,
@@ -149,7 +169,7 @@ pub fn transcriber(
         vad_options = vad_options.speakerphone();
     }
     let vad = os_asr::SileroVad::new(vad_options)?;
-    let asr = os_asr::OfflineAsr::new(asr_model(store, stt)?)?;
+    let asr = os_asr::OfflineAsr::new(asr_model_in(store, stt, language)?)?;
     let diarizer = if diarize {
         let mut options =
             os_diar::DiarOptions::new(single_file(store, SEGMENTATION)?, single_file(store, EMBEDDING)?);

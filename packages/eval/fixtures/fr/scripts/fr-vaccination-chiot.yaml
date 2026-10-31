@@ -1,0 +1,36 @@
+# Synthetic consult: written for OpenBark's test suite; not a real patient.
+# Standard French, voiced by synthetic French (France) voices. Not Quebec French.
+id: fr-vaccination-chiot
+title: Visite de vaccination d'un chiot
+species: canine
+category: fr
+speakers:
+  dvm: "piper:fr_FR-siwis-medium"
+  client: "piper:fr_FR-gilles-low"
+pause_secs: 0.6
+lines:
+  - [dvm, "Bonjour ! Voici donc Plume. Elle a quel âge maintenant ?"]
+  - [client, "Elle a douze semaines. On l'a depuis trois semaines. L'éleveur a fait le premier vaccin à huit semaines."]
+  - [dvm, "Parfait, j'ai son carnet. Elle mange bien ? Pas de vomissements, pas de diarrhée ?"]
+  - [client, "Elle mange très bien. Les selles sont normales."]
+  - [dvm, "Elle pèse six virgule quatre kilos. Température trente-huit virgule sept."]
+  - [dvm, "Je l'examine. Les yeux et les oreilles sont propres. Le cœur et les poumons sont normaux, pas de souffle. Le ventre est souple. Les dents de lait sont toutes là."]
+  - [dvm, "Aujourd'hui, on fait le rappel du vaccin contre la maladie de Carré, l'hépatite, la parvovirose et la toux de chenil, et la première injection contre la leptospirose."]
+  - [client, "Et la rage ?"]
+  - [dvm, "La rage, on la fera à la prochaine visite, dans quatre semaines, avec le rappel de la leptospirose."]
+  - [dvm, "Je lui donne aussi un vermifuge aujourd'hui, un comprimé de Milbemax. À refaire tous les mois jusqu'à six mois."]
+  - [client, "Et pour les puces et les tiques ?"]
+  - [dvm, "Je vous donne un comprimé à croquer de Bravecto. Il la protège pendant trois mois."]
+  - [dvm, "Elle a déjà une puce électronique. Je l'ai lue, et le numéro correspond au carnet."]
+  - [client, "Super. Est-ce qu'elle peut sortir en promenade maintenant ?"]
+  - [dvm, "Attendez une semaine après le vaccin d'aujourd'hui avant d'aller dans les parcs à chiens. Les petites promenades dans la rue, ça va."]
+
+expected:
+  vitals:
+    weight: "6.4"
+    temperature: "38.7"
+  medications:
+    - { drug: Milbemax }
+    - { drug: Bravecto, duration: "3" }
+  must_mention: [leptospirose, parvovirose, rage, "quatre semaines", "puce électronique"]
+  must_not_mention: ["rage administrée", "vaccin antirabique administré"]

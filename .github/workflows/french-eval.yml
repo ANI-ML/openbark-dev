@@ -1,0 +1,349 @@
+name: French eval
+
+# Transcription and notes in French (docs/eval/french.md). Six synthetic
+# consults in standard French, one of them mixing French and English, are
+# rendered on the runner with Piper's French voices (and Kokoro's English
+# voices for the English lines), then:
+#   asr    each recogniser transcribes them alone (`openbark transcribe`, two
+#          threads, one after another on one runner, so the speeds compare):
+#          WER, the share of words in the wrong language and the real-time
+#          factor; six English fixtures run the same way as a regression check
+#   notes  each transcript is drafted as the app would with a French
+#          interface: the default template (SOAP), notes written in French,
+#          the second listen told to expect French; facts found, invented
+#          numbers and failed drafts, with the script itself as a control
+# Synthetic standard French only: nothing here is a result for Quebec French
+# or for any real clinic's speech.
+#
+# Linux CPU runners; Gemma 4 E4B drafts on the CPU. Runs by hand, or on a push
+# whose head commit message contains [fr-eval]. Hours of Linux minutes: never
+# on every push. Never in the public copy.
+
+on:
+  workflow_dispatch:
+  push:
+    branches-ignore: [main]
+
+permissions:
+  contents: read
+
+# A newer push waits for the running eval instead of cancelling it, so every
+# finished run leaves numbers.
+concurrency:
+  group: french-eval-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  NOTE_SHARDS: 3
+
+jobs:
+  plan:
+    name: Plan
+    if: >-
+      github.repository == 'ANI-ML/openbark-dev' &&
+      (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[fr-eval]'))
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - id: plan
+        run: |
+          python3 - <<'EOF' >> "$GITHUB_OUTPUT"
+          import json, os
+          shards = int(os.environ["NOTE_SHARDS"])
+          # Where each arm's transcript comes from: the script itself, or a
+          # recogniser through the app's recording pipeline ("" is the app's).
+          arms = [
+              {"arm": "reference", "stt": "", "from_ref": True},
+              {"arm": "parakeet", "stt": "", "from_ref": False},
+              {"arm": "whisper-fr", "stt": "whisper-large-v3-turbo-int8", "from_ref": False},
+          ]
+          include = [dict(a, shard=k, of=shards) for a in arms for k in range(1, shards + 1)]
+          print("matrix=" + json.dumps({"include": include}))
+          EOF
+
+  quick:
+    name: Format, lint and tests (fast feedback)
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Scorer self-test
+        run: python3 -I packages/eval/score_language.py --self-test
+      - name: System packages (Tauri webview, libclang)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libclang-dev cmake libasound2-dev
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-linux/${{ github.repository }}/${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-linux/${{ github.repository }}/
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test -p os-engine -p os-cli -p fixture-tts
+
+  build:
+    name: Build
+    needs: plan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: System packages (libclang, ALSA)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev cmake libasound2-dev
+      # Restored from the main CI's cache, never saved: this workflow adds
+      # no cache of its own beside it.
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-linux/${{ github.repository }}/${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-linux/${{ github.repository }}/
+      - run: cargo build --release -p os-cli -p fixture-tts
+      # The binaries and the shared libraries they load from target/
+      # (sherpa-onnx's C API and ONNX Runtime), so later jobs run them
+      # without building.
+      - name: Package the binaries with their libraries
+        run: |
+          mkdir -p target/french-eval-bin
+          cp target/release/openbark target/release/fixture-tts target/french-eval-bin/
+          for b in openbark fixture-tts; do
+            ldd "target/release/$b" | awk '/=>/ {print $3}' | grep "^$PWD/target" | xargs -r -I{} cp -L {} target/french-eval-bin/
+          done
+          LD_LIBRARY_PATH=target/french-eval-bin ldd target/french-eval-bin/openbark | grep -i "not found" && exit 1 || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: french-eval-bin
+          path: target/french-eval-bin
+          retention-days: 3
+
+  render:
+    name: Render the consults (Piper and Kokoro)
+    needs: build
+    runs-on: ubuntu-24.04
+    env:
+      LD_LIBRARY_PATH: ${{ github.workspace }}/target/bin
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: french-eval-bin
+          path: target/bin
+      # Pinned by SHA-256 (the release's own digests; docs/eval/french.md
+      # lists the voices and their licences, docs/network.md B11).
+      - name: Voices
+        run: |
+          mkdir -p ~/voices ~/kokoro
+          fetch() {
+            curl -fsSL -o "$RUNNER_TEMP/voice.tar.bz2" "$1"
+            echo "$2  $RUNNER_TEMP/voice.tar.bz2" | sha256sum -c -
+            tar -xjf "$RUNNER_TEMP/voice.tar.bz2" -C "$3"
+          }
+          base=https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models
+          fetch $base/vits-piper-fr_FR-siwis-medium.tar.bz2 375909aa30842b3a4efa10b1beb1d761af792960ae6873b4d53889f96c66195b ~/voices
+          fetch $base/vits-piper-fr_FR-gilles-low.tar.bz2 9f4fdd2650f52638e5d890d330b4ee3a30fc6bb91d6ae6f37e639d0f474bc521 ~/voices
+          fetch $base/vits-piper-fr_FR-upmc-medium.tar.bz2 e9830a331a16f6cc5ef3116a287065e015d3495c3f56b974889a266da7f89a7f ~/voices
+          fetch $base/kokoro-int8-en-v0_19.tar.bz2 c9f0dd393615805b0bab050c340834d5e684e732aec91c0e860cd30e982c08bd ~/kokoro
+          ls ~/voices
+      - name: Render
+        run: |
+          chmod +x target/bin/*
+          for set in fr en; do
+            mkdir -p "target/sets/$set/scripts" "target/sets/$set/audio"
+          done
+          cp packages/eval/fixtures/fr/scripts/*.yaml target/sets/fr/scripts/
+          # English fixtures, as a regression check of each recogniser.
+          for s in canine-wellness dermatology emergency feline-vomiting oncology surgery; do
+            cp "packages/eval/fixtures/scripts/$s.yaml" target/sets/en/scripts/
+          done
+          target/bin/fixture-tts --piper ~/voices --kokoro ~/kokoro/kokoro-int8-en-v0_19 --out target/sets/fr/audio \
+            --speed 0.9 target/sets/fr/scripts/*.yaml
+          target/bin/fixture-tts --kokoro ~/kokoro/kokoro-int8-en-v0_19 --out target/sets/en/audio \
+            --speed 0.9 target/sets/en/scripts/*.yaml
+          ls -la target/sets/*/audio
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          # Synthetic consults only: no patient data exists on CI.
+          name: french-eval-sets
+          path: target/sets
+          retention-days: 7
+
+  asr:
+    name: Recognisers alone, two threads, one runner
+    needs: render
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    env:
+      OPENBARK_DATA_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      OPENBARK_MODELS_DIR: /home/runner/models
+      OPENBARK_ASR_THREADS: "2"
+      OPENBARK_LOG: warn
+      LD_LIBRARY_PATH: ${{ github.workspace }}/target/bin
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: french-eval-bin
+          path: target/bin
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: french-eval-sets
+          path: target/sets
+      - name: Restore models
+        id: models
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: /home/runner/models
+          key: models-${{ hashFiles('engine/os-models/catalog.json') }}-french-asr
+      - name: Download models
+        if: steps.models.outputs.cache-hit != 'true'
+        run: |
+          chmod +x target/bin/*
+          for id in silero-vad parakeet-tdt-0.6b-v3-int8 whisper-large-v3-turbo-int8; do
+            target/bin/openbark models pull "$id"
+          done
+      - name: Transcribe
+        run: |
+          chmod +x target/bin/*
+          nproc
+          bash scripts/ci/french-eval.sh asr target/bin/openbark target/sets target/asr
+      - name: Score
+        if: always()
+        run: |
+          python3 -I packages/eval/score_language.py --lang fr --refs target/sets/fr/audio \
+            --lexicon en=packages/eval/fixtures/audio --baseline parakeet \
+            parakeet=target/asr/fr/parakeet whisper-fr=target/asr/fr/whisper-fr \
+            --json target/asr/fr.json | tee target/asr/fr.md
+          python3 -I packages/eval/score_language.py --lang en --refs target/sets/en/audio \
+            --lexicon en=packages/eval/fixtures/audio --lexicon fr=target/sets/fr/audio --baseline parakeet \
+            parakeet=target/asr/en/parakeet whisper-en=target/asr/en/whisper-en \
+            --json target/asr/en.json | tee target/asr/en.md
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: french-eval-asr
+          path: target/asr
+          retention-days: 30
+
+  notes:
+    name: Notes from ${{ matrix.arm }} (${{ matrix.shard }}/${{ matrix.of }})
+    needs: [plan, render]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      OPENBARK_DATA_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      OPENBARK_MODELS_DIR: /home/runner/models
+      OPENBARK_SESSIONS_DIR: ${{ github.workspace }}/target/french-eval/sessions
+      OPENBARK_VOCAB: ${{ github.workspace }}/target/french-eval/no-clinic-vocab.tsv
+      OPENBARK_LOG: warn
+      LD_LIBRARY_PATH: ${{ github.workspace }}/target/bin
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: french-eval-bin
+          path: target/bin
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: french-eval-sets
+          path: target/sets
+      - name: Restore models
+        id: models
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: /home/runner/models
+          key: models-${{ hashFiles('engine/os-models/catalog.json') }}-french-notes
+      - name: Download models
+        if: steps.models.outputs.cache-hit != 'true'
+        run: |
+          chmod +x target/bin/*
+          for id in silero-vad parakeet-tdt-0.6b-v3-int8 pyannote-segmentation-3.0 wespeaker-en-resnet34-lm whisper-large-v3-turbo-int8 gemma-4-e4b-it-q4_0; do
+            target/bin/openbark models pull "$id"
+          done
+      - name: openbark eval
+        run: |
+          chmod +x target/bin/*
+          out="target/french-eval/out/${{ matrix.arm }}-${{ matrix.shard }}"
+          mkdir -p "$out"
+          printf '{"arm": "%s", "shard": %s}\n' "${{ matrix.arm }}" "${{ matrix.shard }}" > "$out/meta.json"
+          echo "OUT=$out" >> "$GITHUB_ENV"
+          # As the app with a French interface: notes in French, the second
+          # listen told to expect French, the default template.
+          args=(--dir target/sets/fr --shard "${{ matrix.shard }}/${{ matrix.of }}" --llm gemma-4-e4b-it-q4_0
+            --gpu-layers 0 --template soap --note-language fr --spoken-language fr --json "$out/report.json")
+          if [ "${{ matrix.from_ref }}" = true ]; then args+=(--from-ref); fi
+          if [ -n "${{ matrix.stt }}" ]; then args+=(--stt "${{ matrix.stt }}"); fi
+          set +e
+          target/bin/openbark eval "${args[@]}" > "$out/eval.log" 2> "$out/stderr.log"
+          code=$?
+          set -e
+          echo "$code" > "$out/status.txt"
+          cat "$out/eval.log"
+          tail -20 "$out/stderr.log"
+          cp -r target/eval-cache "$out/transcripts" 2>/dev/null || true
+          cp -r target/eval "$out/notes" 2>/dev/null || true
+          exit "$code"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: french-eval-notes-${{ matrix.arm }}-${{ matrix.shard }}
+          path: ${{ env.OUT }}
+          retention-days: 30
+
+  summary:
+    name: Summary
+    needs: [asr, notes]
+    if: always() && needs.notes.result != 'skipped'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: french-eval-notes-*
+          path: target/fr/notes
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        continue-on-error: true
+        with:
+          name: french-eval-asr
+          path: target/fr/asr
+      - name: Tables
+        run: |
+          python3 -I scripts/ci/french-eval-summary.py target/fr/notes --json target/fr/notes.json > target/fr/notes.md
+          {
+            echo "## French eval (synthetic standard French)"
+            echo
+            echo "Synthetic consults in standard French voiced by synthetic French (France) voices. Not Quebec French, and not real clinic recordings."
+            echo
+            echo "### Recognisers"
+            echo
+            cat target/fr/asr/fr.md 2>/dev/null || echo "(no recogniser results)"
+            echo
+            echo "### Recognisers on English fixtures (regression check)"
+            echo
+            cat target/fr/asr/en.md 2>/dev/null || echo "(no recogniser results)"
+            echo
+            echo "### Notes drafted in French"
+            echo
+            cat target/fr/notes.md
+          } > target/fr/summary.md
+          cat target/fr/summary.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: french-eval-summary
+          path: |
+            target/fr/summary.md
+            target/fr/notes.json
+            target/fr/asr/*.json
+          retention-days: 90

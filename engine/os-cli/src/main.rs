@@ -146,6 +146,10 @@ pub struct TranscribeArgs {
     /// A client on a phone on speaker in the room: pick up the quieter voice.
     #[arg(long)]
     pub speakerphone: bool,
+    /// The language spoken ("fr"), for a recogniser that can be told it
+    /// (Whisper). Default, or "auto": it detects the language itself.
+    #[arg(long)]
+    pub language: Option<String>,
 }
 
 #[derive(clap::Args, Clone)]
@@ -340,6 +344,7 @@ pub(crate) fn build_transcriber(
     Ok(os_engine::models::transcriber(
         store,
         &args.stt,
+        args.language.as_deref(),
         args.diarize,
         args.speakers,
         args.diar_threshold,

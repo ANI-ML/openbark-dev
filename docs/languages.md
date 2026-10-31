@@ -11,7 +11,8 @@ OpenBark separates three languages:
 Notes:
 - **Note language.** The model is told to write every statement in the chosen language, whatever language the consultation was in, and to keep drug names, doses, units and numbers exactly as said. Headings come from the template, so a team writing in French should name its template headings in French.
 - **PDFs** use the note language for their own words (Patient, Signed by, Not discussed, Page 1 of 2).
-- **Number checks** compare the note's numbers with the transcript. Spoken numbers ("thirty-nine point two") are normalised in English only, so in other languages a number said in words can be flagged for checking even when it's right. Vocabulary hints are English-only too.
+- **Number checks** compare the note's numbers with the transcript. Spoken numbers are read in English ("thirty-nine point two") and French ("trente-neuf virgule deux", and the decimal comma, "39,2"); in other languages a number said in words can be flagged for checking even when it's right. Vocabulary hints are English-only.
+- **French** has its own eval on synthetic standard French consults (`docs/eval/french.md`): transcription accuracy, words heard in the wrong language, and facts found in French notes. It says nothing about Quebec French or real clinic speech.
 - **App translations** were generated, and need review by native-speaking veterinary staff before release. They're keyed by the English text. A string without a translation shows in English. The newest, for deleting visits and recordings (ADR-0022, 2026-10-18), haven't been reviewed by anyone yet. Nor have those for MLX, gated models, adding models from this computer and removing models (ADR-0025, 2026-10-19). Nor have those for the redesigned screens (ADR-0027, 2026-10-24).
 
 ## Updating translations

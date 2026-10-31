@@ -1566,8 +1566,9 @@ impl App {
         } else {
             os_engine::models::DEFAULT_STT
         };
-        let transcriber = os_engine::models::transcriber(&self.store, stt, false, None, None, None, false)
-            .map_err(|e| AppError(e.to_string()))?;
+        let transcriber =
+            os_engine::models::transcriber(&self.store, stt, None, false, None, None, None, false)
+                .map_err(|e| AppError(e.to_string()))?;
         let audio = os_asr::Audio::load(wav).map_err(|e| AppError(e.to_string()))?;
         let (transcript, _) = transcriber.run(&audio, &mut |_| {}).map_err(|e| AppError(e.to_string()))?;
         Ok(transcript)
