@@ -116,6 +116,7 @@ Open **Templates**, then **New template** or **Start from SOAP**.
   - **Subheadings:** each of these holds one of the kinds above.
 - **Icon** and **Level of detail** (for the whole template). The icon marks the visit type on Record and in lists. Level of detail is concise (the fewest words that keep every fact), standard, or thorough (every relevant detail that was said); it never allows anything that wasn't said.
 - **Instructions** (optional, per heading): plain language, for example "Injections and fluids given during the visit." The model follows them only where the recording supports them. Under each instruction, **Examples** offers instructions suited to that heading (Triadan numbers under a dental heading, lameness grade by limb under a lameness heading); choosing one adds it to the instruction.
+- **Normal findings** (optional, bullet-point headings of a medical record): one "System: finding" per line, used only for a system nothing was said about, confirmed or removed by a veterinarian before signing. See [Normal findings](#normal-findings-adr-0032).
 - **Examples by kind of practice** (under the whole-note rules): emergency, feline-only, equine ambulatory, exotics, farm, shelter and referral. Choosing one adds it as a rule.
 - **Instructions and rules for the whole note** (optional, under the disclosure). Every template also follows OpenBark's core rules: only what was said, numbers exactly as stated, every line linked to the transcript. You can't remove these.
 
@@ -142,6 +143,24 @@ A heading of kind `teeth` holds a tooth chart (ADR-0021). The built-in **Dental 
 - **The prompt.** A template with a chart adds the chart rules (they can't be removed), one tooth example and a table of what each finding takes, and each transcript line that names teeth gets a prompt-only hint with their Triadan numbers (`[teeth: 301, 302, 303, 401, 402, 403]`), read by the same tooth reader the check uses. The drafting budget is 8192 tokens. Templates without a chart are unchanged.
 - **Editing.** Click a tooth in Review (see the guide, [The dental chart](guide/review.md#the-dental-chart)). Hand edits must fit the finding table ("Mobility takes a grade from 0 to 3"), the kind of tooth (a persistent deciduous tooth is a 500-800 tooth) and the animal's teeth; they become the vet's own entries. A hand-charted full mouth has no item limit.
 - Tooth names are read in English; other languages follow, with review by native-speaking vets.
+
+## Normal findings (ADR-0032)
+
+A heading of bullet points in a medical-record template can list normal findings by system, kept apart from its instruction:
+
+```yaml
+  - title: Examen physique
+    kind: statements
+    instruction: List the findings the veterinarian states, by system.
+    defaults:
+      - { label: Yeux, text: "Normal, aucun écoulement" }
+      - { label: Cœur, text: "Rythme régulier, pas de souffle" }
+```
+
+- The text is never sent to the model. The prompt names the systems ("Systems to report on, only if they were discussed: Yeux, Cœur"), and the drafting grammar has the model tag each statement under the heading with its system. The rule "never write normal unless that was said" is unchanged.
+- After drafting, OpenBark adds a system's line only when no statement is tagged with it, nothing in the note mentions it, and it wasn't named in the recording. A finding replaces its default and is never merged into it.
+- The lines are saved beside the note (`template_defaults` in `note.json`), not in it, so older versions, the checks after drafting, the eval, Copy, the PDF and client documents never take them for findings. Review shows them marked "Template default, not from the recording", with Confirm, Edit and Remove; a confirmed line becomes the veterinarian's own line in the note. The engine refuses to sign while any is waiting.
+- An instruction that looks like a filled-in exam ("-Yeux : Normal… -T: P: R:"), in any language, gets a warning; under a heading of bullet points, **Move these lines into Normal findings** moves the lines here. `openbark templates check` shows the same warning.
 
 ## A template from an example note
 
