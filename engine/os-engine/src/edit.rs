@@ -36,6 +36,13 @@ pub struct Edit {
     pub removed: usize,
     /// The heading's content before the edit.
     pub before: Value,
+    /// Normal findings from the template the vet confirmed here, by system
+    /// (ADR-0032): they are in the heading now, as the vet's own lines.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub defaults_confirmed: Vec<String>,
+    /// Normal findings from the template the vet removed here, by system.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub defaults_removed: Vec<String>,
 }
 
 /// The template's schema, loosened for hand-written items: evidence may be
@@ -241,7 +248,10 @@ pub fn apply_edit(
             changed,
             removed,
             before,
+            defaults_confirmed: Vec::new(),
+            defaults_removed: Vec::new(),
         }),
+        template_defaults: Vec::new(),
         markdown,
     })
 }

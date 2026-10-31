@@ -807,6 +807,9 @@ pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
                 format!("target/eval/{}.note.json", script.id),
                 serde_json::to_string_pretty(&result.note)?,
             )?;
+            // Only the note is scored: normal findings from the template sit
+            // beside it (`template_defaults`, ADR-0032), so they never count
+            // as facts found or as supported.
             let mut s = score(&script.id, &script.expected, &result.note, &result.faithfulness);
             s.note_secs = result.stats.total_ms as f64 / 1000.0;
             s.completion_tokens = result.stats.completion_tokens;

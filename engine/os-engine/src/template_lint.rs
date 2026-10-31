@@ -2,10 +2,13 @@
 //! heading instructions that ask for something the rules that always apply
 //! forbid. They warn and never block: the rules come first in every prompt,
 //! and the checks after drafting are the real guard.
+//!
+//! One more warning reads the shape of the text, in any language: a filled-in
+//! exam pasted into an instruction ("Eyes: Normal", "T: P: R:", ADR-0032).
 
 use serde::Serialize;
 
-use crate::template::Template;
+use crate::template::{DefaultLine, Template};
 
 /// Why a phrase conflicts with the rules that always apply.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -23,6 +26,10 @@ pub enum LintReason {
     Inventing,
     /// Drops the evidence links ("skip citations").
     Evidence,
+    /// A filled-in exam or form ("Eyes: Normal", "T: P: R:"): instructions
+    /// are told to the model, so findings pasted there can end up in the note
+    /// as if they were said (ADR-0032).
+    PastedFindings,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -32,6 +39,14 @@ pub struct LintWarning {
     /// The words that conflict, as written.
     pub text: String,
     pub reason: LintReason,
+    /// Pasted findings: the lines read as normal findings by system, for
+    /// "Move these lines into Normal findings" (blank ones such as "T:" are
+    /// left out).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub lines: Vec<DefaultLine>,
+    /// Pasted findings: the instruction without those lines.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rest: Option<String>,
 }
 
 /// Words that, just before a trigger, turn it around ("never guess").
@@ -185,13 +200,101 @@ fn check(text: &str) -> Vec<(String, LintReason)> {
     out
 }
 
+/// First words of a value that read as a filled-in normal or a negative, in
+/// the languages OpenBark offers ("Normal", "aucun", "WNL", "sin", "keine").
+const NORMAL_WORDS: &[&str] = &[
+    "normal",
+    "normale",
+    "normales",
+    "normaux",
+    "normais",
+    "normali",
+    "normaal",
+    "nl",
+    "wnl",
+    "nad",
+    "ras",
+    "aucun",
+    "aucune",
+    "absent",
+    "absente",
+    "absents",
+    "absentes",
+    "absence",
+    "ausente",
+    "ausentes",
+    "sans",
+    "sin",
+    "sem",
+    "keine",
+    "kein",
+    "unauffällig",
+    "none",
+    "no",
+    "nil",
+    "neg",
+    "negative",
+    "négatif",
+    "négative",
+    "negativo",
+    "negativa",
+    "rien",
+    "nada",
+    "ninguno",
+    "ninguna",
+    "nenhum",
+    "nenhuma",
+    "clear",
+    "clean",
+    "propre",
+    "propres",
+    "ok",
+];
+
+/// Does a pasted value read as a filled-in normal, or as a blank to fill in?
+fn normal_or_blank(value: &str) -> bool {
+    if crate::blanks::is_blank(value) {
+        return true;
+    }
+    let lower = value.trim().to_lowercase();
+    let first = lower.split(|c: char| !c.is_alphanumeric()).find(|w| !w.is_empty()).unwrap_or_default();
+    NORMAL_WORDS.contains(&first) || lower.contains("normal")
+}
+
+/// A filled-in exam or form in an instruction: three or more "Label: value"
+/// lines or segments, at least two of them normal or blank, or five or more
+/// of any kind. Returns the lines as normal findings (blank ones left out,
+/// each system once) and the instruction without them.
+pub fn pasted_findings(text: &str) -> Option<(Vec<DefaultLine>, String)> {
+    let read = crate::blanks::label_values(text);
+    let pieces = read.pieces.len();
+    let filled = read.pieces.iter().filter(|p| normal_or_blank(&p.value)).count();
+    let looks_filled = (pieces >= 3 && filled >= 2) || pieces >= 5;
+    if !looks_filled {
+        return None;
+    }
+    let mut lines: Vec<DefaultLine> = Vec::new();
+    for p in read.pieces.iter().filter(|p| !crate::blanks::is_blank(&p.value)) {
+        if !lines.iter().any(|l| l.label.to_lowercase() == p.label.to_lowercase()) {
+            lines.push(DefaultLine { label: p.label.clone(), text: p.value.clone() });
+        }
+    }
+    Some((lines, read.other.join("\n")))
+}
+
 /// Every warning for a template: its instructions, its own rules, and each
 /// heading's instruction. Fixed rules aren't checked (they only restrict).
 pub fn lint_template(t: &Template) -> Vec<LintWarning> {
     let mut out = Vec::new();
     let mut add = |path: String, text: &str| {
         for (phrase, reason) in check(text) {
-            out.push(LintWarning { path: path.clone(), text: phrase, reason });
+            out.push(LintWarning { path: path.clone(), text: phrase, reason, lines: Vec::new(), rest: None });
+        }
+        if let Some((lines, rest)) = pasted_findings(text) {
+            let first = crate::blanks::label_values(text).pieces.into_iter().next();
+            let shown = first.map(|p| format!("{}: {}", p.label, p.value)).unwrap_or_default();
+            let reason = LintReason::PastedFindings;
+            out.push(LintWarning { path, text: shown.trim().to_string(), reason, lines, rest: Some(rest) });
         }
     };
     add("instructions".into(), &t.instructions);
@@ -267,6 +370,70 @@ mod tests {
             checked += 1 + t.rules.len() + t.sections.iter().filter(|s| s.instruction.is_some()).count();
         }
         assert!(checked >= 10);
+    }
+
+    /// The clinic's pasted exam (0.2.4 report), on one line as pasted and
+    /// one system per line.
+    const CLINIC: &str = "-Yeux : Normal, aucun écoulement -Oreilles : Normales, propres -Nez : Normal -Muqueuses : Roses, TRC < 2 s -Cœur : Normal, pas de souffle -Poumons : Normaux -Abdomen : Souple, non douloureux -Ganglions : Normaux -Tartre : -T: P: R: …";
+
+    #[test]
+    fn a_pasted_exam_is_found_in_any_language() {
+        let lined = CLINIC.replace(" -", "\n-");
+        for text in [CLINIC, lined.as_str()] {
+            let (lines, rest) = pasted_findings(text).unwrap_or_else(|| panic!("{text}"));
+            let labels: Vec<&str> = lines.iter().map(|l| l.label.as_str()).collect();
+            assert_eq!(
+                labels,
+                ["Yeux", "Oreilles", "Nez", "Muqueuses", "Cœur", "Poumons", "Abdomen", "Ganglions"]
+            );
+            assert_eq!(lines[0].text, "Normal, aucun écoulement");
+            assert_eq!(lines[3].text, "Roses, TRC < 2 s");
+            assert!(rest.is_empty(), "{rest:?}");
+        }
+        let english = "Eyes: Normal, no discharge\nEars: Clean\nHeart: WNL, no murmur\nLungs: Clear\nTartar:\nT: P: R:";
+        let (lines, _) = pasted_findings(english).unwrap();
+        assert_eq!(
+            lines.iter().map(|l| l.label.as_str()).collect::<Vec<_>>(),
+            ["Eyes", "Ears", "Heart", "Lungs"]
+        );
+        let spanish = "-Ojos: normales, sin secreción -Oídos: limpios -Corazón: sin soplos -Pulmones: normales -Sarro: -T: FC: FR:";
+        let (lines, _) = pasted_findings(spanish).unwrap();
+        assert_eq!(lines.len(), 4);
+        assert_eq!(lines[2].text, "sin soplos");
+        let german = "Augen: unauffällig\nOhren: keine Auffälligkeiten\nHerz: o.B.";
+        assert!(pasted_findings(german).is_some());
+    }
+
+    #[test]
+    fn ordinary_instructions_are_not_pasted_findings() {
+        for text in [
+            "List the reason for the visit and the history",
+            "Liste de la raison de consultation et de l'historique du patient",
+            "Format: one line per problem, most important first.",
+            "Keep it brief: the owner should be able to read it in a minute.",
+            "Findings about the whole mouth as said: overall periodontal stage, calculus, gingivitis.",
+            "List the findings the veterinarian states, by system.",
+        ] {
+            assert!(pasted_findings(text).is_none(), "{text}");
+        }
+    }
+
+    #[test]
+    fn a_pasted_exam_warns_with_the_lines_to_move() {
+        let mut t = LoadedTemplate::builtin("soap").unwrap().template;
+        let intro = "Examen par système.";
+        t.sections[1].parts[0].instruction = Some(format!("{intro}\n{}", CLINIC.replace(" -", "\n-")));
+        let w = lint_template(&t);
+        assert_eq!(w.len(), 1, "{w:?}");
+        assert_eq!(w[0].reason, LintReason::PastedFindings);
+        assert_eq!(w[0].path, format!("headings/{}/{}", t.sections[1].id, t.sections[1].parts[0].key));
+        assert_eq!(w[0].text, "Yeux: Normal, aucun écoulement");
+        assert_eq!(w[0].lines.len(), 8);
+        assert_eq!(w[0].rest.as_deref(), Some(intro));
+        // The words of the warning reach the app as data, not prose.
+        let json = serde_json::to_value(&w[0]).unwrap();
+        assert_eq!(json["reason"], "pasted_findings");
+        assert_eq!(json["lines"][0]["label"], "Yeux");
     }
 
     #[test]

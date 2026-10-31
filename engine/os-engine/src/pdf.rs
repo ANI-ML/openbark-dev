@@ -16,7 +16,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::dental::{self, Dentition, Glyph, LegendLine, PathCmd};
-use crate::render::field_text;
+use crate::render::{field_text, medication_details, shown_items, shown_medications};
 use crate::template::{FieldDef, LoadedTemplate, PartKind};
 
 /// Clinic details printed as the letterhead.
@@ -503,35 +503,35 @@ impl Layout {
 
 const BODY: f32 = 10.5;
 
+/// Statements, "null" left out ([`crate::render::shown_items`]).
 fn statements(l: &mut Layout, value: &Value, indent: f32) {
-    let items = value.as_array().map(Vec::as_slice).unwrap_or_default();
+    let items = shown_items(value);
     if items.is_empty() {
         l.text(l.labels.not_discussed, Font::Italic, BODY, 0.4, indent, None);
     }
-    for item in items {
-        l.text(item["text"].as_str().unwrap_or_default(), Font::Regular, BODY, 0.0, indent, Some("•"));
+    for (_, _, text) in items {
+        l.text(&text, Font::Regular, BODY, 0.0, indent, Some("•"));
     }
 }
 
 /// A text box: its sentences as one paragraph.
 fn paragraph(l: &mut Layout, value: &Value, indent: f32) {
-    let items = value.as_array().map(Vec::as_slice).unwrap_or_default();
+    let items = shown_items(value);
     if items.is_empty() {
         l.text(l.labels.not_discussed, Font::Italic, BODY, 0.4, indent, None);
         return;
     }
-    let text: Vec<&str> = items.iter().filter_map(|i| i["text"].as_str()).collect();
+    let text: Vec<String> = items.into_iter().map(|(_, _, text)| text).collect();
     l.text(&text.join(" "), Font::Regular, BODY, 0.0, indent, None);
 }
 
 fn medications(l: &mut Layout, value: &Value, indent: f32) {
-    let items = value.as_array().map(Vec::as_slice).unwrap_or_default();
+    let items = shown_medications(value);
     if items.is_empty() {
         l.text(l.labels.not_discussed, Font::Italic, BODY, 0.4, indent, None);
     }
-    for med in items {
-        let details: Vec<&str> =
-            ["dose", "route", "frequency", "duration"].iter().filter_map(|k| med[*k].as_str()).collect();
+    for (_, med) in items {
+        let details = medication_details(med);
         let text = if details.is_empty() {
             format!("{} {}", med["drug"].as_str().unwrap_or("?"), l.labels.not_stated)
         } else {
