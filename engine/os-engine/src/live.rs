@@ -219,7 +219,7 @@ pub struct SpeechModels {
     /// one (Whisper, Canary); None for one that takes none (Parakeet).
     language: Option<Option<&'static str>>,
     /// The spoken language set when they were loaded, which can choose the
-    /// main recogniser (ADR-0032).
+    /// main recogniser (ADR-0033).
     spoken: Option<&'static str>,
     speaker_threshold: f32,
     /// The voice detector was built for Phone on speaker (ADR-0026).
@@ -248,7 +248,7 @@ impl SpeechModels {
         }
         let vad = os_asr::SileroVad::new(vad_options)?;
         // The spoken language's own recogniser, when one passed the bar
-        // (ADR-0032), told the language when it takes one; Parakeet takes none.
+        // (ADR-0033), told the language when it takes one; Parakeet takes none.
         let main = models::main_stt(store, &options.stt);
         let model = models::with_speech_language(models::asr_model(store, &models::best_stt(store, &main))?);
         let takes_language =

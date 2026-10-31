@@ -2013,7 +2013,7 @@ struct SpokenLanguageBody {
     language: Option<String>,
 }
 
-/// Settings, Recording, Spoken language ("fr"); null is Auto (ADR-0032).
+/// Settings, Recording, Spoken language ("fr"); null is Auto (ADR-0033).
 async fn set_spoken_language(Json(req): Json<SpokenLanguageBody>) -> StatusCode {
     os_engine::models::set_spoken_language(req.language.as_deref());
     StatusCode::NO_CONTENT

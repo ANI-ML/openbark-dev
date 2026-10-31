@@ -342,7 +342,7 @@ const CUE_WORDS: &[&str] = &[
     "sedative",
     "painkiller",
     // French, with and without accents: doses, forms, prescribing
-    // (ADR-0032). None of these is an English word outside medication.
+    // (ADR-0033). None of these is an English word outside medication.
     "milligramme",
     "milligrammes",
     "comprimé",

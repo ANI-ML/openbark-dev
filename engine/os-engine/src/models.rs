@@ -20,9 +20,10 @@ pub const EMBEDDING: &str = "wespeaker-en-resnet34-lm";
 pub const GPU_STT: &str = "parakeet-tdt-0.6b-v3-fp32";
 pub const GPU_SECOND_STT: &str = "whisper-large-v3-turbo-fp32";
 
-/// NVIDIA Canary 180M Flash (int8): an optional recogniser that is told the
-/// language spoken (English, French, Spanish or German) and can't detect one
-/// itself (ADR-0032).
+/// NVIDIA Canary 180M Flash (int8), told the language spoken (English,
+/// French, Spanish or German); it can't detect one itself. In the catalogue
+/// so the French eval can measure it; it failed the bar, so the app never
+/// lists or downloads it ([`offered`], ADR-0033).
 pub const CANARY_STT: &str = "canary-180m-flash-int8";
 
 /// Languages Whisper can be told to expect, among the app's. These are also
@@ -34,7 +35,8 @@ const CANARY_LANGUAGES: &[&str] = &["en", "fr", "es", "de"];
 
 /// The main recogniser for a spoken language, for each language where a
 /// candidate passed the bar set in docs/eval/french.md before the results
-/// (ADR-0032). Every other language, and Auto, keep Parakeet.
+/// (ADR-0033). Every other language, and Auto, keep Parakeet. Empty: in the
+/// run of 2026-10-31 neither Canary nor Whisper passed, for French or English.
 pub const LOCKED_MAIN: &[(&str, &str)] = &[];
 
 /// The app's language. Left to itself Whisper guesses the language per
@@ -290,7 +292,7 @@ pub fn required_status_with(
     } else {
         vec![VAD, DEFAULT_STT, SEGMENTATION, EMBEDDING, llm]
     };
-    // A spoken language with its own recogniser (ADR-0032): downloaded only
+    // A spoken language with its own recogniser (ADR-0033): downloaded only
     // when the setting needs it, never on a phone.
     if !profile.is_mobile()
         && let Some(id) = locked_main(spoken_language())
@@ -328,7 +330,7 @@ mod tests {
         set_speech_language(Some("en"));
 
         // Settings, Spoken language overrides the app's language, for Whisper
-        // and Canary alike; Auto goes back to the app's (ADR-0032).
+        // and Canary alike; Auto goes back to the app's (ADR-0033).
         let canary = || AsrModel::Canary {
             encoder: "e".into(),
             decoder: "d".into(),

@@ -69,61 +69,110 @@ The bar is per language: French is judged on the French fixtures, English on the
 
 ## Results
 
-**Synthetic standard French, not Quebec French and not real clinics.** These numbers come from run 41248209807 of `.github/workflows/french-eval.yml` (2026-10-31), on a GitHub Linux runner. That run compared Parakeet with Whisper. Canary 180M Flash and the ship decision are in ADR-0033 and the next version of this page. Runs vary: a second run on the same fixtures put Parakeet's French WER at 11.0% (this run: 9.5%) and its facts found at 82% (this run: 75%). Read differences of a few points as noise.
+**Synthetic standard French: not Quebec French, and not real clinics.**
+
+These numbers come from run 41249174129 of `.github/workflows/french-eval.yml` (2026-10-31, a GitHub Linux runner). That run compared Parakeet, Canary and Whisper on the same runner. The ship decision is in ADR-0033.
+
+**Runs vary.** An earlier run on the same fixtures (41248209807, without Canary) found different numbers for Parakeet:
+
+| Parakeet, French fixtures | Earlier run (41248209807) | This run (41249174129) |
+|---|---|---|
+| WER | 9.5% | 11.0% |
+| Facts found | 75% | 82% |
+| Real-time factor | 0.035 | 0.065 (a slower runner) |
+
+So read differences of a few points as noise. The comparisons below are within one run, on one runner.
 
 ### Recognisers, French fixtures
 
 | Recogniser | Fixtures | Script words | WER | Wrong-language words | Wrong-language share | Real-time factor (2 threads) |
 |---|---|---|---|---|---|---|
-| Parakeet TDT 0.6B v3 (detects the language) | 6 | 1,459 | 9.5% | 8 | 0.6% | 0.035 |
-| Whisper large-v3-turbo, told French | 6 | 1,459 | 14.6% | 9 | 0.6% | 0.297 |
+| Parakeet TDT 0.6B v3 (detects the language) | 6 | 1,459 | 11.0% | 9 | 0.6% | 0.065 |
+| Canary 180M Flash, told French | 6 | 1,459 | 18.5% | 2 | 0.1% | 0.088 |
+| Whisper large-v3-turbo, told French | 6 | 1,459 | 13.4% | 4 | 0.3% | 0.529 |
 
-| Subset | Parakeet WER | Whisper (French) WER |
-|---|---|---|
-| French only (5 fixtures, 1,249 words) | 9.0% | 11.4% |
-| French mixed with English (1 fixture, 210 words) | 12.9% | 33.3% |
+WER by subset:
 
-| Fixture | Parakeet: WER, wrong-language words | Whisper (French): WER, wrong-language words |
-|---|---|---|
-| fr-carlin-allergies | 7.0%, 0 | 7.0%, 1 |
-| fr-chat-conjonctivite | 10.4%, 2 | 14.5%, 0 |
-| fr-chien-boiterie | 9.1%, 0 | 7.5%, 0 |
-| fr-dictee-examen | 8.9%, 0 | 20.5%, 4 |
-| fr-mixte-gastro | 12.9%, 4 | 33.3%, 4 |
-| fr-vaccination-chiot | 9.3%, 2 | 9.7%, 0 |
+| Subset | Parakeet | Canary (French) | Whisper (French) |
+|---|---|---|---|
+| French only (5 fixtures, 1,249 words) | 10.4% | 12.1% | 10.6% |
+| French mixed with English (1 fixture, 210 words) | 14.3% | 56.7% | 30.0% |
 
-Parakeet's wrong-language words were "max", "definitely", "thirty", "nine", "point", "one", "kilo" and "yeah". So Parakeet does produce English words in synthetic French, though rarely. Told French, Whisper turns much of the mixed consult's English into French, which is why its WER on that consult is high.
+WER and wrong-language words per fixture:
 
-**Against the bar:** Whisper fails all three tests. Its WER is 53% higher, not 20% lower. It has 9 wrong-language words against Parakeet's 8. It is 8.5 times slower.
+| Fixture | Parakeet | Canary (French) | Whisper (French) |
+|---|---|---|---|
+| fr-carlin-allergies | 4.9%, 0 | 7.0%, 0 | 7.0%, 0 |
+| fr-chat-conjonctivite | 9.1%, 3 | 13.8%, 1 | 11.4%, 0 |
+| fr-chien-boiterie | 9.1%, 0 | 11.6%, 1 | 10.0%, 0 |
+| fr-dictee-examen | 19.5%, 0 | 14.7%, 0 | 16.3%, 0 |
+| fr-mixte-gastro | 14.3%, 5 | 56.7%, 0 | 30.0%, 4 |
+| fr-vaccination-chiot | 12.7%, 1 | 14.3%, 0 | 9.7%, 0 |
+
+The wrong-language words each recogniser wrote:
+- **Parakeet:** "doctor", "for", "that", "thirty", "nine", "point", "one", "but", "yeah". So Parakeet does produce English words in synthetic French, though rarely.
+- **Canary:** "doctor", "p".
+- **Whisper:** "thirty", "nine", "point", "one".
+
+Told French, Canary and Whisper both turn much of the mixed consult's English into French. That costs them WER there, but doesn't count as wrong-language words.
+
+### The bar, French fixtures (all six)
+
+| Recogniser | WER at least 20% lower | Fewer wrong-language words | Real-time factor at most 1.5x | Passes |
+|---|---|---|---|---|
+| Canary (French) | no: 69% higher | yes: 2 against 9 | yes: 1.34x | **no** |
+| Whisper (French) | no: 22% higher | yes: 4 against 9 | no: 8.08x | **no** |
 
 ### Recognisers, English fixtures (regression check)
 
 | Recogniser | Fixtures | Script words | WER | Wrong-language words | Real-time factor (2 threads) |
 |---|---|---|---|---|---|
-| Parakeet TDT 0.6B v3 | 6 | 2,119 | 5.6% | 1 | 0.034 |
-| Whisper large-v3-turbo, told English | 6 | 2,119 | 4.7% | 0 | 0.265 |
+| Parakeet TDT 0.6B v3 | 6 | 2,119 | 5.0% | 1 | 0.066 |
+| Canary 180M Flash, told English | 6 | 2,119 | 4.6% | 0 | 0.102 |
+| Whisper large-v3-turbo, told English | 6 | 2,119 | 4.4% | 0 | 0.457 |
 
-**Against the bar:** Whisper fails for English. Its WER is 16% lower, short of 20%, and it is 7.8 times slower.
+| Fixture | Parakeet | Canary (English) | Whisper (English) |
+|---|---|---|---|
+| canine-wellness | 0.5% | 1.6% | 1.6% |
+| dermatology | 6.7% | 3.6% | 2.1% |
+| emergency | 12.4% | 11.9% | 10.3% |
+| feline-vomiting | 3.3% | 2.6% | 2.8% |
+| oncology | 7.2% | 8.4% | 7.2% |
+| surgery | 13.6% | 12.6% | 13.1% |
+
+**Against the bar, English:** both fail.
+- **Canary** is 8% better, not 20%, and 1.53 times slower.
+- **Whisper** is 13% better and 6.89 times slower.
 
 ### Notes drafted in French
 
-SOAP template, Gemma 4 E4B on the processor, notes in French, with the second listen told to expect French. "Reference" drafts from the script itself, with no recognition errors.
+SOAP template, Gemma 4 E4B on the processor, notes in French, the second listen told to expect French. "Reference" drafts from the script itself, with no recognition errors.
 
 | Transcript | Drafts | Facts found | Invented numbers | Failed drafts |
 |---|---|---|---|---|
 | Reference (the script) | 6 | 64/71 (90%) | 1 | 0 |
-| Parakeet | 6 | 53/71 (75%) | 0 | 0 |
+| Parakeet | 6 | 58/71 (82%) | 0 | 0 |
 | Whisper (French) | 6 | 60/71 (85%) | 0 | 0 |
+| Canary (French) | 6 | 49/71 (69%) | 2 | 0 |
 
-| Fixture | Reference | Parakeet | Whisper (French) |
-|---|---|---|---|
-| fr-carlin-allergies | 11/13 | 8/13 | 11/13 |
-| fr-chat-conjonctivite | 9/10 | 7/10 | 7/10 |
-| fr-chien-boiterie | 11/12 | 10/12 | 11/12 |
-| fr-dictee-examen | 14/15 (1 invented) | 13/15 | 13/15 |
-| fr-mixte-gastro | 10/10 | 7/10 | 8/10 |
-| fr-vaccination-chiot | 9/11 | 8/11 | 10/11 |
+| Subset | Reference | Parakeet | Whisper (French) | Canary (French) |
+|---|---|---|---|---|
+| French only (5 fixtures) | 54/61 (89%) | 51/61 (84%) | 52/61 (85%) | 44/61 (72%) |
+| French mixed with English | 10/10 | 7/10 | 8/10 | 5/10 |
 
-- **Misses with the script itself** are mostly a number dropped from a medication line, such as the duration of Apoquel, Maxitrol or Metacam. With a recogniser, terms it misheard go missing too: "fluorescéine", "Breathalyzer", "hyperhémie", "Milbemax".
-- **The one invented number** is most likely the dictated heart rate of "cent quatre-vingts" (180) was written as 190, from the script itself. That is a note-model error.
-- **No draft failed.**
+| Fixture | Reference | Parakeet | Whisper (French) | Canary (French) |
+|---|---|---|---|---|
+| fr-carlin-allergies | 11/13 | 12/13 | 12/13 | 9/13 |
+| fr-chat-conjonctivite | 9/10 | 7/10 | 8/10 | 8/10 (1 invented) |
+| fr-chien-boiterie | 11/12 | 11/12 | 12/12 | 9/12 |
+| fr-dictee-examen | 14/15 (1 invented) | 13/15 | 13/15 | 12/15 (1 invented) |
+| fr-mixte-gastro | 10/10 | 7/10 | 8/10 | 5/10 |
+| fr-vaccination-chiot | 9/11 | 8/11 | 7/11 | 6/11 |
+
+**What the missed facts were:**
+- **From the script itself:** mostly a number dropped from a medication line, such as the durations of Apoquel, Maxitrol and Metacam.
+- **The script's one invented number:** the dictated heart rate of "cent quatre-vingts" (180) was written as 190. That is a note-model error.
+- **From recognisers:** misheard terms go missing too ("fluorescéine", "Breathalyzer", "hyperhémie", "Milbemax").
+- **From Canary:** it also lost drug names and doses ("Apoquel 5.4", "Cerenia", "60 mg").
+
+**Outcome.** No recogniser passes the bar, for French or English. Parakeet stays the main recogniser. The Spoken language setting locks only Whisper's second listen.

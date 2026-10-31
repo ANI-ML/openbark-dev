@@ -4,7 +4,7 @@ OpenBark separates three languages:
 
 | What | Languages | Where to set it |
 |---|---|---|
-| The consultation (what's said) | English plus 24 European languages, recognised by Parakeet TDT v3, which detects each sentence's language | Settings → Recording → **Spoken language**: Auto (the default) or one language, which the second listen is told to expect (ADR-0032) |
+| The consultation (what's said) | English plus 24 European languages, recognised by Parakeet TDT v3, which detects each sentence's language | Settings → Recording → **Spoken language**: Auto (the default) or one language, which the second listen is told to expect (ADR-0033) |
 | The note (what the model writes) | English, French, Spanish, German, Portuguese, Italian, Dutch | Settings → Language → **Write notes in** |
 | The app (menus, buttons, messages) | English, French, Spanish, German, Portuguese | Settings → Language → **App language** (starts in the browser's language when available) |
 

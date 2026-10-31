@@ -817,7 +817,7 @@ pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
         );
     }
 
-    // The spoken language, as the app sets it (ADR-0032); "auto" leaves
+    // The spoken language, as the app sets it (ADR-0033); "auto" leaves
     // Whisper to detect the language.
     if let Some(lang) = &args.spoken_language {
         let lang = Some(lang.as_str()).filter(|l| *l != "auto");

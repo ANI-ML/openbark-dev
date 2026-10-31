@@ -35,7 +35,7 @@ export interface Settings {
   /**
    * The language spoken in consultations ("fr"), or null for Auto: each
    * sentence's language is detected, and the second listen expects the app's
-   * language, as before 0.2.5 (ADR-0032). Separate from the app's language:
+   * language, as before 0.2.5 (ADR-0033). Separate from the app's language:
    * a clinic can use the app in French and speak a mix.
    */
   spokenLanguage: string | null;

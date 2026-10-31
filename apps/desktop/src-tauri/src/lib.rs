@@ -1261,7 +1261,7 @@ fn set_speech_language(language: String) {
     os_engine::models::set_speech_language(Some(&language));
 }
 
-/// Settings, Recording, Spoken language ("fr"); None is Auto (ADR-0032).
+/// Settings, Recording, Spoken language ("fr"); None is Auto (ADR-0033).
 #[tauri::command]
 fn set_spoken_language(language: Option<String>) {
     os_engine::models::set_spoken_language(language.as_deref());

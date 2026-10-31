@@ -1110,6 +1110,8 @@ const MODEL_BUSY: &str = "A note is being written with this model. Remove it whe
 const MLX_FIRST: &str = "Download the MLX engine on the Models screen first.";
 const MLX_NEEDS: &str = "MLX models run on a Mac with Apple silicon and macOS 14 or later.";
 /// A model that isn't marked for phones, asked for on one (ADR-0018 section 10).
+/// A catalogue model kept only for measuring (ADR-0033), never offered.
+const NOT_OFFERED: &str = "This model isn't offered in OpenBark.";
 const NOT_FOR_PHONE: &str =
     "This model isn't made for phones. On an iPhone, OpenBark offers small models only.";
 /// Adding a model file from the phone itself (not in M3).
@@ -3771,7 +3773,7 @@ impl App {
             .into_iter()
             // The GPU recognisers come with the GPU speech pack, not one by one.
             .filter(|m| m.id != os_engine::models::GPU_STT && m.id != os_engine::models::GPU_SECOND_STT)
-            // Canary only when a spoken language uses it (ADR-0032).
+            // Canary only when a spoken language uses it (ADR-0033).
             .filter(|m| os_engine::models::offered(&m.id))
             // A phone lists mobile models only; a computer doesn't list the
             // ones made for small phones (ADR-0018 section 10).
@@ -3837,6 +3839,10 @@ impl App {
         let catalog = hub::full_catalog(&self.store);
         let entry =
             catalog.get(id).ok_or_else(|| AppError(format!("No model called {id} in the catalog.")))?;
+        // Canary is in the catalogue only for the French eval (ADR-0033).
+        if !os_engine::models::offered(id) {
+            return Err(AppError(NOT_OFFERED.into()));
+        }
         // Gigabytes that could never write a note here.
         if self.phone_tier().is_some() {
             if !entry.mobile {

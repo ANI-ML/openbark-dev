@@ -1269,7 +1269,7 @@ export const setSpeechLanguage = (language: string) =>
     : api<void>("/api/speech-language", post({ language }));
 /**
  * Settings, Recording, Spoken language ("fr"), or null for Auto: the speech
- * recognisers are told to expect it (ADR-0032).
+ * recognisers are told to expect it (ADR-0033).
  */
 export const setSpokenLanguage = (language: string | null) =>
   isDesktop

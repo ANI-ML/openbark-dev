@@ -142,7 +142,7 @@
     },
     {
       "id": "canary-180m-flash-int8",
-      "display_name": "Canary 180M Flash (int8; English, French, Spanish, German, told the spoken language)",
+      "display_name": "Canary 180M Flash (int8; measured by the French eval, not offered)",
       "slot": "stt",
       "license": "CC-BY-4.0",
       "attribution": "Canary 180M Flash by NVIDIA, CC-BY-4.0; ONNX export and int8 quantisation by the k2-fsa/sherpa-onnx project",

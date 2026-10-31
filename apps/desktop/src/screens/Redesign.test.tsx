@@ -164,7 +164,7 @@ describe("Settings as sections (ADR-0027)", () => {
       expect(nav.textContent).toContain(name);
   });
 
-  it("has a Spoken language choice on a computer, Auto by default, and none on the iPhone (ADR-0032)", () => {
+  it("has a Spoken language choice on a computer, Auto by default, and none on the iPhone (ADR-0033)", () => {
     phoneWidth(false);
     const c = show(<SettingsScreen section="recording" />, ctx({ status: status("desktop") }));
     const select = screen.getByRole("combobox", { name: /^Spoken language/ }) as HTMLSelectElement;

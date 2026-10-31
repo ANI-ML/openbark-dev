@@ -230,7 +230,7 @@ export function App() {
   }, [settings.uiLanguage]);
 
   useEffect(() => {
-    // Settings, Recording, Spoken language; null is Auto (ADR-0032).
+    // Settings, Recording, Spoken language; null is Auto (ADR-0033).
     engine.setSpokenLanguage(settings.spokenLanguage).catch(() => {});
   }, [settings.spokenLanguage]);
 

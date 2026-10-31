@@ -42,12 +42,6 @@ Attributions required by models in the default catalog:
 - Whisper large-v3-turbo, by OpenAI, licensed under MIT.
   ONNX export by the k2-fsa/sherpa-onnx project.
 
-- Canary 180M Flash, by NVIDIA, licensed under CC-BY-4.0. Offered only for
-  a spoken language that uses it (ADR-0032).
-  https://huggingface.co/nvidia/canary-180m-flash
-  https://creativecommons.org/licenses/by/4.0/
-  ONNX export and int8 quantisation by the k2-fsa/sherpa-onnx project.
-
 - Silero VAD, by the Silero Team, licensed under MIT.
 
 - pyannote/segmentation-3.0, by CNRS (Herve Bredin), licensed under MIT.
