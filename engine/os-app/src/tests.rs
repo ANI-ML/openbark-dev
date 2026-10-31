@@ -78,6 +78,7 @@ fn note_result() -> NoteResult {
         refinement: None,
         edit: None,
         by: None,
+        template_defaults: Vec::new(),
         markdown: "# SOAP note\n- Ear canals red\n".into(),
     }
 }
