@@ -19,6 +19,7 @@ import * as engine from "../engine";
 import { useT } from "../i18n";
 import type {
   ContentKind,
+  DefaultLine,
   LintWarning,
   Standard,
   Template,
@@ -54,22 +55,126 @@ const LINT_REASON: Record<engine.LintReason, string> = {
   removes_not_discussed: "It would take away \"Not discussed\"",
   inventing: "Inventing",
   evidence: "Every line keeps its link to the recording",
+  pasted_findings: "A filled-in exam",
 };
 
-/** Lint warnings under the field they concern (ADR-0024 section 4.4): they warn and never block. */
-function LintList({ warnings }: { warnings: LintWarning[] }) {
+/** What a heading's instruction says once its pasted exam moves into Normal findings. */
+const BY_SYSTEM = "List the findings the veterinarian states, by system.";
+
+/** "Eyes: Normal, no discharge" per line, as the Normal findings box shows them. */
+function linesText(lines: DefaultLine[] | undefined): string {
+  return (lines ?? []).map((l) => `${l.label}: ${l.text}`).join("\n");
+}
+
+/** The Normal findings box read back: one system per line, "System: finding". */
+export function parseDefaultLines(text: string): DefaultLine[] {
+  return text
+    .split("\n")
+    .map((line) => line.trim().replace(/^[-•*]\s*/, ""))
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const at = line.search(/[:：]/);
+      return at < 0 ? { label: line, text: "" } : { label: line.slice(0, at).trim(), text: line.slice(at + 1).trim() };
+    });
+}
+
+/** `lines` added to `current`, each system once (what's there already stays). */
+function withLines(current: DefaultLine[] | undefined, lines: DefaultLine[]): DefaultLine[] {
+  const out = [...(current ?? [])];
+  for (const l of lines) if (!out.some((o) => o.label.toLowerCase() === l.label.toLowerCase())) out.push(l);
+  return out;
+}
+
+/**
+ * Lint warnings under the field they concern (ADR-0024 section 4.4): they warn and never block.
+ * A pasted exam (ADR-0032) says why it matters, and with `onMove` offers to move its lines into
+ * the heading's Normal findings.
+ */
+function LintList({ warnings, onMove }: { warnings: LintWarning[]; onMove?: (w: LintWarning) => void }) {
   const t = useT();
   if (warnings.length === 0) return null;
   return (
     <div className="lint" role="status">
-      {warnings.map((w, i) => (
-        <p key={i} className="ob-notice small">
-          {t("\"{text}\": {reason}. OpenBark won't do this. The rules that always apply win: nothing is written that wasn't said, and every draft is checked.", {
-            text: w.text,
-            reason: t(LINT_REASON[w.reason]),
-          })}
-        </p>
-      ))}
+      {warnings.map((w, i) =>
+        w.reason === "pasted_findings" ? (
+          <div key={i} className="ob-notice small lint-pasted">
+            <p>
+              {t("This looks like a filled-in exam (\"{text}\"). Instructions are told to the model, so findings pasted here can end up in the note as if they were said.", {
+                text: w.text,
+              })}
+            </p>
+            {onMove && (w.lines?.length ?? 0) > 0 && (
+              <Button variant="ghost" size="compact" onClick={() => onMove(w)}>
+                {t("Move these lines into Normal findings")}
+              </Button>
+            )}
+          </div>
+        ) : (
+          <p key={i} className="ob-notice small">
+            {t("\"{text}\": {reason}. OpenBark won't do this. The rules that always apply win: nothing is written that wasn't said, and every draft is checked.", {
+              text: w.text,
+              reason: t(LINT_REASON[w.reason]),
+            })}
+          </p>
+        ),
+      )}
+    </div>
+  );
+}
+
+/**
+ * "Normal findings (used only when not discussed)" for a heading of bullet points (ADR-0032):
+ * one "System: finding" per line. Never sent to the model; after drafting, a system nothing was
+ * said about gets its line, marked as the template's, for a veterinarian to confirm or remove.
+ */
+function NormalFindings({
+  id,
+  label,
+  lines,
+  readOnly,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  lines: DefaultLine[] | undefined;
+  readOnly: boolean;
+  onChange: (lines: DefaultLine[] | undefined) => void;
+}) {
+  const t = useT();
+  const [text, setText] = useState(() => linesText(lines));
+  // The lines last sent up: anything else (a reload, Move these lines) replaces the text.
+  const sent = useRef(lines);
+  useEffect(() => {
+    if (lines !== sent.current) {
+      sent.current = lines;
+      setText(linesText(lines));
+    }
+  }, [lines]);
+  if (readOnly && !(lines ?? []).length) return null;
+  return (
+    <div className="tb-defaults">
+      <label className="label small" htmlFor={id}>
+        {t("Normal findings (used only when not discussed)")}
+      </label>
+      <textarea
+        id={id}
+        className="ob-input tb-text"
+        rows={Math.min(8, Math.max(2, (lines ?? []).length + 1))}
+        aria-label={t("Normal findings for {label}", { label })}
+        disabled={readOnly}
+        value={text}
+        placeholder={t("One system per line, for example Eyes: Normal, no discharge")}
+        onChange={(e) => {
+          setText(e.target.value);
+          const next = parseDefaultLines(e.target.value);
+          const value = next.length ? next : undefined;
+          sent.current = value;
+          onChange(value);
+        }}
+      />
+      <p className="small faint">
+        {t("Never sent to the model. When a system isn't discussed, its line is added after drafting, marked as the template's, and a veterinarian confirms or removes it before signing.")}
+      </p>
     </div>
   );
 }
@@ -1088,6 +1193,7 @@ function Builder({ id, from, heading, mayCreate, onClose, onOpen, onSaved }: Bui
                 builtin={builtinId}
                 hints={translateHints}
                 lint={(j) => lintFor(headingPath(i, j))}
+                normalFindings={draft.document !== "client"}
                 standardsFor={standardsFor}
                 standardProps={{ muted, canMute: can.standards_personal && mode === "personal", canRemove: canStandardRemove, onMute: mute }}
                 onChange={(patch) => setSection(i, patch)}
@@ -1268,6 +1374,8 @@ interface HeadingRowProps {
   hints: boolean;
   /** Lint warnings for the heading, or for subheading `j`. */
   lint: (j?: number) => LintWarning[];
+  /** Headings of bullet points may have normal findings (a medical record, not a client document). */
+  normalFindings: boolean;
   standardsFor: (heading: string) => Standard[];
   standardProps: StandardControls;
   onChange: (patch: Partial<TemplateSection>) => void;
@@ -1289,6 +1397,7 @@ function HeadingRow({
   builtin,
   hints,
   lint,
+  normalFindings,
   standardsFor,
   standardProps,
   onChange,
@@ -1307,6 +1416,7 @@ function HeadingRow({
       onChange({
         kind: null,
         fields: [],
+        defaults: undefined,
         parts: parts.length ? parts : [{ key: "", label: "", kind: "statements", _uid: uid() } as TemplatePart],
       });
     } else {
@@ -1314,6 +1424,8 @@ function HeadingRow({
         kind: k,
         parts: [],
         fields: k === "fields" && !(s.fields ?? []).length ? [{ key: "", label: "" }] : s.fields,
+        // Normal findings belong to a heading of bullet points only (ADR-0032).
+        ...(k === "statements" ? {} : { defaults: undefined }),
         // A tooth chart is for dogs and cats (ADR-0021): never another animal's.
         ...(k === "teeth" ? { when: { species: ["canine", "feline"] } } : {}),
       });
@@ -1386,7 +1498,14 @@ function HeadingRow({
         placeholder={t("Instruction for the model (optional): what belongs here and how to write it")}
         onChange={(e) => onChange({ instruction: e.target.value || null })}
       />
-      <LintList warnings={lint()} />
+      <LintList
+        warnings={lint()}
+        onMove={
+          !readOnly && normalFindings && kind === "statements"
+            ? (w) => onChange({ defaults: withLines(s.defaults, w.lines ?? []), instruction: w.rest ? `${w.rest}\n${t(BY_SYSTEM)}` : t(BY_SYSTEM) })
+            : undefined
+        }
+      />
       <InstructionExamples
         readOnly={readOnly}
         builtin={builtin}
@@ -1395,6 +1514,15 @@ function HeadingRow({
         onPick={(e) => onChange({ instruction: appendSentence(s.instruction, e) })}
       />
       <ShowFor label={label} when={s.when} readOnly={readOnly} onChange={(when) => onChange({ when })} />
+      {normalFindings && kind === "statements" && (
+        <NormalFindings
+          id={`tb-defaults-${s.id || index}`}
+          label={label}
+          lines={s.defaults}
+          readOnly={readOnly}
+          onChange={(defaults) => onChange({ defaults })}
+        />
+      )}
       {kind === "fields" && (
         <FieldsEditor
           fields={s.fields ?? []}
@@ -1420,6 +1548,7 @@ function HeadingRow({
                 builtin={builtin}
                 hints={hints}
                 lint={lint(j)}
+                normalFindings={normalFindings}
                 standards={standardsFor(`${s.id}/${p.key}`)}
                 standardProps={standardProps}
                 onChange={(patch) => setParts((ps) => ps.map((x, k) => (k === j ? { ...x, ...patch } : x)))}
@@ -1488,6 +1617,7 @@ interface PartRowProps {
   builtin: boolean;
   hints: boolean;
   lint: LintWarning[];
+  normalFindings: boolean;
   standards: Standard[];
   standardProps: StandardControls;
   onChange: (patch: Partial<TemplatePart>) => void;
@@ -1505,6 +1635,7 @@ function PartRow({
   builtin,
   hints,
   lint,
+  normalFindings,
   standards,
   standardProps,
   onChange,
@@ -1535,6 +1666,7 @@ function PartRow({
             onChange({
               kind,
               fields: kind === "fields" && !(p.fields ?? []).length ? [{ key: "", label: "" }] : p.fields,
+              ...(kind === "statements" ? {} : { defaults: undefined }),
               ...(kind === "teeth" ? { when: { species: ["canine", "feline"] } } : {}),
             });
           }}
@@ -1558,7 +1690,14 @@ function PartRow({
         placeholder={t("Instruction (optional)")}
         onChange={(e) => onChange({ instruction: e.target.value || null })}
       />
-      <LintList warnings={lint} />
+      <LintList
+        warnings={lint}
+        onMove={
+          !readOnly && normalFindings && p.kind === "statements"
+            ? (w) => onChange({ defaults: withLines(p.defaults, w.lines ?? []), instruction: w.rest ? `${w.rest}\n${t(BY_SYSTEM)}` : t(BY_SYSTEM) })
+            : undefined
+        }
+      />
       <InstructionExamples
         readOnly={readOnly}
         builtin={builtin}
@@ -1567,6 +1706,15 @@ function PartRow({
         onPick={(e) => onChange({ instruction: appendSentence(p.instruction, e) })}
       />
       <ShowFor label={label} when={p.when} readOnly={readOnly} onChange={(when) => onChange({ when })} />
+      {normalFindings && p.kind === "statements" && (
+        <NormalFindings
+          id={`tb-defaults-${sectionId}-${p.key || index}`}
+          label={label}
+          lines={p.defaults}
+          readOnly={readOnly}
+          onChange={(defaults) => onChange({ defaults })}
+        />
+      )}
       {p.kind === "fields" && (
         <FieldsEditor
           fields={p.fields ?? []}

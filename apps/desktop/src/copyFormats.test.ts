@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatNote } from "./copyFormats";
+import { formatNote, shownStatement } from "./copyFormats";
 import type { NoteRun, Template } from "./engine";
 
 const template: Template = {
@@ -74,3 +74,37 @@ describe("formatNote", () => {
     expect(html).toContain("<h3>Surgical report</h3><p>Ventral midline approach. Closed in three layers.</p>");
   });
 });
+
+describe("never \"null\", and never a template default (ADR-0032)", () => {
+  it("reads statements that say nothing as nothing", () => {
+    expect(shownStatement("Tartre : null")).toBeNull();
+    expect(shownStatement("T: null P: null R: null")).toBeNull();
+    expect(shownStatement("null")).toBeNull();
+    expect(shownStatement("T: 38.5 °C P: null")).toBe("T: 38.5 °C");
+    expect(shownStatement("Vomiting: none")).toBe("Vomiting: none");
+    expect(shownStatement("Yeux : écoulement séreux")).toBe("Yeux : écoulement séreux");
+  });
+
+  it("copies no null, and leaves out normal findings waiting for a veterinarian", () => {
+    const r = {
+      ...run,
+      note: {
+        objective: { vitals: { weight: { value: "null", unit: "kg", evidence: [1] }, hr: { value: 120, unit: "null", evidence: [2] } } },
+        plan: [
+          { drug: "Meloxicam", dose: "n/a", route: "PO", frequency: "null", duration: null, evidence: [3] },
+          { drug: "null", dose: null, route: null, frequency: null, duration: null, evidence: [4] },
+        ],
+        follow: [{ text: "Tartre : null", evidence: [5] }],
+      },
+      template_defaults: [{ heading: "follow", label: "Eyes", text: "Normal, no discharge" }],
+    } as unknown as NoteRun;
+    for (const format of ["plain", "markdown", "formatted"] as const) {
+      const { text, html } = formatNote(template, r, { ...opts, format, citations: true });
+      expect(`${text}${html ?? ""}`).not.toMatch(/null|n\/a/i);
+      expect(`${text}${html ?? ""}`).not.toContain("Normal, no discharge");
+      expect(text).toContain("Meloxicam: PO");
+      expect(text).toContain("HR: 120 [2]");
+    }
+  });
+});
+

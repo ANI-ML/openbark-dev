@@ -1,8 +1,8 @@
-import { Copy, MessageSquareText, Pencil } from "lucide-react";
+import { Check, Copy, MessageSquareText, Pencil, X } from "lucide-react";
 import { useState } from "react";
-import { headingLines } from "../copyFormats";
+import { headingLines, measurementText, medicationDetails, namesDrug, shownStatement } from "../copyFormats";
 import { asItems, useLowerInner, type Dentition } from "../dental";
-import type { ChartCheck, ContentKind, Faithfulness, NoteRun, Template, TemplateField, TemplatePart } from "../engine";
+import type { ChartCheck, ContentKind, Faithfulness, NoteRun, PendingDefault, Template, TemplateField, TemplatePart } from "../engine";
 import { useT } from "../i18n";
 import { DentalChart } from "./DentalChart";
 
@@ -25,6 +25,11 @@ import { DentalChart } from "./DentalChart";
  * A tooth chart heading (ADR-0021) draws the chart: clicking a tooth in an
  * unsigned draft opens the chart editor with that tooth selected; once signed,
  * it only selects the tooth and lights its transcript lines.
+ *
+ * Normal findings from the template (ADR-0032) show under their heading, set
+ * apart and labelled "Template default, not from the recording", with Confirm,
+ * Edit and Remove. They aren't part of the note: a heading's Copy leaves them out.
+ * "null" never shows: a statement that says nothing is left out.
  */
 export interface NoteViewProps {
   template: Template;
@@ -57,6 +62,14 @@ export interface NoteViewProps {
    * line it came from with "Play this moment", instead of playing at once.
    */
   onPick?: (ids: number[]) => void;
+  /** Normal findings from the template waiting for a veterinarian (ADR-0032). */
+  pendingDefaults?: PendingDefault[];
+  /** Confirm waiting normal findings under a heading (`text`: the vet's wording of one). A veterinarian, unsigned. */
+  onConfirmDefaults?: (heading: string, labels: string[], text?: string) => void;
+  /** Remove waiting normal findings under a heading. Unsigned. */
+  onRemoveDefaults?: (heading: string, labels: string[]) => void;
+  /** A confirmation or removal is being saved. */
+  settlingDefaults?: boolean;
 }
 
 type Statement = { text?: string; value?: string | number; unit?: string | null; evidence?: number[]; entered_by?: string } & Record<
@@ -64,9 +77,8 @@ type Statement = { text?: string; value?: string | number; unit?: string | null;
   unknown
 >;
 
-/** "32.4 kg" or "pink but tacky" (measurements carry a separate unit). */
-const fieldText = (f: Statement) =>
-  f.value == null ? "" : f.unit && !String(f.value).endsWith(f.unit) ? `${f.value} ${f.unit}` : String(f.value);
+/** "32.4 kg" or "pink but tacky" (measurements carry a separate unit); "" when nothing was said. */
+const fieldText = (f: Statement) => measurementText(f);
 
 /** `t` is the translator from the calling component's `useT()`. */
 function flagsFor(f: Faithfulness, t: ReturnType<typeof useT>) {
@@ -113,6 +125,10 @@ export function NoteView({
   onConfirmTeeth,
   confirming = false,
   onPick,
+  pendingDefaults = [],
+  onConfirmDefaults,
+  onRemoveDefaults,
+  settlingDefaults = false,
 }: NoteViewProps) {
   const choose = onPick ?? onPlay;
   const t = useT();
@@ -120,6 +136,8 @@ export function NoteView({
   const { hard, soft } = flagsFor(run.faithfulness, t);
   // Signed charts: the tooth last clicked, highlighted with its lines.
   const [pickedTooth, setPickedTooth] = useState<string | null>(null);
+  /** A normal finding from the template being reworded before it's confirmed. */
+  const [rewording, setRewording] = useState<{ heading: string; label: string; text: string } | null>(null);
 
   const statement = (s: Statement, path: string, content: React.ReactNode) => {
     const ev = Array.isArray(s.evidence) ? s.evidence : [];
@@ -169,26 +187,33 @@ export function NoteView({
     );
   };
 
+  /** The items that say something, with their place in the list ("Tartre : null" is left out). */
+  const said = (value: unknown) =>
+    (Array.isArray(value) ? (value as Statement[]) : []).flatMap((s, i) => {
+      const text = shownStatement(s.text);
+      return text == null ? [] : [{ s, i, text }];
+    });
+
   const statements = (value: unknown, path: string) => {
-    const items = Array.isArray(value) ? (value as Statement[]) : [];
+    const items = said(value);
     if (items.length === 0) return <p className="not-discussed">{t("Not discussed")}</p>;
     return (
       <ul className="stmts">
-        {items.map((s, i) => (
-          <li key={i}>{statement(s, `${path}/${i}`, s.text)}</li>
+        {items.map(({ s, i, text }) => (
+          <li key={i}>{statement(s, `${path}/${i}`, text)}</li>
         ))}
       </ul>
     );
   };
 
   const paragraph = (value: unknown, path: string) => {
-    const items = Array.isArray(value) ? (value as Statement[]) : [];
+    const items = said(value);
     if (items.length === 0) return <p className="not-discussed">{t("Not discussed")}</p>;
     return (
       <div className="text-box">
-        {items.map((s, i) => (
+        {items.map(({ s, i, text }) => (
           <span key={i}>
-            {statement(s, `${path}/${i}`, s.text)}{" "}
+            {statement(s, `${path}/${i}`, text)}{" "}
           </span>
         ))}
       </div>
@@ -196,8 +221,9 @@ export function NoteView({
   };
 
   const fields = (defs: TemplateField[], value: unknown, path: string) => {
-    const present = defs.filter((d) => get(get(value, d.key), "value") != null);
-    const missing = defs.filter((d) => get(get(value, d.key), "value") == null);
+    const has = (d: TemplateField) => fieldText((get(value, d.key) ?? {}) as Statement) !== "";
+    const present = defs.filter(has);
+    const missing = defs.filter((d) => !has(d));
     if (present.length === 0) return <p className="not-discussed">{t("Not discussed")}</p>;
     return (
       <dl className="fields">
@@ -221,14 +247,12 @@ export function NoteView({
   };
 
   const medications = (value: unknown, path: string) => {
-    const items = Array.isArray(value) ? (value as Statement[]) : [];
+    const items = (Array.isArray(value) ? (value as Statement[]) : []).map((m, i) => ({ m, i })).filter(({ m }) => namesDrug(m));
     if (items.length === 0) return <p className="not-discussed">{t("Not discussed")}</p>;
     return (
       <ul className="stmts">
-        {items.map((m, i) => {
-          const details = ["dose", "route", "frequency", "duration"]
-            .map((k) => m[k])
-            .filter((v): v is string => typeof v === "string" && v.length > 0);
+        {items.map(({ m, i }) => {
+          const details = medicationDetails(m);
           return (
             <li key={i}>
               {statement(
@@ -288,6 +312,112 @@ export function NoteView({
               ? medications(value, path)
               : <p className="not-discussed">{t("This heading can't be shown in this version of OpenBark.")}</p>;
 
+  /** Normal findings from the template waiting under a heading (ADR-0032). */
+  const defaultsFor = (heading: string) => pendingDefaults.filter((d) => d.heading === heading);
+
+  /** The waiting normal findings of a heading, set apart, each with Confirm, Edit and Remove. */
+  const defaultsBlock = (heading: string, title: string) => {
+    const lines = defaultsFor(heading);
+    if (lines.length === 0) return null;
+    const busy = settlingDefaults;
+    return (
+      <div className="template-defaults" data-template-default role="group" aria-label={t("Template default, not from the recording")}>
+        <p className="template-defaults-label small">{t("Template default, not from the recording")}</p>
+        <ul className="template-defaults-list">
+          {lines.map((d) => {
+            const editing = rewording?.heading === heading && rewording.label === d.label ? rewording : null;
+            return (
+              <li key={d.label} className="template-default">
+                {editing ? (
+                  <span className="template-default-edit">
+                    <span className="template-default-label">{`${d.label}:`}</span>
+                    <input
+                      className="ob-input"
+                      aria-label={t("Wording for {label}", { label: d.label })}
+                      value={editing.text}
+                      onChange={(e) => setRewording({ ...editing, text: e.target.value })}
+                    />
+                    <button
+                      type="button"
+                      className="ob-button section-tool"
+                      data-variant="ghost"
+                      disabled={busy || !editing.text.trim()}
+                      onClick={() => {
+                        onConfirmDefaults?.(heading, [d.label], editing.text.trim());
+                        setRewording(null);
+                      }}
+                    >
+                      <Check size={16} aria-hidden />
+                      {t("Confirm")}
+                    </button>
+                    <button type="button" className="ob-button section-tool" data-variant="ghost" onClick={() => setRewording(null)}>
+                      {t("Cancel")}
+                    </button>
+                  </span>
+                ) : (
+                  <>
+                    <span className="template-default-text">{`${d.label}: ${d.text}`}</span>
+                    {onConfirmDefaults && (
+                      <button
+                        type="button"
+                        className="ob-button section-tool"
+                        data-variant="ghost"
+                        disabled={busy}
+                        aria-label={t("Confirm {label}", { label: d.label })}
+                        onClick={() => onConfirmDefaults(heading, [d.label])}
+                      >
+                        <Check size={16} aria-hidden />
+                        {t("Confirm")}
+                      </button>
+                    )}
+                    {onConfirmDefaults && (
+                      <button
+                        type="button"
+                        className="ob-button section-tool"
+                        data-variant="ghost"
+                        disabled={busy}
+                        aria-label={t("Edit {label}", { label: d.label })}
+                        onClick={() => setRewording({ heading, label: d.label, text: d.text })}
+                      >
+                        <Pencil size={16} aria-hidden />
+                        {t("Edit")}
+                      </button>
+                    )}
+                    {onRemoveDefaults && (
+                      <button
+                        type="button"
+                        className="ob-button section-tool"
+                        data-variant="ghost"
+                        disabled={busy}
+                        aria-label={t("Remove {label}", { label: d.label })}
+                        onClick={() => onRemoveDefaults(heading, [d.label])}
+                      >
+                        <X size={16} aria-hidden />
+                        {t("Remove")}
+                      </button>
+                    )}
+                  </>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+        {onConfirmDefaults && lines.length > 1 && (
+          <button
+            type="button"
+            className="ob-button"
+            disabled={busy}
+            aria-label={t("Confirm all normal findings under {heading}", { heading: title })}
+            onClick={() => onConfirmDefaults(heading, lines.map((d) => d.label))}
+          >
+            <Check size={16} aria-hidden />
+            {t("Confirm all")}
+          </button>
+        )}
+      </div>
+    );
+  };
+
   const refined = run.refinement?.heading;
   const askButton = (heading: string, title: string) =>
     onAsk && (
@@ -318,7 +448,23 @@ export function NoteView({
       </button>
     );
   const edited = run.edit?.heading;
+  /** "Template defaults: Eyes confirmed by Dr Martin." for the edit that confirmed or removed them. */
+  const settledNote = (heading: string) => {
+    const e = run.edit;
+    if (!e || e.heading !== heading) return null;
+    const confirmed = e.defaults_confirmed ?? [];
+    const removed = e.defaults_removed ?? [];
+    if (!confirmed.length && !removed.length) return null;
+    return (
+      <p className="refined small muted">
+        {confirmed.length > 0 && t("Normal findings confirmed by {name}: {systems}.", { name: e.by, systems: confirmed.join(", ") })}
+        {confirmed.length > 0 && removed.length > 0 && " "}
+        {removed.length > 0 && t("Normal findings removed by {name}: {systems}.", { name: e.by, systems: removed.join(", ") })}
+      </p>
+    );
+  };
   const refinedNote = (heading: string) =>
+    settledNote(heading) ||
     (refined === heading && (
       <p className="refined small muted">
         {t("Redrafted on request:")} <q>{run.refinement?.request}</q>
@@ -362,6 +508,7 @@ export function NoteView({
         {refinedNote(heading)}
         {renderAsk?.(heading)}
         {body(heading, p.kind, p.fields, value, p.dentition ?? null)}
+        {defaultsBlock(heading, p.label)}
       </div>
     );
   };
@@ -369,7 +516,9 @@ export function NoteView({
   const sectionText = (id: string) => {
     // A chart copies as words, never the diagram's tooth numbers.
     const sec = template.sections.find((s) => s.id === id);
-    if (sec?.kind === "teeth" || sec?.parts?.some((p) => p.kind === "teeth")) {
+    // Waiting normal findings from the template aren't part of the note, so a heading with them copies as words too.
+    const waiting = pendingDefaults.some((d) => d.heading === id || d.heading.startsWith(`${id}/`));
+    if (sec && (sec.kind === "teeth" || sec.parts?.some((p) => p.kind === "teeth") || waiting)) {
       const value = run.note[id];
       const blocks = sec.kind
         ? [headingLines(sec.kind, sec.fields, value, false, t, lowerInner)]
@@ -404,9 +553,14 @@ export function NoteView({
             </header>
             {refinedNote(sec.id)}
             {renderAsk?.(sec.id)}
-            {sec.kind
-              ? body(sec.id, sec.kind, sec.fields, value, sec.dentition ?? null)
-              : (sec.parts ?? []).map((p) => part(p, value, sec.id))}
+            {sec.kind ? (
+              <>
+                {body(sec.id, sec.kind, sec.fields, value, sec.dentition ?? null)}
+                {defaultsBlock(sec.id, sec.title)}
+              </>
+            ) : (
+              (sec.parts ?? []).map((p) => part(p, value, sec.id))
+            )}
           </section>
         );
       })}

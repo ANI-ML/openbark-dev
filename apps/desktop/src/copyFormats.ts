@@ -23,6 +23,78 @@ export interface CopyOptions {
 
 type Translate = (text: string, vars?: Record<string, string | number>) => string;
 
+/** Whole values that mean "nothing" (ADR-0032): "null" never shows in a note. */
+const BLANK = new Set(["null", "n/a", "na", "nil", "undefined", "-", "--", "—", "…", "...", "?"]);
+
+/** Is this whole value blank: empty, or a word such as "null" or "n/a"? */
+export function isBlank(value: unknown): boolean {
+  if (value == null) return true;
+  const t = String(value).trim().replace(/[.,;]+$/, "").trim().toLowerCase();
+  return t === "" || BLANK.has(t);
+}
+
+/** Blank, or "none" on its own (a measurement or a statement with no label). */
+export function isBlankOrNone(value: unknown): boolean {
+  return isBlank(value) || String(value).trim().replace(/\.$/, "").trim().toLowerCase() === "none";
+}
+
+/** A statement read as "Label: value" pieces ("T: 38.5 P: null"), or null when it isn't one. */
+function labelPieces(text: string): { label: string; value: string }[] | null {
+  const out: { label: string; value: string }[] = [];
+  for (const entry of text.split(";")) {
+    if (!entry.trim()) continue;
+    const m = entry.match(/^\s*[-•*]?\s*(\p{L}[^:：,;?!"]{0,39}?)\s*[:：]/u);
+    const first = (m?.[1] ?? "").trim();
+    if (!m || !first || first.split(/\s+/).length > 5) return null;
+    let label = first;
+    const rest = entry.slice(m[0].length);
+    // A short label inside the value starts another piece ("T: P: R:", "roses TRC: < 2 s").
+    const next = /(^|\s)(\p{L}[\p{L}\p{N}.]{0,5})\s*[:：]/gu;
+    let from = 0;
+    for (let found = next.exec(rest); found; found = next.exec(rest)) {
+      const at = found.index + (found[1] ?? "").length;
+      out.push({ label, value: rest.slice(from, at).trim() });
+      label = found[2] ?? "";
+      from = next.lastIndex;
+    }
+    out.push({ label, value: rest.slice(from).trim() });
+  }
+  return out.length ? out : null;
+}
+
+/**
+ * A statement as it should read, or null when it says nothing: "null", "Tartre : null",
+ * "T: null P: null". Pieces with a blank value are left out of one that has others.
+ * Drafts from 0.2.5 on are tidied by the engine; this covers notes saved before.
+ */
+export function shownStatement(text: string | undefined | null): string | null {
+  const s = text ?? "";
+  if (isBlankOrNone(s)) return null;
+  if (s.includes("\n") || !/[:：]/.test(s)) return s;
+  const pieces = labelPieces(s);
+  if (!pieces || !pieces.some((p) => isBlank(p.value))) return s;
+  const kept = pieces.filter((p) => !isBlank(p.value)).map((p) => `${p.label}: ${p.value}`);
+  return kept.length ? kept.join(", ") : null;
+}
+
+/** A measurement's text, "32.4 kg" or "pink but tacky", or "" when nothing was said ("null" included). */
+export function measurementText(v: { value?: unknown; unit?: string | null } | null | undefined): string {
+  if (v?.value == null || (typeof v.value === "string" && isBlankOrNone(v.value))) return "";
+  const value = String(v.value);
+  const unit = v.unit && !isBlank(v.unit) && !value.endsWith(v.unit) ? v.unit : null;
+  return unit ? `${value} ${unit}` : value;
+}
+
+/** A medication's dose, route, frequency and duration as said ("null" left out). */
+export function medicationDetails(m: Record<string, unknown>): string[] {
+  return ["dose", "route", "frequency", "duration"]
+    .map((k) => m[k])
+    .filter((x): x is string => typeof x === "string" && !isBlankOrNone(x));
+}
+
+/** Does a medication name a drug ("null" doesn't)? */
+export const namesDrug = (m: Record<string, unknown>) => typeof m.drug === "string" && !isBlankOrNone(m.drug);
+
 const english: Translate = (text, vars) => text.replace(/\{(\w+)\}/g, (m, k: string) => (vars && k in vars ? String(vars[k]) : m));
 
 type Item = Record<string, unknown> & { evidence?: number[]; text?: string; value?: unknown; unit?: string | null };
@@ -67,19 +139,21 @@ export function headingLines(
   if (kind === "fields") {
     return (fields ?? []).flatMap((f) => {
       const v = get(value, f.key) as Item | null | undefined;
-      if (v?.value == null) return [];
-      const text = v.unit && !String(v.value).endsWith(v.unit) ? `${v.value} ${v.unit}` : String(v.value);
+      const text = measurementText(v);
+      if (!v || !text) return [];
       return [`${f.label}: ${text}${cite(v, citations)}`];
     });
   }
   const items = Array.isArray(value) ? (value as Item[]) : [];
-  if (kind === "statements") return items.map((s) => `${s.text ?? ""}${cite(s, citations)}`);
-  if (kind === "text") {
-    const sentences = items.map((s) => `${s.text ?? ""}${cite(s, citations)}`);
-    return sentences.length ? [sentences.join(" ")] : [];
-  }
-  return items.map((m) => {
-    const details = ["dose", "route", "frequency", "duration"].map((k) => m[k]).filter((x): x is string => typeof x === "string" && !!x);
+  // "null" never prints (ADR-0032): a statement that says nothing is left out.
+  const said = items.flatMap((s) => {
+    const text = shownStatement(s.text);
+    return text == null ? [] : [`${text}${cite(s, citations)}`];
+  });
+  if (kind === "statements") return said;
+  if (kind === "text") return said.length ? [said.join(" ")] : [];
+  return items.filter(namesDrug).map((m) => {
+    const details = medicationDetails(m);
     return `${String(m.drug ?? "")}${details.length ? `: ${details.join(", ")}` : ""}${cite(m, citations)}`;
   });
 }
