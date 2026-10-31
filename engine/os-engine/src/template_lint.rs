@@ -390,7 +390,8 @@ mod tests {
             assert_eq!(lines[3].text, "Roses, TRC < 2 s");
             assert!(rest.is_empty(), "{rest:?}");
         }
-        let english = "Eyes: Normal, no discharge\nEars: Clean\nHeart: WNL, no murmur\nLungs: Clear\nTartar:\nT: P: R:";
+        let english =
+            "Eyes: Normal, no discharge\nEars: Clean\nHeart: WNL, no murmur\nLungs: Clear\nTartar:\nT: P: R:";
         let (lines, _) = pasted_findings(english).unwrap();
         assert_eq!(
             lines.iter().map(|l| l.label.as_str()).collect::<Vec<_>>(),
