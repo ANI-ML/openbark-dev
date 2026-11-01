@@ -1749,6 +1749,7 @@
   "The time left shows after a few seconds, from the speed measured.": "Le temps restant s'affiche après quelques secondes, d'après la vitesse mesurée.",
   "The time left shows once it has loaded.": "Le temps restant s'affiche une fois le chargement terminé.",
   "The time left shows once the model has loaded.": "Le temps restant s'affiche une fois le modèle chargé.",
+  "The time left shows once the reading speed is measured.": "Le temps restant s'affiche une fois la vitesse de lecture mesurée.",
   "The transcript, drafts and signed notes are kept. You won't be able to play this visit back or transcribe it again.": "La transcription, les brouillons et les notes signées sont conservés. Vous ne pourrez plus réécouter cette visite ni la transcrire à nouveau.",
   "The videos are in English; the steps below are in your language.": "Les vidéos sont en anglais ; les étapes ci-dessous sont dans votre langue.",
   "The visit type chosen last is someone else's own template. Drafting with {default}.": "Le dernier type de visite choisi est le modèle personnel de quelqu'un d'autre. Rédaction avec {default}.",

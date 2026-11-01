@@ -746,7 +746,7 @@ a { color: var(--accent-text); text-underline-offset: 3px; }
 .setup-choice { display: flex; gap: 12px; align-items: flex-start; padding: 16px; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); cursor: pointer; transition: border-color var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease); }
 .setup-choice:hover { background: var(--fill); }
 .setup-choice[data-selected] { border: 2px solid var(--ink); padding: 15px; }
-.setup-choice input { margin-top: 4px; flex: none; }
+.setup-choice input { margin-top: 4px; flex: none; accent-color: var(--ink); }
 .setup-choice-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .setup-choice-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .setup-choice-name { font-weight: 800; }

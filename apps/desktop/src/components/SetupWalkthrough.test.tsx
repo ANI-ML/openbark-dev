@@ -234,7 +234,7 @@ describe("Set up OpenBark (ADR-0034)", () => {
     expect(screen.getByText("Speakers in the room: choose 2 for a vet and a client. It's on the Record screen.")).toBeTruthy();
     expect(screen.getByText(/USB or clip-on microphone/)).toBeTruthy();
     expect(screen.getByText(/Review every draft before you sign it/)).toBeTruthy();
-    press("Start recording");
+    press("Finish");
     expect(c.setSettings).toHaveBeenCalledWith(
       expect.objectContaining({ setupDoneAt: expect.any(String), showSetup: null }),
     );

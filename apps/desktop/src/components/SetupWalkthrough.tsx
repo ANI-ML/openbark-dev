@@ -585,12 +585,12 @@ export function SetupWalkthrough({ mode }: { mode: SetupMode }) {
         )}
         {step === "tips" && (
           <>
-            <Button variant="primary" onClick={() => finish()}>
-              {t("Start recording")}
-            </Button>
             <Button onClick={() => finish({ screen: "settings", section: "recording" })}>
               <Mic size={20} aria-hidden />
               {t("Test the microphone")}
+            </Button>
+            <Button variant="primary" onClick={() => finish()}>
+              {t("Finish")}
             </Button>
           </>
         )}
@@ -943,7 +943,9 @@ function SpeedBoard({ t, model, measure, now }: { t: T; model: string; measure: 
                 time: fmtSecs(since(at.start, now) + left),
                 clock: clockTime(now + left * 1000),
               })
-            : t("The time left shows once the model has loaded.")}
+            : stage === "load"
+              ? t("The time left shows once the model has loaded.")
+              : t("The time left shows once the reading speed is measured.")}
         </span>
       }
     />

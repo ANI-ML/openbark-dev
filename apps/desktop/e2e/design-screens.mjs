@@ -179,7 +179,7 @@ for (const v of variants.filter((x) => x.name === "desktop-light" || x.name === 
     await shot("5-speed-result");
     await next("Continue");
     await shot("6-tips");
-    await next("Start recording");
+    await next("Finish");
     await page.locator(".setup-walk").waitFor({ state: "detached", timeout: 10000 });
   } catch (e) {
     missed.push(`${v.name} setup walkthrough: ${String(e).split("\n")[0]}`);
