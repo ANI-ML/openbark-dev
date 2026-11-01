@@ -88,7 +88,7 @@ async function context(v, extra = {}) {
     // A first run (the walkthrough pass) has accepted nothing yet.
     const accepted = firstRun
       ? { consentAcknowledgedAt: null, walkthroughDoneAt: null, showWalkthrough: false }
-      : { consentAcknowledgedAt: "2026-10-17T20:00:00Z" };
+      : { updateCheck: "off", consentAcknowledgedAt: "2026-10-17T20:00:00Z" };
     localStorage.setItem(key, JSON.stringify({ ...current, ...accepted, uiLanguage: "en" }));
   }, Boolean(extra.firstRun));
   const page = await ctx.newPage();

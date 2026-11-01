@@ -1143,3 +1143,29 @@ p > .ob-dot { display: inline-block; vertical-align: middle; }
 @media (pointer: coarse) {
   :is(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"]), select, textarea) { font-size: 16px; }
 }
+
+/* The version check (ADR-0035). The one-time question is a quiet card in the
+   corner, not a dialog, so it can be ignored: solid surface, hairline border,
+   raised like the toast (which sits above it). Both answers look the same. */
+.update-ask {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 40;
+  width: min(400px, calc(100vw - 48px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-raised);
+}
+.update-ask h2 { margin: 0; font-size: 15px; line-height: 22px; font-weight: 600; }
+.update-ask p { margin: 0; }
+@media (max-width: 640px) {
+  .update-ask { left: 16px; right: 16px; width: auto; bottom: calc(80px + env(safe-area-inset-bottom)); }
+}
+.update-settings { display: flex; flex-direction: column; gap: 12px; }
+.update-settings h3, .update-settings p { margin: 0; }

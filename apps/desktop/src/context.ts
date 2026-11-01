@@ -52,6 +52,18 @@ export interface Settings {
   walkthroughDoneAt: string | null;
   /** iPhone profile: show the walkthrough again (Settings, Help). */
   showWalkthrough: boolean;
+  /**
+   * The daily version check (ADR-0035): "ask" until the person answers the
+   * one-time question, then "on" or "off". Only "on" checks by itself;
+   * "ask" checks nothing, so ignoring the question leaves it off. Any place
+   * that asks the question (the card, setup) sets this; it is the one
+   * source of truth. Never used on the iPhone.
+   */
+  updateCheck: "ask" | "on" | "off";
+  /** When the one-time question was shown on this device (ISO time): it isn't shown again. */
+  updateAskedAt: string | null;
+  /** The newest version the "is available" notice was shown for: once per version. */
+  updateNotified: string | null;
 }
 
 /** The app language to start in: the browser's, if we have it. */
@@ -92,6 +104,9 @@ const DEFAULTS: Settings = {
   writeNotesHere: false,
   walkthroughDoneAt: null,
   showWalkthrough: false,
+  updateCheck: "ask",
+  updateAskedAt: null,
+  updateNotified: null,
 };
 
 const KEY = "openbark.settings";
@@ -125,8 +140,11 @@ export interface Ctx {
   refreshStatus: () => void;
   settings: Settings;
   setSettings: (s: Partial<Settings>) => void;
-  /** Show a toast; `action` adds a button (Undo). */
-  toast: (message: string, action?: ToastAction) => void;
+  /**
+   * Show a toast; `action` adds a button (Undo), or buttons. `ms`: how long
+   * it stays (4 seconds unless set).
+   */
+  toast: (message: string, action?: ToastAction | ToastAction[], ms?: number) => void;
   announce: (message: string) => void;
   levels: LevelSource & { push(level: number): void };
   /** The team member using the app (null single-user, or before choosing). */

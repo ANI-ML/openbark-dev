@@ -22,10 +22,12 @@ export function Toast({
   ms = 4000,
 }: {
   message: string;
-  action?: ToastAction;
+  /** One button (Undo), or a few (the update notice's What's new and Download). */
+  action?: ToastAction | ToastAction[];
   onClose: () => void;
   ms?: number;
 }) {
+  const actions = action === undefined ? [] : Array.isArray(action) ? action : [action];
   const [pointer, setPointer] = useState(false);
   const [focus, setFocus] = useState(false);
   const done = useRef(false);
@@ -51,7 +53,7 @@ export function Toast({
   return (
     <m.div
       className="ob-toast"
-      data-action={action ? "" : undefined}
+      data-action={actions.length ? "" : undefined}
       role="status"
       initial={{ opacity: 0, y: from }}
       animate={{ opacity: 1, y: 0, transition: { duration: DUR.standard, ease: EASE_ENTER } }}
@@ -64,21 +66,22 @@ export function Toast({
       }}
     >
       <span>{message}</span>
-      {action && (
+      {actions.map((a) => (
         <Button
+          key={a.label}
           variant="ghost"
           size="compact"
           className="toast-action"
           onClick={() => {
             if (done.current) return;
             done.current = true;
-            action.run();
+            a.run();
             close.current();
           }}
         >
-          {action.label}
+          {a.label}
         </Button>
-      )}
+      ))}
       <span
         className="ob-toast-time"
         aria-hidden

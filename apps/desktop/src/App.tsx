@@ -14,6 +14,7 @@ import * as engine from "./engine";
 import { ConsentNotice } from "./components/ConsentNotice";
 import { PhoneWalkthrough, walkthroughDue } from "./components/PhoneWalkthrough";
 import { Toast } from "./components/Toast";
+import { UpdateChecks } from "./components/UpdateCheck";
 import { ROLE_LABEL, UserPicker } from "./components/UserPicker";
 import { AppContext, loadSettings, permissions, saveSettings, type Settings, type ToastAction } from "./context";
 import { translate } from "./i18n";
@@ -63,9 +64,15 @@ export function App() {
   );
   const [status, setStatus] = useState<engine.Status | null>(null);
   const [settings, setSettingsState] = useState<Settings>(loadSettings);
-  const [toast, setToastState] = useState<{ n: number; message: string; action?: ToastAction } | null>(null);
+  const [toast, setToastState] = useState<{
+    n: number;
+    message: string;
+    action?: ToastAction | ToastAction[];
+    ms?: number;
+  } | null>(null);
   const showToast = useCallback(
-    (message: string, action?: ToastAction) => setToastState((prev) => ({ n: (prev?.n ?? 0) + 1, message, action })),
+    (message: string, action?: ToastAction | ToastAction[], ms?: number) =>
+      setToastState((prev) => ({ n: (prev?.n ?? 0) + 1, message, action, ms })),
     [],
   );
   const closeToast = useCallback(() => setToastState(null), []);
@@ -359,9 +366,17 @@ export function App() {
           }}
         />
       )}
+      {/* The version check (ADR-0035): asked once, after first-run setup and the
+          consent notice (and choosing who is using the app), never on the
+          iPhone; the daily check only once the person said yes. */}
+      <UpdateChecks
+        ready={Boolean(settings.consentAcknowledgedAt) && !(team && !user) && !walkthroughDue(status, settings)}
+      />
       {/* The toast arrives and leaves (it used to vanish); a new one waits for the old to go. */}
       <AnimatePresence mode="wait">
-        {toast && <Toast key={toast.n} message={toast.message} action={toast.action} onClose={closeToast} />}
+        {toast && (
+          <Toast key={toast.n} message={toast.message} action={toast.action} ms={toast.ms} onClose={closeToast} />
+        )}
       </AnimatePresence>
       <div className="sr-only" aria-live="polite">
         {announce}

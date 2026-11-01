@@ -162,7 +162,7 @@ await context.addInitScript(() => {
   if (!localStorage.getItem("openbark.settings")) {
     localStorage.setItem(
       "openbark.settings",
-      JSON.stringify({ consentAcknowledgedAt: "2026-10-19T10:00:00Z", signer: "Dr Lee", uiLanguage: "en", draftOnStop: true }),
+      JSON.stringify({ updateCheck: "off", consentAcknowledgedAt: "2026-10-19T10:00:00Z", signer: "Dr Lee", uiLanguage: "en", draftOnStop: true }),
     );
   }
 });
