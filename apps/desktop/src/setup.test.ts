@@ -9,6 +9,7 @@ import {
   downloadQueue,
   noteMinutes,
   savedSpeed,
+  setupDone,
   setupMode,
   suggestSmaller,
   transferEta,
@@ -39,6 +40,37 @@ const rows = [
   row("parakeet-tdt-0.6b-v3-int8", "stt", 670_478_772),
   row("silero-vad", "vad", 643_854),
 ];
+
+describe("setup is done, for the version question (ADR-0035)", () => {
+  const done = "2026-10-31T10:05:00Z";
+
+  it("isn't while the walkthrough is open or due", () => {
+    // A first run with models to download: the walkthrough opens, so no question over it.
+    expect(setupDone(status(false), s(), false)).toBe(false);
+    // Downloads finished but the walkthrough still open (the speed check, the tips).
+    expect(setupDone(status(true), s({ showSetup: "full" }), false)).toBe(false);
+    // Opened again from Settings, Models or Help, or the check.
+    expect(setupDone(status(true), s({ setupDoneAt: done, showSetup: "full" }), false)).toBe(false);
+    expect(setupDone(status(true), s({ showSetup: "check" }), false)).toBe(false);
+    // Before the status has loaded.
+    expect(setupDone(null, s({ setupDoneAt: done }), false)).toBe(false);
+  });
+
+  it("is once finished or skipped, even with models still to download", () => {
+    expect(setupDone(status(true), s({ setupDoneAt: done }), false)).toBe(true);
+    expect(setupDone(status(false), s({ setupDoneAt: done }), false)).toBe(true);
+  });
+
+  it("is for a computer set up before this version that never ran setup, so its people are still asked", () => {
+    expect(setupDone(status(true), s(), false)).toBe(true);
+    // The card dismissed or ignored makes no difference.
+    expect(setupDone(status(true), s({ setupCardDismissedAt: done }), false)).toBe(true);
+  });
+
+  it("leaves the iPhone to its own walkthrough", () => {
+    expect(setupDone(status(false, "ios"), s(), false)).toBe(true);
+  });
+});
 
 describe("when setup opens (ADR-0034)", () => {
   it("opens by itself on a computer's first run, after the consent notice", () => {

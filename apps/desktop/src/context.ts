@@ -59,6 +59,18 @@ export interface Settings {
   walkthroughDoneAt: string | null;
   /** iPhone profile: show the walkthrough again (Settings, Help). */
   showWalkthrough: boolean;
+  /**
+   * The daily version check (ADR-0035): "ask" until the person answers the
+   * one-time question, then "on" or "off". Only "on" checks by itself;
+   * "ask" checks nothing, so ignoring the question leaves it off. Any place
+   * that asks the question (the card, setup) sets this; it is the one
+   * source of truth. Never used on the iPhone.
+   */
+  updateCheck: "ask" | "on" | "off";
+  /** When the one-time question was shown on this device (ISO time): it isn't shown again. */
+  updateAskedAt: string | null;
+  /** The newest version the "is available" notice was shown for: once per version. */
+  updateNotified: string | null;
   /** Computer: when the setup walkthrough was finished or skipped (ADR-0034). */
   setupDoneAt: string | null;
   /** Computer: when the one-time "Check my setup" card was dismissed or used. */
@@ -124,6 +136,9 @@ const DEFAULTS: Settings = {
   writeNotesHere: false,
   walkthroughDoneAt: null,
   showWalkthrough: false,
+  updateCheck: "ask",
+  updateAskedAt: null,
+  updateNotified: null,
   setupDoneAt: null,
   setupCardDismissedAt: null,
   showSetup: null,
@@ -155,6 +170,12 @@ export interface ToastAction {
   run: () => void;
 }
 
+/** More for a toast: buttons after `action`, and how long it stays (4 seconds unless set). */
+export interface ToastOptions {
+  more?: ToastAction[];
+  ms?: number;
+}
+
 export interface Ctx {
   route: Route;
   navigate: (r: Route) => void;
@@ -162,8 +183,8 @@ export interface Ctx {
   refreshStatus: () => void;
   settings: Settings;
   setSettings: (s: Partial<Settings>) => void;
-  /** Show a toast; `action` adds a button (Undo). */
-  toast: (message: string, action?: ToastAction) => void;
+  /** Show a toast; `action` adds a button (Undo); `options` more buttons and a longer stay. */
+  toast: (message: string, action?: ToastAction, options?: ToastOptions) => void;
   announce: (message: string) => void;
   levels: LevelSource & { push(level: number): void };
   /** The team member using the app (null single-user, or before choosing). */

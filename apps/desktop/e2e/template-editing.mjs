@@ -102,7 +102,7 @@ async function open(v, user = null) {
   await ctx.addInitScript((who) => {
     const key = "openbark.settings";
     const current = JSON.parse(localStorage.getItem(key) ?? "{}");
-    localStorage.setItem(key, JSON.stringify({ ...current, consentAcknowledgedAt: "2026-10-17T20:00:00Z", setupDoneAt: "2026-10-17T20:00:00Z", uiLanguage: "en", signer: "Dr Rivera" }));
+    localStorage.setItem(key, JSON.stringify({ ...current, updateCheck: "off", consentAcknowledgedAt: "2026-10-17T20:00:00Z", setupDoneAt: "2026-10-17T20:00:00Z", uiLanguage: "en", signer: "Dr Rivera" }));
     if (who) localStorage.setItem("openbark.user", JSON.stringify(who));
     else localStorage.removeItem("openbark.user");
   }, user);

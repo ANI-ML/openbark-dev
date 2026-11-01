@@ -53,7 +53,7 @@ const LEAK = new RegExp(
 );
 
 const SEEDED = {
-  consentAcknowledgedAt: "2026-10-17T20:00:00Z",
+  updateCheck: "off", consentAcknowledgedAt: "2026-10-17T20:00:00Z",
   setupDoneAt: "2026-10-17T20:00:00Z",
   signer: "Dr. Demo",
   clinicName: "Maple Street Animal Hospital",

@@ -34,7 +34,7 @@ for (const v of [
       key,
       JSON.stringify({
         ...current,
-        consentAcknowledgedAt: "2026-10-17T20:00:00Z",
+        updateCheck: "off", consentAcknowledgedAt: "2026-10-17T20:00:00Z",
         setupDoneAt: "2026-10-17T20:00:00Z",
         uiLanguage: "en",
         draftOnStop: false,
@@ -107,7 +107,7 @@ if (mic) {
       key,
       JSON.stringify({
         ...current,
-        consentAcknowledgedAt: "2026-10-17T20:00:00Z",
+        updateCheck: "off", consentAcknowledgedAt: "2026-10-17T20:00:00Z",
         setupDoneAt: "2026-10-17T20:00:00Z",
         uiLanguage: "en",
         draftOnStop: false,

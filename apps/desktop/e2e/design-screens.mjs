@@ -95,10 +95,10 @@ async function context(v, extra = {}) {
       const accepted = firstRun
         ? { consentAcknowledgedAt: null, walkthroughDoneAt: null, showWalkthrough: false }
         : setup === "walkthrough"
-          ? { consentAcknowledgedAt: "2026-10-17T20:00:00Z", showSetup: "full" }
+          ? { updateCheck: "off", consentAcknowledgedAt: "2026-10-17T20:00:00Z", showSetup: "full" }
           : setup === "card"
-            ? { consentAcknowledgedAt: "2026-10-17T20:00:00Z", setupDoneAt: null, setupCardDismissedAt: null }
-            : { consentAcknowledgedAt: "2026-10-17T20:00:00Z", setupDoneAt: "2026-10-17T20:00:00Z" };
+            ? { updateCheck: "off", consentAcknowledgedAt: "2026-10-17T20:00:00Z", setupDoneAt: null, setupCardDismissedAt: null }
+            : { updateCheck: "off", consentAcknowledgedAt: "2026-10-17T20:00:00Z", setupDoneAt: "2026-10-17T20:00:00Z" };
       localStorage.setItem(key, JSON.stringify({ ...current, ...accepted, uiLanguage: "en" }));
     },
     { firstRun: Boolean(extra.firstRun), setup: extra.setup ?? null },

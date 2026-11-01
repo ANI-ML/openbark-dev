@@ -66,7 +66,7 @@ async function prepare(ctx) {
   await ctx.addInitScript(() => {
     localStorage.setItem(
       "openbark.settings",
-      JSON.stringify({ consentAcknowledgedAt: "2026-10-17T20:00:00Z", setupDoneAt: "2026-10-17T20:00:00Z", uiLanguage: "en", draftOnStop: false }),
+      JSON.stringify({ updateCheck: "off", consentAcknowledgedAt: "2026-10-17T20:00:00Z", setupDoneAt: "2026-10-17T20:00:00Z", uiLanguage: "en", draftOnStop: false }),
     );
     const md = navigator.mediaDevices;
     if (!md?.getUserMedia) return;

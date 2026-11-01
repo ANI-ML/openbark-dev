@@ -1582,6 +1582,51 @@ export const clearHfToken = () =>
     ? invoke<HfTokenStatus>("clear_hf_token", { by: actor })
     : api<HfTokenStatus>("/api/hf-token/clear", post({ by: actor }));
 
+// ---- The version check (ADR-0035, docs/network.md R16) ---------------------------
+
+/**
+ * What the version check knows. The engine makes the request (Rust on the
+ * desktop, `openbark serve` in web mode), never this page.
+ */
+export interface UpdateView {
+  /** The version running. */
+  current: string;
+  /** This call asked openbark.io (false: under 24 hours since the last automatic check). */
+  checked: boolean;
+  /** The newest published version seen, now or at the last check. */
+  latest: string | null;
+  /** `latest` is newer than the version running. */
+  newer: boolean;
+  /** The release notes page (What's new), checked by the engine. */
+  notes: string | null;
+  /** What Download opens: the website's download section. */
+  download: string;
+  /** When openbark.io was last asked, in seconds since 1970. */
+  checked_at: number | null;
+}
+
+/**
+ * Ask openbark.io for the newest version. `manual`: the person pressed Check
+ * for updates. Otherwise the engine asks at most once in 24 hours, and the
+ * app calls this only while the daily check is on.
+ */
+export const checkForUpdate = (manual: boolean) =>
+  isDesktop
+    ? invoke<UpdateView>("check_for_update", { manual })
+    : api<UpdateView>("/api/update/check", post({ manual }));
+/** What the last check found, without asking openbark.io. */
+export const updateStatus = () => (isDesktop ? invoke<UpdateView>("update_status") : api<UpdateView>("/api/update"));
+/**
+ * Open What's new or Download in the browser. The desktop opens the engine's
+ * own checked address; in web mode this page opens it in a new tab.
+ */
+export function openReleaseLink(which: "notes" | "download", view: UpdateView): Promise<void> {
+  if (isDesktop) return invoke<void>("open_release_link", { which });
+  const url = which === "notes" ? view.notes : view.download;
+  if (url) window.open(url, "_blank", "noopener,noreferrer");
+  return Promise.resolve();
+}
+
 /** GGUF builds of an MLX repo's base model, to suggest instead. */
 export const hubAlternatives = (base: string) =>
   isDesktop

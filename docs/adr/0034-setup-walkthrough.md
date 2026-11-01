@@ -91,7 +91,7 @@ It replaces the bare `SetupPanel` on computers. The iPhone keeps `SetupPanel` an
 - It is a choice within the speech step rather than a step of its own: it is one question about speech, and a step for one dropdown would lengthen setup for everyone.
 - It doesn't suggest the interface language. On Auto the second listen already expects the app's language, and no language has its own main recogniser yet (`LOCKED_MAIN` is empty), so the suggestion would change nothing.
 
-**Update check.** No update-check question here. If the opt-in update notice (ADR-0035) lands first, an optional step may reuse its setting.
+**Update check.** Setup doesn't ask it. The version question (ADR-0035) is its own one-time card, and it waits until setup is done (`setupDone` in setup.ts, part of the card's `ready` in App.tsx): the walkthrough is neither open nor due, and it was finished or skipped, or every model was already here. So it never appears over the walkthrough, and people on a computer set up before this version are still asked once.
 
 ### 3. Existing installs
 

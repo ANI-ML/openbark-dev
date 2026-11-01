@@ -5,7 +5,9 @@
 # or raw sockets, or opens a socket in its source.
 #
 # HTTP clients:
-#   os-models:  model downloads (R1, R2, R4, R5)
+#   os-models:  model downloads (R1, R2, R4, R5), and the version check
+#               (R16; ADR-0035): one GET of www.openbark.io/release.json,
+#               only from engine/os-models/src/update.rs, checked below
 #   os-connect: the clinic's own Twilio account, REST to api.twilio.com only
 #               (R9; ADR-0023)
 #   os-sync:    encrypted sync: Supabase Auth and REST (R12, R13; being
@@ -59,5 +61,16 @@ for f in "${files[@]}"; do
   fi
 done
 
+# The version check (R16, ADR-0035): its one address is named only in
+# os-models/src/update.rs, so no other code (and not the WebView) reads it.
+release_home="engine/os-models/src/update.rs"
+mapfile -t release_files < <(grep -rlF 'openbark.io/release.json'   engine/*/src apps/desktop/src-tauri/src apps/desktop/src tools/*/src 2>/dev/null || true)
+for f in "${release_files[@]}"; do
+  if [[ "$f" != "$release_home" ]]; then
+    echo "::error::$f names the version check's address; only $release_home may (see docs/network.md R16)"
+    violations=$((violations + 1))
+  fi
+done
+
 if [[ $violations -gt 0 ]]; then exit 1; fi
-echo "network check: HTTP clients only in [$http_clients]; TLS, listeners and mDNS only in os-sync, os-hub and os-server (loopback); sockets only in [$socket_crates]"
+echo "network check: HTTP clients only in [$http_clients]; TLS, listeners and mDNS only in os-sync, os-hub and os-server (loopback); sockets only in [$socket_crates]; the version check's address only in $release_home"

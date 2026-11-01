@@ -59,6 +59,7 @@ pub mod policy;
 mod speed;
 mod sync;
 mod templates;
+pub mod update;
 mod vocabulary;
 pub use clinic_hub::{hub_dir, hub_inspect};
 pub use mic::{MicLevel, MicTestStarted};
@@ -74,6 +75,7 @@ pub use phone::{
     PhoneToken, PhoneView, SetupCheck, TwilioView, check_call_sample_rate,
 };
 pub use speed::SpeedCheck;
+pub use update::UpdateView;
 pub use vocabulary::VocabularyView;
 
 /// Progress notifications for the UI.

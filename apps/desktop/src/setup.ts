@@ -45,6 +45,21 @@ export function setupMode(
 }
 
 /**
+ * Setup is out of the way, for questions that would otherwise sit over the
+ * walkthrough, such as the version check (ADR-0035). On a computer: the
+ * walkthrough isn't open or due, and it was finished or skipped
+ * (`setupDoneAt`), or it was never needed because every model was already
+ * here (a computer set up before this version, which gets the card instead).
+ * The iPhone has its own walkthrough (`walkthroughDue`).
+ */
+export function setupDone(status: engine.Status | null, s: Settings, waitingForUser: boolean): boolean {
+  if (!status) return false;
+  if (isIos(status)) return true;
+  if (setupMode(status, s, waitingForUser)) return false;
+  return Boolean(s.setupDoneAt) || status.models.every((m) => m.installed);
+}
+
+/**
  * The one-time "Check my setup" card for a computer that was set up before
  * this version: everything is downloaded, setup was never run, and the card
  * wasn't dismissed. It suggests; it never changes a model.

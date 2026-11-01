@@ -362,6 +362,8 @@ fn router(state: St, ui_dir: &std::path::Path, port: u16) -> Router {
         .route("/api/gpu/remove", post(remove_gpu))
         .route("/api/hf-token", get(hf_token_status).post(set_hf_token))
         .route("/api/hf-token/clear", post(clear_hf_token))
+        .route("/api/update", get(|State(s): State<St>| async move { Json(s.app().update_status()) }))
+        .route("/api/update/check", post(check_for_update))
         .route("/api/restart", post(restart))
         .route("/api/hub/search", get(hub_search))
         .route("/api/hub/repo", get(hub_repo))
@@ -1303,6 +1305,23 @@ async fn set_hf_token(State(s): State<St>, Json(r): Json<SetToken>) -> Result<im
 
 async fn clear_hf_token(State(s): State<St>, Json(r): Json<ByBody>) -> Result<impl IntoResponse, ApiError> {
     blocking(move || s.app().clear_hf_token(r.by.as_deref())).await
+}
+
+/// The version check in web mode (ADR-0035): this server asks openbark.io,
+/// never the browser, whose policy stays "this computer only". The page asks
+/// for the automatic check only while its daily check is on; `manual` is
+/// Check for updates. Once a day per computer, however many tabs are open.
+#[derive(Deserialize)]
+struct UpdateCheck {
+    #[serde(default)]
+    manual: bool,
+}
+
+async fn check_for_update(
+    State(s): State<St>,
+    Json(r): Json<UpdateCheck>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || s.app().check_for_update(r.manual)).await
 }
 
 #[derive(Deserialize)]

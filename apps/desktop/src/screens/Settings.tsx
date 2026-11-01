@@ -32,6 +32,7 @@ import { StorageSection } from "../components/StorageSection";
 import { SyncSection } from "../components/SyncSection";
 import { VocabularySection } from "../components/VocabularySection";
 import { TeamSettings } from "../components/TeamSettings";
+import { UpdateSettings, updatesOffered } from "../components/UpdateCheck";
 import type { Route, SettingsSection } from "../routes";
 import { PHONE, useMediaQuery } from "../useMediaQuery";
 import { isIos } from "../visits";
@@ -267,6 +268,7 @@ function SectionBody({ section }: { section: SettingsSection }) {
   const [error, setError] = useState<string | null>(null);
   const [syncOn, setSyncOn] = useState(false);
   const enc = app.status?.encryption;
+  const checksOn = s.updateCheck === "on" && updatesOffered(app.status);
 
   useEffect(() => {
     if (section !== "about") return;
@@ -667,12 +669,17 @@ function SectionBody({ section }: { section: SettingsSection }) {
             OpenBark <span className="mono">{app.status?.version}</span>.{" "}
             {t("Notes are drafts until a veterinarian signs them.")}
           </p>
-          {/* §8 offline notice: where OpenBark states its privacy. */}
+          {/* §8 offline notice: where OpenBark states its privacy. With the
+              daily version check on, it says so (ADR-0035). */}
           <p className="ob-notice" data-tone="ok">
             {syncOn
               ? t("Running locally. Encrypted sync is on: only encrypted copies of transcripts and notes leave this device, never recordings.")
-              : t("Running locally. Nothing leaves this device.")}
+              : checksOn
+                ? t("Running locally. Nothing about you, your clinic or your patients leaves this device.")
+                : t("Running locally. Nothing leaves this device.")}
+            {checksOn && <> {t("Once a day, OpenBark reads the latest version number from openbark.io.")}</>}
           </p>
+          <UpdateSettings />
           <CopyDiagnostics />
           {/* The computer's setup walkthrough again (ADR-0034). */}
           {!ios && (

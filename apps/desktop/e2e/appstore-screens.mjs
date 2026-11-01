@@ -52,7 +52,7 @@ async function open(scheme, firstRun) {
     const current = JSON.parse(localStorage.getItem(key) ?? "{}");
     const accepted = first
       ? { consentAcknowledgedAt: null, walkthroughDoneAt: null, showWalkthrough: false }
-      : { consentAcknowledgedAt: "2026-10-17T20:00:00Z", setupDoneAt: "2026-10-17T20:00:00Z", walkthroughDoneAt: "2026-10-17T20:00:00Z" };
+      : { updateCheck: "off", consentAcknowledgedAt: "2026-10-17T20:00:00Z", setupDoneAt: "2026-10-17T20:00:00Z", walkthroughDoneAt: "2026-10-17T20:00:00Z" };
     localStorage.setItem(key, JSON.stringify({ ...current, ...accepted, uiLanguage: "en" }));
   }, firstRun);
   const page = await ctx.newPage();
@@ -180,7 +180,7 @@ for (const scheme of ["light", "dark"]) {
   await ctx.addInitScript(() => {
     const key = "openbark.settings";
     const current = JSON.parse(localStorage.getItem(key) ?? "{}");
-    const accepted = { consentAcknowledgedAt: "2026-10-17T20:00:00Z", setupDoneAt: "2026-10-17T20:00:00Z", walkthroughDoneAt: "2026-10-17T20:00:00Z" };
+    const accepted = { updateCheck: "off", consentAcknowledgedAt: "2026-10-17T20:00:00Z", setupDoneAt: "2026-10-17T20:00:00Z", walkthroughDoneAt: "2026-10-17T20:00:00Z" };
     localStorage.setItem(key, JSON.stringify({ ...current, ...accepted, uiLanguage: "en" }));
   });
   const page = await ctx.newPage();

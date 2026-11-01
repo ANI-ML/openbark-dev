@@ -1,8 +1,8 @@
 //! Model catalog, local store and downloader.
 //!
-//! This crate holds the engine's only network code paths: [`download`] and
-//! [`hub`] (model search). Every host they can reach is listed in
-//! `docs/network.md`.
+//! This crate holds the engine's network code paths for models: [`download`]
+//! and [`hub`] (model search); and the version check, [`update`] (ADR-0035).
+//! Every host they can reach is listed in `docs/network.md`.
 
 mod catalog;
 mod download;
@@ -14,6 +14,7 @@ pub mod mlx_pack;
 pub mod platform;
 pub mod remove;
 mod store;
+pub mod update;
 
 pub use catalog::LlmEngine;
 pub use catalog::{Catalog, CatalogEntry, FileSpec, Layout, Slot, Source};

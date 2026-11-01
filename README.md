@@ -104,8 +104,8 @@ The in-app **Help** has short videos for each of these. The written guide is in 
 
 ## Privacy
 
-- Recording, transcription and drafting all run on your computer. No telemetry, no analytics, no update checks, no cloud fallback.
-- Every network connection OpenBark can make is listed in [docs/network.md](docs/network.md): model downloads you start (from Hugging Face and GitHub), the optional GPU speech pack if you choose it (from GitHub and NVIDIA's packages on PyPI), and a Hugging Face search you open. On Windows, the setup wizard downloads Microsoft WebView2 if the computer doesn't have it. Nothing about patients ever leaves the computer.
+- Recording, transcription and drafting all run on your computer. No telemetry, no analytics, no cloud fallback. OpenBark asks once whether to check for new versions; only if you say yes does it read the latest version number from openbark.io once a day, and nothing about you, your clinic or your patients is sent.
+- Every network connection OpenBark can make is listed in [docs/network.md](docs/network.md): model downloads you start (from Hugging Face and GitHub), the optional GPU speech pack if you choose it (from GitHub and NVIDIA's packages on PyPI), a Hugging Face search you open, and the version check if you turn it on (from www.openbark.io). On Windows, the setup wizard downloads Microsoft WebView2 if the computer doesn't have it. Nothing about patients ever leaves the computer.
 - Recordings, transcripts, notes and the patient list are encrypted at rest (XChaCha20-Poly1305). The key is kept in the system keychain, or in a file in your user folder if the keychain isn't available (Settings says so). Save the recovery key (Settings > Encryption > Show the recovery key) and keep it safe. Without it, visits can't be opened on another computer, after reinstalling, or if this computer's key is lost.
 - Choose where visits and models are kept (Settings > Storage), such as a backed-up drive.
 - The browser version listens on 127.0.0.1 only and refuses requests from other sites.
