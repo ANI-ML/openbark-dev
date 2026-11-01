@@ -632,6 +632,33 @@ async fn clear_hf_token(
     work(move || app.clear_hf_token(by.as_deref())).await
 }
 
+// ---- The version check (ADR-0035, docs/network.md R16) ----------------------
+// The request is made here in Rust (os_models::update), never by the
+// WebView, so the main window's Content-Security-Policy stays "this
+// computer only". The interface asks for the automatic check only while
+// the person's daily check is on; `manual` is Check for updates.
+
+#[tauri::command]
+async fn check_for_update(app: State<'_, AppState>, manual: bool) -> Result<os_app::UpdateView, String> {
+    let app = app.inner().clone();
+    work(move || app.check_for_update(manual)).await
+}
+
+/// What the last check found; no request.
+#[tauri::command]
+fn update_status(app: State<'_, AppState>) -> os_app::UpdateView {
+    app.update_status()
+}
+
+/// What's new (`notes`) or Download (`download`) in the default browser. The
+/// address comes from the engine's checked list, never from the WebView.
+#[tauri::command]
+fn open_release_link(handle: AppHandle, app: State<'_, AppState>, which: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let url = app.release_link(&which).map_err(|e| e.0)?;
+    handle.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn hub_alternatives(
     app: State<'_, AppState>,
@@ -1648,6 +1675,9 @@ pub fn run() {
         hf_token_status,
         set_hf_token,
         clear_hf_token,
+        check_for_update,
+        update_status,
+        open_release_link,
         hub_search,
         hub_repo,
         hub_add,
