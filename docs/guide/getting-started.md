@@ -16,9 +16,20 @@ The first time OpenBark opens on a computer, it shows a short notice. Recording 
 
 If you want OpenBark to record how each client consented (out loud, a signed form, or consent on file), turn on **Record how the client consented, each time I record** in Settings. The consent is then saved with each encounter and shown in Review.
 
-## Download the models (once)
+## Set up OpenBark (once)
 
-OpenBark transcribes and writes notes with models that run on your computer. If they aren't there yet, the **Record** screen shows **Download the models to start** with the total size (about 6 GB). Choose **Download everything**. The smallest models download first, the computer stays awake, and an interrupted download resumes when you choose **Try again**. After this, OpenBark works offline.
+OpenBark transcribes and writes notes with models that run on your computer. The first time it opens, after the consent notice, **Set up OpenBark** walks you through them. Decisions: [ADR-0034](../adr/0034-setup-walkthrough.md).
+
+1. **This computer.** Its memory, processor cores, graphics (a dedicated graphics card, integrated graphics or Apple silicon), the free space where models are kept, and the system, with what that means: notes are written on the graphics, or on the processor.
+2. **The note model.** OpenBark recommends Gemma 4 E2B or Gemma 4 E4B for this computer and says why in a sentence, for example "16 GB of memory but no graphics card, and 4 processor cores: the smaller model writes notes about 1.6 times as fast on a processor, and finds slightly fewer details (90% of facts against 95% in OpenBark's tests)". Both are shown with their download size and what each does better or worse; you can choose the other one.
+3. **Speech models.** The built-in speech models: what each does, its size, and that they run on this computer. On Windows with an NVIDIA graphics card, the optional **GPU speech pack** is offered too, after you accept NVIDIA's licence.
+4. **Download.** Smallest first, each model with its own clock, the speed, the time left and the expected finish. The computer stays awake, and an interrupted download resumes when you choose **Try again**. After this, OpenBark works offline.
+5. **Speed check** (optional). The note model writes a short practice note from an invented consult for about half a minute, nothing from your visits, and OpenBark says how long a note for a long visit will take on this computer. The estimate is worked out from the speed measured and OpenBark's long test visit (16 minutes of non-stop talking); shorter visits take less. If it's more than five minutes with Gemma 4 E4B, setup suggests Gemma 4 E2B, with the reason. Models and Record show the result afterwards. **Skip the speed check** leaves it out.
+6. **Recording tips.** A USB or clip-on microphone close to the people talking, or the iPhone app placed near them; **Speakers in the room** set to 2 for a vet and a client; and review every draft before you sign it.
+
+**Skip setup** closes it; the Record screen then offers **Set up OpenBark** until the models are downloaded. **Run setup again** is in **Models**, in **Help** and in **Settings → About**.
+
+A computer that already had OpenBark before this version sees a one-time card on Record instead: **Check my setup** runs the first two steps and the speed check. It only suggests: the note model changes only if you choose another one. **Not now** hides the card for good.
 
 The **Models** screen lists every model, its size and licence, and whether it fits your computer's memory. **What the model names mean** at the top explains the labels in plain words, and says which model suits your computer:
 

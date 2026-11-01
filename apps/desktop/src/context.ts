@@ -52,6 +52,30 @@ export interface Settings {
   walkthroughDoneAt: string | null;
   /** iPhone profile: show the walkthrough again (Settings, Help). */
   showWalkthrough: boolean;
+  /** Computer: when the setup walkthrough was finished or skipped (ADR-0034). */
+  setupDoneAt: string | null;
+  /** Computer: when the one-time "Check my setup" card was dismissed or used. */
+  setupCardDismissedAt: string | null;
+  /** Computer: open the setup walkthrough again, the whole of it or the check (Settings, Models, Help). */
+  showSetup: "full" | "check" | null;
+  /**
+   * When the person chose the note model in setup: the app then never swaps
+   * it for the computer's default on its own (App.tsx).
+   */
+  noteModelChosenAt: string | null;
+  /** The last speed check on this computer (ADR-0034), for Models and Record. */
+  speedCheck: SavedSpeedCheck | null;
+}
+
+/** A speed check's result, kept on this device. */
+export interface SavedSpeedCheck {
+  model: string;
+  /** Tokens a second, reading and writing. */
+  read: number;
+  write: number;
+  /** A long visit's note at these speeds, in seconds. */
+  noteSecs: number | null;
+  at: string;
 }
 
 /** The app language to start in: the browser's, if we have it. */
@@ -92,6 +116,11 @@ const DEFAULTS: Settings = {
   writeNotesHere: false,
   walkthroughDoneAt: null,
   showWalkthrough: false,
+  setupDoneAt: null,
+  setupCardDismissedAt: null,
+  showSetup: null,
+  noteModelChosenAt: null,
+  speedCheck: null,
 };
 
 const KEY = "openbark.settings";

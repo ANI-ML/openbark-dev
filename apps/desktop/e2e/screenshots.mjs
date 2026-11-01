@@ -35,6 +35,7 @@ for (const v of variants) {
   // The first variant also turns on the optional per-recording consent step to capture it.
   const seed = {
     consentAcknowledgedAt: v.notice ? null : "2026-10-17T20:00:00Z",
+    setupDoneAt: "2026-10-17T20:00:00Z",
     consentEachTime: Boolean(v.notice),
     uiLanguage: v.lang ?? "en",
   };

@@ -1,6 +1,7 @@
 # ADR-0030: Drafting on weak computers: the note model by memory, no integrated graphics, Stop and bounds
 
 - Status: accepted (2026-10-28, OpenBark 0.2.3)
+- Amended by: [ADR-0034](0034-setup-walkthrough.md) (decision 1: the recommendation also weighs where notes are written and the processor's cores)
 - Date: 2026-10-28
 - Deciders: product owner, engineering
 - Amends: the computers' default note model (Gemma 4 E4B for every computer, `os_engine::models::DEFAULT_LLM`); ADR-0019's open question on integrated graphics; ADR-0014 decision 1 (thread counts) for the note model only

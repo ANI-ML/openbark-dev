@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import * as engine from "./engine";
 import { ConsentNotice } from "./components/ConsentNotice";
 import { PhoneWalkthrough, walkthroughDue } from "./components/PhoneWalkthrough";
+import { SetupWalkthrough } from "./components/SetupWalkthrough";
 import { Toast } from "./components/Toast";
 import { ROLE_LABEL, UserPicker } from "./components/UserPicker";
 import { AppContext, loadSettings, permissions, saveSettings, type Settings, type ToastAction } from "./context";
@@ -28,6 +29,7 @@ import { SettingsScreen } from "./screens/Settings";
 import { Templates } from "./screens/Templates";
 import { Help } from "./screens/Help";
 import { Visits } from "./screens/Visits";
+import { setupMode } from "./setup";
 import { isIos, needsYou } from "./visits";
 
 export type { Route } from "./routes";
@@ -137,6 +139,8 @@ export function App() {
   // already drafts with E4B keeps it (Models and Record suggest switching).
   useEffect(() => {
     if (!status || status.profile === "ios" || !status.default_llm) return;
+    // A model chosen in setup (ADR-0034) is the person's choice: never swapped.
+    if (settings.noteModelChosenAt) return;
     if (settings.llm !== "gemma-4-e4b-it-q4_0" || status.default_llm === settings.llm) return;
     const wanted = status.default_llm;
     engine.models().then(
@@ -218,6 +222,8 @@ export function App() {
     levels,
   };
   const active = activeOf(route);
+  /** The computer's setup walkthrough (ADR-0034), once consent is given and, with a team, someone is chosen. */
+  const setup = setupMode(status, settings, team && !user);
   const t = (text: string, vars?: Record<string, string | number>) => translate(settings.uiLanguage, text, vars);
   /** On a phone, Templates, Models and Help open from Settings, so its tab stays marked. */
   const underSettings = active === "templates" || active === "models" || active === "help";
@@ -359,6 +365,7 @@ export function App() {
           }}
         />
       )}
+      {setup && <SetupWalkthrough key={setup} mode={setup} />}
       {/* The toast arrives and leaves (it used to vanish); a new one waits for the old to go. */}
       <AnimatePresence mode="wait">
         {toast && <Toast key={toast.n} message={toast.message} action={toast.action} onClose={closeToast} />}

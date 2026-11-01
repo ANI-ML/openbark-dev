@@ -98,7 +98,7 @@ await ctx.addInitScript(() => {
   const key = "openbark.settings";
   const current = JSON.parse(localStorage.getItem(key) ?? "{}");
   if (!("consentAcknowledgedAt" in current))
-    localStorage.setItem(key, JSON.stringify({ ...current, consentAcknowledgedAt: "2026-10-19T08:00:00Z", uiLanguage: "en" }));
+    localStorage.setItem(key, JSON.stringify({ ...current, consentAcknowledgedAt: "2026-10-19T08:00:00Z", setupDoneAt: "2026-10-19T08:00:00Z", uiLanguage: "en" }));
 });
 const page = await ctx.newPage();
 const errors = [];

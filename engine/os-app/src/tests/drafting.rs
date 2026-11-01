@@ -208,3 +208,45 @@ fn the_log_never_holds_names_transcript_words_or_note_text() {
     assert!(text.contains("Note model: writer (chosen)"), "{text}");
     assert!(!text.to_lowercase().contains("mochi"));
 }
+
+/// The speed check (ADR-0034) times the fake model from its own counts:
+/// 812 prompt tokens read in 400 ms, written at 12.5 tokens a second.
+#[test]
+fn the_speed_check_measures_reading_and_writing_and_estimates_a_long_visit() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app = app_in(tmp.path());
+    load_fake(&app, "writer", Arc::new(Writer(soap_note_with("Eating well"))));
+    let board = Board::default();
+    let check = app.speed_check("writer", &board).unwrap();
+    assert_eq!(check.model, "writer");
+    assert_eq!((check.read_tokens, check.read_ms, check.written_tokens), (812, 400, 96));
+    assert!((check.read_tokens_per_second - 2030.0).abs() < 0.01);
+    assert!((check.write_tokens_per_second - 12.5).abs() < 0.01);
+    // 7,024 tokens at 2,030 a second and 3,503 at 12.5 a second.
+    assert_eq!(check.long_visit_note_secs, Some(284));
+    assert_eq!(check.drafts_on, app.hardware.drafts_on);
+    let stages = board.stages.lock().unwrap().clone();
+    assert!(stages.contains(&Stage::ReadTranscript) && stages.contains(&Stage::Write), "{stages:?}");
+    assert!(!stages.contains(&Stage::Save), "nothing is saved");
+    assert!(!app.cancel_draft(), "the finished check left the slot");
+}
+
+#[test]
+fn stop_ends_the_speed_check() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app = Arc::new(app_in(tmp.path()));
+    let reading = Arc::new(AtomicBool::new(false));
+    load_fake(&app, "slow", Arc::new(SlowReader { reading: reading.clone() }));
+    let worker = {
+        let app = app.clone();
+        std::thread::spawn(move || app.speed_check("slow", &Quiet))
+    };
+    let waited = Instant::now();
+    while !reading.load(Ordering::SeqCst) {
+        assert!(waited.elapsed() < Duration::from_secs(20), "the check never started reading");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(app.cancel_draft());
+    let err = worker.join().unwrap().err().expect("the check was stopped");
+    assert_eq!(err.0, DRAFT_STOPPED);
+}

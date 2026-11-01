@@ -2,7 +2,7 @@
 
 | You see | What it means | What to do |
 |---|---|---|
-| **Download the models to start** | The speech or note models aren't on this computer yet | Choose **Download everything**. If a download stops, choose **Try again**: it resumes. |
+| **Download the models to start** | The speech or note models aren't on this computer yet | Choose **Set up OpenBark** (on an iPhone, **Download everything**). If a download stops, choose **Try again**: it resumes. |
 | "Microphone access was blocked" | The browser was told not to use the microphone | Allow the microphone for this page in the browser's address bar, then record again. See [Microphone problems](#microphone-problems). |
 | "… is sending silence" while recording | The microphone is muted, or OpenBark isn't allowed to use it | See [Microphone problems](#microphone-problems). |
 | "The microphone was disconnected, so recording is paused" | The microphone was unplugged or a Bluetooth headset dropped out, and no other microphone is connected | Plug it back in or connect another: recording carries on by itself. Or press Stop to keep what was recorded. |

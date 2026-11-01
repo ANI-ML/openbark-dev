@@ -763,6 +763,18 @@ fn cancel_draft(app: State<'_, AppState>) -> bool {
     app.cancel_draft()
 }
 
+/// The speed check (setup, ADR-0034): time the note model on invented text.
+/// Stop is `cancel_draft`.
+#[tauri::command]
+async fn speed_check(
+    handle: AppHandle,
+    app: State<'_, AppState>,
+    llm: String,
+) -> Result<os_app::SpeedCheck, String> {
+    let app = app.inner().clone();
+    work(move || app.speed_check(&llm, &TauriEvents(handle))).await
+}
+
 /// Copy diagnostics (Settings, About): the computer, the note model, the
 /// last draft's timings and the end of the log. Nothing from any visit.
 #[tauri::command]
@@ -1566,6 +1578,7 @@ pub fn run() {
         stop_recording,
         generate_note,
         cancel_draft,
+        speed_check,
         diagnostics,
         sign_note,
         confirm_chart,

@@ -23,6 +23,8 @@
 //! - `POST /api/sessions/{id}/notes`        `{llm, template, language?}`
 //! - `POST /api/notes/cancel`               Stop the running draft (`true` when one was running);
 //!   it answers its own request with "Drafting stopped. Nothing was saved."
+//! - `POST /api/speed-check`                `{llm}`: time the note model on invented text and
+//!   estimate a long visit's note here (ADR-0034); Stop is `/api/notes/cancel`
 //! - `GET  /api/diagnostics?note_model=`    Copy diagnostics: the computer, the note model, the
 //!   last draft's timings and the end of the log (nothing from any visit)
 //! - `POST /api/sessions/{id}/refine`       `{llm, heading, request, save_as_standard, by}`:
@@ -296,6 +298,7 @@ fn router(state: St, ui_dir: &std::path::Path, port: u16) -> Router {
         .route("/api/sessions/{id}/audio", get(session_audio))
         .route("/api/sessions/{id}/notes", post(create_note))
         .route("/api/notes/cancel", post(|State(s): State<St>| async move { Json(s.app().cancel_draft()) }))
+        .route("/api/speed-check", post(speed_check))
         .route("/api/diagnostics", get(diagnostics))
         .route("/api/sessions/{id}/sign", post(sign_note))
         .route("/api/sessions/{id}/chart/confirm", post(confirm_chart))
@@ -1602,6 +1605,22 @@ async fn create_note(
             req.by.as_deref(),
             events.as_ref(),
         )
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+struct SpeedCheckRequest {
+    llm: String,
+}
+
+async fn speed_check(
+    State(s): State<St>,
+    Json(req): Json<SpeedCheckRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || {
+        let events = s.events.clone();
+        s.app().speed_check(&req.llm, events.as_ref())
     })
     .await
 }

@@ -1,5 +1,5 @@
 import { Button, Sheet, Skeleton, StatusDot } from "@openbark/ui";
-import { ArrowLeft, Download, FilePlus, Search, Trash2, X } from "lucide-react";
+import { ArrowLeft, Download, FilePlus, Search, Signpost, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { fmtBytes, useApp } from "../context";
 import * as engine from "../engine";
@@ -11,6 +11,7 @@ import { MLX_CARD_ID, MlxCard } from "../components/MlxCard";
 import { ModelGuide, ModelMeaning, ModelTags } from "../components/ModelGuide";
 import { NoteModelAdvice } from "../components/NoteModelAdvice";
 import { RemoveModelDialog, rowBytes } from "../components/RemoveModelDialog";
+import { useSpeedLine } from "../components/SetupCheckCard";
 import { PHONE_STARTERS, STARTERS } from "../modelGuide";
 import { PHONE, useMediaQuery } from "../useMediaQuery";
 import { noPhoneDrafting, phoneCanDraft } from "../visits";
@@ -148,6 +149,8 @@ export function Models() {
   /** Phone width (layout only): stacked catalog rows, plain names, a quieter Browse button. */
   const narrow = useMediaQuery(PHONE);
   const label = (name: string) => (narrow ? plainModelName(name).name : name);
+  /** The last speed check of the chosen note model (ADR-0034). */
+  const speedLine = useSpeedLine();
   const rowProps = (r: engine.ModelRow) => ({
     row: r,
     progress: progress[r.id],
@@ -174,6 +177,12 @@ export function Models() {
           <h1>{t("Models")}</h1>
         </div>
         <div className="head-actions">
+          {!phone && (
+            <Button variant="ghost" onClick={() => app.setSettings({ showSetup: "full" })}>
+              <Signpost size={20} aria-hidden />
+              {t("Run setup again")}
+            </Button>
+          )}
           {!phone && (
             <Button onClick={() => setAdding(true)}>
               <FilePlus size={20} aria-hidden />
@@ -261,6 +270,11 @@ export function Models() {
                   <option value={app.settings.llm}>{app.settings.llm}</option>
                 )}
               </select>
+              {speedLine && !phone && (
+                <span className="small muted slots-speed" data-testid="speed-line">
+                  {speedLine}
+                </span>
+              )}
             </dd>
           </div>
           <div>
