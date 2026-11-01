@@ -71,7 +71,7 @@ It replaces the bare `SetupPanel` on computers. The iPhone keeps `SetupPanel` an
    - Both choices, with download size, a Recommended badge, and what each does better or worse, all from the eval above.
    - A model that won't fit is labelled.
    - The person can choose the other model.
-3. **Speech models.** What each one does, its size, and that they run on this computer. The GPU speech pack (ADR-0014) is offered only where it can work (`gpu_status().supported`: Windows with an NVIDIA card). Its reason is the RTX 4080 measurement already in the GPU card, and NVIDIA's licence must be accepted first.
+3. **Speech models.** What each one does, its size, and that they run on this computer. The GPU speech pack (ADR-0014) is offered only where it can work (`gpu_status().supported`: Windows with an NVIDIA card). Its reason is the RTX 4080 measurement already in the GPU card, and NVIDIA's licence must be accepted first. The step also has the Spoken language choice (below).
 4. **Download.**
    - Smallest first.
    - One step per model, each with its own clock.
@@ -85,10 +85,11 @@ It replaces the bare `SetupPanel` on computers. The iPhone keeps `SetupPanel` an
 
 "Skip setup" closes it; Record then offers "Set up OpenBark" while models are missing.
 
-**Spoken language.** TODO: there is no spoken-language step yet. The Spoken language setting (PR #44, ADR-0033) wasn't on main when this was written. When it lands, add a step between Speech and Download:
-- default Auto;
-- suggest the interface language's spoken language when it isn't English;
-- reuse that setting.
+**Spoken language.** The Speech models step has the Spoken language choice of Settings, Recording and consent (ADR-0033), on computers only (the iPhone has no second listen):
+- It is the same `spokenLanguage` setting, so App.tsx sends it to the engine as before (`set_spoken_language`, or `POST /api/spoken-language` in web mode). Setup adds no second copy.
+- It defaults to Auto, and says in plain words that it tells the second listen which language to expect and that Auto is fine for most clinics.
+- It is a choice within the speech step rather than a step of its own: it is one question about speech, and a step for one dropdown would lengthen setup for everyone.
+- It doesn't suggest the interface language. On Auto the second listen already expects the app's language, and no language has its own main recogniser yet (`LOCKED_MAIN` is empty), so the suggestion would change nothing.
 
 **Update check.** No update-check question here. If the opt-in update notice (ADR-0035) lands first, an optional step may reuse its setting.
 

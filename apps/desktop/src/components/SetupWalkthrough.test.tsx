@@ -171,6 +171,44 @@ describe("Set up OpenBark (ADR-0034)", () => {
     expect(screen.queryByText(/GPU speech pack/)).toBeNull();
   });
 
+  it("3. asks the spoken language, Auto by default, with the same setting as Settings (ADR-0033)", async () => {
+    const c = show(<SetupWalkthrough mode="full" />, ctx(laptop(false)));
+    press("Continue");
+    await screen.findByText("3.3 GB download");
+    press("Continue");
+    expect(title()).toBe("Speech models");
+    const select = screen.getByRole("combobox", { name: /^Spoken language/ }) as HTMLSelectElement;
+    expect(select.value).toBe("");
+    expect(Array.from(select.options).map((o) => o.textContent)).toEqual([
+      "Auto",
+      "English",
+      "Français",
+      "Español",
+      "Deutsch",
+      "Português",
+    ]);
+    expect(screen.getByText(/which language to expect\. Auto is fine for most clinics/)).toBeTruthy();
+    fireEvent.change(select, { target: { value: "fr" } });
+    expect(c.setSettings).toHaveBeenCalledWith({ spokenLanguage: "fr" });
+    fireEvent.change(select, { target: { value: "" } });
+    expect(c.setSettings).toHaveBeenLastCalledWith({ spokenLanguage: null });
+  });
+
+  it("3. shows a spoken language already chosen, and none on the iPhone", async () => {
+    show(<SetupWalkthrough mode="full" />, ctx(laptop(false), { spokenLanguage: "de" }));
+    press("Continue");
+    await screen.findByText("3.3 GB download");
+    press("Continue");
+    expect((screen.getByRole("combobox", { name: /^Spoken language/ }) as HTMLSelectElement).value).toBe("de");
+    cleanup();
+    show(<SetupWalkthrough mode="full" />, ctx({ ...laptop(false), profile: "ios" } as engine.Status));
+    press("Continue");
+    await screen.findByText("3.3 GB download");
+    press("Continue");
+    expect(title()).toBe("Speech models");
+    expect(screen.queryByRole("combobox", { name: /^Spoken language/ })).toBeNull();
+  });
+
   it("3. offers the GPU speech pack on an NVIDIA card, after the licence, and downloads it with the rest", async () => {
     mocked.gpuStatus.mockResolvedValue({
       supported: true,

@@ -279,8 +279,11 @@ pub fn required_status_for(
     required_status_with(store, profile, DEFAULT_LLM)
 }
 
-/// [`required_status_for`] with the computer's note model: the app picks it
-/// from the computer's memory (os-app's `policy::default_note_model`).
+/// [`required_status_for`] with the note model the app asks for. On a
+/// computer that is the model recommended from its memory, where notes are
+/// written and its processor cores (os-app's `policy::recommend_note_model`,
+/// ADR-0034), unless the other built-in note model is already downloaded. A
+/// phone's list has no note model, so `llm` is unused there.
 pub fn required_status_with(
     store: &ModelStore,
     profile: os_models::platform::Profile,

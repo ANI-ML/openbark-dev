@@ -3,7 +3,7 @@ import { ClipboardCheck, Download, Gauge, Lock, Mic, Square, UsersRound } from "
 import { useEffect, useRef, useState } from "react";
 import { fmtBytes, useApp } from "../context";
 import * as engine from "../engine";
-import { useT } from "../i18n";
+import { UI_LANGUAGES, useT } from "../i18n";
 import type { Route } from "../routes";
 import {
   E2B,
@@ -21,6 +21,7 @@ import {
   systemName,
   transferEta,
 } from "../setup";
+import { isIos } from "../visits";
 import { type BoardStep, ProgressBoard, type StepState } from "./ProgressBoard";
 
 type T = ReturnType<typeof useT>;
@@ -120,11 +121,11 @@ const idleMeasure = (): Measure => ({ state: "idle", at: { start: 0 }, prompt: n
  * processor, graphics, free space, system, and what that means), the note
  * model (a recommendation tied to this computer, both choices with what each
  * does better or worse), the built-in speech models (and the GPU speech
- * pack where it helps), the download (smallest first, every step timed, time
- * left and the projected finish), an optional speed check that measures
- * this computer, and recording tips. The check runs the computer, the note
- * model and the speed check only, and changes nothing unless the person
- * chooses. TODO(ADR-0034): a spoken-language step once that setting exists.
+ * pack where it helps, and the spoken language, ADR-0033), the download
+ * (smallest first, every step timed, time left and the projected finish), an
+ * optional speed check that measures this computer, and recording tips. The
+ * check runs the computer, the note model and the speed check only, and
+ * changes nothing unless the person chooses.
  */
 export function SetupWalkthrough({ mode }: { mode: SetupMode }) {
   const app = useApp();
@@ -447,6 +448,30 @@ export function SetupWalkthrough({ mode }: { mode: SetupMode }) {
                 );
               })}
             </ul>
+            {/* The same setting as Settings, Recording; App.tsx passes it to
+                the engine. Not on the iPhone, which has no second listen. */}
+            {!isIos(status) && (
+              <label className="ob-field setup-spoken">
+                <span className="label">{t("Spoken language")}</span>
+                <select
+                  className="ob-select"
+                  value={app.settings.spokenLanguage ?? ""}
+                  onChange={(e) => app.setSettings({ spokenLanguage: e.target.value || null })}
+                >
+                  <option value="">{t("Auto")}</option>
+                  {UI_LANGUAGES.map((l) => (
+                    <option key={l.code} value={l.code}>
+                      {l.name}
+                    </option>
+                  ))}
+                </select>
+                <span className="ob-help">
+                  {t(
+                    "It tells the second listen (which re-hears numbers and drug talk) which language to expect. Auto is fine for most clinics: the second listen then expects the app's language. Choose a language if everyone in the room speaks it. You can change this later in Settings, Recording and consent.",
+                  )}
+                </span>
+              </label>
+            )}
             {gpuOffer && gpu && (
               <div className="setup-gpu">
                 <h2>{t("Faster transcription on the graphics card")}</h2>
