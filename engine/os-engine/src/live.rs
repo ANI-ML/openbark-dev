@@ -215,6 +215,9 @@ pub struct SpeechModels {
     asr: os_asr::OfflineAsr,
     tracker: Option<os_diar::SpeakerTracker>,
     stt: String,
+    /// The language the recogniser was told to expect, for one that takes
+    /// one (Whisper); None for one that takes none (Parakeet).
+    language: Option<Option<&'static str>>,
     speaker_threshold: f32,
     /// The voice detector was built for Phone on speaker (ADR-0026).
     speakerphone: bool,
@@ -241,7 +244,12 @@ impl SpeechModels {
             vad_options = vad_options.speakerphone();
         }
         let vad = os_asr::SileroVad::new(vad_options)?;
-        let asr = os_asr::OfflineAsr::new(models::asr_model(store, &models::best_stt(store, &options.stt))?)?;
+        // Told the spoken language when it takes one (Whisper as the main
+        // recogniser, in the eval); Parakeet takes none.
+        let model =
+            models::with_speech_language(models::asr_model(store, &models::best_stt(store, &options.stt))?);
+        let language = matches!(model, os_asr::AsrModel::Whisper { .. }).then(models::speech_language);
+        let asr = os_asr::OfflineAsr::new(model)?;
         // Calls: the channel says who is speaking, so no embeddings (ADR-0023 section 7).
         let tracker = if options.label_speakers && !is_call {
             Some(os_diar::SpeakerTracker::new(
@@ -257,6 +265,7 @@ impl SpeechModels {
             asr,
             tracker,
             stt: options.stt.clone(),
+            language,
             speaker_threshold: options.speaker_threshold,
             speakerphone,
             vad_turns,
@@ -267,6 +276,7 @@ impl SpeechModels {
     /// detection settings as `options` (a recording, not a call).
     pub fn suits(&self, options: &LiveOptions) -> bool {
         self.stt == options.stt
+            && self.language.is_none_or(|l| l == models::speech_language())
             && self.tracker.is_some() == options.label_speakers
             && self.speaker_threshold == options.speaker_threshold
             && self.speakerphone == options.speakerphone
@@ -347,10 +357,15 @@ impl LiveRecorder {
         // Second recogniser for segments that matter (M1 item 4); optional.
         // It's the larger model, so it loads in the background once recording
         // has started rather than delaying the start (segments wait for it).
-        let second = models::asr_model(store, &models::best_stt(store, SECOND_STT))
-            .ok()
-            .map(models::with_speech_language)
-            .map(SecondAsr::load);
+        // Not when the main recogniser is that model itself (Whisper as the
+        // main recogniser, in the eval): it would only hear the same again.
+        let second_id = models::best_stt(store, SECOND_STT);
+        let second_model = if models::best_stt(store, &options.stt) == second_id {
+            None
+        } else {
+            models::asr_model(store, &second_id).ok()
+        };
+        let second = second_model.map(models::with_speech_language).map(SecondAsr::load);
         if second.is_none() {
             tracing::info!("second recogniser not installed; number cross-check off");
         }

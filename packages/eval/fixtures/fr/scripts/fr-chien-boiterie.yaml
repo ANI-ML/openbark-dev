@@ -1,0 +1,37 @@
+# Synthetic consult: written for OpenBark's test suite; not a real patient.
+# Standard French, voiced by synthetic French (France) voices. Not Quebec French.
+id: fr-chien-boiterie
+title: Chien qui boite du postérieur gauche
+species: canine
+category: fr
+speakers:
+  dvm: "piper:fr_FR-upmc-medium#1"
+  client: "piper:fr_FR-siwis-medium"
+pause_secs: 0.6
+lines:
+  - [dvm, "Bonjour. Qu'est-ce qui arrive à Oscar ?"]
+  - [client, "Il boite de la patte arrière gauche depuis trois jours. Ça a commencé après une course au parc."]
+  - [dvm, "Il pose la patte par terre, ou il la garde en l'air ?"]
+  - [client, "Il la pose un peu, mais il boite beaucoup le matin, quand il se lève."]
+  - [dvm, "Il a déjà eu des problèmes d'articulations ? Il prend des médicaments en ce moment ?"]
+  - [client, "Non, jamais. Il ne prend rien. Il a sept ans."]
+  - [dvm, "Il pèse trente-deux virgule quatre kilos. Température trente-huit virgule cinq."]
+  - [dvm, "Je le regarde marcher. Boiterie de grade trois sur cinq du postérieur gauche."]
+  - [dvm, "À la palpation, le grasset gauche est gonflé et douloureux. Le signe du tiroir est négatif, mais il est très tendu, donc je ne peux pas l'exclure."]
+  - [dvm, "La hanche gauche et le jarret sont normaux. Le postérieur droit est normal."]
+  - [dvm, "Je soupçonne une lésion du ligament croisé crânial du grasset gauche, ou une entorse."]
+  - [dvm, "Je vous propose des radiographies du grasset aujourd'hui, sous sédation."]
+  - [client, "D'accord, on fait les radiographies."]
+  - [dvm, "En attendant, on lui donne un anti-inflammatoire, le Metacam en suspension buvable, une fois par jour avec le repas, pendant dix jours."]
+  - [dvm, "Et du repos strict : seulement des petites promenades en laisse de dix minutes, pas de course ni de saut, pendant deux semaines."]
+  - [client, "Ça va être dur pour lui, mais d'accord."]
+  - [dvm, "Je vous appelle cet après-midi avec les résultats des radiographies."]
+
+expected:
+  vitals:
+    weight: "32.4"
+    temperature: "38.5"
+  medications:
+    - { drug: Metacam, duration: "10" }
+  must_mention: ["postérieur gauche", grasset, "ligament croisé", radiographie, laisse, "3/5", "deux semaines"]
+  must_not_mention: ["tiroir positif", "postérieur droit atteint"]

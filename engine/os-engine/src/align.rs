@@ -180,6 +180,115 @@ const STOPWORDS: &[&str] = &[
     "x",
 ];
 
+/// French words that carry no claim, accents folded ("deja" for "déjà").
+/// Words that are also English content words are left out ("pour", "plus",
+/// "son", "car", "comment", "par"), so an English statement keeps them.
+const FR_STOPWORDS: &[&str] = &[
+    "le",
+    "la",
+    "les",
+    "en",
+    "un",
+    "une",
+    "des",
+    "du",
+    "de",
+    "au",
+    "aux",
+    "et",
+    "ou",
+    "mais",
+    "donc",
+    "que",
+    "qui",
+    "quoi",
+    "ce",
+    "cet",
+    "cette",
+    "ces",
+    "ca",
+    "cela",
+    "ceci",
+    "se",
+    "sa",
+    "ses",
+    "mon",
+    "ma",
+    "mes",
+    "ton",
+    "ta",
+    "tes",
+    "notre",
+    "nos",
+    "votre",
+    "vos",
+    "leur",
+    "leurs",
+    "il",
+    "elle",
+    "ils",
+    "elles",
+    "nous",
+    "vous",
+    "je",
+    "tu",
+    "lui",
+    "ne",
+    "est",
+    "sont",
+    "ai",
+    "ont",
+    "ete",
+    "etre",
+    "avoir",
+    "fait",
+    "faire",
+    "avec",
+    "dans",
+    "sur",
+    "sous",
+    "chez",
+    "tres",
+    "bien",
+    "aussi",
+    "comme",
+    "si",
+    "oui",
+    "alors",
+    "ici",
+    "quand",
+    "tout",
+    "tous",
+    "toute",
+    "toutes",
+    "encore",
+    "deja",
+    "puis",
+    "ensuite",
+    "apres",
+    "avant",
+    "pendant",
+    "depuis",
+    "entre",
+    "vers",
+    "autre",
+    "meme",
+    "peu",
+    "moins",
+    "etait",
+    "sera",
+    "va",
+    "vais",
+    "peut",
+    "doit",
+    "faut",
+    "voila",
+    "euh",
+    "hum",
+    "bah",
+    "aujourd'hui",
+];
+
 /// Words a model adds when charting that nobody needs to have said.
 const FILLER: &[&str] = &[
     "patient",
@@ -266,6 +375,23 @@ const FILLER: &[&str] = &[
     "kgs",
     "mg",
     "ml",
+    // The same in French, accents folded.
+    "proprietaire",
+    "cliente",
+    "rapporte",
+    "signale",
+    "veterinaire",
+    "docteur",
+    "madame",
+    "monsieur",
+    "examen",
+    "visite",
+    "recommande",
+    "conseille",
+    "prevu",
+    "discute",
+    "environ",
+    "probablement",
 ];
 
 /// Abbreviations, spoken forms and synonyms folded to one token.
@@ -422,6 +548,18 @@ const FOLD: &[(&str, &str)] = &[
     ("increase", "more"),
     ("decreased", "less"),
     ("decrease", "less"),
+    // French negations, accents folded: "pas de vomissements" needs a
+    // negation in the cited line, as "no vomiting" does.
+    ("pas", "no"),
+    ("aucun", "no"),
+    ("aucune", "no"),
+    ("ni", "no"),
+    ("sans", "no"),
+    ("jamais", "no"),
+    ("rien", "no"),
+    ("negatif", "no"),
+    ("negatifs", "no"),
+    ("negatives", "no"),
 ];
 
 /// Negations that must be supported like any content word.
@@ -430,6 +568,41 @@ const NEGATIONS: &[&str] = &["no"];
 fn fold(word: &str) -> String {
     let w = word.trim_matches('\'');
     FOLD.iter().find(|(from, _)| *from == w).map(|(_, to)| to.to_string()).unwrap_or_else(|| stem(w))
+}
+
+/// Lowercase letters without their accents ("hyperhémie" is "hyperhemie",
+/// "œil" is "oeil"), so a word matches however it was spelled or heard.
+pub fn fold_accents(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            'à' | 'â' | 'ä' | 'á' | 'ã' => out.push('a'),
+            'ç' => out.push('c'),
+            'é' | 'è' | 'ê' | 'ë' => out.push('e'),
+            'î' | 'ï' | 'í' | 'ì' => out.push('i'),
+            'ô' | 'ö' | 'ó' | 'ò' | 'õ' => out.push('o'),
+            'ù' | 'û' | 'ü' | 'ú' => out.push('u'),
+            'ÿ' => out.push('y'),
+            'ñ' => out.push('n'),
+            'œ' => out.push_str("oe"),
+            'æ' => out.push_str("ae"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// A French word without its elided article or pronoun: "l'oeil" is
+/// "oeil", "d'ecoulement" is "ecoulement", "n'a" is "a".
+fn without_elision(w: &str) -> &str {
+    for prefix in ["qu'", "l'", "d'", "n'", "j'", "s'", "c'", "m'", "t'"] {
+        if let Some(rest) = w.strip_prefix(prefix)
+            && rest.chars().next().is_some_and(char::is_alphanumeric)
+        {
+            return rest;
+        }
+    }
+    w
 }
 
 /// A crude English stem: plurals and common verb endings.
@@ -468,8 +641,8 @@ fn stem(w: &str) -> String {
 fn words(text: &str) -> impl Iterator<Item = String> + '_ {
     text.split(|c: char| !(c.is_alphanumeric() || c == '\''))
         .filter(|w| !w.is_empty())
-        .map(|w| w.to_lowercase().replace("n't", " not"))
-        .flat_map(|w| w.split_whitespace().map(str::to_string).collect::<Vec<_>>())
+        .map(|w| fold_accents(&w.to_lowercase()).replace("n't", " not"))
+        .flat_map(|w| w.split_whitespace().map(|w| without_elision(w).to_string()).collect::<Vec<_>>())
 }
 
 /// The words of a statement that make a claim.
@@ -482,8 +655,11 @@ pub fn content_tokens(text: &str) -> Vec<String> {
         }
         let folded = fold(&w);
         let negation = NEGATIONS.contains(&folded.as_str());
-        if !negation && (STOPWORDS.contains(&w.as_str()) || FILLER.contains(&w.as_str()) || folded.len() < 2)
-        {
+        let ignored = STOPWORDS.contains(&w.as_str())
+            || FR_STOPWORDS.contains(&w.as_str())
+            || FILLER.contains(&w.as_str())
+            || folded.len() < 2;
+        if !negation && ignored {
             continue;
         }
         if seen.insert(folded.clone()) {
@@ -668,6 +844,44 @@ mod tests {
         let a = Aligner::new(&t);
         assert!(a.check("/m/0", "Maropitant", &[2]).is_none());
         assert!(a.check("/a/0", "Otitis resolved", &[4]).is_none());
+    }
+
+    #[test]
+    fn french_statements_fold_accents_elisions_and_negations() {
+        let seg = |id, text: &str| Segment {
+            id,
+            start: 0.0,
+            end: 1.0,
+            speaker: Some(0),
+            text: text.into(),
+            hints: Vec::new(),
+            check: None,
+        };
+        let t = Transcript {
+            segments: vec![
+                seg(0, "L'œil gauche est rouge, et il y a un peu d'écoulement purulent."),
+                seg(1, "Le test à la fluorescéine est négatif, il n'y a pas d'ulcère."),
+                seg(2, "Elle ne vomit pas et elle mange bien."),
+            ],
+        };
+        let a = Aligner::new(&t);
+        assert!(a.check("/o/0", "Écoulement purulent de l'oeil gauche", &[0]).is_none(), "accents, elisions");
+        assert!(a.check("/o/1", "Test à la fluorescéine négatif, pas d'ulcère", &[1]).is_none());
+        assert!(a.check("/s/0", "Ne vomit pas, mange bien", &[2]).is_none());
+        // A dropped negation is never a paraphrase, in French either.
+        let f = a.check("/o/2", "Pas d'écoulement", &[0]).unwrap();
+        assert_eq!(f.missing, vec!["no"]);
+        assert_eq!(content_tokens("Aucune douleur, sans boiterie"), vec!["no", "douleur", "boiterie"]);
+    }
+
+    #[test]
+    fn english_keeps_words_that_are_french_stopwords_elsewhere() {
+        assert_eq!(
+            content_tokens("Pour the drops in, plus the comment by the son, then the car"),
+            vec!["pour", "drop", "plus", "comment", "son", "car"]
+        );
+        // Unchanged English: accents and elisions don't touch it.
+        assert_eq!(content_tokens("The owner didn't see any blood"), vec!["no", "see", "blood"]);
     }
 
     #[test]
