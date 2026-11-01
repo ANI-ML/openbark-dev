@@ -1507,8 +1507,7 @@ fn a_computer_keeps_every_model_and_its_defaults() {
     // By memory, where notes are written and the cores (ADR-0030, ADR-0034).
     let e4b = os_models::Catalog::builtin().get(policy::E4B).unwrap().total_size();
     let hw = &app.hardware;
-    let r =
-        policy::recommend_note_model(e4b, hw.gpu_memory_bytes, hw.ram_bytes, hw.drafts_on, hw.cpu_cores);
+    let r = policy::recommend_note_model(e4b, hw.gpu_memory_bytes, hw.ram_bytes, hw.drafts_on, hw.cpu_cores);
     let expected = r.model;
     assert_eq!(status.default_llm, expected);
     assert_eq!(status.recommendation.as_ref().map(|r| r.model), Some(expected));
