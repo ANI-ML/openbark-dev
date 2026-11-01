@@ -1119,6 +1119,8 @@ const MODEL_BUSY: &str = "A note is being written with this model. Remove it whe
 const MLX_FIRST: &str = "Download the MLX engine on the Models screen first.";
 const MLX_NEEDS: &str = "MLX models run on a Mac with Apple silicon and macOS 14 or later.";
 /// A model that isn't marked for phones, asked for on one (ADR-0018 section 10).
+/// A catalogue model kept only for measuring (ADR-0033), never offered.
+const NOT_OFFERED: &str = "This model isn't offered in OpenBark.";
 const NOT_FOR_PHONE: &str =
     "This model isn't made for phones. On an iPhone, OpenBark offers small models only.";
 /// Adding a model file from the phone itself (not in M3).
@@ -1546,9 +1548,9 @@ impl App {
         let secs = started.elapsed().as_secs_f64().max(0.001);
         progress(&format!("plain: {plain} tokens in {secs:.1} s ({:.1} tokens/s)", plain as f64 / secs));
         let template = LoadedTemplate::resolve("soap").map_err(|e| AppError(e.to_string()))?;
-        // The app's own limit: a tiny test model can run long in a string
-        // before it closes the note.
-        let options = NoteOptions { max_tokens: 4096, ..Default::default() };
+        // The app's own limit for a transcript this short: a tiny test model
+        // can run long in a string before it closes the note.
+        let options = NoteOptions { max_tokens: Some(4096), ..Default::default() };
         let started = std::time::Instant::now();
         let mut tokens = 0u32;
         let result = os_engine::generate_note(&*llm, &template, transcript, &options, &mut |_| {
@@ -1575,8 +1577,9 @@ impl App {
         } else {
             os_engine::models::DEFAULT_STT
         };
-        let transcriber = os_engine::models::transcriber(&self.store, stt, false, None, None, None, false)
-            .map_err(|e| AppError(e.to_string()))?;
+        let transcriber =
+            os_engine::models::transcriber(&self.store, stt, None, false, None, None, None, false)
+                .map_err(|e| AppError(e.to_string()))?;
         let audio = os_asr::Audio::load(wav).map_err(|e| AppError(e.to_string()))?;
         let (transcript, _) = transcriber.run(&audio, &mut |_| {}).map_err(|e| AppError(e.to_string()))?;
         Ok(transcript)
@@ -3787,6 +3790,8 @@ impl App {
             .into_iter()
             // The GPU recognisers come with the GPU speech pack, not one by one.
             .filter(|m| m.id != os_engine::models::GPU_STT && m.id != os_engine::models::GPU_SECOND_STT)
+            // Canary only when a spoken language uses it (ADR-0033).
+            .filter(|m| os_engine::models::offered(&m.id))
             // A phone lists mobile models only; a computer doesn't list the
             // ones made for small phones (ADR-0018 section 10).
             .filter(|m| if phone { m.mobile } else { !PHONE_ONLY.contains(&m.id.as_str()) })
@@ -3851,6 +3856,10 @@ impl App {
         let catalog = hub::full_catalog(&self.store);
         let entry =
             catalog.get(id).ok_or_else(|| AppError(format!("No model called {id} in the catalog.")))?;
+        // Canary is in the catalogue only for the French eval (ADR-0033).
+        if !os_engine::models::offered(id) {
+            return Err(AppError(NOT_OFFERED.into()));
+        }
         // Gigabytes that could never write a note here.
         if self.phone_tier().is_some() {
             if !entry.mobile {

@@ -1,0 +1,39 @@
+# Synthetic consult: written for OpenBark's test suite; not a real patient.
+# Standard French, voiced by synthetic French (France) voices. Not Quebec French.
+# The veterinarian dictates the exam aloud, system by system.
+id: fr-dictee-examen
+title: Examen dicté système par système, chat âgé qui boit beaucoup
+species: feline
+category: fr
+speakers:
+  dvm: "piper:fr_FR-upmc-medium#1"
+  client: "piper:fr_FR-upmc-medium#0"
+pause_secs: 0.6
+lines:
+  - [client, "Bonjour docteur. Minou boit beaucoup plus qu'avant, et je trouve qu'il a maigri."]
+  - [dvm, "Depuis combien de temps ?"]
+  - [client, "Depuis un mois à peu près. Il mange bien, par contre."]
+  - [dvm, "Je vais l'examiner et dicter mes observations au fur et à mesure."]
+  - [dvm, "Examen général : chat mâle castré de douze ans, vigilant. Poids quatre virgule deux kilos. Température trente-huit virgule neuf."]
+  - [dvm, "Fréquence cardiaque cent quatre-vingts battements par minute. Fréquence respiratoire vingt-huit."]
+  - [dvm, "Yeux : hyperhémie conjonctivale à gauche, pas d'écoulement. Œil droit normal."]
+  - [dvm, "Oreilles : propres des deux côtés."]
+  - [dvm, "Cavité buccale : tartre de grade deux, gingivite modérée."]
+  - [dvm, "Appareil cardiovasculaire : souffle systolique de grade deux sur six, à gauche."]
+  - [dvm, "Appareil respiratoire : sans particularité."]
+  - [dvm, "Abdomen : les deux reins sont petits et irréguliers à la palpation. Vessie de taille normale."]
+  - [dvm, "Peau et pelage : pelage terne. Déshydratation estimée à cinq pour cent."]
+  - [dvm, "Nœuds lymphatiques : normaux. Note d'état corporel quatre sur neuf."]
+  - [dvm, "Fin de l'examen. Je recommande une prise de sang complète, une analyse d'urine et une mesure de la pression artérielle aujourd'hui."]
+  - [client, "D'accord, faites tout ça."]
+  - [dvm, "Je vous appelle demain avec les résultats, et on décidera du traitement."]
+
+expected:
+  vitals:
+    weight: "4.2"
+    temperature: "38.9"
+    heart_rate: "180"
+    respiratory_rate: "28"
+    body_condition_score: "4"
+  must_mention: [hyperhémie, souffle, "2/6", tartre, gingivite, reins, "pression artérielle", "analyse d'urine"]
+  must_not_mention: ["œil droit atteint", "insuffisance rénale confirmée"]

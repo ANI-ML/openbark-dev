@@ -1,0 +1,36 @@
+# Synthetic consult: written for OpenBark's test suite; not a real patient.
+# Standard French, voiced by synthetic French (France) voices. Not Quebec French.
+id: fr-chat-conjonctivite
+title: Chatte avec une conjonctivite de l'œil gauche
+species: feline
+category: fr
+speakers:
+  dvm: "piper:fr_FR-siwis-medium"
+  client: "piper:fr_FR-gilles-low"
+pause_secs: 0.6
+lines:
+  - [dvm, "Bonjour monsieur Lefèvre. Qu'est-ce qui vous amène aujourd'hui avec Moka ?"]
+  - [client, "Bonjour docteur. C'est son œil gauche. Il coule, et elle le garde à moitié fermé depuis cinq ou six jours."]
+  - [dvm, "D'accord. Est-ce que vous avez fait quelque chose pour l'œil jusqu'ici ?"]
+  - [client, "Je l'ai rincé avec de l'eau, deux fois par jour. Le matin, il y a un peu de pus dans le coin de l'œil."]
+  - [dvm, "Elle mange bien ? Elle éternue, elle a le nez qui coule ?"]
+  - [client, "Elle mange normalement. Pas d'éternuements, rien de spécial à part l'œil."]
+  - [dvm, "Elle a quel âge maintenant ? Et elle sort dehors ?"]
+  - [client, "Elle a quatre ans. Elle reste à l'intérieur, mais on a un autre chat à la maison."]
+  - [dvm, "Je regarde. L'œil gauche est rouge, la conjonctive est gonflée, et il y a un peu d'écoulement purulent. L'œil droit est normal."]
+  - [dvm, "Je fais un test à la fluorescéine pour voir si la cornée est abîmée. Le test est négatif, il n'y a pas d'ulcère."]
+  - [dvm, "C'est une conjonctivite de l'œil gauche. On va la traiter avec une pommade, le Maxitrol."]
+  - [dvm, "Vous mettez zéro virgule cinq centimètre de pommade dans l'œil gauche, trois fois par jour, pendant dix jours."]
+  - [client, "Zéro virgule cinq centimètre, trois fois par jour. D'accord."]
+  - [dvm, "En regardant sa bouche, j'ai vu aussi une gingivite : les gencives sont rouges au bord des dents."]
+  - [dvm, "Pour ça, je vous conseille un gel buccal, le Breathalyzer, à mettre sur les gencives une fois par jour."]
+  - [client, "Elle va se laisser faire, j'espère."]
+  - [dvm, "Si l'œil ne va pas mieux dans cinq jours, ou s'il devient plus rouge, rappelez-nous. Sinon, on contrôle la bouche dans un mois."]
+  - [client, "Très bien. Merci docteur."]
+
+expected:
+  medications:
+    - { drug: Maxitrol, dose: "0.5" }
+    - { drug: Maxitrol, duration: "10" }
+  must_mention: ["œil gauche", fluorescéine, conjonctivite, gingivite, Breathalyzer, pus]
+  must_not_mention: ["fluorescéine positive", "œil droit atteint"]

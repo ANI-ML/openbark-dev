@@ -335,6 +335,7 @@ fn router(state: St, ui_dir: &std::path::Path, port: u16) -> Router {
         .route("/api/vocabulary/save", post(save_vocabulary_term))
         .route("/api/vocabulary/remove", post(remove_vocabulary_term))
         .route("/api/speech-language", post(set_speech_language))
+        .route("/api/spoken-language", post(set_spoken_language))
         .route("/api/users/{uid}/admin", post(set_user_admin))
         .route("/api/users/{uid}/profile", get(profile_summary))
         .route("/api/live", get(live))
@@ -2022,6 +2023,18 @@ struct SpeechLanguageBody {
 /// The app's language, which the second recogniser is told to expect.
 async fn set_speech_language(Json(req): Json<SpeechLanguageBody>) -> StatusCode {
     os_engine::models::set_speech_language(Some(&req.language));
+    StatusCode::NO_CONTENT
+}
+
+#[derive(Deserialize)]
+struct SpokenLanguageBody {
+    #[serde(default)]
+    language: Option<String>,
+}
+
+/// Settings, Recording, Spoken language ("fr"); null is Auto (ADR-0033).
+async fn set_spoken_language(Json(req): Json<SpokenLanguageBody>) -> StatusCode {
+    os_engine::models::set_spoken_language(req.language.as_deref());
     StatusCode::NO_CONTENT
 }
 

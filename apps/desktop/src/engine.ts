@@ -1297,6 +1297,14 @@ export const setSpeechLanguage = (language: string) =>
   isDesktop
     ? invoke<void>("set_speech_language", { language })
     : api<void>("/api/speech-language", post({ language }));
+/**
+ * Settings, Recording, Spoken language ("fr"), or null for Auto: the speech
+ * recognisers are told to expect it (ADR-0033).
+ */
+export const setSpokenLanguage = (language: string | null) =>
+  isDesktop
+    ? invoke<void>("set_spoken_language", { language })
+    : api<void>("/api/spoken-language", post({ language }));
 /** What a team member keeps in their profile, before removing them. */
 export const profileSummary = (uid: string) =>
   isDesktop

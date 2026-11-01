@@ -146,6 +146,10 @@ pub struct TranscribeArgs {
     /// A client on a phone on speaker in the room: pick up the quieter voice.
     #[arg(long)]
     pub speakerphone: bool,
+    /// The language spoken ("fr"), for a recogniser that can be told it
+    /// (Whisper). Default, or "auto": it detects the language itself.
+    #[arg(long)]
+    pub language: Option<String>,
 }
 
 #[derive(clap::Args, Clone)]
@@ -160,8 +164,10 @@ pub struct LlmArgs {
     /// Note template: built-in id or a template directory.
     #[arg(long, default_value = "soap")]
     pub template: String,
-    #[arg(long, default_value_t = 4096)]
-    pub max_tokens: u32,
+    /// New tokens a draft may write (default: as in the app, growing with
+    /// the transcript).
+    #[arg(long)]
+    pub max_tokens: Option<u32>,
 }
 
 #[derive(clap::Args)]
@@ -340,6 +346,7 @@ pub(crate) fn build_transcriber(
     Ok(os_engine::models::transcriber(
         store,
         &args.stt,
+        args.language.as_deref(),
         args.diarize,
         args.speakers,
         args.diar_threshold,

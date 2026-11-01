@@ -1,0 +1,39 @@
+# Synthetic consult: written for OpenBark's test suite; not a real patient.
+# Standard French, voiced by synthetic French (France) voices. Not Quebec French.
+id: fr-carlin-allergies
+title: Carlin avec des démangeaisons et une otite droite
+species: canine
+category: fr
+speakers:
+  dvm: "piper:fr_FR-upmc-medium#1"
+  client: "piper:fr_FR-upmc-medium#0"
+pause_secs: 0.6
+lines:
+  - [dvm, "Bonjour madame. Alors, qu'est-ce qui se passe avec Gaston ?"]
+  - [client, "Il se gratte tout le temps, surtout les pattes et les oreilles. Il se lèche les pattes la nuit. Ça dure depuis deux mois."]
+  - [dvm, "Est-ce que c'est déjà arrivé l'année dernière, à la même saison ?"]
+  - [client, "Oui, l'été dernier aussi, mais moins fort."]
+  - [dvm, "Il reçoit un antiparasitaire tous les mois ? Et sa nourriture a changé ?"]
+  - [client, "Oui, il a sa pipette tous les mois. Et il mange les mêmes croquettes depuis un an."]
+  - [dvm, "On le pèse. Huit virgule deux kilos. Sa température est de trente-huit virgule cinq."]
+  - [dvm, "Il a des rougeurs entre les doigts des quatre pattes, et les plis de la face sont rouges et humides."]
+  - [dvm, "L'oreille droite est rouge, avec un cérumen brun. L'oreille gauche est normale. La cytologie de l'oreille droite montre des levures."]
+  - [dvm, "Je pense à une dermatite atopique, une allergie environnementale, avec une otite à levures de l'oreille droite et une infection des plis."]
+  - [dvm, "Pour les démangeaisons, on commence l'Apoquel : un comprimé de cinq virgule quatre milligrammes deux fois par jour pendant quatorze jours, puis une fois par jour."]
+  - [dvm, "Pour l'oreille droite, une dose d'Easotic dans l'oreille une fois par jour pendant cinq jours."]
+  - [dvm, "Et vous nettoyez les plis de la face avec des lingettes à la chlorhexidine, une fois par jour."]
+  - [client, "Et le test d'allergie dont on m'a parlé ?"]
+  - [dvm, "On peut faire une prise de sang pour un test allergique, mais ça peut attendre de voir comment il répond au traitement."]
+  - [client, "Alors on attend pour le test, si vous voulez bien."]
+  - [dvm, "Pas de problème. On le revoit dans trois semaines pour contrôler l'oreille."]
+
+expected:
+  vitals:
+    weight: "8.2"
+    temperature: "38.5"
+  medications:
+    - { drug: Apoquel, dose: "5.4" }
+    - { drug: Apoquel, duration: "14" }
+    - { drug: Easotic, duration: "5" }
+  must_mention: ["oreille droite", levures, atopique, chlorhexidine, "test allergique", "trois semaines"]
+  must_not_mention: ["oreille gauche atteinte", "test allergique réalisé"]

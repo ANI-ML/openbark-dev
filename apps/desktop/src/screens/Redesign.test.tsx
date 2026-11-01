@@ -164,6 +164,28 @@ describe("Settings as sections (ADR-0027)", () => {
       expect(nav.textContent).toContain(name);
   });
 
+  it("has a Spoken language choice on a computer, Auto by default, and none on the iPhone (ADR-0033)", () => {
+    phoneWidth(false);
+    const c = show(<SettingsScreen section="recording" />, ctx({ status: status("desktop") }));
+    const select = screen.getByRole("combobox", { name: /^Spoken language/ }) as HTMLSelectElement;
+    expect(select.value).toBe("");
+    expect(Array.from(select.options).map((o) => o.textContent)).toEqual([
+      "Auto",
+      "English",
+      "Français",
+      "Español",
+      "Deutsch",
+      "Português",
+    ]);
+    fireEvent.change(select, { target: { value: "fr" } });
+    expect(c.setSettings).toHaveBeenCalledWith({ spokenLanguage: "fr" });
+    fireEvent.change(select, { target: { value: "" } });
+    expect(c.setSettings).toHaveBeenLastCalledWith({ spokenLanguage: null });
+    cleanup();
+    show(<SettingsScreen section="recording" />, ctx({ status: status("ios") }));
+    expect(screen.queryByRole("combobox", { name: /^Spoken language/ })).toBeNull();
+  });
+
   it("is a list of rows on a phone; the iPhone leaves out phone calls", async () => {
     phoneWidth(true);
     show(<SettingsScreen />, ctx({ status: status("ios") }));

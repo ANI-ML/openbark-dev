@@ -1,7 +1,7 @@
 #[cfg(feature = "stt")]
 use sherpa_onnx::{
-    OfflineModelConfig, OfflineRecognizer, OfflineRecognizerConfig, OfflineTransducerModelConfig,
-    OfflineWhisperModelConfig,
+    OfflineCanaryModelConfig, OfflineModelConfig, OfflineRecognizer, OfflineRecognizerConfig,
+    OfflineTransducerModelConfig, OfflineWhisperModelConfig,
 };
 
 #[cfg(feature = "stt")]
@@ -15,6 +15,10 @@ pub enum AsrModel {
     NemoTransducer { encoder: String, decoder: String, joiner: String, tokens: String },
     /// OpenAI Whisper ONNX exports (sherpa-onnx layout).
     Whisper { encoder: String, decoder: String, tokens: String, language: Option<String> },
+    /// NVIDIA NeMo Canary (180M Flash: English, Spanish, German, French),
+    /// told the language spoken; it can't detect one itself (sherpa-onnx
+    /// falls back to English). It reports no token times.
+    Canary { encoder: String, decoder: String, tokens: String, language: Option<String> },
 }
 
 impl AsrModel {
@@ -24,7 +28,10 @@ impl AsrModel {
             Self::NemoTransducer { encoder, decoder, joiner, tokens } => {
                 vec![encoder, decoder, joiner, tokens]
             }
-            Self::Whisper { encoder, decoder, tokens, .. } => vec![encoder, decoder, tokens],
+            Self::Whisper { encoder, decoder, tokens, .. }
+            | Self::Canary { encoder, decoder, tokens, .. } => {
+                vec![encoder, decoder, tokens]
+            }
         }
     }
 
@@ -33,6 +40,7 @@ impl AsrModel {
         match self {
             Self::NemoTransducer { .. } => "nemo-transducer",
             Self::Whisper { .. } => "whisper",
+            Self::Canary { .. } => "canary",
         }
     }
 }
@@ -159,6 +167,17 @@ impl OfflineAsr {
                 };
                 model_config.tokens = Some(tokens.clone());
             }
+            AsrModel::Canary { encoder, decoder, tokens, language } => {
+                // The same language in and out: transcribe, never translate.
+                model_config.canary = OfflineCanaryModelConfig {
+                    encoder: Some(encoder.clone()),
+                    decoder: Some(decoder.clone()),
+                    src_lang: language.clone(),
+                    tgt_lang: language.clone(),
+                    use_pnc: true,
+                };
+                model_config.tokens = Some(tokens.clone());
+            }
         }
         let mut config = OfflineRecognizerConfig {
             model_config,
@@ -209,6 +228,7 @@ impl AsrBackend for OfflineAsr {
             // Parakeet TDT v3: 25 European languages.
             AsrModel::NemoTransducer { .. } => vec!["en".into(), "fr".into(), "es".into(), "de".into()],
             AsrModel::Whisper { language, .. } => vec![language.clone().unwrap_or_else(|| "auto".into())],
+            AsrModel::Canary { language, .. } => vec![language.clone().unwrap_or_else(|| "en".into())],
         };
         AsrCapabilities {
             backend: "sherpa-onnx",

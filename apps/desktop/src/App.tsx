@@ -230,9 +230,15 @@ export function App() {
 
   useEffect(() => {
     document.documentElement.lang = settings.uiLanguage;
-    // The second speech recogniser expects the app's language (ADR-0031).
+    // The second speech recogniser expects the app's language (ADR-0031),
+    // unless a spoken language is set (below).
     engine.setSpeechLanguage(settings.uiLanguage).catch(() => {});
   }, [settings.uiLanguage]);
+
+  useEffect(() => {
+    // Settings, Recording, Spoken language; null is Auto (ADR-0033).
+    engine.setSpokenLanguage(settings.spokenLanguage).catch(() => {});
+  }, [settings.spokenLanguage]);
 
   // A recorded call was saved in the phone window: open it, drafted with the
   // Phone call template when "Draft the note when I stop recording" is on.

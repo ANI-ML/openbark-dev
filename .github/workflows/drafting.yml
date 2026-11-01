@@ -1,12 +1,13 @@
 name: Drafting on weak computers
 
 # OpenBark 0.2.3: drafting must finish, fail visibly or stop when asked, even
-# for a long visit on a slow processor. The quick job compiles and lints the
-# whole workspace and runs the UI tests, for fast feedback on a branch; the
-# long-visit job drafts a note and a client summary of a long synthetic
-# consult on two CPU threads and checks that Stop works. Before drafting it
-# runs the setup speed check (ADR-0034) and compares its estimate with the
-# note's real time on the same runner.
+# for a long visit on a slow processor; since 0.2.5 a long visit's note and
+# client summary must be saved, not just fail visibly. The quick job compiles
+# and lints the whole workspace and runs the UI tests, for fast feedback on a
+# branch; the long-visit job drafts a note and a client summary of a long
+# synthetic consult on two CPU threads and checks that Stop works. Before
+# drafting it runs the setup speed check (ADR-0034) and compares its estimate
+# with the note's real time on the same runner.
 #
 # The consults are synthetic scripts (packages/eval/fixtures/scripts,
 # invented, rendered with Kokoro on the runner), so no clinic data is
@@ -183,23 +184,34 @@ jobs:
             summary "- Speed check failed (HTTP $code): $(jq -r '.error // empty' "$demo/speed.json" 2>/dev/null)"
             fail=1
           fi
-          # Each draft must finish, or fail with a message, within 40 minutes.
+          # Generations the log has finished, and the budget of the last one
+          # if it came after the first $1 (counts only; the log is coloured).
+          gens() { grep -c "llm generation finished" "$demo/serve.log" || true; }
+          budget() {
+            sed 's/\x1b\[[0-9;]*m//g' "$demo/serve.log" | grep "llm generation finished" | tail -n +"$(($1 + 1))" \
+              | grep -o ' max_tokens=[0-9][0-9]*' | tail -1 | cut -d= -f2 || true
+          }
+          # Each draft must be saved within 40 minutes: since 0.2.5 the
+          # budget grows with the visit, so a long visit's note and client
+          # summary both fit.
           draft() { # template
-            local t0 code secs
+            local t0 code secs before
             t0=$(date +%s)
+            before=$(gens)
             code=$(curl -sS --max-time 2400 -o "$demo/$1.json" -w '%{http_code}' -X POST -H 'x-openbark: 1' \
               -H 'content-type: application/json' -d "{\"llm\":\"gemma-4-e2b-it-q4_0\",\"template\":\"$1\"}" \
               "$base/api/sessions/$id/notes") || code="timeout"
             secs=$(( $(date +%s) - t0 ))
             echo "$secs" > "$demo/$1.secs"
             if [ "$code" = "200" ]; then
-              summary "- $1: saved in $secs s; $(jq -r '.run.stats | "prompt \(.prompt_tokens) tokens, wrote \(.completion_tokens) tokens at \(.tokens_per_second * 10 | round / 10) tokens/s, hit the limit: \(.hit_max_tokens)"' "$demo/$1.json")"
+              summary "- $1: saved in $secs s; $(jq -r '.run.stats | "prompt \(.prompt_tokens) tokens, wrote \(.completion_tokens) tokens at \(.tokens_per_second * 10 | round / 10) tokens/s, hit the limit: \(.hit_max_tokens)"' "$demo/$1.json"), budget $(budget "$before")"
             elif [ "$code" = "timeout" ] || [ "$code" = "000" ]; then
               summary "- $1: **no answer after $secs s** (stalled)"
               fail=1
             else
-              summary "- $1: failed visibly in $secs s (HTTP $code): $(jq -r '.error' "$demo/$1.json")"
-              echo "::warning::$1 failed: $(jq -r '.error' "$demo/$1.json")"
+              summary "- $1: **not saved**: failed visibly in $secs s (HTTP $code): $(jq -r '.error' "$demo/$1.json") (budget $(budget "$before"))"
+              echo "::error::$1 wasn't saved: $(jq -r '.error' "$demo/$1.json")"
+              fail=1
             fi
           }
           draft soap
