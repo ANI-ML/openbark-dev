@@ -1,6 +1,6 @@
 {
   "_about": "Version history shown on history.html and written to CHANGELOG.md by scripts/website-build.py. Major changes only, newest first: a handful of items per milestone, each one a change a clinic would notice. Items marked 'testing' are built but not yet proven on real devices.",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "stage": "Beta",
   "next": [
     {"text": "OpenBark for iPhone on the App Store, after testing on real phones in clinics."},
@@ -15,6 +15,20 @@
       "name": "Beta",
       "tagline": "Ready for clinics to try",
       "entries": [
+        {
+          "date": "2026-11-01",
+          "title": "Set up OpenBark: models chosen for your computer, and why",
+          "summary": "A guided first run that looks at your computer, recommends a note model and explains the reason, with an optional speed check that measures how long a note will take. Plus an optional check for new versions that stays off until you say yes.",
+          "items": [
+            {"text": "Set up OpenBark (desktop): shows your computer's memory, processor, graphics and free space, recommends a note model with the reason, and explains each speech model and its size. You can choose the other model.", "status": "shipped"},
+            {"text": "An optional speed check: a short timed draft from an invented visit, then \"On this computer, a note for a long visit will take about N minutes\". If that's over 5 minutes with the larger model, it suggests the smaller one.", "status": "shipped"},
+            {"text": "Downloads show each model's time, speed, time left and expected finish. Spoken language and recording tips are part of setup.", "status": "shipped"},
+            {"text": "Existing installs get a one-time \"Check my setup\" card. It only suggests; it never switches a model for you. Setup can be run again from Models, Help or Settings, About.", "status": "shipped"},
+            {"text": "On iPhone, setup says whether this iPhone writes notes itself or records while a computer writes the note, and why.", "status": "shipped"},
+            {"text": "Check for new versions (desktop): asked once, off until you say yes. Once a day it reads the version number from openbark.io and sends nothing about you, your clinic or your patients. It never downloads or installs anything. Settings, About has Check for updates and an on/off switch.", "status": "shipped"},
+            {"text": "Links to model pages and licences now open in your browser from the desktop app.", "status": "shipped"}
+          ]
+        },
         {
           "date": "2026-11-01",
           "title": "Normal-exam defaults you confirm, a Spoken language setting, and long visits that finish",

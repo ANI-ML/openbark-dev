@@ -2,9 +2,21 @@
 
 All notable changes to OpenBark, newest first. Generated from `website/content/history.json` by `scripts/website-build.py`; edit that file, not this one. The same history is on the website's Version history page.
 
-## 0.2.5 (beta)
+## 0.2.6 (beta)
 
 ### Beta: Ready for clinics to try
+
+#### 2026-11-01: Set up OpenBark: models chosen for your computer, and why
+
+A guided first run that looks at your computer, recommends a note model and explains the reason, with an optional speed check that measures how long a note will take. Plus an optional check for new versions that stays off until you say yes.
+
+- Set up OpenBark (desktop): shows your computer's memory, processor, graphics and free space, recommends a note model with the reason, and explains each speech model and its size. You can choose the other model.
+- An optional speed check: a short timed draft from an invented visit, then "On this computer, a note for a long visit will take about N minutes". If that's over 5 minutes with the larger model, it suggests the smaller one.
+- Downloads show each model's time, speed, time left and expected finish. Spoken language and recording tips are part of setup.
+- Existing installs get a one-time "Check my setup" card. It only suggests; it never switches a model for you. Setup can be run again from Models, Help or Settings, About.
+- On iPhone, setup says whether this iPhone writes notes itself or records while a computer writes the note, and why.
+- Check for new versions (desktop): asked once, off until you say yes. Once a day it reads the version number from openbark.io and sends nothing about you, your clinic or your patients. It never downloads or installs anything. Settings, About has Check for updates and an on/off switch.
+- Links to model pages and licences now open in your browser from the desktop app.
 
 #### 2026-11-01: Normal-exam defaults you confirm, a Spoken language setting, and long visits that finish
 

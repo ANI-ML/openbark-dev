@@ -20,7 +20,7 @@ members = [
 exclude = ["vendor/sherpa-onnx-sys"]
 
 [workspace.package]
-version = "0.2.5"
+version = "0.2.6"
 edition = "2024"
 license = "Apache-2.0"
 rust-version = "1.99"
