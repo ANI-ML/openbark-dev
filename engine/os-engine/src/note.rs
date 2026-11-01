@@ -333,9 +333,9 @@ pub const CLIENT_MAX_TOKENS: u32 = 2048;
 pub const NOTE_MAX_TOKENS_CEILING: u32 = 12288;
 
 /// The most a client document is given: three times [`CLIENT_MAX_TOKENS`],
-/// reached at the same length of visit as [`NOTE_MAX_TOKENS_CEILING`]. A
-/// clinic's client summary once ran on, unfinished, for most of an hour on a
-/// slow laptop; this stops one at half the note's ceiling.
+/// reached at about 18,400 characters of speech (some 22 minutes of steady
+/// talk). A clinic's client summary once ran on, unfinished, for most of an
+/// hour on a slow laptop; this stops one at half the note's ceiling.
 pub const CLIENT_MAX_TOKENS_CEILING: u32 = 6144;
 
 /// A draft's token budget: what is asked for, and the least it may be
@@ -354,18 +354,21 @@ pub struct Budget {
 /// Measured on the long-visit CI job (`.github/workflows/drafting.yml`):
 /// eight synthetic consults back to back, 16 minutes, 161 transcript lines,
 /// about 13,500 characters of speech and a 7,000-token prompt, drafted by
-/// Gemma 4 E2B. Its SOAP notes ran to 3,019 to 3,572 tokens on 0.2.3, 0.2.4
-/// and main before cd52de5, then 4,063 and twice past 4,096 (not saved);
-/// its client summaries to 1,201 to 1,749, then past 2,048 three times. The
-/// model writes pretty-printed JSON (about 40% of the characters are line
-/// breaks and indents), which the grammar leaves alone (see os-llm's
-/// llama.rs). That is about 0.3 tokens per character of speech for a note
-/// and half that for a client summary, so the budget is a token for every
-/// two characters for a note ([`NOTE_MAX_TOKENS`] up to 8,192 characters,
-/// some ten minutes of steady talk; 6,750 for the CI visit, which puts the
-/// 4,096 that ran out at 61%) and one for every four for a client document
-/// (3,375 for the CI visit, 2,048 at 61%). A template with a tooth chart
-/// starts from [`CHART_MAX_TOKENS`].
+/// Gemma 4 E2B. Across its runs of 0.2.3 to main, its SOAP notes ran to
+/// 2,841 to 4,063 tokens, and twice past 4,096 (not saved); its client
+/// summaries to 1,201 to 1,749, and four times past 2,048. A cut-off client
+/// summary was no runaway: 31 distinct statements, stopped in its last
+/// heading, since eight consults really are a lot to tell. The model writes
+/// pretty-printed JSON (about 40% of the characters are line breaks and
+/// indents), which the grammar leaves alone (see os-llm's llama.rs). That
+/// is about 0.3 tokens per character of speech for a note and up to 0.17
+/// for a client summary. A note gets a token for every two characters
+/// ([`NOTE_MAX_TOKENS`] up to 8,192 characters, some ten minutes of steady
+/// talk; 6,762 for the CI visit, which puts the 4,096 that ran out at 61%),
+/// and a client document one for every three ([`CLIENT_MAX_TOKENS`] up to
+/// 6,144 characters, some seven minutes; 4,508 for the CI visit, the 2,048
+/// that ran out at 45%). A template with a tooth chart starts from
+/// [`CHART_MAX_TOKENS`].
 ///
 /// A 60-minute visit of steady talk (about 50,000 characters) reaches the
 /// ceilings, but its prompt also takes about 19,000 to 26,000 of the
@@ -379,7 +382,7 @@ pub fn budget_for(template: &LoadedTemplate, transcript: &Transcript) -> Budget 
     let (floor, ceiling, chars_per_token) = if template.chart().is_some() {
         (CHART_MAX_TOKENS, NOTE_MAX_TOKENS_CEILING, 2)
     } else if !template.template.document.is_record() {
-        (CLIENT_MAX_TOKENS, CLIENT_MAX_TOKENS_CEILING, 4)
+        (CLIENT_MAX_TOKENS, CLIENT_MAX_TOKENS_CEILING, 3)
     } else {
         (NOTE_MAX_TOKENS, NOTE_MAX_TOKENS_CEILING, 2)
     };
@@ -1616,14 +1619,16 @@ sections:
             assert_eq!(budget_for(&client, &v), Budget { max_tokens: 2048, floor: Some(CLIENT_MAX_TOKENS) });
             assert_eq!(budget_for(&dental, &v), Budget { max_tokens: 8192, floor: Some(CHART_MAX_TOKENS) });
         }
-        // 16 minutes: the most measured (4,096 and 2,048, cut off) is 61%.
+        // 16 minutes: the most measured (4,096 and 2,048, cut off) is 61%
+        // and 45%.
         let sixteen = visit(161);
         assert_eq!(budget(&soap, &sixteen), 6762);
-        assert_eq!(budget(&client, &sixteen), 3381);
+        assert_eq!(budget(&client, &sixteen), 4508);
         assert!(4096 * 10 < budget(&soap, &sixteen) * 7);
-        assert!(2048 * 10 < budget(&client, &sixteen) * 7);
+        assert!(2048 * 10 < budget(&client, &sixteen) * 5);
         assert_eq!(budget(&dental, &sixteen), CHART_MAX_TOKENS);
-        // 30 and 60 minutes: the ceilings.
+        // 30 and 60 minutes: the ceilings (a client document's from about
+        // 22 minutes).
         for v in [visit(300), visit(600)] {
             assert_eq!(budget(&soap, &v), NOTE_MAX_TOKENS_CEILING);
             assert_eq!(budget(&client, &v), CLIENT_MAX_TOKENS_CEILING);
