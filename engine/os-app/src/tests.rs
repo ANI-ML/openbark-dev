@@ -1039,6 +1039,21 @@ impl LlmBackend for FakeLlm {
     }
 }
 
+/// Canary 180M Flash failed the French eval's bar (ADR-0033): it is in the
+/// catalogue only so the eval can measure it, and the app neither lists nor
+/// downloads it.
+#[test]
+fn canary_is_neither_listed_nor_downloaded() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app = app_in(tmp.path());
+    let canary = os_engine::models::CANARY_STT;
+    assert!(os_models::Catalog::builtin().get(canary).is_some(), "the eval still measures it");
+    assert!(!app.models().iter().any(|r| r.id == canary));
+    assert!(!app.status().models.iter().any(|m| m.id == canary));
+    assert_eq!(err(app.download_model(canary, None, &Quiet)), "This model isn't offered in OpenBark.");
+    assert!(!tmp.path().join("models").join(canary).exists());
+}
+
 struct Quiet;
 impl Events for Quiet {
     fn segment(&self, _: &Segment) {}

@@ -32,6 +32,13 @@ export interface Settings {
   consentEachTime: boolean;
   /** App language (interface). */
   uiLanguage: string;
+  /**
+   * The language spoken in consultations ("fr"), or null for Auto: each
+   * sentence's language is detected, and the second listen expects the app's
+   * language, as before 0.2.5 (ADR-0033). Separate from the app's language:
+   * a clinic can use the app in French and speak a mix.
+   */
+  spokenLanguage: string | null;
   /** Language notes are written in ("en", "fr"…). */
   noteLanguage: string;
   /** Letterhead on PDFs. */
@@ -83,6 +90,7 @@ const DEFAULTS: Settings = {
   consentAcknowledgedAt: null,
   consentEachTime: false,
   uiLanguage: defaultLanguage(),
+  spokenLanguage: null,
   noteLanguage: "en",
   clinicName: "",
   clinicLines: "",

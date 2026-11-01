@@ -57,6 +57,7 @@ jobs:
           arms = [
               {"arm": "reference", "stt": "", "from_ref": True},
               {"arm": "parakeet", "stt": "", "from_ref": False},
+              {"arm": "canary-fr", "stt": "canary-180m-flash-int8", "from_ref": False},
               {"arm": "whisper-fr", "stt": "whisper-large-v3-turbo-int8", "from_ref": False},
           ]
           include = [dict(a, shard=k, of=shards) for a in arms for k in range(1, shards + 1)]
@@ -208,7 +209,7 @@ jobs:
         if: steps.models.outputs.cache-hit != 'true'
         run: |
           chmod +x target/bin/*
-          for id in silero-vad parakeet-tdt-0.6b-v3-int8 whisper-large-v3-turbo-int8; do
+          for id in silero-vad parakeet-tdt-0.6b-v3-int8 canary-180m-flash-int8 whisper-large-v3-turbo-int8; do
             target/bin/openbark models pull "$id"
           done
       - name: Transcribe
@@ -221,11 +222,11 @@ jobs:
         run: |
           python3 -I packages/eval/score_language.py --lang fr --refs target/sets/fr/audio \
             --lexicon en=packages/eval/fixtures/audio --baseline parakeet \
-            parakeet=target/asr/fr/parakeet whisper-fr=target/asr/fr/whisper-fr \
+            parakeet=target/asr/fr/parakeet canary-fr=target/asr/fr/canary-fr whisper-fr=target/asr/fr/whisper-fr \
             --json target/asr/fr.json | tee target/asr/fr.md
           python3 -I packages/eval/score_language.py --lang en --refs target/sets/en/audio \
             --lexicon en=packages/eval/fixtures/audio --lexicon fr=target/sets/fr/audio --baseline parakeet \
-            parakeet=target/asr/en/parakeet whisper-en=target/asr/en/whisper-en \
+            parakeet=target/asr/en/parakeet canary-en=target/asr/en/canary-en whisper-en=target/asr/en/whisper-en \
             --json target/asr/en.json | tee target/asr/en.md
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
@@ -269,7 +270,7 @@ jobs:
         if: steps.models.outputs.cache-hit != 'true'
         run: |
           chmod +x target/bin/*
-          for id in silero-vad parakeet-tdt-0.6b-v3-int8 pyannote-segmentation-3.0 wespeaker-en-resnet34-lm whisper-large-v3-turbo-int8 gemma-4-e4b-it-q4_0; do
+          for id in silero-vad parakeet-tdt-0.6b-v3-int8 canary-180m-flash-int8 pyannote-segmentation-3.0 wespeaker-en-resnet34-lm whisper-large-v3-turbo-int8 gemma-4-e4b-it-q4_0; do
             target/bin/openbark models pull "$id"
           done
       - name: openbark eval

@@ -20,14 +20,33 @@ pub const EMBEDDING: &str = "wespeaker-en-resnet34-lm";
 pub const GPU_STT: &str = "parakeet-tdt-0.6b-v3-fp32";
 pub const GPU_SECOND_STT: &str = "whisper-large-v3-turbo-fp32";
 
-/// Languages Whisper can be told to expect, among the app's.
+/// NVIDIA Canary 180M Flash (int8), told the language spoken (English,
+/// French, Spanish or German); it can't detect one itself. In the catalogue
+/// so the French eval can measure it; it failed the bar, so the app never
+/// lists or downloads it ([`offered`], ADR-0033).
+pub const CANARY_STT: &str = "canary-180m-flash-int8";
+
+/// Languages Whisper can be told to expect, among the app's. These are also
+/// the choices of Settings, Recording, Spoken language.
 const WHISPER_LANGUAGES: &[&str] = &["en", "fr", "es", "de", "pt"];
 
-/// The language the second recogniser (Whisper) is told to expect. Left to
-/// itself it guesses per utterance, and an accented English sentence can come
-/// back in another language; so it follows the app's language, English until
-/// the app says otherwise.
+/// Languages Canary 180M Flash can be told.
+const CANARY_LANGUAGES: &[&str] = &["en", "fr", "es", "de"];
+
+/// The main recogniser for a spoken language, for each language where a
+/// candidate passed the bar set in docs/eval/french.md before the results
+/// (ADR-0033). Every other language, and Auto, keep Parakeet. Empty: in the
+/// run of 2026-10-31 neither Canary nor Whisper passed, for French or English.
+pub const LOCKED_MAIN: &[(&str, &str)] = &[];
+
+/// The app's language. Left to itself Whisper guesses the language per
+/// utterance, and an accented English sentence can come back in another
+/// language; so with the spoken language on Auto it is told the app's
+/// language, English until the app says otherwise (as in 0.2.4).
 static SPEECH_LANGUAGE: std::sync::Mutex<Option<&str>> = std::sync::Mutex::new(Some("en"));
+
+/// Settings, Recording, Spoken language; None is Auto (the default).
+static SPOKEN_LANGUAGE: std::sync::Mutex<Option<&str>> = std::sync::Mutex::new(None);
 
 /// One of [`WHISPER_LANGUAGES`] for a language code ("fr", "fr-CA"), or
 /// None for one it doesn't offer (and for "auto").
@@ -36,23 +55,72 @@ fn whisper_language(code: &str) -> Option<&'static str> {
     WHISPER_LANGUAGES.iter().copied().find(|l| *l == c)
 }
 
-/// Set the language Whisper expects ("fr", or "fr-CA"); one it doesn't know
-/// (or None) leaves it to detect the language itself.
+/// The app's language ("fr", or "fr-CA"), which Whisper expects while the
+/// spoken language is Auto; one it doesn't know (or None) leaves Whisper to
+/// detect the language itself.
 pub fn set_speech_language(code: Option<&str>) {
     let lang = code.and_then(whisper_language);
     *SPEECH_LANGUAGE.lock().unwrap_or_else(|e| e.into_inner()) = lang;
 }
 
-pub fn speech_language() -> Option<&'static str> {
-    *SPEECH_LANGUAGE.lock().unwrap_or_else(|e| e.into_inner())
+/// Settings, Recording, Spoken language ("fr"); None, "auto" or a language
+/// it doesn't offer is Auto: Parakeet detects the language of each sentence
+/// and Whisper is told the app's language, as in 0.2.4.
+pub fn set_spoken_language(code: Option<&str>) {
+    let lang = code.and_then(whisper_language);
+    *SPOKEN_LANGUAGE.lock().unwrap_or_else(|e| e.into_inner()) = lang;
 }
 
-/// `model` told to expect [`speech_language`] when it is Whisper.
+/// The spoken language set in Settings, or None for Auto.
+pub fn spoken_language() -> Option<&'static str> {
+    *SPOKEN_LANGUAGE.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// The language a recogniser that takes one is told: the spoken language
+/// when set, else the app's.
+pub fn speech_language() -> Option<&'static str> {
+    spoken_language().or_else(|| *SPEECH_LANGUAGE.lock().unwrap_or_else(|e| e.into_inner()))
+}
+
+fn canary_language(code: Option<&str>) -> Option<&'static str> {
+    code.and_then(|c| CANARY_LANGUAGES.iter().copied().find(|l| *l == c))
+}
+
+/// `model` told to expect [`speech_language`] when it takes a language
+/// (Whisper, Canary).
 pub fn with_speech_language(mut model: AsrModel) -> AsrModel {
-    if let AsrModel::Whisper { language, .. } = &mut model {
-        *language = speech_language().map(String::from);
+    match &mut model {
+        AsrModel::Whisper { language, .. } => *language = speech_language().map(String::from),
+        AsrModel::Canary { language, .. } => *language = canary_language(speech_language()).map(String::from),
+        AsrModel::NemoTransducer { .. } => {}
     }
     model
+}
+
+/// The recogniser [`LOCKED_MAIN`] gives a spoken language, if any.
+pub fn locked_main(spoken: Option<&str>) -> Option<&'static str> {
+    let lang = spoken?;
+    LOCKED_MAIN.iter().find(|(l, _)| *l == lang).map(|(_, id)| *id)
+}
+
+/// The main recogniser for a recording that asks for `requested`: for the
+/// app's default, the spoken language's own recogniser ([`LOCKED_MAIN`])
+/// when that language is set and the recogniser is installed; else
+/// `requested`.
+pub fn main_stt(store: &ModelStore, requested: &str) -> String {
+    if requested == DEFAULT_STT
+        && let Some(id) = locked_main(spoken_language())
+        && installed(&Catalog::builtin(), store, id).is_ok()
+    {
+        return id.to_string();
+    }
+    requested.to_string()
+}
+
+/// Whether Settings, Models lists this model: Canary only when a spoken
+/// language uses it ([`LOCKED_MAIN`]); every other model as before.
+pub fn offered(id: &str) -> bool {
+    id != CANARY_STT || LOCKED_MAIN.iter().any(|(_, m)| *m == id)
 }
 
 /// The recogniser to use for `id`: its full-precision version when the GPU
@@ -102,12 +170,15 @@ pub fn single_file(store: &ModelStore, id: &str) -> Result<String, EngineError> 
 }
 
 /// [`asr_model`] told to expect `language` ("fr") when it takes one
-/// (Whisper). None, "auto" or a language it doesn't offer: it detects the
-/// language itself.
+/// (Whisper, Canary). None, "auto" or a language it doesn't offer: Whisper
+/// detects the language itself (Canary falls back to English).
 pub fn asr_model_in(store: &ModelStore, id: &str, language: Option<&str>) -> Result<AsrModel, EngineError> {
     let mut model = asr_model(store, id)?;
-    if let AsrModel::Whisper { language: lang, .. } = &mut model {
-        *lang = language.and_then(whisper_language).map(String::from);
+    let lang = language.and_then(whisper_language);
+    match &mut model {
+        AsrModel::Whisper { language, .. } => *language = lang.map(String::from),
+        AsrModel::Canary { language, .. } => *language = canary_language(lang).map(String::from),
+        AsrModel::NemoTransducer { .. } => {}
     }
     Ok(model)
 }
@@ -123,6 +194,12 @@ pub fn asr_model(store: &ModelStore, id: &str) -> Result<AsrModel, EngineError> 
             tokens: file(store, m, tokens),
         }),
         Layout::AsrWhisper { encoder, decoder, tokens } => Ok(AsrModel::Whisper {
+            encoder: file(store, m, encoder),
+            decoder: file(store, m, decoder),
+            tokens: file(store, m, tokens),
+            language: None,
+        }),
+        Layout::AsrCanary { encoder, decoder, tokens } => Ok(AsrModel::Canary {
             encoder: file(store, m, encoder),
             decoder: file(store, m, decoder),
             tokens: file(store, m, tokens),
@@ -210,11 +287,18 @@ pub fn required_status_with(
     llm: &str,
 ) -> Vec<(String, String, bool)> {
     let catalog = Catalog::builtin();
-    let ids: &[&str] = if profile.is_mobile() {
-        &[VAD, os_models::platform::MOBILE_STT, SEGMENTATION, EMBEDDING]
+    let mut ids: Vec<&str> = if profile.is_mobile() {
+        vec![VAD, os_models::platform::MOBILE_STT, SEGMENTATION, EMBEDDING]
     } else {
-        &[VAD, DEFAULT_STT, SEGMENTATION, EMBEDDING, llm]
+        vec![VAD, DEFAULT_STT, SEGMENTATION, EMBEDDING, llm]
     };
+    // A spoken language with its own recogniser (ADR-0033): downloaded only
+    // when the setting needs it, never on a phone.
+    if !profile.is_mobile()
+        && let Some(id) = locked_main(spoken_language())
+    {
+        ids.push(id);
+    }
     ids.iter()
         .filter_map(|id| catalog.get(id))
         .map(|m| (m.id.clone(), m.display_name.clone(), store.is_installed(m, Verify::Size)))
@@ -244,5 +328,44 @@ mod tests {
         set_speech_language(Some("pl"));
         assert_eq!(language(with_speech_language(whisper())), None);
         set_speech_language(Some("en"));
+
+        // Settings, Spoken language overrides the app's language, for Whisper
+        // and Canary alike; Auto goes back to the app's (ADR-0033).
+        let canary = || AsrModel::Canary {
+            encoder: "e".into(),
+            decoder: "d".into(),
+            tokens: "t".into(),
+            language: None,
+        };
+        let canary_language = |m: AsrModel| match m {
+            AsrModel::Canary { language, .. } => language,
+            _ => unreachable!(),
+        };
+        set_spoken_language(Some("fr"));
+        assert_eq!(spoken_language(), Some("fr"));
+        assert_eq!(language(with_speech_language(whisper())).as_deref(), Some("fr"));
+        assert_eq!(canary_language(with_speech_language(canary())).as_deref(), Some("fr"));
+        // Portuguese: Whisper is told; Canary can't be (it isn't the main
+        // recogniser for it).
+        set_spoken_language(Some("pt"));
+        assert_eq!(language(with_speech_language(whisper())).as_deref(), Some("pt"));
+        assert_eq!(canary_language(with_speech_language(canary())), None);
+        set_spoken_language(Some("auto"));
+        assert_eq!(spoken_language(), None);
+        assert_eq!(language(with_speech_language(whisper())).as_deref(), Some("en"));
+        set_spoken_language(None);
+    }
+
+    #[test]
+    fn a_locked_main_recogniser_comes_from_the_table_only() {
+        for (lang, id) in LOCKED_MAIN {
+            assert_eq!(locked_main(Some(*lang)), Some(*id));
+            assert!(offered(id));
+        }
+        assert_eq!(locked_main(None), None, "Auto keeps Parakeet");
+        assert_eq!(locked_main(Some("pt")), None, "no Portuguese fixtures, so no switch");
+        assert_eq!(locked_main(Some("es")), None, "no Spanish fixtures, so no switch");
+        assert_eq!(offered(CANARY_STT), LOCKED_MAIN.iter().any(|(_, m)| *m == CANARY_STT));
+        assert!(offered(DEFAULT_STT) && offered(crate::live::SECOND_STT));
     }
 }

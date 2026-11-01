@@ -71,10 +71,10 @@ pub struct EvalArgs {
     /// app's, Parakeet).
     #[arg(long)]
     pub stt: Option<String>,
-    /// The language spoken in the fixtures ("fr"), which Whisper is told to
-    /// expect (the second listen, or the main recogniser when it is Whisper);
-    /// "auto" lets it detect the language. Default: English, as in the app
-    /// with an English interface.
+    /// The language spoken in the fixtures ("fr"), as Settings, Recording,
+    /// Spoken language: the recognisers that take a language (Whisper,
+    /// Canary) are told to expect it; "auto" lets Whisper detect it. Default:
+    /// Auto with an English interface, as in the app out of the box.
     #[arg(long)]
     pub spoken_language: Option<String>,
     /// Write the notes in this language ("fr"), as Settings, Language, Write
@@ -817,9 +817,12 @@ pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
         );
     }
 
-    // The language Whisper expects, as the app sets it from its language.
+    // The spoken language, as the app sets it (ADR-0033); "auto" leaves
+    // Whisper to detect the language.
     if let Some(lang) = &args.spoken_language {
-        os_engine::models::set_speech_language(Some(lang.as_str()).filter(|l| *l != "auto"));
+        let lang = Some(lang.as_str()).filter(|l| *l != "auto");
+        os_engine::models::set_speech_language(lang);
+        os_engine::models::set_spoken_language(lang);
     }
     let default_template = LoadedTemplate::resolve(&args.llm.template)?;
     let llm = load_llm(store, &args.llm)?;
