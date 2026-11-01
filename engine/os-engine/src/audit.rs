@@ -460,6 +460,7 @@ mod tests {
             refinement: None,
             edit: None,
             by: None,
+            template_defaults: Vec::new(),
             markdown: "# SOAP note\n- Otitis externa suspected\n".into(),
         };
         let mut pickles = s.clone().for_pet(Some("Pickles"));

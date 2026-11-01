@@ -104,7 +104,31 @@ export interface NoteRun {
   /** Set when this draft re-prompted one heading of an earlier draft. */
   refinement?: Refinement;
   /** Set when this draft is a veterinarian's hand edit of one heading. */
-  edit?: { heading: string; by: string; from_run?: string | null; changed: string[]; removed: number; before: unknown };
+  edit?: {
+    heading: string;
+    by: string;
+    from_run?: string | null;
+    changed: string[];
+    removed: number;
+    before: unknown;
+    /** Normal findings from the template confirmed or removed in this edit, by system (ADR-0032). */
+    defaults_confirmed?: string[];
+    defaults_removed?: string[];
+  };
+  /**
+   * Normal findings from the template for systems nothing was said about,
+   * waiting for a veterinarian (ADR-0032). Beside the note, never in it:
+   * Copy, the PDF and client documents leave them out, and signing waits
+   * until each is confirmed or removed.
+   */
+  template_defaults?: PendingDefault[];
+}
+
+/** A normal finding from the template waiting under a heading ("physical_exam"). Not from the recording. */
+export interface PendingDefault {
+  heading: string;
+  label: string;
+  text: string;
 }
 
 /** A dated, signed addition to a signed note. */
@@ -560,6 +584,12 @@ export interface TemplateCondition {
   species?: string[];
 }
 
+/** A normal finding used only when its system wasn't discussed (ADR-0032). Never sent to the model. */
+export interface DefaultLine {
+  label: string;
+  text: string;
+}
+
 export interface TemplatePart {
   key: string;
   label: string;
@@ -571,6 +601,8 @@ export interface TemplatePart {
   /** Shown only for these species ("show when species is feline"). */
   when?: TemplateCondition | null;
   fields?: TemplateField[];
+  /** Normal findings by system, for a heading of bullet points (ADR-0032). */
+  defaults?: DefaultLine[];
   /** A tooth chart's dentition, set from the species or chosen when editing. */
   dentition?: "canine" | "feline" | null;
 }
@@ -586,6 +618,8 @@ export interface TemplateSection {
   when?: TemplateCondition | null;
   fields?: TemplateField[];
   parts?: TemplatePart[];
+  /** Normal findings by system, for a heading of bullet points (ADR-0032). */
+  defaults?: DefaultLine[];
   /** A tooth chart's dentition, set from the species or chosen when editing. */
   dentition?: "canine" | "feline" | null;
 }
@@ -654,7 +688,8 @@ export type LintReason =
   | "unsaid_doses"
   | "removes_not_discussed"
   | "inventing"
-  | "evidence";
+  | "evidence"
+  | "pasted_findings";
 
 /** A request that conflicts with the rules that always apply (a warning, never a block). */
 export interface LintWarning {
@@ -662,6 +697,10 @@ export interface LintWarning {
   path: string;
   text: string;
   reason: LintReason;
+  /** Pasted findings: the lines read as normal findings, for "Move these lines into Normal findings". */
+  lines?: DefaultLine[];
+  /** Pasted findings: the instruction without those lines. */
+  rest?: string | null;
 }
 
 /** The "Always applied" panel. */
@@ -1351,6 +1390,23 @@ export const confirmChart = (id: string, teeth: string[], confirmed: boolean, by
   isDesktop
     ? invoke<SessionView>("confirm_chart", { id, teeth, confirmed, by, pet: pet ?? null })
     : api<SessionView>(`/api/sessions/${enc(id)}/chart/confirm`, post({ teeth, confirmed, by, pet: pet ?? null }));
+/**
+ * Confirm (a veterinarian) or remove normal findings from the template waiting
+ * under a heading (ADR-0032). `labels`: which systems, all when empty. `text`:
+ * the vet's own wording of one confirmed finding. Saves a new draft.
+ */
+export const settleDefaults = (
+  id: string,
+  request: { heading: string; labels: string[]; confirm: boolean; text?: string | null },
+  by: string,
+  pet?: string | null,
+) =>
+  isDesktop
+    ? invoke<{ markdown: string; run: NoteRun }>("settle_defaults", { id, request: { ...request, text: request.text ?? null }, by, pet: pet ?? null })
+    : api<{ markdown: string; run: NoteRun }>(
+        `/api/sessions/${enc(id)}/defaults`,
+        post({ ...request, text: request.text ?? null, by, pet: pet ?? null }),
+      );
 export const signNote = (id: string, by: string, pet?: string | null) =>
   isDesktop
     ? invoke<SessionView>("sign_note", { id, by, pet: pet ?? null })

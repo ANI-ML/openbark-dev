@@ -73,6 +73,8 @@ export function Review({
   const [savingEdit, setSavingEdit] = useState(false);
   /** A tooth chart confirmation being saved (ADR-0021 decision 10). */
   const [confirming, setConfirming] = useState(false);
+  /** Normal findings from the template being confirmed or removed (ADR-0032). */
+  const [settling, setSettling] = useState(false);
   const [addendum, setAddendum] = useState<string | null>(null);
   /** The client document open in the sheet, and the one being drafted. */
   const [openDoc, setOpenDoc] = useState<string | null>(null);
@@ -444,6 +446,25 @@ export function Review({
     }
   }
 
+  /** A veterinarian confirms, or someone removes, normal findings from the template (ADR-0032). */
+  async function settleDefaults(heading: string, labels: string[], confirm: boolean, text?: string) {
+    if (!app.actorName.trim()) {
+      setError(t("Add your name in Settings, then try again."));
+      return;
+    }
+    setError(null);
+    setSettling(true);
+    try {
+      await engine.settleDefaults(id, { heading, labels, confirm, text: text ?? null }, app.actor, pet);
+      await load();
+      app.announce(confirm ? t("Normal findings confirmed") : t("Normal findings removed"));
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setSettling(false);
+    }
+  }
+
   async function sign() {
     if (!app.actorName.trim()) {
       setError(t("Add your name in Settings, then sign."));
@@ -565,6 +586,11 @@ export function Review({
     [...teethFlags.soft].filter((path) => !otherSoft.has(path)).length;
   const disputed = run?.faithfulness.disputed_numbers?.length ?? 0;
   const signed = Boolean(view?.signed_at);
+  /**
+   * Normal findings from the template waiting for a veterinarian (ADR-0032): signing waits
+   * for them, and the engine refuses too. A note signed elsewhere never shows them.
+   */
+  const waitingDefaults = signed ? [] : (run?.template_defaults ?? []);
   /** Any animal's note signed makes the whole visit signed (ADR-0022 section 2). */
   const signedVisit = Boolean(view?.any_signed ?? view?.signed_at);
   const otherPets = view && view.pets.length > 1 ? view.pets.filter((x) => x !== (pet ?? view.pets[0])) : [];
@@ -748,7 +774,9 @@ export function Review({
       <Button
         variant="primary"
         onClick={sign}
-        disabled={generating || refining || confirming || hardFails > 0 || toothBlocks > 0 || unconfirmed.length > 0}
+        disabled={
+          generating || refining || confirming || settling || hardFails > 0 || toothBlocks > 0 || unconfirmed.length > 0 || waitingDefaults.length > 0
+        }
       >
         <Signature size={20} aria-hidden />
         {t("Sign note")}
@@ -961,7 +989,7 @@ export function Review({
                   </div>
                 );
               })()}
-              {(hardFails > 0 || toothBlocks > 0 || unconfirmed.length > 0 || softFlags > 0 || disputed > 0) && (
+              {(hardFails > 0 || toothBlocks > 0 || unconfirmed.length > 0 || waitingDefaults.length > 0 || softFlags > 0 || disputed > 0) && (
                 <p className="ob-notice note-summary" data-tone={hardFails || toothBlocks ? "danger" : undefined}>
                   {hardFails > 0 &&
                     `${hardFails === 1 ? t("1 number isn't in the transcript.") : t("{n} numbers aren't in the transcript.", { n: hardFails })} `}
@@ -969,6 +997,8 @@ export function Review({
                     `${toothBlocks === 1 ? t("1 tooth on the chart blocks signing until it's corrected.") : t("{n} teeth on the chart block signing until they're corrected.", { n: toothBlocks })} `}
                   {unconfirmed.length > 0 &&
                     `${unconfirmed.length === 1 ? t("1 drafted tooth on the chart isn't confirmed yet. Signing waits until a veterinarian confirms it.") : t("{n} drafted teeth on the chart aren't confirmed yet. Signing waits until a veterinarian confirms each one.", { n: unconfirmed.length })} `}
+                  {waitingDefaults.length > 0 &&
+                    `${waitingDefaults.length === 1 ? t("1 normal finding from the template wasn't said in the recording. Signing waits until a veterinarian confirms or removes it.") : t("{n} normal findings from the template weren't said in the recording. Signing waits until a veterinarian confirms or removes each one.", { n: waitingDefaults.length })} `}
                   {disputed > 0 &&
                     `${disputed === 1 ? t("1 number was heard differently by the second recogniser; listen before signing.") : t("{n} numbers were heard differently by the second recogniser; listen before signing.", { n: disputed })} `}
                   {softFlags > 0 &&
@@ -1006,6 +1036,16 @@ export function Review({
                 unconfirmedTeeth={signed ? [] : unconfirmed}
                 onConfirmTeeth={signed || generating || refining || !canSignHere ? undefined : (teeth, ok) => void confirmTeeth(teeth, ok)}
                 confirming={confirming}
+                pendingDefaults={waitingDefaults}
+                onConfirmDefaults={
+                  signed || generating || refining || !canSignHere
+                    ? undefined
+                    : (heading, labels, text) => void settleDefaults(heading, labels, true, text)
+                }
+                onRemoveDefaults={
+                  signed || generating || refining || !app.can.notes ? undefined : (heading, labels) => void settleDefaults(heading, labels, false)
+                }
+                settlingDefaults={settling}
                 onChooseDentition={(heading, dentition) => {
                   const [sec, part] = heading.split("/");
                   const sectionValue = run.note[sec ?? ""] as Record<string, unknown> | undefined;

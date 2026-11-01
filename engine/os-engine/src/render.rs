@@ -2,6 +2,9 @@
 //!
 //! Empty parts render as "Not discussed." so absence is explicit, never
 //! silently filled. Statements failing the faithfulness pass are marked.
+//! "null" and the like never print ([`crate::blanks`]), and normal findings
+//! from the template waiting for a veterinarian aren't part of the note, so
+//! they never print here either (ADR-0032).
 
 use std::collections::HashSet;
 
@@ -78,33 +81,45 @@ fn flag(path: &str, flagged: &HashSet<String>) -> &'static str {
     if flagged.contains(path) { FLAG } else { "" }
 }
 
-fn statements(value: &Value, path: &str, flagged: &HashSet<String>) -> String {
+/// The items of a list that say something, with their place in the list and
+/// their text as shown: a statement of only "Tartre : null" is left out.
+pub fn shown_items(value: &Value) -> Vec<(usize, &Value, String)> {
     let items = value.as_array().map(Vec::as_slice).unwrap_or_default();
+    items
+        .iter()
+        .enumerate()
+        .filter_map(|(i, item)| {
+            let text = crate::blanks::shown_statement(item["text"].as_str().unwrap_or_default())?;
+            Some((i, item, text))
+        })
+        .collect()
+}
+
+fn statements(value: &Value, path: &str, flagged: &HashSet<String>) -> String {
+    let items = shown_items(value);
     if items.is_empty() {
         return format!("{NOT_DISCUSSED}\n");
     }
     items
         .iter()
-        .enumerate()
-        .map(|(i, item)| {
+        .map(|(i, item, text)| {
             let p = format!("{path}/{i}");
-            format!("- {}{}{}\n", item["text"].as_str().unwrap_or_default(), cite(item), flag(&p, flagged))
+            format!("- {text}{}{}\n", cite(item), flag(&p, flagged))
         })
         .collect()
 }
 
 /// A text box: its sentences run together as one paragraph, each keeping its citation.
 fn paragraph(value: &Value, path: &str, flagged: &HashSet<String>) -> String {
-    let items = value.as_array().map(Vec::as_slice).unwrap_or_default();
+    let items = shown_items(value);
     if items.is_empty() {
         return format!("{NOT_DISCUSSED}\n");
     }
     let sentences: Vec<String> = items
         .iter()
-        .enumerate()
-        .map(|(i, item)| {
+        .map(|(i, item, text)| {
             let p = format!("{path}/{i}");
-            format!("{}{}{}", item["text"].as_str().unwrap_or_default(), cite(item), flag(&p, flagged))
+            format!("{text}{}{}", cite(item), flag(&p, flagged))
         })
         .collect();
     format!("{}\n", sentences.join(" "))
@@ -132,30 +147,48 @@ fn fields(defs: &[FieldDef], value: &Value, path: &str, flagged: &HashSet<String
     out
 }
 
-/// A field's display text: "32.4 kg", "pink but tacky".
+/// A field's display text: "32.4 kg", "pink but tacky". None when nothing
+/// was said, "null" included.
 pub fn field_text(field: &Value) -> Option<String> {
     let value = match &field["value"] {
-        Value::String(s) => s.clone(),
+        Value::String(s) => crate::blanks::shown_value(s)?.to_string(),
         Value::Number(n) => n.to_string(),
         _ => return None,
     };
-    match field["unit"].as_str().filter(|u| !u.is_empty() && !value.ends_with(*u)) {
+    let unit = field["unit"].as_str().and_then(crate::blanks::shown_value);
+    match unit.filter(|u| !value.ends_with(*u)) {
         Some(unit) => Some(format!("{value} {unit}")),
         None => Some(value),
     }
 }
 
-fn medications(value: &Value, path: &str, flagged: &HashSet<String>) -> String {
+/// A medication's dose, route, frequency and duration, as said ("null" left out).
+pub fn medication_details(med: &Value) -> Vec<&str> {
+    ["dose", "route", "frequency", "duration"]
+        .iter()
+        .filter_map(|k| med[*k].as_str().and_then(crate::blanks::shown_value))
+        .collect()
+}
+
+/// The medications of a list that name a drug, with their place in the list.
+pub fn shown_medications(value: &Value) -> Vec<(usize, &Value)> {
     let items = value.as_array().map(Vec::as_slice).unwrap_or_default();
+    items
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| m["drug"].as_str().is_some_and(|d| !crate::blanks::is_blank_or_none(d)))
+        .collect()
+}
+
+fn medications(value: &Value, path: &str, flagged: &HashSet<String>) -> String {
+    let items = shown_medications(value);
     if items.is_empty() {
         return format!("{NOT_DISCUSSED}\n");
     }
     items
-        .iter()
-        .enumerate()
+        .into_iter()
         .map(|(i, med)| {
-            let details: Vec<&str> =
-                ["dose", "route", "frequency", "duration"].iter().filter_map(|k| med[*k].as_str()).collect();
+            let details = medication_details(med);
             let details = if details.is_empty() {
                 " (dose/route/frequency not stated)".to_string()
             } else {

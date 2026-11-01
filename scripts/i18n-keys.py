@@ -72,6 +72,10 @@ INDIRECT = [
     "A note stays a draft until a veterinarian signs it.",
     "Findings that weren't said", "Numbers that weren't said", "Doses that weren't said",
     "It would take away \"Not discussed\"", "Inventing", "Every line keeps its link to the recording",
+    # Normal findings (ADR-0032): LINT_REASON, Templates BY_SYSTEM, and engine messages
+    "A filled-in exam", "List the findings the veterinarian states, by system.",
+    "There are no normal findings from the template waiting under this heading.",
+    "Change the wording of one normal finding at a time.",
     "French", "Spanish", "German", "Portuguese",
     "Only you", "Hospital templates", "Your templates",
     "Name", "Description", "Icon", "Level of detail", "Who it's for", "Instructions", "Extra rules", "Rules that always apply",

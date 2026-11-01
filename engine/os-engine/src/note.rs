@@ -31,6 +31,10 @@ pub struct NoteOptions {
     /// The Stop button and the drafting board's progress, shared with the
     /// model while it runs.
     pub control: Option<Control>,
+    /// Re-prompting: the template's normal findings still waiting in the
+    /// current draft (ADR-0032). A redrafted finding for a system drops its
+    /// default; none is ever added back.
+    pub pending_defaults: Vec<crate::defaults::PendingDefault>,
 }
 
 /// "This visit covered several animals… write only about Mango."
@@ -226,6 +230,7 @@ impl Default for NoteOptions {
             pet: None,
             other_pets: Vec::new(),
             control: None,
+            pending_defaults: Vec::new(),
         }
     }
 }
@@ -248,6 +253,12 @@ pub struct NoteResult {
     /// Who asked for this revision (team members, M1 item 11).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub by: Option<crate::users::Who>,
+    /// Normal findings from the template for systems nothing was said about,
+    /// waiting for a veterinarian (ADR-0032). Kept beside the note, never in
+    /// it, so older versions, the checks, Copy, the PDF and client documents
+    /// never take them for findings. Signing waits until none is left.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub template_defaults: Vec<crate::defaults::PendingDefault>,
     #[serde(skip)]
     pub markdown: String,
 }
@@ -307,14 +318,23 @@ pub fn max_tokens_for(template: &LoadedTemplate, default: u32) -> u32 {
 /// long-visit CI job (.github/workflows/drafting.yml).
 pub const CLIENT_MAX_TOKENS: u32 = 2048;
 
+/// The statement line for headings that list systems (ADR-0032), only for
+/// templates with normal findings.
+const SYSTEM_FORMAT: &str = r#"- under a heading that lists systems, a statement also names its system: {"text": "Serous discharge from the left eye", "system": "Eyes", "evidence": [7]}
+"#;
+
 /// The JSON formats for a template: the tooth line and the finding guide only
-/// when it has a chart.
+/// when it has a chart, the system line only when it has normal findings.
 fn json_formats(template: &LoadedTemplate) -> String {
-    if template.chart().is_some() {
-        format!("{JSON_FORMATS}{TOOTH_FORMAT}{}", tooth_findings_guide())
-    } else {
-        JSON_FORMATS.to_string()
+    let mut out = JSON_FORMATS.to_string();
+    if !crate::template::headings_with_defaults(&template.template).is_empty() {
+        out.push_str(SYSTEM_FORMAT);
     }
+    if template.chart().is_some() {
+        out.push_str(TOOTH_FORMAT);
+        out.push_str(&tooth_findings_guide());
+    }
+    out
 }
 
 /// What each tooth finding takes, from the shared finding table
@@ -462,6 +482,10 @@ fn guidance_line(
         ),
         _ => format!("- {name}: {label}{}", with_instruction(instruction)),
     };
+    // The systems of a heading with normal findings, never their text (ADR-0032).
+    if let Some(systems) = crate::defaults::systems_note(template, path) {
+        line.push_str(&systems);
+    }
     for standard in template.standards_for(path) {
         line.push_str(&format!(" {}: {}.", standard_label(standard), standard.text.trim_end_matches('.')));
     }
@@ -660,8 +684,12 @@ fn user_message(transcript: &Transcript, context: Option<&str>) -> String {
 /// The schema the drafting grammar follows: the template's, with tooth
 /// findings in their drafting names ([`crate::dental::DRAFT_NAMES`]).
 /// Every list and free string is bounded ([`crate::template::bounded_for_drafting`]).
+/// Statements under a heading with normal findings also name their system
+/// ([`crate::defaults::tag_systems`]); the template's own schema has no tag.
 pub fn drafting_schema_text(template: &LoadedTemplate) -> String {
-    drafting_schema_for(&template.schema).to_string()
+    let mut schema = template.schema.clone();
+    crate::defaults::tag_systems(template, &mut schema, None);
+    drafting_schema_for(&schema).to_string()
 }
 
 /// [`drafting_schema_text`] for one heading's schema (re-prompting).
@@ -864,6 +892,16 @@ pub fn generate_note(
     crate::dental::merge_repeats(&mut note);
     // "Species: Yorkshire terrier" becomes Dog, from the breed table.
     crate::breeds::species_from_breed(&mut note, &scoped);
+    // "Tartre : null" is dropped and a value of "null" becomes a real null,
+    // before the defaults are decided, so a blank never counts as a finding.
+    let blanks = crate::blanks::scrub_note(&mut note);
+    // Normal findings for the systems nothing was said about (ADR-0032),
+    // decided in code; the tags the model gave come out of the note here.
+    let template_defaults =
+        crate::defaults::undiscussed(template, &mut note, Some(&scoped), crate::defaults::all(template));
+    if blanks > 0 || !template_defaults.is_empty() {
+        tracing::info!(blanks, template_defaults = template_defaults.len(), "draft tidied");
+    }
     validate(template, &note)?;
     let vet_numbers = options.reference.as_ref().map(|r| r.vet_numbers.clone()).unwrap_or_default();
     // Word-level alignment only when the note is in the consultation's language
@@ -886,6 +924,7 @@ pub fn generate_note(
         refinement: None,
         edit: None,
         by: None,
+        template_defaults,
         markdown,
     })
 }
@@ -910,9 +949,10 @@ pub fn refine_note(
     if request.trim().is_empty() {
         return Err(EngineError::Template("Say what should change under this heading.".into()));
     }
-    let schema = template.heading_schema(heading).ok_or_else(|| {
+    let mut schema = template.heading_schema(heading).ok_or_else(|| {
         EngineError::Template(format!("{} has no heading '{heading}'.", template.template.name))
     })?;
+    crate::defaults::tag_systems(template, &mut schema, Some(heading));
     let (sec, part) = split_heading(heading);
     let current = match part {
         Some(key) => note[sec][key].clone(),
@@ -945,6 +985,7 @@ pub fn refine_note(
     let mut redrafted: Value = parse_output(&output)?;
     crate::dental::rename_for_drafting(&mut redrafted, false);
     crate::dental::merge_repeats(&mut redrafted);
+    crate::blanks::scrub_note(&mut redrafted);
     let mut note = note.clone();
     match part {
         Some(key) => note[sec][key] = redrafted,
@@ -953,6 +994,9 @@ pub fn refine_note(
     if sec == "patient" {
         crate::breeds::species_from_breed(&mut note, transcript);
     }
+    // A redrafted finding for a system drops its waiting default (ADR-0032).
+    let template_defaults =
+        crate::defaults::undiscussed(template, &mut note, None, options.pending_defaults.clone());
     // The rest of the note may hold the vet's own edits.
     crate::edit::validate_edited(template, &note)?;
     let dentition = template.chart().and_then(|(_, d)| d);
@@ -981,6 +1025,7 @@ pub fn refine_note(
         }),
         edit: None,
         by: None,
+        template_defaults,
         markdown,
     })
 }
@@ -1186,6 +1231,127 @@ mod tests {
             on_token(&self.text);
             Ok(os_llm::GenerateOutput { text: self.text.clone(), stats: Default::default() })
         }
+    }
+
+    /// A template whose exam heading has normal findings, each text marked
+    /// so a test can look for it anywhere the model could see it (ADR-0032).
+    const MARKED_EXAM: &str = r#"
+name: Exam
+sections:
+  - title: Reason
+    kind: statements
+  - title: Physical exam
+    kind: statements
+    defaults:
+      - { label: Eyes, text: "ZQX-EYES clear, no discharge" }
+      - { label: Ears, text: "ZQX-EARS clean" }
+      - { label: Tartar, text: "ZQX-TARTAR none" }
+      - { label: Temperature, text: "ZQX-TEMP 38.5 °C" }
+"#;
+
+    fn labels(p: &[crate::defaults::PendingDefault]) -> Vec<&str> {
+        p.iter().map(|d| d.label.as_str()).collect()
+    }
+
+    /// ADR-0032: the default text never reaches the model, in drafting or
+    /// re-prompting: not in a message, not in the grammar. The prompt only
+    /// names the systems, and the rule against unsaid normals is unchanged.
+    #[test]
+    fn normal_finding_text_never_reaches_the_model() {
+        let template = LoadedTemplate::from_yaml(MARKED_EXAM).unwrap();
+        let draft = json!({
+            "reason": [{"text": "Fluids given", "evidence": [0]}],
+            "physical_exam": [{"text": "Mild discharge from the left eye", "system": "Eyes", "evidence": [0]}]
+        });
+        let llm = Canned { text: draft.to_string(), requests: Default::default() };
+        let (t, none) = (one_line(), NoteOptions::default());
+        let result = generate_note(&llm, &template, &t, &none, &mut |_| true).unwrap();
+        let redraft = json!([
+            {"text": "Mild discharge from the left eye", "system": "Eyes", "evidence": [0]},
+            {"text": "Ear canals clean", "system": "Ears", "evidence": [0]}
+        ]);
+        let again = Canned { text: redraft.to_string(), requests: Default::default() };
+        let pending_defaults = result.template_defaults.clone();
+        let options = NoteOptions { pending_defaults, ..Default::default() };
+        let refined = refine_note(
+            &again,
+            &template,
+            &t,
+            &result.note,
+            "physical_exam",
+            "Add the ears",
+            &options,
+            &mut |_| true,
+        )
+        .unwrap();
+        let mut requests = llm.requests.lock().unwrap().clone();
+        requests.extend(again.requests.lock().unwrap().iter().cloned());
+        assert_eq!(requests.len(), 2);
+        for request in &requests {
+            for m in &request.messages {
+                assert!(!m.content.contains("ZQX"), "default text in a message: {}", m.content);
+            }
+            let schema = request.json_schema.as_deref().unwrap();
+            assert!(!schema.contains("ZQX"), "default text in the grammar");
+            assert!(schema.contains("\"system\""), "statements are tagged with their system");
+        }
+        let system = &requests[0].messages[0].content;
+        assert!(system.contains(&format!("- {}\n", CORE_RULES[1])), "the rule is unchanged");
+        let systems = "Systems to report on, only if they were discussed: Eyes, Ears, Tartar, Temperature.";
+        assert!(system.contains(systems), "{system}");
+        assert!(requests[1].messages[0].content.contains("Systems to report on"));
+        // Drafting: the discussed system loses its default, the tags are gone.
+        assert_eq!(labels(&result.template_defaults), ["Ears", "Tartar", "Temperature"]);
+        assert!(!result.note.to_string().contains("\"system\""));
+        // Re-prompting: the ears were redrafted, so their default goes.
+        assert_eq!(labels(&refined.template_defaults), ["Tartar", "Temperature"]);
+        assert!(!refined.note.to_string().contains("\"system\""));
+    }
+
+    /// ADR-0032: the faithfulness pass never sees a default: not flagged, not
+    /// counted, and a number in one ("38.5 °C") is never an unsupported number.
+    /// "Tartar : null" is dropped, so Tartar shows as its default, marked.
+    #[test]
+    fn faithfulness_skips_defaults_and_null_statements_are_dropped() {
+        let template = LoadedTemplate::from_yaml(MARKED_EXAM).unwrap();
+        let draft = json!({
+            "reason": [{"text": "We gave 100 mL of LRS", "evidence": [0]}],
+            "physical_exam": [
+                {"text": "Tartar : null", "system": "Tartar", "evidence": [0]},
+                {"text": "T: null", "system": "Temperature", "evidence": [0]},
+                {"text": "null", "system": null, "evidence": [0]}
+            ]
+        });
+        let llm = Canned { text: draft.to_string(), requests: Default::default() };
+        let (t, none) = (one_line(), NoteOptions::default());
+        let result = generate_note(&llm, &template, &t, &none, &mut |_| true).unwrap();
+        assert_eq!(result.note["physical_exam"], json!([]));
+        assert!(!result.note.to_string().contains("null\""), "{}", result.note);
+        assert_eq!(labels(&result.template_defaults), ["Eyes", "Ears", "Tartar", "Temperature"]);
+        let f = &result.faithfulness;
+        assert!(f.passed, "{f:?}");
+        assert_eq!(f.statements_checked, 1, "only the reason line");
+        assert!(f.unsupported_numbers.is_empty() && f.citation_mismatches.is_empty());
+        assert!(f.flagged_paths().iter().all(|p| p.starts_with("/reason/")), "{f:?}");
+        // Saved: the defaults sit beside the note, never in it.
+        let saved = serde_json::to_value(&result).unwrap();
+        assert_eq!(crate::defaults::pending_in(&saved), result.template_defaults);
+        assert!(!saved["note"].to_string().contains("ZQX"));
+        assert!(!result.markdown.contains("ZQX") && !result.markdown.contains("null"));
+    }
+
+    /// The tagged statements convert to a drafting grammar, labels with
+    /// accents included ("Cœur").
+    #[test]
+    fn the_tagged_drafting_schema_converts_to_a_grammar() {
+        let template = LoadedTemplate::from_yaml(crate::defaults::tests::EXAM).unwrap();
+        let schema = drafting_schema_text(&template);
+        assert!(schema.contains("Cœur") && !schema.contains("Rythme régulier"));
+        let grammar = os_llm::grammar_for_schema(&schema).unwrap();
+        assert!(grammar.contains("system"));
+        // Templates without normal findings draft with the same schema as before.
+        let soap = LoadedTemplate::builtin("soap").unwrap();
+        assert_eq!(drafting_schema_text(&soap), drafting_schema_for(&soap.schema).to_string());
     }
 
     /// The model drafts with names no other id starts ("resorption_stage",

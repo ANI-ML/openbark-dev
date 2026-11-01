@@ -800,6 +800,20 @@ async fn confirm_chart(
     work(move || app.confirm_chart(&id, &teeth, confirmed, &by, pet.as_deref())).await
 }
 
+/// Confirm or remove normal findings from the template waiting in the
+/// latest draft (ADR-0032).
+#[tauri::command]
+async fn settle_defaults(
+    app: State<'_, AppState>,
+    id: String,
+    request: os_engine::defaults::SettleRequest,
+    by: String,
+    pet: Option<String>,
+) -> Result<os_app::NoteResponse, String> {
+    let app = app.inner().clone();
+    work(move || app.settle_defaults(&id, &request, &by, pet.as_deref())).await
+}
+
 #[tauri::command]
 async fn refine_note(
     handle: AppHandle,
@@ -1555,6 +1569,7 @@ pub fn run() {
         diagnostics,
         sign_note,
         confirm_chart,
+        settle_defaults,
         update_patient,
         refine_note,
         edit_note,

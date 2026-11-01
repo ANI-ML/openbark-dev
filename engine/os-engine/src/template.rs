@@ -82,6 +82,18 @@ pub struct FieldDef {
     pub label: String,
 }
 
+/// A normal finding the template fills in for a system that wasn't discussed
+/// (ADR-0032): "Eyes: Normal, no discharge". Only bullet-point headings of a
+/// medical record have them. The text never reaches the model: code adds it
+/// after drafting, marked as a template default, and a veterinarian confirms
+/// or removes each one before the note can be signed.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct DefaultLine {
+    /// The system, as the model tags statements with it ("Eyes", "Yeux").
+    pub label: String,
+    pub text: String,
+}
+
 /// Who a template's output is for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -230,6 +242,10 @@ pub struct Part {
     pub when: Condition,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fields: Vec<FieldDef>,
+    /// Normal findings used only when a system wasn't discussed (ADR-0032).
+    /// Kept apart from `instruction`, and never sent to the model.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub defaults: Vec<DefaultLine>,
     /// A tooth chart's dentition (ADR-0021 decision 4): set from the
     /// patient's species when drafting, or chosen by the vet when editing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -258,6 +274,9 @@ pub struct Section {
     pub fields: Vec<FieldDef>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub parts: Vec<Part>,
+    /// Normal findings used only when not discussed (see [`Part::defaults`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub defaults: Vec<DefaultLine>,
     /// A tooth chart's dentition (see [`Part::dentition`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dentition: Option<Dentition>,
@@ -459,6 +478,11 @@ const MAX_PARTS: usize = 20;
 const MAX_FIELDS: usize = 30;
 const MAX_HEADINGS: usize = 80;
 const MAX_TEXT: usize = 1500;
+/// Normal findings under one heading: a full physical exam by system is
+/// about fifteen lines.
+const MAX_DEFAULTS: usize = 40;
+/// Characters in a normal finding's label ("Lymph nodes", "Nœuds lymphatiques").
+const MAX_DEFAULT_LABEL: usize = 60;
 
 #[derive(Debug, Clone)]
 pub struct LoadedTemplate {
@@ -724,6 +748,21 @@ pub fn chart_of(t: &Template) -> Option<(String, Option<Dentition>)> {
     None
 }
 
+/// Every heading with normal findings (ADR-0032): its path ("exam" or
+/// "exam/systems") and its lines, in the template's order.
+pub fn headings_with_defaults(t: &Template) -> Vec<(String, &[DefaultLine])> {
+    let mut out = Vec::new();
+    for s in &t.sections {
+        if !s.defaults.is_empty() {
+            out.push((s.id.clone(), s.defaults.as_slice()));
+        }
+        for p in s.parts.iter().filter(|p| !p.defaults.is_empty()) {
+            out.push((format!("{}/{}", s.id, p.key), p.defaults.as_slice()));
+        }
+    }
+    out
+}
+
 /// "plan/medications" → ("plan", Some("medications")).
 pub fn split_heading(heading: &str) -> (&str, Option<&str>) {
     match heading.split_once('/') {
@@ -823,6 +862,63 @@ fn normalize_condition(when: &mut Condition, heading: &str) -> Result<(), Engine
     Ok(())
 }
 
+/// Trim normal findings and drop empty lines; refuse a line with no label or
+/// no text, a label used twice, and more than [`MAX_DEFAULTS`] lines. Only a
+/// bullet-point heading of a medical record keeps them (ADR-0032): anything
+/// else has no "Not discussed" list to fill and no signature to wait for.
+fn normalize_defaults(
+    defaults: &mut Vec<DefaultLine>,
+    kind: Option<PartKind>,
+    record: bool,
+    heading: &str,
+) -> Result<(), EngineError> {
+    for d in defaults.iter_mut() {
+        d.label = d.label.trim().trim_start_matches(['-', '•', '*']).trim().to_string();
+        d.text = d.text.trim().to_string();
+    }
+    defaults.retain(|d| !d.label.is_empty() || !d.text.is_empty());
+    if defaults.is_empty() {
+        return Ok(());
+    }
+    if kind != Some(PartKind::Statements) {
+        return Err(bad(format!(
+            "\"{heading}\" has normal findings, which only a heading of bullet points can have."
+        )));
+    }
+    if !record {
+        return Err(bad(format!(
+            "\"{heading}\" has normal findings. They're for the medical record, not a document for the client."
+        )));
+    }
+    if defaults.len() > MAX_DEFAULTS {
+        return Err(bad(format!("\"{heading}\" has more than {MAX_DEFAULTS} normal findings.")));
+    }
+    let mut seen: Vec<String> = Vec::new();
+    for d in defaults.iter() {
+        if d.label.is_empty() {
+            return Err(bad(format!(
+                "A normal finding under \"{heading}\" has no system. Write it as \"System: finding\"."
+            )));
+        }
+        if d.text.is_empty() {
+            return Err(bad(format!("The normal finding \"{}\" under \"{heading}\" has no text.", d.label)));
+        }
+        if d.label.chars().count() > MAX_DEFAULT_LABEL {
+            return Err(bad(format!(
+                "\"{}\" under \"{heading}\" is longer than {MAX_DEFAULT_LABEL} characters. Use a short system name.",
+                d.label
+            )));
+        }
+        check_text(&format!("The normal finding \"{}\"", d.label), &d.text)?;
+        let key = d.label.to_lowercase();
+        if seen.contains(&key) {
+            return Err(bad(format!("\"{heading}\" has two normal findings for \"{}\".", d.label)));
+        }
+        seen.push(key);
+    }
+    Ok(())
+}
+
 fn normalize_fields(fields: &mut [FieldDef], heading: &str) -> Result<(), EngineError> {
     if fields.is_empty() {
         return Err(bad(format!("\"{heading}\" holds measurements but lists none. Add at least one.")));
@@ -883,6 +979,7 @@ fn normalize(t: &mut Template) -> Result<(), EngineError> {
     }
     let mut headings = 0;
     let mut taken = HashSet::new();
+    let record = t.document.is_record();
     for s in &mut t.sections {
         s.title = s.title.trim().to_string();
         if s.title.is_empty() {
@@ -899,6 +996,7 @@ fn normalize(t: &mut Template) -> Result<(), EngineError> {
         }
         normalize_examples(&mut s.examples, &s.title)?;
         normalize_condition(&mut s.when, &s.title)?;
+        normalize_defaults(&mut s.defaults, s.kind, record, &s.title)?;
         headings += 1;
         match s.kind {
             Some(kind) => {
@@ -944,6 +1042,7 @@ fn normalize(t: &mut Template) -> Result<(), EngineError> {
             }
             normalize_examples(&mut p.examples, &p.label)?;
             normalize_condition(&mut p.when, &p.label)?;
+            normalize_defaults(&mut p.defaults, Some(p.kind), record, &p.label)?;
             if p.kind == PartKind::Fields {
                 normalize_fields(&mut p.fields, &p.label)?;
             } else {
@@ -1475,6 +1574,45 @@ sections:
         for key in ["properties", "required", "additionalProperties", "$defs"] {
             assert_eq!(t.schema[key], snapshot[key], "schema '{key}' differs from the snapshot");
         }
+    }
+
+    /// ADR-0032: normal findings are kept apart from the instruction, only on
+    /// a bullet-point heading of a medical record, and never change the
+    /// schema the note is saved with.
+    #[test]
+    fn normal_findings_belong_to_bullet_point_headings_of_the_record() {
+        let t = LoadedTemplate::from_yaml(crate::defaults::tests::EXAM).unwrap();
+        let exam = &t.template.sections[1];
+        assert_eq!(exam.defaults.len(), 4);
+        let first = &exam.defaults[0];
+        assert_eq!((first.label.as_str(), first.text.as_str()), ("Yeux", "Normal, aucun écoulement"));
+        assert_eq!(
+            exam.instruction.as_deref(),
+            Some("List the findings the veterinarian states, by system.")
+        );
+        let yaml = crate::defaults::tests::EXAM.replace("    defaults:", "    unused:");
+        let plain = LoadedTemplate::from_yaml(&yaml).unwrap();
+        assert_eq!(t.schema, plain.schema, "the saved schema has no tag");
+        let back = LoadedTemplate::from_yaml(&t.to_yaml()).unwrap();
+        assert_eq!(back.template.sections[1].defaults, exam.defaults);
+        assert_eq!(headings_with_defaults(&t.template).len(), 1);
+        // Templates without them keep their fingerprint: the key isn't written.
+        assert!(!LoadedTemplate::builtin("soap").unwrap().to_yaml().contains("defaults"));
+
+        let err = |yaml: &str| LoadedTemplate::from_yaml(yaml).unwrap_err().to_string();
+        let fields = "name: X\nsections:\n  - { title: Vitals, kind: fields, fields: [{ label: Weight }], defaults: [{ label: T, text: normal }] }\n";
+        assert!(err(fields).contains("only a heading of bullet points"), "{}", err(fields));
+        let twice = "name: X\nsections:\n  - { title: Exam, kind: statements, defaults: [{ label: Eyes, text: a }, { label: eyes, text: b }] }\n";
+        assert!(err(twice).contains("two normal findings for"), "{}", err(twice));
+        let empty = "name: X\nsections:\n  - { title: Exam, kind: statements, defaults: [{ label: Eyes, text: '' }] }\n";
+        assert!(err(empty).contains("has no text"), "{}", err(empty));
+        let client = "name: X\ndocument: client\nsections:\n  - { title: Exam, kind: statements, defaults: [{ label: Eyes, text: Normal }] }\n";
+        assert!(err(client).contains("not a document for the client"), "{}", err(client));
+        // Blank lines are dropped, and a bullet before the system goes.
+        let tidy = "name: X\nsections:\n  - { title: Exam, kind: statements, defaults: [{ label: ' - Eyes ', text: ' Normal ' }, { label: '', text: '' }] }\n";
+        let t = LoadedTemplate::from_yaml(tidy).unwrap();
+        let eyes = DefaultLine { label: "Eyes".into(), text: "Normal".into() };
+        assert_eq!(t.template.sections[0].defaults, [eyes]);
     }
 
     #[test]

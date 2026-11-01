@@ -13,7 +13,8 @@ While a note is drafted, a board shows each step: loading the note model (the fi
 ## Check the draft against the recording
 
 - **Rest on any line** of the note: the transcript lines it came from light up. **Click it** to play that moment of the recording.
-- Every heading is shown. If nothing was said about it, it says **Not discussed**. OpenBark never fills a gap with "normal".
+- Every heading is shown. If nothing was said about it, it says **Not discussed**. OpenBark never fills a gap with "normal". If the template has normal findings for a heading, they're shown apart, for you to confirm (see below).
+- "null" never appears in a note. If the model wrote "Tartre : null" or a dose of "n/a", the line or value is left out, so the heading reads as not discussed.
 - **Red callout:** a number in the note isn't anywhere in the transcript. Listen to the recording and correct it. You can't sign until it's resolved.
 - **Amber underline:** something needs a second look. For example, a value is in the transcript but not in the line it cites, or the second speech recogniser heard a different number ("10" or "100"). The transcript line shows what the second listen heard.
 - **Dotted underline in the transcript:** a likely misheard drug or term, with the likely spelling. This includes a dose written without its leading zero ("hydromorphone.1" is likely 0.1) and "Roman 4" for IV. The transcript itself is never changed.
@@ -30,6 +31,16 @@ Above the note, Review says which version of the template drafted it, such as "D
 ## Edit it yourself
 
 Choose **Edit** on a heading to type your own version: change, reorder, remove or add lines, medications or measurements. The edit is saved as a new draft, and earlier drafts are kept. Lines you change or add are marked "Edited by" with your name. They're your statements, so a dose you correct doesn't block signing.
+
+## Normal findings from the template
+
+If a heading of the template has normal findings (see [Templates](templates.md#normal-findings)), the systems nothing was said about get their template line, under the heading, in a dashed box labelled **Template default, not from the recording**. They weren't said in the recording, so they aren't part of the note until a veterinarian confirms them:
+
+- **Confirm** adds the line to the note as your own, marked "Edited by" with your name. **Confirm all** confirms every line under that heading.
+- **Edit** lets you change the wording, then confirm it.
+- **Remove** leaves it out.
+
+Each choice saves a new draft, and the earlier one is kept. **Sign note** stays off until every line is confirmed or removed, and OpenBark refuses to sign even from elsewhere (web mode or another device); the summary above the note says how many are waiting. Until then they're left out of **Copy note**, a heading's **Copy**, the PDF and documents for the client. With a team, only a veterinarian can confirm them. On the iPhone during the pilot, they're confirmed on a computer, as notes are signed there.
 
 ## The dental chart
 
@@ -59,7 +70,7 @@ Pick a template at the top and choose **Draft as …** to draft the same consult
 
 ## Sign
 
-When the note is right, choose **Sign note**. A dental chart must have every drafted tooth confirmed first (see above). Signing locks it: it can't be edited, re-asked or redrafted afterwards. For anything that comes later, such as a phone update, choose **Add addendum**. Addenda are dated, signed with your name, and appear under the note, in copies and in PDFs.
+When the note is right, choose **Sign note**. A dental chart must have every drafted tooth confirmed first, and every normal finding from the template confirmed or removed (see above). Signing locks it: it can't be edited, re-asked or redrafted afterwards. For anything that comes later, such as a phone update, choose **Add addendum**. Addenda are dated, signed with your name, and appear under the note, in copies and in PDFs.
 
 If your clinic has a team set up, only veterinarians can sign and add addenda.
 

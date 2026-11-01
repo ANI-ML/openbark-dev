@@ -932,7 +932,8 @@ impl Session {
 
     /// Sign as a team member (their role is kept with the signature).
     /// Refused while a drafted tooth chart entry isn't confirmed by a
-    /// veterinarian (ADR-0021 decision 10).
+    /// veterinarian (ADR-0021 decision 10), and while a normal finding from
+    /// the template waits to be confirmed or removed (ADR-0032).
     pub fn sign_latest_by(&mut self, who: &Who) -> Result<(), EngineError> {
         let at = self
             .latest_record_index()
@@ -947,12 +948,22 @@ impl Session {
             ));
         }
         // The note itself, so a chart that can't be read never signs unchecked.
-        let (_, note) = self.latest_note()?;
-        let waiting = unconfirmed_teeth(&self.meta.runs[at], &note);
+        let (_, saved) = self.latest_saved()?;
+        let waiting = unconfirmed_teeth(&self.meta.runs[at], &saved["note"]);
         if !waiting.is_empty() {
             return Err(EngineError::Session(format!(
                 "The tooth chart is a draft until a veterinarian confirms it. Check each drafted tooth against the recording and confirm it before signing. Not confirmed yet: {}.",
                 waiting.join(", ")
+            )));
+        }
+        // Normal findings from the template weren't said: whatever the client
+        // (the app, web mode, the API), they never sign unconfirmed.
+        let defaults = crate::defaults::pending_in(&saved);
+        if !defaults.is_empty() {
+            let labels: Vec<&str> = defaults.iter().map(|d| d.label.as_str()).collect();
+            return Err(EngineError::Session(format!(
+                "This draft has normal findings from the template that weren't said in the recording: {}. Confirm or remove each one before signing.",
+                labels.join(", ")
             )));
         }
         let run = &mut self.meta.runs[at];
@@ -1041,6 +1052,13 @@ impl Session {
 
     /// The latest record run's saved note (`note` from `note.json`).
     pub fn latest_note(&self) -> Result<(RunInfo, serde_json::Value), EngineError> {
+        let (run, saved) = self.latest_saved()?;
+        Ok((run, saved["note"].clone()))
+    }
+
+    /// The latest record run's whole `note.json`: the note, its checks, and
+    /// the normal findings from the template waiting beside it (ADR-0032).
+    pub fn latest_saved(&self) -> Result<(RunInfo, serde_json::Value), EngineError> {
         let run = self
             .latest_record()
             .cloned()
@@ -1049,7 +1067,13 @@ impl Session {
         let text = crate::vault::read_to_string(&path).map_err(io(&path))?;
         let saved: serde_json::Value = serde_json::from_str(&text)
             .map_err(|e| EngineError::Session(format!("{}: {e}", path.display())))?;
-        Ok((run, saved["note"].clone()))
+        Ok((run, saved))
+    }
+
+    /// The normal findings from the template waiting in the latest draft
+    /// (none when there is no draft).
+    pub fn pending_defaults(&self) -> Vec<crate::defaults::PendingDefault> {
+        self.latest_saved().map(|(_, saved)| crate::defaults::pending_in(&saved)).unwrap_or_default()
     }
 
     /// The template a run was written with: its snapshot, or for runs saved
@@ -1255,6 +1279,7 @@ mod tests {
             refinement: None,
             edit: None,
             by: None,
+            template_defaults: Vec::new(),
             markdown: "# SOAP note\n".into(),
         }
     }
@@ -1561,6 +1586,119 @@ mod tests {
         });
     }
 
+    /// A draft with normal findings from the template waiting (ADR-0032).
+    fn draft_with_defaults(name: &str) -> (tempfile::TempDir, Session, LoadedTemplate, NoteResult) {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join(format!("{name}.wav"));
+        fs::write(&src, b"RIFF....WAVE").unwrap();
+        let mut s = Session::create_from_file(&tmp.path().join("sessions"), &src, 3.0).unwrap();
+        let t = Transcript {
+            segments: vec![Segment {
+                id: 0,
+                start: 0.0,
+                end: 1.0,
+                speaker: Some(0),
+                text: "Elle se gratte l'oreille gauche".into(),
+                hints: Vec::new(),
+                check: None,
+            }],
+        };
+        s.save_transcript(&t, "parakeet", false, &Default::default()).unwrap();
+        let template = LoadedTemplate::from_yaml(crate::defaults::tests::EXAM).unwrap();
+        let mut result = note_result();
+        result.template = template.label();
+        result.note = serde_json::json!({
+            "motif": [{"text": "Se gratte l'oreille gauche", "evidence": [0]}],
+            "examen_physique": []
+        });
+        let all = crate::defaults::all(&template);
+        result.template_defaults = crate::defaults::undiscussed(&template, &mut result.note, Some(&t), all);
+        s.save_run("gemma", &result, &template).unwrap();
+        (tmp, s, template, result)
+    }
+
+    /// ADR-0032: the engine never signs while a normal finding from the
+    /// template waits; once each is confirmed or removed, it signs.
+    #[test]
+    fn signing_waits_until_every_template_default_is_confirmed_or_removed() {
+        use crate::defaults::{SettleRequest, settle};
+        let _plain = crate::vault::tests::SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let (_tmp, mut s, template, result) = draft_with_defaults("Mina exam");
+        let labels: Vec<String> = s.pending_defaults().into_iter().map(|d| d.label).collect();
+        assert_eq!(labels, ["Yeux", "Cœur", "Tartre"], "Oreilles was said");
+        let err = s.sign_latest("Dr Martin").unwrap_err().to_string();
+        assert!(err.contains("normal findings from the template"), "{err}");
+        assert!(err.contains("Yeux, Cœur, Tartre"), "{err}");
+        assert!(!s.is_signed());
+
+        // Confirm one: still refused for the others.
+        let transcript = s.load_transcript().unwrap();
+        let confirm = SettleRequest {
+            heading: "examen_physique".into(),
+            labels: vec!["Yeux".into()],
+            confirm: true,
+            text: None,
+        };
+        let pending = s.pending_defaults();
+        let r = settle(&template, &transcript, &result.note, &pending, &confirm, "Dr Martin", "x").unwrap();
+        s.save_run("edited", &r, &template).unwrap();
+        let err = s.sign_latest("Dr Martin").unwrap_err().to_string();
+        assert!(err.contains("Cœur, Tartre") && !err.contains("Yeux"), "{err}");
+
+        // Confirm the rest: the note signs, with the vet's own lines in it.
+        let all = SettleRequest { labels: Vec::new(), ..confirm };
+        let (_, note) = s.latest_note().unwrap();
+        let pending = s.pending_defaults();
+        let r = settle(&template, &transcript, &note, &pending, &all, "Dr Martin", "x").unwrap();
+        assert!(r.template_defaults.is_empty());
+        s.save_run("edited", &r, &template).unwrap();
+        s.sign_latest("Dr Martin").unwrap();
+        assert!(s.is_signed());
+        let (_, signed) = s.latest_note().unwrap();
+        let lines: Vec<&str> =
+            signed["examen_physique"].as_array().unwrap().iter().filter_map(|i| i["text"].as_str()).collect();
+        assert_eq!(
+            lines,
+            ["Yeux: Normal, aucun écoulement", "Cœur: Rythme régulier, pas de souffle", "Tartre: Absent"]
+        );
+        assert!(signed["examen_physique"].as_array().unwrap().iter().all(|i| i["entered_by"] == "Dr Martin"));
+    }
+
+    /// ADR-0032: a 0.2.4 device (an iPhone through the clinic hub) reads a
+    /// 0.2.5 note through `note` in note.json, the markdown, and the template
+    /// snapshot. None of them holds a default as a statement, and the note
+    /// still fits the schema a 0.2.4 template makes, so it can be edited there.
+    #[test]
+    fn an_older_version_reads_a_note_with_defaults_and_shows_none_of_them() {
+        let _plain = crate::vault::tests::SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let (_tmp, s, template, _) = draft_with_defaults("Mina compat");
+        let (run, saved) = s.latest_saved().unwrap();
+        assert_eq!(crate::defaults::pending_in(&saved).len(), 3, "0.2.5 sees them beside the note");
+        // What 0.2.4 reads: `note` (Session::latest_note, the app's NoteView,
+        // Copy and the PDF) and note.md (the phone's draft).
+        let (_, note) = s.latest_note().unwrap();
+        let markdown = crate::vault::read_to_string(&s.dir.join(&run.dir).join("note.md")).unwrap();
+        for default in ["Normal, aucun écoulement", "Rythme régulier", "Absent"] {
+            assert!(!note.to_string().contains(default), "{default} in the note");
+            assert!(!markdown.contains(default), "{default} in note.md");
+        }
+        assert!(note["examen_physique"].as_array().unwrap().is_empty());
+        // The 0.2.4 template has no `defaults` (serde ignores the key), so its
+        // schema is the 0.2.5 schema: the note fits it, with no `system` tag.
+        let yaml = crate::vault::read_to_string(&s.dir.join(&run.dir).join(RUN_TEMPLATE_FILE)).unwrap();
+        assert!(yaml.contains("defaults:"), "the snapshot keeps them for 0.2.5");
+        let mut old = template.template.clone();
+        for sec in &mut old.sections {
+            sec.defaults.clear();
+        }
+        let old = LoadedTemplate::new(old).unwrap();
+        assert_eq!(old.schema, template.schema);
+        crate::edit::validate_edited(&old, &note).unwrap();
+        let empty = Transcript { segments: Vec::new() };
+        let shown = crate::render::markdown(&old, &note, &empty, &Default::default());
+        assert!(shown.contains("## Examen physique\n\nNot discussed."), "{shown}");
+    }
+
     /// ADR-0021 decision 10: drafted chart entries are unconfirmed until a
     /// veterinarian confirms each tooth; the engine refuses to sign until
     /// then, records who and when, carries confirmations over a hand edit
@@ -1626,6 +1764,8 @@ mod tests {
             changed: vec!["/dental_chart/2".into()],
             removed: 1,
             before: serde_json::Value::Null,
+            defaults_confirmed: Vec::new(),
+            defaults_removed: Vec::new(),
         });
         s.save_run("edited", &edited, &template).unwrap();
         assert!(s.unconfirmed_teeth().is_empty(), "108 carried over, 209 is the vet's own");

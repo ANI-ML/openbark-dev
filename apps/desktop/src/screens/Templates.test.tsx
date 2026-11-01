@@ -193,6 +193,46 @@ describe("Templates: the editor", () => {
     expect((screen.getByRole("button", { name: "Save my version" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
+  it("keeps normal findings apart from the instruction, for a heading of bullet points", async () => {
+    open(ctx(), view());
+    const box = (await screen.findByLabelText("Normal findings for Plan")) as HTMLTextAreaElement;
+    expect(screen.getByText("Normal findings (used only when not discussed)")).toBeTruthy();
+    fireEvent.change(box, { target: { value: "Eyes: Normal, no discharge\n- Ears : Clean" } });
+    await waitFor(() => {
+      const sent = mocked.previewTemplate.mock.calls.at(-1)?.[0];
+      expect(sent?.sections[0]?.defaults).toEqual([
+        { label: "Eyes", text: "Normal, no discharge" },
+        { label: "Ears", text: "Clean" },
+      ]);
+      expect(sent?.sections[0]?.instruction).toBe("Treatment and follow-up.");
+    });
+  });
+
+  it("warns about a pasted exam and moves its lines into Normal findings", async () => {
+    const warned = view({
+      lint: [
+        {
+          path: "headings/plan",
+          text: "Yeux: Normal, aucun écoulement",
+          reason: "pasted_findings",
+          lines: [
+            { label: "Yeux", text: "Normal, aucun écoulement" },
+            { label: "Oreilles", text: "Propres" },
+          ],
+          rest: "",
+        },
+      ],
+    });
+    open(ctx(), view(), warned);
+    const instruction = (await screen.findByLabelText("Instruction for Plan")) as HTMLTextAreaElement;
+    fireEvent.change(instruction, { target: { value: "-Yeux : Normal, aucun écoulement -Oreilles : Propres -Tartre : -T: P: R:" } });
+    expect(await screen.findByText(/This looks like a filled-in exam/)).toBeTruthy();
+    expect(screen.getByText(/findings pasted here can end up in the note as if they were said/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Move these lines into Normal findings" }));
+    expect((screen.getByLabelText("Instruction for Plan") as HTMLTextAreaElement).value).toBe("List the findings the veterinarian states, by system.");
+    expect((screen.getByLabelText("Normal findings for Plan") as HTMLTextAreaElement).value).toBe("Yeux: Normal, aucun écoulement\nOreilles: Propres");
+  });
+
   it("is read-only for reception", async () => {
     open(
       ctx({ user: { id: "u-lee", name: "Lee", role: "reception" }, can: { notes: false, sign: false, team: false, admin: false } }),

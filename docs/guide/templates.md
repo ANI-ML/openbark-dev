@@ -27,6 +27,8 @@ Open **Templates** and choose a template: it opens ready to change. Change the h
 
 The **Always applied** panel, under the rules for the whole note, lists the rules no template can change: only what was said, numbers exactly as said, every line linked to the recording, and the template's own safety rules. If an instruction asks for something they forbid, such as "write normal values if not said", a warning appears under it. The rules that always apply win, and every draft is still checked against the recording.
 
+An instruction that looks like a filled-in exam ("Eyes: Normal, no discharge", "T: P: R:"), in any language, gets a warning too: instructions are told to the model, so findings pasted there can end up in the note as if they were said. Under a heading of bullet points, **Move these lines into Normal findings** moves them where they belong (below) and leaves the instruction "List the findings the veterinarian states, by system."
+
 ## Your version and the original
 
 - **Reset to original** goes back to the original. **Undo** in the message brings your version back.
@@ -60,6 +62,16 @@ Review says which version drafted each note, for example "Drafted with SOAP note
 7. Choose **Try on a visit** to draft a saved consult with the new template.
 
 Every template follows OpenBark's core rules, and you can't remove them: only what was said, numbers exactly as stated, every line linked to the recording. They're listed under **Always applied**.
+
+## Normal findings
+
+A heading of bullet points, such as a physical exam, can have **Normal findings (used only when not discussed)**: one system per line, written "System: finding", for example "Eyes: Normal, no discharge". They're for clinics that chart a normal exam by system and change only what was found.
+
+- **They're never sent to the model.** The model is only told which systems to report on if they were discussed, and it still never writes "normal" unless that was said.
+- **After drafting, OpenBark adds a system's line only if nothing was said about that system**: not in the note, and not anywhere in the recording. A system with any finding, even one the draft left out, gets no default line. A finding is never mixed into a default.
+- **In Review, each line is marked "Template default, not from the recording"**, set apart under its heading. A veterinarian confirms it (it then becomes their own line, marked "Edited by"), changes its wording, or removes it. The note can't be signed until every line is confirmed or removed. See [Normal findings from the template](review.md#normal-findings-from-the-template).
+- Use short, specific system names ("Eyes", "Heart", "Lymph nodes"). A name that's an everyday word in conversation, such as "General", is often said, and then its line isn't added.
+- Normal findings are for the medical record, not for documents for the client, and only under a heading of bullet points.
 
 ## Standards
 

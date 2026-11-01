@@ -16,7 +16,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::dental::{self, Dentition, Glyph, LegendLine, PathCmd};
-use crate::render::field_text;
+use crate::render::{field_text, medication_details, shown_items, shown_medications};
 use crate::template::{FieldDef, LoadedTemplate, PartKind};
 
 /// Clinic details printed as the letterhead.
@@ -503,35 +503,35 @@ impl Layout {
 
 const BODY: f32 = 10.5;
 
+/// Statements, "null" left out ([`crate::render::shown_items`]).
 fn statements(l: &mut Layout, value: &Value, indent: f32) {
-    let items = value.as_array().map(Vec::as_slice).unwrap_or_default();
+    let items = shown_items(value);
     if items.is_empty() {
         l.text(l.labels.not_discussed, Font::Italic, BODY, 0.4, indent, None);
     }
-    for item in items {
-        l.text(item["text"].as_str().unwrap_or_default(), Font::Regular, BODY, 0.0, indent, Some("•"));
+    for (_, _, text) in items {
+        l.text(&text, Font::Regular, BODY, 0.0, indent, Some("•"));
     }
 }
 
 /// A text box: its sentences as one paragraph.
 fn paragraph(l: &mut Layout, value: &Value, indent: f32) {
-    let items = value.as_array().map(Vec::as_slice).unwrap_or_default();
+    let items = shown_items(value);
     if items.is_empty() {
         l.text(l.labels.not_discussed, Font::Italic, BODY, 0.4, indent, None);
         return;
     }
-    let text: Vec<&str> = items.iter().filter_map(|i| i["text"].as_str()).collect();
+    let text: Vec<String> = items.into_iter().map(|(_, _, text)| text).collect();
     l.text(&text.join(" "), Font::Regular, BODY, 0.0, indent, None);
 }
 
 fn medications(l: &mut Layout, value: &Value, indent: f32) {
-    let items = value.as_array().map(Vec::as_slice).unwrap_or_default();
+    let items = shown_medications(value);
     if items.is_empty() {
         l.text(l.labels.not_discussed, Font::Italic, BODY, 0.4, indent, None);
     }
-    for med in items {
-        let details: Vec<&str> =
-            ["dose", "route", "frequency", "duration"].iter().filter_map(|k| med[*k].as_str()).collect();
+    for (_, med) in items {
+        let details = medication_details(med);
         let text = if details.is_empty() {
             format!("{} {}", med["drug"].as_str().unwrap_or("?"), l.labels.not_stated)
         } else {
@@ -1102,6 +1102,34 @@ mod tests {
 
     fn text_of(pdf: &[u8]) -> String {
         String::from_utf8_lossy(pdf).into_owned()
+    }
+
+    /// ADR-0032: a note saved before blanks were tidied after drafting (0.2.4)
+    /// never prints "null" or "n/a", in the PDF or the markdown.
+    #[test]
+    fn a_note_with_null_values_never_prints_them() {
+        let soap = LoadedTemplate::builtin("soap").unwrap();
+        let mut note = crate::template::empty_note(&soap.template);
+        note["patient"]["name"] = json!({"value": "null", "unit": null, "evidence": [1]});
+        note["objective"]["vitals"]["temperature"] = json!({"value": 38.9, "unit": "null", "evidence": [2]});
+        note["objective"]["physical_exam"] = json!([
+            {"text": "Tartre : null", "evidence": [3]},
+            {"text": "T: null P: null R: null", "evidence": [3]},
+            {"text": "Heart: grade 2 murmur", "evidence": [4]}
+        ]);
+        note["plan"]["medications"] = json!([
+            {"drug": "Meloxicam", "dose": "n/a", "route": "PO", "frequency": "null", "duration": null, "evidence": [5]},
+            {"drug": "null", "dose": null, "route": null, "frequency": null, "duration": null, "evidence": [6]}
+        ]);
+        let pdf = text_of(&note_pdf(&soap, &note, &header()));
+        let empty = crate::transcript::Transcript { segments: Vec::new() };
+        let md = crate::render::markdown(&soap, &note, &empty, &Default::default());
+        for text in [&pdf, &md] {
+            assert!(!text.to_lowercase().contains("null") && !text.contains("n/a"), "{text}");
+            assert!(text.contains("Heart: grade 2 murmur") && text.contains("Meloxicam: PO"), "{text}");
+        }
+        assert!(md.contains("- Temperature: 38.9 [2]"), "{md}");
+        assert!(md.contains("## Patient\n\nNot discussed.\n"), "{md}");
     }
 
     #[test]
