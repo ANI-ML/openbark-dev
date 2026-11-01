@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import * as engine from "./engine";
 import { ConsentNotice } from "./components/ConsentNotice";
 import { PhoneWalkthrough, walkthroughDue } from "./components/PhoneWalkthrough";
+import { SetupWalkthrough } from "./components/SetupWalkthrough";
 import { Toast } from "./components/Toast";
 import { UpdateChecks } from "./components/UpdateCheck";
 import { ROLE_LABEL, UserPicker } from "./components/UserPicker";
@@ -37,6 +38,7 @@ import { SettingsScreen } from "./screens/Settings";
 import { Templates } from "./screens/Templates";
 import { Help } from "./screens/Help";
 import { Visits } from "./screens/Visits";
+import { setupDone, setupMode } from "./setup";
 import { isIos, needsYou } from "./visits";
 
 export type { Route } from "./routes";
@@ -149,6 +151,8 @@ export function App() {
   // already drafts with E4B keeps it (Models and Record suggest switching).
   useEffect(() => {
     if (!status || status.profile === "ios" || !status.default_llm) return;
+    // A model chosen in setup (ADR-0034) is the person's choice: never swapped.
+    if (settings.noteModelChosenAt) return;
     if (settings.llm !== "gemma-4-e4b-it-q4_0" || status.default_llm === settings.llm) return;
     const wanted = status.default_llm;
     engine.models().then(
@@ -230,15 +234,23 @@ export function App() {
     levels,
   };
   const active = activeOf(route);
+  /** The computer's setup walkthrough (ADR-0034), once consent is given and, with a team, someone is chosen. */
+  const setup = setupMode(status, settings, team && !user);
   const t = (text: string, vars?: Record<string, string | number>) => translate(settings.uiLanguage, text, vars);
   /** On a phone, Templates, Models and Help open from Settings, so its tab stays marked. */
   const underSettings = active === "templates" || active === "models" || active === "help";
 
   useEffect(() => {
     document.documentElement.lang = settings.uiLanguage;
-    // The second speech recogniser expects the app's language (ADR-0031).
+    // The second speech recogniser expects the app's language (ADR-0031),
+    // unless a spoken language is set (below).
     engine.setSpeechLanguage(settings.uiLanguage).catch(() => {});
   }, [settings.uiLanguage]);
+
+  useEffect(() => {
+    // Settings, Recording, Spoken language; null is Auto (ADR-0033).
+    engine.setSpokenLanguage(settings.spokenLanguage).catch(() => {});
+  }, [settings.spokenLanguage]);
 
   // A recorded call was saved in the phone window: open it, drafted with the
   // Phone call template when "Draft the note when I stop recording" is on.
@@ -371,11 +383,18 @@ export function App() {
           }}
         />
       )}
-      {/* The version check (ADR-0035): asked once, after first-run setup and the
-          consent notice (and choosing who is using the app), never on the
-          iPhone; the daily check only once the person said yes. */}
+      {setup && <SetupWalkthrough key={setup} mode={setup} />}
+      {/* The version check (ADR-0035): asked once, after the consent notice
+          (and choosing who is using the app) and once setup is done, so never
+          over the setup walkthrough (ADR-0034); never on the iPhone; the daily
+          check only once the person said yes. */}
       <UpdateChecks
-        ready={Boolean(settings.consentAcknowledgedAt) && !(team && !user) && !walkthroughDue(status, settings)}
+        ready={
+          Boolean(settings.consentAcknowledgedAt) &&
+          !(team && !user) &&
+          !walkthroughDue(status, settings) &&
+          setupDone(status, settings, team && !user)
+        }
       />
       {/* The toast arrives and leaves (it used to vanish); a new one waits for the old to go. */}
       <AnimatePresence mode="wait">

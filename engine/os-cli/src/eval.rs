@@ -67,6 +67,20 @@ pub struct EvalArgs {
     /// fixture in id order, starting at the K-th. For parallel CI jobs.
     #[arg(long, value_parser = parse_shard)]
     pub shard: Option<(usize, usize)>,
+    /// The main speech recogniser for transcribing (catalog id; default: the
+    /// app's, Parakeet).
+    #[arg(long)]
+    pub stt: Option<String>,
+    /// The language spoken in the fixtures ("fr"), as Settings, Recording,
+    /// Spoken language: the recognisers that take a language (Whisper,
+    /// Canary) are told to expect it; "auto" lets Whisper detect it. Default:
+    /// Auto with an English interface, as in the app out of the box.
+    #[arg(long)]
+    pub spoken_language: Option<String>,
+    /// Write the notes in this language ("fr"), as Settings, Language, Write
+    /// notes in. Default: the template's (English).
+    #[arg(long)]
+    pub note_language: Option<String>,
     #[command(flatten)]
     pub llm: LlmArgs,
 }
@@ -387,6 +401,7 @@ struct ScriptPatient {
 /// declares its patient, so the eval drafts from the prompt the app sends.
 fn script_options(args: &EvalArgs, script: &Script) -> os_engine::NoteOptions {
     let mut options = note_options(&args.llm);
+    options.language = args.note_language.clone();
     if !args.no_patient
         && let Some(p) = &script.patient
     {
@@ -484,13 +499,17 @@ fn transcript_for(
     cache: &Path,
     refresh: bool,
     speakerphone: bool,
+    stt: Option<&str>,
 ) -> Result<Transcript> {
     if !refresh && let Ok(text) = std::fs::read_to_string(cache) {
         return Ok(Transcript::from_jsonl(&text)?);
     }
     let tmp = tempfile::tempdir()?;
     let source = LiveSource::File { path: wav.to_path_buf(), realtime: false };
-    let options = LiveOptions { speakerphone, ..LiveOptions::microphone() };
+    let mut options = LiveOptions { speakerphone, ..LiveOptions::microphone() };
+    if let Some(stt) = stt {
+        options.stt = stt.to_string();
+    }
     let result = LiveRecorder::start(store, tmp.path(), source, options, Box::new(Quiet))?.wait()?;
     std::fs::create_dir_all(cache.parent().expect("cache has a parent"))?;
     std::fs::write(cache, result.transcript.to_jsonl())?;
@@ -522,12 +541,17 @@ fn note_text(v: &Value) -> String {
     out
 }
 
-/// Loose phrase match: case-insensitive, hyphen/space-insensitive, with a few
-/// clinical synonyms so "x-ray" matches "radiograph" etc.
+/// Loose phrase match: case-insensitive, hyphen/space-insensitive and
+/// accent-insensitive ("oeil" is "œil", "fluoresceine" is "fluorescéine"),
+/// with a few clinical synonyms so "x-ray" matches "radiograph" etc.
 fn mentions(text: &str, phrase: &str) -> bool {
-    // Spoken and written numbers alike: "three out of five" is "3/5", "fourteen days" is "14 days".
+    // Spoken and written numbers alike: "three out of five" is "3/5", "fourteen days" is "14 days",
+    // and in French "trois sur cinq" is "3/5" and "quatorze jours" is "14 jours".
     let norm = |s: &str| {
-        let s = s.to_lowercase().replace(['-', '’', '\''], " ").replace('/', " out of ");
+        let s = os_engine::align::fold_accents(&s.to_lowercase())
+            .replace(['-', '’', '\''], " ")
+            .replace('/', " out of ")
+            .replace(" sur ", " out of ");
         let s = os_engine::numbers::normalize_spoken(&s);
         // "6mm" and "6 mm" alike.
         let mut out = String::new();
@@ -554,13 +578,28 @@ fn mentions(text: &str, phrase: &str) -> bool {
         ("ten percent", &["10%", "10 percent"]),
         ("once a week", &["weekly", "once weekly", "1 time per week"]),
     ];
-    t.contains(&p) || synonyms.iter().any(|(k, alts)| p == *k && alts.iter().any(|a| t.contains(&norm(a))))
+    // French, keys as written (normalised before comparing).
+    let french: &[(&str, &[&str])] = &[
+        ("pus", &["purulent"]),
+        ("radiographie", &["radio"]),
+        ("puce électronique", &["micropuce", "puce d'identification"]),
+        ("analyse d'urine", &["analyse urinaire", "analyse des urines", "urinalyse"]),
+        ("gastro-entérite", &["gastroentérite"]),
+    ];
+    t.contains(&p)
+        || synonyms.iter().any(|(k, alts)| p == *k && alts.iter().any(|a| t.contains(&norm(a))))
+        || french.iter().any(|(k, alts)| p == norm(k) && alts.iter().any(|a| t.contains(&norm(a))))
 }
 
 fn numbers(s: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut cur = String::new();
-    for c in s.chars().chain(std::iter::once(' ')) {
+    let chars: Vec<char> = s.chars().collect();
+    for (i, &c) in chars.iter().chain(std::iter::once(&' ')).enumerate() {
+        // A decimal comma ("0,5 cm", "38,6"): one or two digits after it.
+        let after = chars[(i + 1).min(chars.len())..].iter().take_while(|d| d.is_ascii_digit()).count();
+        let decimal_comma = c == ',' && !cur.is_empty() && !cur.contains('.') && (1..=2).contains(&after);
+        let c = if decimal_comma { '.' } else { c };
         if c.is_ascii_digit() || (c == '.' && !cur.is_empty()) {
             cur.push(c);
         } else if !cur.is_empty() {
@@ -681,11 +720,13 @@ fn score_pets(
     transcript: &Transcript,
     script: &Script,
     args: &LlmArgs,
+    language: Option<&str>,
 ) -> Result<Score> {
     let pets: Vec<String> = script.expected.vitals_by_patient.keys().cloned().collect();
     let mut total = Score { fixture: script.id.clone(), ..Default::default() };
     for pet in &pets {
         let mut options = note_options(args);
+        options.language = language.map(str::to_string);
         options.pet = Some(pet.clone());
         options.other_pets = pets.iter().filter(|p| *p != pet).cloned().collect();
         let result = generate_note(llm, template, transcript, &options, &mut |_| true)?;
@@ -776,6 +817,13 @@ pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
         );
     }
 
+    // The spoken language, as the app sets it (ADR-0033); "auto" leaves
+    // Whisper to detect the language.
+    if let Some(lang) = &args.spoken_language {
+        let lang = Some(lang.as_str()).filter(|l| *l != "auto");
+        os_engine::models::set_speech_language(lang);
+        os_engine::models::set_spoken_language(lang);
+    }
     let default_template = LoadedTemplate::resolve(&args.llm.template)?;
     let llm = load_llm(store, &args.llm)?;
     let mut report = Vec::new();
@@ -788,8 +836,14 @@ pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
             transcript_from_ref(&std::fs::read_to_string(&input)?)
                 .with_context(|| input.display().to_string())?
         } else {
-            let cache = PathBuf::from("target/eval-cache").join(format!("{}.jsonl", script.id));
-            transcript_for(store, &input, &cache, args.retranscribe, script.phone.is_some())?
+            // Each recogniser's transcripts apart (`--stt`), so they never mix.
+            let name = match &args.stt {
+                Some(stt) => format!("{}.{stt}.jsonl", script.id),
+                None => format!("{}.jsonl", script.id),
+            };
+            let cache = PathBuf::from("target/eval-cache").join(name);
+            let stt = args.stt.as_deref();
+            transcript_for(store, &input, &cache, args.retranscribe, script.phone.is_some(), stt)?
         };
         std::fs::create_dir_all("target/eval")?;
         let template = match &script.template {
@@ -800,7 +854,8 @@ pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
         let options = script_options(&args, &script);
         let draft = || -> Result<Score> {
             if !script.expected.vitals_by_patient.is_empty() {
-                return score_pets(&*llm, &template, &transcript, &script, &args.llm);
+                let language = args.note_language.as_deref();
+                return score_pets(&*llm, &template, &transcript, &script, &args.llm, language);
             }
             let result = generate_note(&*llm, &template, &transcript, &options, &mut |_| true)?;
             std::fs::write(
@@ -893,7 +948,11 @@ pub fn run(store: &ModelStore, args: EvalArgs) -> Result<()> {
     }
     let (p, c): (u32, u32) = report.iter().fold((0, 0), |a, s| (a.0 + s.passed, a.1 + s.checks));
     let invented: usize = report.iter().map(|s| s.invented_numbers).sum();
-    println!("TOTAL facts {p}/{c} ({:.0}%), invented numbers {invented}", 100.0 * p as f64 / c.max(1) as f64);
+    let failed = report.iter().filter(|s| s.error.is_some()).count();
+    println!(
+        "TOTAL facts {p}/{c} ({:.0}%), invented numbers {invented}, failed drafts {failed}",
+        100.0 * p as f64 / c.max(1) as f64
+    );
     let categories: std::collections::BTreeSet<&str> = report.iter().map(|s| s.category.as_str()).collect();
     if categories.len() > 1 {
         for cat in categories {
@@ -961,6 +1020,21 @@ mod tests {
     }
 
     #[test]
+    fn french_phrases_match_without_accents_and_with_spoken_numbers() {
+        let note = "Écoulement purulent de l'œil gauche. Test à la fluorescéine négatif. \
+                    Boiterie 3 sur 5. Contrôle dans 3 semaines. Analyse urinaire prévue.";
+        assert!(mentions(note, "œil gauche"));
+        assert!(mentions(note, "oeil gauche"));
+        assert!(mentions(note, "fluorescéine"));
+        assert!(mentions(note, "pus"), "a synonym");
+        assert!(mentions(note, "3/5"));
+        assert!(mentions(note, "trois semaines"));
+        assert!(mentions(note, "analyse d'urine"));
+        assert!(!mentions(note, "fluorescéine positive"));
+        assert!(!mentions(note, "œil droit"));
+    }
+
+    #[test]
     fn reference_transcripts_number_speakers_as_the_app_does() {
         let t = transcript_from_ref(
             r#"[
@@ -995,6 +1069,25 @@ mod tests {
             n += 1;
         }
         assert!(n > 10, "only {n} fixtures found");
+    }
+
+    /// The French fixtures (docs/eval/french.md) declare facts to check, and
+    /// a category, so the mixed French and English consult is reported apart.
+    #[test]
+    fn french_fixtures_declare_their_facts() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages/eval/fixtures/fr/scripts");
+        let mut ids = Vec::new();
+        for e in std::fs::read_dir(dir).unwrap().flatten() {
+            let script: Script =
+                serde_yaml_ng::from_str(&std::fs::read_to_string(e.path()).unwrap()).unwrap();
+            let e = &script.expected;
+            assert!(e.must_mention.len() >= 4, "{}", script.id);
+            assert!(!e.must_not_mention.is_empty(), "{}", script.id);
+            assert!(matches!(script.category.as_deref(), Some("fr" | "fr-en")), "{}", script.id);
+            ids.push(script.id);
+        }
+        assert!(ids.len() >= 6, "{ids:?}");
+        assert!(ids.iter().any(|i| i == "fr-mixte-gastro") && ids.iter().any(|i| i == "fr-dictee-examen"));
     }
 
     /// packages/eval/phone-models.json: every candidate is pinned, fits the
@@ -1080,6 +1173,9 @@ expected:
         assert_eq!(numbers("4/9"), vec!["4", "9"]);
         assert_eq!(numbers("100 mL LRS"), vec!["100"]);
         assert_eq!(numbers("6.0%"), vec!["6"]);
+        // French decimal commas; English thousands are left as before.
+        assert_eq!(numbers("0,5 cm, 38,6 °C"), vec!["0.5", "38.6"]);
+        assert_eq!(numbers("1,250 mg"), vec!["1", "250"]);
     }
 
     #[test]

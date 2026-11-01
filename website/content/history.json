@@ -1,6 +1,6 @@
 {
   "_about": "Version history shown on history.html and written to CHANGELOG.md by scripts/website-build.py. Major changes only, newest first: a handful of items per milestone, each one a change a clinic would notice. Items marked 'testing' are built but not yet proven on real devices.",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "stage": "Beta",
   "next": [
     {"text": "OpenBark for iPhone on the App Store, after testing on real phones in clinics."},
@@ -15,6 +15,22 @@
       "name": "Beta",
       "tagline": "Ready for clinics to try",
       "entries": [
+        {
+          "date": "2026-11-01",
+          "title": "Normal-exam defaults you confirm, a Spoken language setting, and long visits that finish",
+          "summary": "After feedback from a French-speaking clinic: templates can hold normal findings that are used only for systems not discussed, and only once you confirm them. A Spoken language setting, a fix for new custom templates, and drafting that no longer runs out of room on long visits.",
+          "items": [
+            {"text": "Normal findings on a template heading (off unless you add them). A finding is used only for a system that wasn't discussed, is marked \"Template default, not from the recording\", and must be confirmed before the note can be signed. The model never sees the default text.", "status": "shipped"},
+            {"text": "A plain warning when a heading's instruction looks like a pasted exam, in any language, with a button that moves those lines into Normal findings.", "status": "shipped"},
+            {"text": "\"null\" no longer appears in notes, copies, PDFs or client documents; blank findings are left out.", "status": "shipped"},
+            {"text": "Settings, Recording, Spoken language (desktop): Auto, English, Français, Español, Deutsch or Português. A set language is passed to the second listen. Auto behaves exactly as before.", "status": "shipped"},
+            {"text": "Better drug-name cues in French (\"comprimé\", \"gouttes\", \"matin et soir\", \"pendant 5 jours\" and others). Suggestions only; the transcript is never changed.", "status": "shipped"},
+            {"text": "A new custom template can be typed into, and headings added, moved and removed, before it has a name.", "status": "shipped"},
+            {"text": "The length limit for a note grows with the length of the visit, so long visits no longer fail with \"ran past its length limit\".", "status": "shipped"},
+            {"text": "French tests on synthetic consults in standard French. Not yet tested on Quebec French or real clinic recordings.", "status": "testing"},
+            {"text": "Security: an updated zip library, for a published advisory.", "status": "shipped"}
+          ]
+        },
         {
           "date": "2026-10-29",
           "title": "Drug names heard in context, your clinic's own words, and Speakers in the room",

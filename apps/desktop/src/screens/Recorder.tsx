@@ -23,6 +23,7 @@ import { PatientFields } from "../components/PatientFields";
 import { PatientPicker } from "../components/PatientPicker";
 import { ProcessingBar } from "../components/ProcessingBar";
 import { SetupPanel } from "../components/SetupPanel";
+import { SetupCheckCard, SetupPrompt, useSpeedLine } from "../components/SetupCheckCard";
 import { NoteModelAdvice } from "../components/NoteModelAdvice";
 import { TranscriptList } from "../components/TranscriptList";
 import { PHONE, useMediaQuery } from "../useMediaQuery";
@@ -60,6 +61,8 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
   const [patient, setPatient] = useState<engine.Patient>(engine.emptyPatient);
   const phone = useMediaQuery(PHONE);
   const ios = isIos(app.status);
+  /** How long a long visit's note takes here, from the last speed check (ADR-0034). */
+  const speedLine = useSpeedLine();
   /** Phones: the patient form and the template picker open in sheets. */
   const [patientSheet, setPatientSheet] = useState(false);
   const [templateSheet, setTemplateSheet] = useState(false);
@@ -504,6 +507,7 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
       {checkRow(t("Draft the note when I stop"), app.settings.draftOnStop, (v) => app.setSettings({ draftOnStop: v }), {
         icon: phone ? <FileText size={20} aria-hidden className="opt-icon" /> : undefined,
       })}
+      {speedLine && !ios && <span className="small muted opt-hint">{speedLine}</span>}
     </div>
   );
 
@@ -524,16 +528,21 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
     </p>
   );
 
+  // A computer sets up in the setup walkthrough (ADR-0034); the iPhone here.
   const setup = missing.length > 0 && state === "idle" && (
     <div ref={setupRef}>
-      <SetupPanel
-        missing={missing}
-        onReady={() => {
-          app.refreshStatus();
-          app.toast(t("Models ready"));
-          app.announce(t("Models downloaded. Ready to record."));
-        }}
-      />
+      {ios ? (
+        <SetupPanel
+          missing={missing}
+          onReady={() => {
+            app.refreshStatus();
+            app.toast(t("Models ready"));
+            app.announce(t("Models downloaded. Ready to record."));
+          }}
+        />
+      ) : (
+        <SetupPrompt />
+      )}
     </div>
   );
 
@@ -551,6 +560,7 @@ export function Recorder({ patientId }: { patientId?: string } = {}) {
 
   const alerts = (
     <>
+      {state === "idle" && missing.length === 0 && <SetupCheckCard />}
       {state === "idle" && missing.length === 0 && (
         <NoteModelAdvice rows={modelRows} onOpenModels={() => app.navigate({ screen: "models" })} />
       )}

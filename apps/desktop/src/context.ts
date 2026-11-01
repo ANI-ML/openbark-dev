@@ -32,6 +32,13 @@ export interface Settings {
   consentEachTime: boolean;
   /** App language (interface). */
   uiLanguage: string;
+  /**
+   * The language spoken in consultations ("fr"), or null for Auto: each
+   * sentence's language is detected, and the second listen expects the app's
+   * language, as before 0.2.5 (ADR-0033). Separate from the app's language:
+   * a clinic can use the app in French and speak a mix.
+   */
+  spokenLanguage: string | null;
   /** Language notes are written in ("en", "fr"…). */
   noteLanguage: string;
   /** Letterhead on PDFs. */
@@ -64,6 +71,30 @@ export interface Settings {
   updateAskedAt: string | null;
   /** The newest version the "is available" notice was shown for: once per version. */
   updateNotified: string | null;
+  /** Computer: when the setup walkthrough was finished or skipped (ADR-0034). */
+  setupDoneAt: string | null;
+  /** Computer: when the one-time "Check my setup" card was dismissed or used. */
+  setupCardDismissedAt: string | null;
+  /** Computer: open the setup walkthrough again, the whole of it or the check (Settings, Models, Help). */
+  showSetup: "full" | "check" | null;
+  /**
+   * When the person chose the note model in setup: the app then never swaps
+   * it for the computer's default on its own (App.tsx).
+   */
+  noteModelChosenAt: string | null;
+  /** The last speed check on this computer (ADR-0034), for Models and Record. */
+  speedCheck: SavedSpeedCheck | null;
+}
+
+/** A speed check's result, kept on this device. */
+export interface SavedSpeedCheck {
+  model: string;
+  /** Tokens a second, reading and writing. */
+  read: number;
+  write: number;
+  /** A long visit's note at these speeds, in seconds. */
+  noteSecs: number | null;
+  at: string;
 }
 
 /** The app language to start in: the browser's, if we have it. */
@@ -95,6 +126,7 @@ const DEFAULTS: Settings = {
   consentAcknowledgedAt: null,
   consentEachTime: false,
   uiLanguage: defaultLanguage(),
+  spokenLanguage: null,
   noteLanguage: "en",
   clinicName: "",
   clinicLines: "",
@@ -107,6 +139,11 @@ const DEFAULTS: Settings = {
   updateCheck: "ask",
   updateAskedAt: null,
   updateNotified: null,
+  setupDoneAt: null,
+  setupCardDismissedAt: null,
+  showSetup: null,
+  noteModelChosenAt: null,
+  speedCheck: null,
 };
 
 const KEY = "openbark.settings";

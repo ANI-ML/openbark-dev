@@ -35,6 +35,7 @@ for (const v of [
       JSON.stringify({
         ...current,
         updateCheck: "off", consentAcknowledgedAt: "2026-10-17T20:00:00Z",
+        setupDoneAt: "2026-10-17T20:00:00Z",
         uiLanguage: "en",
         draftOnStop: false,
       }),
@@ -107,6 +108,7 @@ if (mic) {
       JSON.stringify({
         ...current,
         updateCheck: "off", consentAcknowledgedAt: "2026-10-17T20:00:00Z",
+        setupDoneAt: "2026-10-17T20:00:00Z",
         uiLanguage: "en",
         draftOnStop: false,
       }),

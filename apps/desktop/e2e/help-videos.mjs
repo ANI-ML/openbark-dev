@@ -54,6 +54,7 @@ const LEAK = new RegExp(
 
 const SEEDED = {
   updateCheck: "off", consentAcknowledgedAt: "2026-10-17T20:00:00Z",
+  setupDoneAt: "2026-10-17T20:00:00Z",
   signer: "Dr. Demo",
   clinicName: "Maple Street Animal Hospital",
   clinicLines: "12 Maple Street\n416-555-0134",
@@ -203,6 +204,12 @@ const TOPICS = {
     await caption("First, a one-time notice: you get each client's consent before recording.", 3200);
     await click(page.locator(".dialog input[type=checkbox]"));
     await click(page.locator(".dialog .ob-button"));
+    // A demo without models opens the setup walkthrough (ADR-0034); this
+    // video is about the app around it, so it's skipped here.
+    const walk = page.locator(".setup-walk");
+    if (await walk.waitFor({ timeout: 3000 }).then(() => true, () => false)) {
+      await click(walk.getByRole("button", { name: "Skip setup" }));
+    }
     await point(nav(0));
     await caption("Record is where every consult starts.");
     await point(nav(1));

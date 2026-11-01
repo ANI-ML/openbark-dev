@@ -20,7 +20,7 @@ On 2026-10-31 the product owner decided: **ask once**. The automatic check stays
 ### 1. Ask once, then respect the answer
 
 - A one-time card on a computer: "Check for new versions? Once a day, OpenBark reads the version number from openbark.io. Nothing about you, your clinic or your patients is sent." with **Yes, check daily** and **No thanks**, given equal weight.
-- It appears after first-run setup is finished: the consent notice accepted, and, with a team, the person chosen. Existing users see it once after updating, because they have no answer saved yet.
+- It appears after first-run setup is finished: the consent notice accepted, with a team the person chosen, and on a computer the setup walkthrough (ADR-0034) finished or skipped, or not needed because every model was already here. It never appears over the walkthrough. Existing users see it once after updating, because they have no answer saved yet.
 - It is a card in the corner, not a dialog, so it can be ignored. It is remembered as shown the moment it appears and isn't shown again; ignored, nothing turns on.
 - The answer is the setting `updateCheck` (`"ask" | "on" | "off"`, `apps/desktop/src/context.ts`), the one source of truth. "ask" checks nothing. Anything else that asks the same question (the first-run setup, later) reuses `UpdateQuestion` and `updateAnswer()` from `components/UpdateCheck.tsx` and stores the same setting.
 - Settings, About has the same choice as a switch, **Check for new versions once a day**, with the same explanation, beside the version number.

@@ -1039,6 +1039,21 @@ impl LlmBackend for FakeLlm {
     }
 }
 
+/// Canary 180M Flash failed the French eval's bar (ADR-0033): it is in the
+/// catalogue only so the eval can measure it, and the app neither lists nor
+/// downloads it.
+#[test]
+fn canary_is_neither_listed_nor_downloaded() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app = app_in(tmp.path());
+    let canary = os_engine::models::CANARY_STT;
+    assert!(os_models::Catalog::builtin().get(canary).is_some(), "the eval still measures it");
+    assert!(!app.models().iter().any(|r| r.id == canary));
+    assert!(!app.status().models.iter().any(|m| m.id == canary));
+    assert_eq!(err(app.download_model(canary, None, &Quiet)), "This model isn't offered in OpenBark.");
+    assert!(!tmp.path().join("models").join(canary).exists());
+}
+
 struct Quiet;
 impl Events for Quiet {
     fn segment(&self, _: &Segment) {}
@@ -1504,10 +1519,13 @@ fn a_computer_keeps_every_model_and_its_defaults() {
     let status = app.status();
     assert_eq!(status.profile, Profile::Desktop);
     assert_eq!(status.mobile_tier, None);
-    // E4B unless it won't fit this computer, then E2B (ADR-0030).
+    // By memory, where notes are written and the cores (ADR-0030, ADR-0034).
     let e4b = os_models::Catalog::builtin().get(policy::E4B).unwrap().total_size();
-    let expected = policy::default_note_model(e4b, app.hardware.gpu_memory_bytes, app.hardware.ram_bytes);
+    let hw = &app.hardware;
+    let r = policy::recommend_note_model(e4b, hw.gpu_memory_bytes, hw.ram_bytes, hw.drafts_on, hw.cpu_cores);
+    let expected = r.model;
     assert_eq!(status.default_llm, expected);
+    assert_eq!(status.recommendation.as_ref().map(|r| r.model), Some(expected));
     assert!(status.models.iter().any(|m| m.id == expected), "drafting is set up at start");
     let rows = app.models();
     assert!(rows.iter().any(|r| r.id == "gemma-4-12b-it-q4_0"));

@@ -1,5 +1,5 @@
 import { Button } from "@openbark/ui";
-import { ArrowLeft, Maximize, Pause, Play } from "lucide-react";
+import { ArrowLeft, Maximize, Pause, Play, Signpost } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "../context";
 import { useT } from "../i18n";
@@ -145,7 +145,7 @@ function HelpVideo({ id, title }: { id: string; title: string }) {
  */
 /** Steps that name the device, as the iPhone profile says them (ADR-0027). */
 const IPHONE_STEP: Record<string, string> = {
-  "If the models aren't on this computer yet, choose Download everything on the Record screen. It's a one-time download; after that OpenBark works offline.":
+  "If the models aren't on this computer yet, Set up OpenBark opens after the consent notice. It checks this computer, recommends the note model that suits it and downloads the models once; after that OpenBark works offline. Run setup again from Settings, Models or Help.":
     "If the models aren't on this iPhone yet, choose Download everything on the Record screen. It's a one-time download; after that OpenBark works offline.",
   "Recordings, transcripts and notes are encrypted on this computer. Show the recovery key once and keep it somewhere safe.":
     "Recordings, transcripts and notes are encrypted on this iPhone. Show the recovery key once and keep it somewhere safe.",
@@ -158,7 +158,7 @@ export const HELP_TOPICS = [
     summary: "The one-time consent notice, the models, and where everything is.",
     steps: [
       "Read the consent notice and accept it. You're responsible for getting each client's consent before recording.",
-      "If the models aren't on this computer yet, choose Download everything on the Record screen. It's a one-time download; after that OpenBark works offline.",
+      "If the models aren't on this computer yet, Set up OpenBark opens after the consent notice. It checks this computer, recommends the note model that suits it and downloads the models once; after that OpenBark works offline. Run setup again from Settings, Models or Help.",
       "Use the side menu: Record, Visits, Patients and Templates, then Models, Settings and Help. On a phone the tabs are Record, Visits, Patients and Settings, and Templates, Models and Help are in Settings.",
       "In Settings, add your name for signing, and choose the app language and the language notes are written in.",
       "In Settings, Privacy and storage, choose where visits and models are kept, such as another drive.",
@@ -277,6 +277,15 @@ export function Help() {
           </Button>
           <h1>{t("Help")}</h1>
         </div>
+        {/* The computer's setup walkthrough again (ADR-0034). */}
+        {app.status?.profile !== "ios" && (
+          <div className="head-actions">
+            <Button variant="ghost" onClick={() => app.setSettings({ showSetup: "full" })}>
+              <Signpost size={20} aria-hidden />
+              {t("Run setup again")}
+            </Button>
+          </div>
+        )}
       </header>
       <div className="help-grid">
         <nav className="help-topics" aria-label={t("Help topics")}>

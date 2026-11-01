@@ -23,6 +23,8 @@
 //! - `POST /api/sessions/{id}/notes`        `{llm, template, language?}`
 //! - `POST /api/notes/cancel`               Stop the running draft (`true` when one was running);
 //!   it answers its own request with "Drafting stopped. Nothing was saved."
+//! - `POST /api/speed-check`                `{llm}`: time the note model on invented text and
+//!   estimate a long visit's note here (ADR-0034); Stop is `/api/notes/cancel`
 //! - `GET  /api/diagnostics?note_model=`    Copy diagnostics: the computer, the note model, the
 //!   last draft's timings and the end of the log (nothing from any visit)
 //! - `POST /api/sessions/{id}/refine`       `{llm, heading, request, save_as_standard, by}`:
@@ -296,6 +298,7 @@ fn router(state: St, ui_dir: &std::path::Path, port: u16) -> Router {
         .route("/api/sessions/{id}/audio", get(session_audio))
         .route("/api/sessions/{id}/notes", post(create_note))
         .route("/api/notes/cancel", post(|State(s): State<St>| async move { Json(s.app().cancel_draft()) }))
+        .route("/api/speed-check", post(speed_check))
         .route("/api/diagnostics", get(diagnostics))
         .route("/api/sessions/{id}/sign", post(sign_note))
         .route("/api/sessions/{id}/chart/confirm", post(confirm_chart))
@@ -332,6 +335,7 @@ fn router(state: St, ui_dir: &std::path::Path, port: u16) -> Router {
         .route("/api/vocabulary/save", post(save_vocabulary_term))
         .route("/api/vocabulary/remove", post(remove_vocabulary_term))
         .route("/api/speech-language", post(set_speech_language))
+        .route("/api/spoken-language", post(set_spoken_language))
         .route("/api/users/{uid}/admin", post(set_user_admin))
         .route("/api/users/{uid}/profile", get(profile_summary))
         .route("/api/live", get(live))
@@ -1626,6 +1630,22 @@ async fn create_note(
 }
 
 #[derive(Deserialize)]
+struct SpeedCheckRequest {
+    llm: String,
+}
+
+async fn speed_check(
+    State(s): State<St>,
+    Json(req): Json<SpeedCheckRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    blocking(move || {
+        let events = s.events.clone();
+        s.app().speed_check(&req.llm, events.as_ref())
+    })
+    .await
+}
+
+#[derive(Deserialize)]
 struct DiagnosticsQuery {
     #[serde(default)]
     note_model: Option<String>,
@@ -2022,6 +2042,18 @@ struct SpeechLanguageBody {
 /// The app's language, which the second recogniser is told to expect.
 async fn set_speech_language(Json(req): Json<SpeechLanguageBody>) -> StatusCode {
     os_engine::models::set_speech_language(Some(&req.language));
+    StatusCode::NO_CONTENT
+}
+
+#[derive(Deserialize)]
+struct SpokenLanguageBody {
+    #[serde(default)]
+    language: Option<String>,
+}
+
+/// Settings, Recording, Spoken language ("fr"); null is Auto (ADR-0033).
+async fn set_spoken_language(Json(req): Json<SpokenLanguageBody>) -> StatusCode {
+    os_engine::models::set_spoken_language(req.language.as_deref());
     StatusCode::NO_CONTENT
 }
 

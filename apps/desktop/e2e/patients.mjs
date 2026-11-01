@@ -32,7 +32,7 @@ for (const v of variants) {
     const current = JSON.parse(localStorage.getItem(key) ?? "{}");
     localStorage.setItem(
       key,
-      JSON.stringify({ ...current, updateCheck: "off", consentAcknowledgedAt: "2026-10-17T20:00:00Z", uiLanguage: "en" }),
+      JSON.stringify({ ...current, updateCheck: "off", consentAcknowledgedAt: "2026-10-17T20:00:00Z", setupDoneAt: "2026-10-17T20:00:00Z", uiLanguage: "en" }),
     );
   });
   const page = await ctx.newPage();

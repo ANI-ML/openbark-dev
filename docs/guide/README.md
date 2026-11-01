@@ -21,7 +21,7 @@ The same walkthroughs are in the app under **Help** (on a phone, **Settings → 
 ## Five-minute start
 
 1. Open OpenBark. Read the consent notice and accept it.
-2. On **Record**, choose **Download everything** if it's offered. This happens once.
+2. Follow **Set up OpenBark**: it checks the computer, recommends a note model and downloads the models. This happens once.
 3. In **Settings**, enter your name for signing notes.
 4. Back on **Record**, add the patient if you like (it's optional), press the large round Record button, and talk as usual. Press it again (on a phone, **Stop and save**) to stop.
 5. In **Review**, check the draft against the recording, fix anything, and choose **Sign note** (on a computer: during the pilot the iPhone doesn't sign). Visits still to check and sign wait in **Visits**, under **Needs you**.

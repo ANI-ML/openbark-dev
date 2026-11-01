@@ -363,6 +363,34 @@ export interface Hardware {
   cpu_cores?: number | null;
   cpu_threads?: number;
   llm_threads?: number | null;
+  /** Where the note model writes (ADR-0034). */
+  drafts_on?: DraftsOn;
+}
+
+/** Where the note model writes: a dedicated graphics card, Apple silicon's graphics, or the processor. */
+export type DraftsOn = "graphics_card" | "apple_silicon" | "processor";
+
+/** The note model recommended for this computer and why (os-app policy, ADR-0034). */
+export interface Recommendation {
+  model: string;
+  why: "memory" | "graphics_card" | "apple_silicon" | "few_cores" | "many_cores";
+  drafts_on: DraftsOn;
+  cores: number | null;
+  e4b_fit: Fit;
+}
+
+/** What the speed check measured (ADR-0034). */
+export interface SpeedCheck {
+  model: string;
+  load_ms: number;
+  read_tokens: number;
+  read_ms: number;
+  read_tokens_per_second: number;
+  written_tokens: number;
+  write_tokens_per_second: number;
+  /** A long visit's note at these speeds, in seconds. */
+  long_visit_note_secs: number | null;
+  drafts_on: DraftsOn;
 }
 
 export interface Status {
@@ -392,6 +420,8 @@ export interface Status {
   default_llm?: string;
   /** This build can write notes (llama.cpp is in it). Phone builds without it record and transcribe only. */
   can_draft?: boolean;
+  /** On a computer, the recommended note model and why (`default_llm` is its model); null on a phone. */
+  recommendation?: Recommendation | null;
 }
 
 export type Fit = "fits" | "tight" | "wont_fit";
@@ -1267,6 +1297,14 @@ export const setSpeechLanguage = (language: string) =>
   isDesktop
     ? invoke<void>("set_speech_language", { language })
     : api<void>("/api/speech-language", post({ language }));
+/**
+ * Settings, Recording, Spoken language ("fr"), or null for Auto: the speech
+ * recognisers are told to expect it (ADR-0033).
+ */
+export const setSpokenLanguage = (language: string | null) =>
+  isDesktop
+    ? invoke<void>("set_spoken_language", { language })
+    : api<void>("/api/spoken-language", post({ language }));
 /** What a team member keeps in their profile, before removing them. */
 export const profileSummary = (uid: string) =>
   isDesktop
@@ -1311,6 +1349,13 @@ export const generateNote = (id: string, llm: string, tpl: string, language?: st
 /** Stop the draft running now: it ends at the model's next step and nothing is saved. True when one was running. */
 export const cancelDraft = () =>
   isDesktop ? invoke<boolean>("cancel_draft") : api<boolean>("/api/notes/cancel", post({}));
+
+/**
+ * The speed check (ADR-0034): time the note model on invented text. Progress
+ * comes as a draft's ("progress" and "draft" events); `cancelDraft` stops it.
+ */
+export const speedCheck = (llm: string) =>
+  isDesktop ? invoke<SpeedCheck>("speed_check", { llm }) : api<SpeedCheck>("/api/speed-check", post({ llm }));
 
 /** What a stopped draft says (os-app DRAFT_STOPPED). */
 export const DRAFT_STOPPED = "Drafting stopped. Nothing was saved.";
@@ -1980,6 +2025,16 @@ export const recoveryKey = () =>
 /** Show files: desktop only (the opener can only open web links on a phone). */
 export const canReveal = isDesktop && !isPhoneShell;
 export const reveal = (path: string) => revealItemInDir(path);
+
+/** A web page the desktop opens in the default browser (os_app::links). */
+export type WebPage = { page: "nvidia-licence" } | { page: "hf-tokens" } | { page: "hf-repo"; repo: string };
+/**
+ * Open a web page in the default browser, on the desktop: the main window
+ * names the page and the engine builds the address, because the window has
+ * no opener permission of its own. Web mode uses an ordinary link instead.
+ */
+export const openWebPage = (p: WebPage) =>
+  invoke<void>("open_web_page", { page: p.page, repo: p.page === "hf-repo" ? p.repo : null });
 
 // ---- importing a recording file -------------------------------------------
 

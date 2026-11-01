@@ -34,17 +34,39 @@ pub fn extract_numbers(text: &str) -> Vec<String> {
             let digits: String = chars[start..i].iter().collect();
             out.push(canonical(&format!("0.{digits}")));
         } else if chars[i].is_ascii_digit() {
-            let start = i;
-            while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == ',') {
+            let mut raw = String::new();
+            let mut decimal = false;
+            while i < chars.len() {
+                let c = chars[i];
+                if c.is_ascii_digit() {
+                    raw.push(c);
+                    i += 1;
+                    continue;
+                }
+                if c != ',' || decimal {
+                    break;
+                }
+                // A comma: "1,250" groups thousands; "0,5" and "38,6" are
+                // the decimal comma of French (and most of Europe).
+                let after = chars[i + 1..].iter().take_while(|c| c.is_ascii_digit()).count();
+                let zero = raw.trim_start_matches('0').is_empty();
+                if after == 0 {
+                    break;
+                }
+                if (1..=2).contains(&after) || (after == 3 && zero) {
+                    raw.push('.');
+                    decimal = true;
+                }
                 i += 1;
             }
-            if i + 1 < chars.len() && chars[i] == '.' && chars[i + 1].is_ascii_digit() {
+            if !decimal && i + 1 < chars.len() && chars[i] == '.' && chars[i + 1].is_ascii_digit() {
+                raw.push('.');
                 i += 1;
                 while i < chars.len() && chars[i].is_ascii_digit() {
+                    raw.push(chars[i]);
                     i += 1;
                 }
             }
-            let raw: String = chars[start..i].iter().filter(|c| **c != ',').collect();
             out.push(canonical(&raw));
         } else {
             i += 1;
@@ -108,6 +130,140 @@ fn digit(word: &str) -> Option<u64> {
     unit(word).filter(|d| *d < 10)
 }
 
+/// French number words that are not English words: one of these starts a
+/// French number. "six" and "zero" are English too, so they start one only
+/// before "virgule" or one of these; "cent" only next to another number word
+/// ("per cent" stays as it is); "un" and "une" are also the article.
+fn french_unit(word: &str) -> Option<u64> {
+    Some(match word {
+        "zéro" => 0,
+        "deux" => 2,
+        "trois" => 3,
+        "quatre" => 4,
+        "cinq" => 5,
+        "sept" => 7,
+        "huit" => 8,
+        "neuf" => 9,
+        "dix" => 10,
+        "onze" => 11,
+        "douze" => 12,
+        "treize" => 13,
+        "quatorze" => 14,
+        "quinze" => 15,
+        "seize" => 16,
+        "vingt" | "vingts" => 20,
+        "trente" => 30,
+        "quarante" => 40,
+        "cinquante" => 50,
+        "soixante" => 60,
+        _ => return None,
+    })
+}
+
+/// [`french_unit`] plus the words that are only French numbers inside one.
+fn french_value(word: &str) -> Option<u64> {
+    french_unit(word).or(match word {
+        "zero" => Some(0),
+        "un" | "une" => Some(1),
+        "six" => Some(6),
+        _ => None,
+    })
+}
+
+/// A whole French number starting at `words[i]`: its digits ("38.6" for
+/// "trente-huit virgule six", "180" for "cent quatre-vingts", "0.5" for
+/// "zéro virgule cinq") and how many words it took, or None.
+fn french_number(words: &[&str], i: usize) -> Option<(String, usize)> {
+    let bare = |w: &str| w.trim_matches(|c: char| !c.is_alphanumeric()).to_string();
+    let ends = |k: usize| words[k].ends_with(|c: char| !c.is_alphanumeric());
+    let first = bare(words[i]);
+    let next = words.get(i + 1).map(|w| bare(w)).unwrap_or_default();
+    let starts = french_unit(&first).is_some()
+        || (french_value(&first).is_some()
+            && !ends(i)
+            && (next == "virgule" || french_unit(&next).is_some()))
+        || (first == "cent" && !ends(i) && french_value(&next).is_some());
+    if !starts {
+        return None;
+    }
+    let (int, mut k) = french_integer(words, i)?;
+    let mut number = int.to_string();
+    // "virgule" and the decimals: "virgule cinq" (.5), "virgule zéro cinq" (.05).
+    if k < words.len() && !ends(k - 1) && bare(words[k]) == "virgule" && k + 1 < words.len() {
+        let w = bare(words[k + 1]);
+        if matches!(w.as_str(), "zéro" | "zero") {
+            let mut digits = String::new();
+            let mut j = k + 1;
+            while j < words.len() {
+                match french_value(&bare(words[j])).filter(|d| *d < 10) {
+                    Some(d) => digits.push_str(&d.to_string()),
+                    None => break,
+                }
+                j += 1;
+                if ends(j - 1) {
+                    break;
+                }
+            }
+            number = format!("{number}.{digits}");
+            k = j;
+        } else if french_value(&w).is_some()
+            && let Some((frac, j)) = french_integer(words, k + 1)
+        {
+            number = format!("{number}.{frac}");
+            k = j;
+        }
+    }
+    Some((canonical(&number), k - i))
+}
+
+/// The integer part of a French number at `words[i]`, and the index after it.
+fn french_integer(words: &[&str], i: usize) -> Option<(u64, usize)> {
+    let bare = |w: &str| w.trim_matches(|c: char| !c.is_alphanumeric()).to_string();
+    let (mut total, mut current, mut k, mut any) = (0u64, 0u64, i, false);
+    while k < words.len() {
+        let w = bare(words[k]);
+        let tens = current % 100;
+        if let Some(v) = french_value(&w) {
+            if !any {
+                current = v;
+            } else if v == 20 && tens == 4 {
+                current += 76; // quatre-vingts
+            } else if (tens == 60 || tens == 80) && (10..20).contains(&v) {
+                current += v; // soixante-dix, quatre-vingt-douze
+            } else if tens >= 20 && tens.is_multiple_of(10) && v < 10 {
+                current += v; // vingt-deux, cent quatre-vingt-un
+            } else if tens == 10 && (7..10).contains(&v) {
+                current += v; // dix-sept
+            } else if tens == 0 && (current > 0 || total > 0) && v < 100 {
+                current += v; // cent deux, mille cinq
+            } else {
+                break;
+            }
+        } else if matches!(w.as_str(), "cent" | "cents") && (any || k == i) {
+            current = current.max(1) * 100;
+        } else if w == "mille" {
+            total += current.max(1) * 1000;
+            current = 0;
+        } else if w == "et"
+            && any
+            && current.is_multiple_of(10)
+            && current % 100 >= 20
+            && words.get(k + 1).is_some_and(|n| matches!(bare(n).as_str(), "un" | "une" | "onze"))
+        {
+            // vingt et un, soixante et onze
+        } else {
+            break;
+        }
+        any = true;
+        let ended = words[k].ends_with(|c: char| !c.is_alphanumeric());
+        k += 1;
+        if ended {
+            break;
+        }
+    }
+    any.then_some((total + current, k))
+}
+
 /// Replace runs of spelled-out numbers with digits:
 /// "thirty nine point two degrees" → "39.2 degrees",
 /// "one hundred and twenty" → "120", "a half" stays as words.
@@ -118,6 +274,12 @@ pub fn normalize_spoken(text: &str) -> String {
     let mut out: Vec<String> = Vec::new();
     let mut i = 0;
     while i < words.len() {
+        // French: "trente-huit virgule six" is 38.6 (none of its words are English).
+        if let Some((number, used)) = french_number(&words, i) {
+            out.push(number);
+            i += used;
+            continue;
+        }
         let bare = |w: &str| w.trim_matches(|c: char| !c.is_alphanumeric()).to_string();
         let w = bare(words[i]);
         let and_a_half = |at: usize| {
@@ -280,6 +442,48 @@ mod tests {
         assert_eq!(normalize_spoken("a one and a half inch line"), "a 1.5 inch line");
         assert_eq!(normalize_spoken("lost about half a kilo"), "lost about 0.5 a kilo");
         assert_eq!(normalize_spoken("4 and a half weeks"), "4.5 weeks");
+    }
+
+    #[test]
+    fn a_decimal_comma_is_a_decimal_and_a_thousands_comma_is_not() {
+        assert_eq!(extract_numbers("Maxitrol 0,5 cm, T 38,6 °C, 5,4 mg"), ["0.5", "38.6", "5.4"]);
+        assert_eq!(extract_numbers("0,125 mg"), ["0.125"]);
+        // English thousands, as before.
+        assert_eq!(extract_numbers("1,250 mg and 12,500 units, 1,000,000"), ["1250", "12500", "1000000"]);
+        assert_eq!(extract_numbers("teeth 101,102 and 3, then 4"), ["101102", "3", "4"]);
+        assert_eq!(extract_numbers("38,6.2"), ["38.6", "2"]);
+    }
+
+    #[test]
+    fn normalises_french_spoken_numbers() {
+        let n = |s: &str| normalize_spoken(s);
+        assert_eq!(n("température trente-huit virgule six"), "température 38.6");
+        assert_eq!(n("zéro virgule cinq centimètre"), "0.5 centimètre");
+        assert_eq!(n("cinq virgule quatre milligrammes"), "5.4 milligrammes");
+        assert_eq!(n("virgule zéro cinq"), "virgule 0 5");
+        assert_eq!(n("un virgule zéro cinq"), "1.05");
+        assert_eq!(n("cent quatre-vingts battements"), "180 battements");
+        assert_eq!(n("quatre-vingt-dix-neuf"), "99");
+        assert_eq!(n("soixante et onze, soixante-dix-sept"), "71 77");
+        assert_eq!(n("vingt et un jours"), "21 jours");
+        assert_eq!(n("deux cent cinquante grammes"), "250 grammes");
+        assert_eq!(n("dix-sept ans"), "17 ans");
+        assert_eq!(n("trois fois par jour pendant dix jours"), "3 fois par jour pendant 10 jours");
+        assert_eq!(n("grade deux sur six"), "grade 2 sur 6");
+        assert_eq!(n("deux mille cinq"), "2005");
+        // "un" and "une" stay words unless they start a number.
+        assert_eq!(n("une fois par jour, un comprimé"), "une fois par jour, un comprimé");
+        assert_eq!(n("six ans"), "6 ans");
+        // Two numbers side by side stay two numbers.
+        assert_eq!(n("cinq ou six jours"), "5 ou 6 jours");
+        assert_eq!(n("trois quatre"), "3 4");
+    }
+
+    #[test]
+    fn french_number_words_leave_english_alone() {
+        assert_eq!(normalize_spoken("ten per cent of six hundred"), "10 per cent of 600");
+        assert_eq!(normalize_spoken("six cents"), "6 cents");
+        assert_eq!(normalize_spoken("zero point five"), "0.5");
     }
 
     #[test]

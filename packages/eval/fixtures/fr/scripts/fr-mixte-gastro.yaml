@@ -1,0 +1,41 @@
+# Synthetic consult: written for OpenBark's test suite; not a real patient.
+# French with English sentences and English drug talk, as in a bilingual clinic.
+# The French lines are voiced by synthetic French (France) voices and the
+# English lines by synthetic English voices. Not Quebec French.
+id: fr-mixte-gastro
+title: Chienne qui vomit, consultation en français avec de l'anglais
+species: canine
+category: fr-en
+speakers:
+  dvm: "piper:fr_FR-siwis-medium"
+  client: "piper:fr_FR-gilles-low"
+voices_by_language:
+  en:
+    dvm: af_sarah
+    client: am_michael
+pause_secs: 0.6
+lines:
+  - [dvm, "Bonjour monsieur Moreau. So, Bella vomit depuis quand ?"]
+  - [client, "Depuis hier matin. Elle a vomi quatre fois, et ce matin elle ne veut pas manger."]
+  - [dvm, "Did she get into the garbage, or eat anything weird?", en]
+  - [client, "Yes, I think she ate something from the garbage on Sunday.", en]
+  - [dvm, "OK. Est-ce qu'elle a de la diarrhée ? Est-ce qu'elle boit ?"]
+  - [client, "Un peu de diarrhée hier soir. Elle boit, mais des fois elle revomit l'eau."]
+  - [dvm, "Elle pèse vingt-deux virgule six kilos. Température trente-neuf virgule un."]
+  - [dvm, "Her gums are a bit tacky, so she's about five percent dehydrated. Her belly is soft, no pain, no mass.", en]
+  - [dvm, "Je pense à une gastro-entérite, probablement à cause de ce qu'elle a mangé dans la poubelle."]
+  - [dvm, "Aujourd'hui, on lui donne une injection de Cerenia pour les vomissements, et trois cents millilitres de fluides sous la peau."]
+  - [dvm, "Then you give her Cerenia tablets, sixty milligrams once a day for two days, starting tomorrow.", en]
+  - [client, "Les comprimés, je les donne le matin ?"]
+  - [dvm, "Oui, le matin, avec un peu de nourriture. Pour la nourriture, the Hill's low fat, en petites portions, pendant cinq jours."]
+  - [dvm, "If she vomits blood, or if she's still vomiting tomorrow night, call us right away.", en]
+  - [client, "OK, parfait. Merci."]
+
+expected:
+  vitals:
+    weight: "22.6"
+    temperature: "39.1"
+  medications:
+    - { drug: Cerenia }
+  must_mention: [gastro-entérite, poubelle, "60 mg", "300 ml", "Hill's"]
+  must_not_mention: [radiographie, "prise de sang"]

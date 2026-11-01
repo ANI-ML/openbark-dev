@@ -133,7 +133,7 @@ async function open(v) {
   await ctx.addInitScript((signer) => {
     const key = "openbark.settings";
     const current = JSON.parse(localStorage.getItem(key) ?? "{}");
-    localStorage.setItem(key, JSON.stringify({ ...current, updateCheck: "off", consentAcknowledgedAt: "2026-10-17T20:00:00Z", uiLanguage: "en", signer }));
+    localStorage.setItem(key, JSON.stringify({ ...current, updateCheck: "off", consentAcknowledgedAt: "2026-10-17T20:00:00Z", setupDoneAt: "2026-10-17T20:00:00Z", uiLanguage: "en", signer }));
   }, SIGNER);
   const page = await ctx.newPage();
   page.on("pageerror", (e) => problems.push(`${v.name}: ${e}`));

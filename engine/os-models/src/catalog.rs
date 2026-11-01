@@ -72,6 +72,12 @@ pub enum Layout {
         decoder: String,
         tokens: String,
     },
+    /// NeMo Canary (sherpa-onnx export), told the language spoken.
+    AsrCanary {
+        encoder: String,
+        decoder: String,
+        tokens: String,
+    },
     VadSilero {
         model: String,
     },
@@ -97,7 +103,10 @@ impl Layout {
             Layout::AsrNemoTransducer { encoder, decoder, joiner, tokens } => {
                 vec![encoder, decoder, joiner, tokens]
             }
-            Layout::AsrWhisper { encoder, decoder, tokens } => vec![encoder, decoder, tokens],
+            Layout::AsrWhisper { encoder, decoder, tokens }
+            | Layout::AsrCanary { encoder, decoder, tokens } => {
+                vec![encoder, decoder, tokens]
+            }
             Layout::Archives => vec![],
         }
     }

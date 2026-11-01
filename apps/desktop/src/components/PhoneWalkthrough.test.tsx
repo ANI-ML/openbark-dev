@@ -81,7 +81,7 @@ describe("walkthroughDue", () => {
 });
 
 describe("The iPhone walkthrough", () => {
-  it("goes through four screens, asks for the microphone only on the second, and lands on Record", async () => {
+  it("goes through five screens, asks for the microphone only on the second, and lands on Record", async () => {
     mocked.micTestStart.mockResolvedValue({ test: 7 } as engine.MicTestStarted);
     mocked.micTestStop.mockResolvedValue(undefined);
     const c = show(ctx());
@@ -94,7 +94,7 @@ describe("The iPhone walkthrough", () => {
     expect(screen.getByRole("heading", { name: "Welcome to OpenBark" })).toBeTruthy();
     expect(screen.getByText("Recordings stay on this iPhone.")).toBeTruthy();
     expect(screen.getByText("OpenBark records the consult and writes the note, here on this iPhone.")).toBeTruthy();
-    expect(screen.getByText("Step 1 of 4")).toBeTruthy();
+    expect(screen.getByText("Step 1 of 5")).toBeTruthy();
     expect(mocked.micTestStart).not.toHaveBeenCalled();
     next("Get started");
 
@@ -110,14 +110,20 @@ describe("The iPhone walkthrough", () => {
     next("Continue");
     expect(c.setSettings).toHaveBeenCalledWith(expect.objectContaining({ consentAcknowledgedAt: expect.any(String) }));
 
-    // 3. Notes on this iPhone: the speech models are built in.
+    // 3. What this iPhone can do, and why (ADR-0034): an 8 GB iPhone writes notes.
+    expect(screen.getByRole("heading", { name: "What this iPhone can do" })).toBeTruthy();
+    expect(screen.getByText("This iPhone has 8 GB of memory, so it can write notes as well as record and transcribe.")).toBeTruthy();
+    expect(screen.getByText(/offers it only on iPhones with 8 GB of memory or more/)).toBeTruthy();
+    next("Continue");
+
+    // 4. Notes on this iPhone: the speech models are built in.
     expect(screen.getByRole("heading", { name: "Notes on this iPhone" })).toBeTruthy();
     expect(screen.getByText(/speech models are built in, so recording and transcribing work offline/)).toBeTruthy();
     // Offered, and off until the person turns it on (drafting on the phone is opt-in).
     expect((screen.getByRole("checkbox", { name: "Write notes on this iPhone" }) as HTMLInputElement).checked).toBe(false);
     next("Continue");
 
-    // 4. The clinic computer, with how to set up sync, then Record; finishing is remembered.
+    // 5. The clinic computer, with how to set up sync, then Record; finishing is remembered.
     expect(screen.getByRole("heading", { name: "Use it with your clinic computer" })).toBeTruthy();
     expect(screen.getByText(/Settings, Clinic hub\. Turn it on and choose New join code/)).toBeTruthy();
     expect(screen.getByText(/Settings, Encrypted sync, Join your clinic hub/)).toBeTruthy();
@@ -146,6 +152,13 @@ describe("The iPhone walkthrough", () => {
     next("Get started");
     fireEvent.click(screen.getByRole("checkbox", { name: "I understand, and I'll get consent from clients before recording." }));
     next("Continue");
+    // What this iPhone can do: record and transcribe, and why it doesn't write notes.
+    expect(screen.getByRole("heading", { name: "What this iPhone can do" })).toBeTruthy();
+    expect(
+      screen.getByText("This iPhone has 6 GB of memory. It records and transcribes here, and your computer writes the note."),
+    ).toBeTruthy();
+    expect(screen.getByText(/every model OpenBark tested wrote doses that weren't said/)).toBeTruthy();
+    next("Continue");
     expect(
       screen.getByText("Writing notes on the phone needs an iPhone with 8 GB of memory or more. Record here, and draft the note on your computer."),
     ).toBeTruthy();
@@ -168,6 +181,7 @@ describe("The iPhone walkthrough", () => {
     next("Get started");
     // Seen again: the agreement already given.
     next("Continue");
+    next("Continue");
     next("Not now");
     expect(c.setSettings).toHaveBeenCalledWith({ writeNotesHere: false });
     next("Open Encrypted sync");
@@ -181,5 +195,22 @@ describe("The walkthrough in a build that can't draft", () => {
     c.status = { ...ios, mobile_tier: 12, can_draft: false } as unknown as engine.Status;
     show(c);
     expect(screen.getByText("OpenBark records and transcribes the consult here on this iPhone. Your computer writes the note.")).toBeTruthy();
+  });
+
+  it("says why on the third screen: this version doesn't write notes on the iPhone yet", () => {
+    const c = ctx({ consentAcknowledgedAt: "2026-10-20T10:00:00Z", showWalkthrough: true });
+    c.status = {
+      ...ios,
+      mobile_tier: 12,
+      can_draft: false,
+      hardware: { summary: "This iPhone, 12 GB memory", ram_bytes: 12e9 },
+    } as unknown as engine.Status;
+    show(c);
+    next("Get started");
+    next("Continue");
+    expect(screen.getByTestId("phone-can-do").textContent).toBe(
+      "This version of OpenBark doesn't write notes on the iPhone yet. Record here, and draft the note on your computer.",
+    );
+    expect(screen.getByText("Recording and transcribing work here now.")).toBeTruthy();
   });
 });

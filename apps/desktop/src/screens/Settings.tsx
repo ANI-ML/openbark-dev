@@ -1,4 +1,4 @@
-import { ThemeToggle } from "@openbark/ui";
+import { Button, ThemeToggle } from "@openbark/ui";
 import {
   Box,
   ChevronLeft,
@@ -345,6 +345,34 @@ function SectionBody({ section }: { section: SettingsSection }) {
               </p>
             )}
           </section>
+          {!ios && (
+            <section className="group">
+              <label className="ob-field narrow">
+                <span className="label">{t("Spoken language")}</span>
+                <select
+                  className="ob-select"
+                  value={s.spokenLanguage ?? ""}
+                  onChange={(e) => app.setSettings({ spokenLanguage: e.target.value || null })}
+                >
+                  <option value="">{t("Auto")}</option>
+                  {UI_LANGUAGES.map((l) => (
+                    <option key={l.code} value={l.code}>
+                      {l.name}
+                    </option>
+                  ))}
+                </select>
+                <span className="ob-help">
+                  {s.spokenLanguage
+                    ? t(
+                        "The second listen expects this language, so sentences don't come back in another one. Choose Auto if your consultations mix languages.",
+                      )
+                    : t(
+                        "Auto detects the language of each sentence, for consultations that mix languages. The second listen expects the app's language.",
+                      )}
+                </span>
+              </label>
+            </section>
+          )}
           <div className="opt-list">
             {toggle(
               t("Label speakers"),
@@ -653,6 +681,15 @@ function SectionBody({ section }: { section: SettingsSection }) {
           </p>
           <UpdateSettings />
           <CopyDiagnostics />
+          {/* The computer's setup walkthrough again (ADR-0034). */}
+          {!ios && (
+            <div className="ask-actions">
+              <Button onClick={() => app.setSettings({ showSetup: "full" })}>
+                <Signpost size={20} aria-hidden />
+                {t("Run setup again")}
+              </Button>
+            </div>
+          )}
           <VocabularyCredits />
         </section>
       );

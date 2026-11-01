@@ -1,14 +1,14 @@
 import { Button, Mark } from "@openbark/ui";
-import { Check, Lock, Mic, RefreshCw } from "lucide-react";
+import { Check, Lock, MemoryStick, Mic, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useApp, type Settings } from "../context";
 import * as engine from "../engine";
 import { useT } from "../i18n";
-import { isIos, phoneCanDraft } from "../visits";
+import { isIos, noPhoneDrafting, phoneCanDraft } from "../visits";
 import { ConsentCheck, ConsentText } from "./ConsentNotice";
 import { PhoneDrafting } from "./PhoneDrafting";
 
-const STEPS = 4;
+const STEPS = 5;
 
 /**
  * Whether the iPhone's first-run walkthrough shows: on the iPhone profile,
@@ -43,9 +43,11 @@ async function askForMicrophone(): Promise<void> {
  * onboarding guidance): four short screens, skippable from every one, each
  * teaching by doing. 1. What OpenBark does here and its privacy promise.
  * 2. Recording and consent, with the microphone asked for here and only
- * here. 3. Notes on this iPhone: the speech models are built in, and the
- * drafting model is offered. 4. The clinic computer: where encrypted sync is
- * set up later. Then Record. Shown once; Settings, Help shows it again.
+ * here. 3. What this iPhone can do: write notes (8 GB or more) or record and
+ * transcribe while a computer writes the note, and why (ADR-0034). 4. Notes
+ * on this iPhone: the speech models are built in, and the drafting model is
+ * offered. 5. The clinic computer: where encrypted sync is set up later.
+ * Then Record. Shown once; Settings, Help shows it again.
  */
 export function PhoneWalkthrough({ onDone }: { onDone?: () => void } = {}) {
   const app = useApp();
@@ -68,6 +70,10 @@ export function PhoneWalkthrough({ onDone }: { onDone?: () => void } = {}) {
   }, [step]);
 
   const speech = app.status?.models ?? [];
+  // The engine says the phone's memory in its summary (ADR-0018 section 10).
+  const ramGb =
+    app.status?.hardware?.summary?.match(/(\d+)\s*GB/)?.[1] ?? (app.status?.mobile_tier ? String(app.status.mobile_tier) : null);
+  const tierOk = (app.status?.mobile_tier ?? 0) >= 8;
   const speechBuiltIn = speech.length > 0 && speech.every((m) => m.installed);
 
   function finish(to: "record" | "sync" = "record") {
@@ -97,6 +103,7 @@ export function PhoneWalkthrough({ onDone }: { onDone?: () => void } = {}) {
   const titles = [
     t("Welcome to OpenBark"),
     t("Recording and consent"),
+    t("What this iPhone can do"),
     t("Notes on this iPhone"),
     t("Use it with your clinic computer"),
   ];
@@ -162,6 +169,38 @@ export function PhoneWalkthrough({ onDone }: { onDone?: () => void } = {}) {
 
         {step === 2 && (
           <>
+            <p className="walkthrough-promise" data-testid="phone-can-do">
+              <MemoryStick size={20} aria-hidden />
+              <span>
+                {phoneCanDraft(app.status)
+                  ? ramGb
+                    ? t("This iPhone has {gb} GB of memory, so it can write notes as well as record and transcribe.", { gb: ramGb })
+                    : t("This iPhone can write notes as well as record and transcribe.")
+                  : tierOk
+                    ? noPhoneDrafting(app.status, t)
+                    : ramGb
+                      ? t("This iPhone has {gb} GB of memory. It records and transcribes here, and your computer writes the note.", {
+                          gb: ramGb,
+                        })
+                      : t("This iPhone records and transcribes here, and your computer writes the note.")}
+              </span>
+            </p>
+            <p className="small muted">
+              {phoneCanDraft(app.status)
+                ? t(
+                    "Writing a note needs a note model in memory alongside the speech models, so OpenBark offers it only on iPhones with 8 GB of memory or more. It's optional: your computer can write the notes instead.",
+                  )
+                : tierOk
+                  ? t("Recording and transcribing work here now.")
+                  : t(
+                      "Writing a note needs a note model in memory alongside the speech models. On iPhones with less than 8 GB, every model OpenBark tested wrote doses that weren't said, so it isn't offered.",
+                    )}
+            </p>
+          </>
+        )}
+
+        {step === 3 && (
+          <>
             <p className="walkthrough-done">
               <Check size={20} aria-hidden />
               <span>
@@ -181,7 +220,7 @@ export function PhoneWalkthrough({ onDone }: { onDone?: () => void } = {}) {
           </>
         )}
 
-        {step === 3 && (
+        {step === 4 && (
           <>
             <p className="walkthrough-promise">
               <RefreshCw size={20} aria-hidden />
@@ -213,6 +252,11 @@ export function PhoneWalkthrough({ onDone }: { onDone?: () => void } = {}) {
           </Button>
         )}
         {step === 2 && (
+          <Button variant="primary" size="prominent" onClick={next}>
+            {t("Continue")}
+          </Button>
+        )}
+        {step === 3 && (
           <>
             <Button variant="primary" size="prominent" onClick={next}>
               {t("Continue")}
@@ -231,7 +275,7 @@ export function PhoneWalkthrough({ onDone }: { onDone?: () => void } = {}) {
             )}
           </>
         )}
-        {step === 3 && (
+        {step === 4 && (
           <>
             <Button variant="primary" size="prominent" onClick={() => finish()}>
               {t("Later")}
