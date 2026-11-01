@@ -182,8 +182,7 @@ for (const v of variants.filter((x) => x.name === "desktop-light" || x.name === 
     await next("Start recording");
     await page.locator(".setup-walk").waitFor({ state: "detached", timeout: 10000 });
   } catch (e) {
-    missed.push(`${v.name} setup walkthrough: ${String(e).split("
-")[0]}`);
+    missed.push(`${v.name} setup walkthrough: ${String(e).split("\n")[0]}`);
   } finally {
     await browser?.close().catch(() => {});
   }
@@ -203,8 +202,7 @@ for (const v of variants.filter((x) => x.name === "desktop-light" || x.name === 
     await page.screenshot({ path: `${out}/${v.name}-setup-check.png` });
     taken.push(`${v.name}-setup-check.png`);
   } catch (e) {
-    missed.push(`${v.name} setup card: ${String(e).split("
-")[0]}`);
+    missed.push(`${v.name} setup card: ${String(e).split("\n")[0]}`);
   } finally {
     await browser?.close().catch(() => {});
   }

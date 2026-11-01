@@ -222,8 +222,9 @@ fn the_speed_check_measures_reading_and_writing_and_estimates_a_long_visit() {
     assert_eq!((check.read_tokens, check.read_ms, check.written_tokens), (812, 400, 96));
     assert!((check.read_tokens_per_second - 2030.0).abs() < 0.01);
     assert!((check.write_tokens_per_second - 12.5).abs() < 0.01);
-    // 7,024 tokens at 2,030 a second and 3,503 at 12.5 a second.
-    assert_eq!(check.long_visit_note_secs, Some(284));
+    // 7,024 tokens at 2,030 a second and 3,503 at 12.5 a second: 283.7 s,
+    // times the long-draft slowdown (1.3).
+    assert_eq!(check.long_visit_note_secs, Some(369));
     assert_eq!(check.drafts_on, app.hardware.drafts_on);
     let stages = board.stages.lock().unwrap().clone();
     assert!(stages.contains(&Stage::ReadTranscript) && stages.contains(&Stage::Write), "{stages:?}");
@@ -247,6 +248,6 @@ fn stop_ends_the_speed_check() {
         std::thread::sleep(Duration::from_millis(5));
     }
     assert!(app.cancel_draft());
-    let err = worker.join().unwrap().err().expect("the check was stopped");
+    let err = worker.join().unwrap().expect_err("the check was stopped");
     assert_eq!(err.0, DRAFT_STOPPED);
 }

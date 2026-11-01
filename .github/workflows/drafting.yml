@@ -212,7 +212,7 @@ jobs:
           took = float(sys.argv[3])
           st = soap["run"]["stats"]
           est = st["prompt_tokens"] / speed["read_tokens_per_second"] + st["completion_tokens"] / speed["write_tokens_per_second"]
-          print(f"- Speed check against the SOAP note: estimated {est:.0f} s for its {st['prompt_tokens']} + {st['completion_tokens']} tokens, took {took:.0f} s (ratio {took / est:.2f})")
+          print(f"- Speed check against the SOAP note: {est:.0f} s at the check's speeds (before the long-draft factor) for its {st['prompt_tokens']} + {st['completion_tokens']} tokens, took {took:.0f} s (ratio {took / est:.2f})")
           PY
           fi
           draft client-summary

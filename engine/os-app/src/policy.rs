@@ -128,9 +128,12 @@ pub const LONG_VISIT_PROMPT_TOKENS: f64 = 7_024.0;
 pub const LONG_VISIT_NOTE_TOKENS: f64 = 3_503.0;
 
 /// How much slower a long draft runs than the speed check's short sample,
-/// with the whole long prompt in its context. The drafting CI job compares
-/// the two on the same runner (ADR-0034).
-pub const LONG_CONTEXT_SLOWDOWN: f64 = 1.0;
+/// with the whole long prompt in its context. Measured by the drafting CI job
+/// on one runner (run 41257289162, Gemma 4 E2B, two threads): the check read
+/// 44.9 and wrote 18.7 tokens a second; the SOAP note that followed (6,949
+/// tokens read, 4,063 written) took 489 s against 372 s at the check's
+/// speeds, 1.31 times as long. One measurement so far (ADR-0034).
+pub const LONG_CONTEXT_SLOWDOWN: f64 = 1.3;
 
 /// How long a long visit's note takes at these speeds, in seconds: the
 /// prompt read at `read_per_second` and the note written at

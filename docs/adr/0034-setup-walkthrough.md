@@ -120,7 +120,15 @@ A computer set up before this version has every model, and setup has never run o
 
 - The token counts are the CI long visit's (`policy::LONG_VISIT_PROMPT_TOKENS`, `LONG_VISIT_NOTE_TOKENS`).
 - The slowdown factor allows for a draft carrying the whole long prompt in its context, unlike the short check. It is set from the drafting job: `drafting.yml` now runs the speed check before the SOAP draft on the same runner and prints the estimate beside the time the note really took.
-- **Calibration:** pending, from the first run of `drafting.yml` on this branch. Until it's measured the factor is 1.0.
+- **Calibration** (run 41257289162, the same runner, Gemma 4 E2B on two threads):
+
+  | | Reading | Writing | Time |
+  |---|---|---|---|
+  | Speed check (454 tokens read, 249 written) | 44.9 tokens/s | 18.7 tokens/s | |
+  | The SOAP note that followed (6,949 read, 4,063 written) | about 39 tokens/s | 13.1 tokens/s | 489 s |
+  | That note at the check's speeds | | | 372 s |
+
+  The note took 1.31 times as long as the check's speeds predict, mostly because writing slows with the long prompt in context (18.7 against 13.1 tokens/s). `LONG_CONTEXT_SLOWDOWN` is 1.3. This is one measurement on one kind of processor. On a graphics card the slowdown may differ, and the factor should be re-measured as more runs come in.
 
 **How the result is worded.** The walkthrough says "On this computer, a note for a long visit will take about N minutes", then states what that is based on: OpenBark's long test visit, 16 minutes of non-stop talking, with shorter visits taking less.
 - It doesn't say "a 30-minute visit". No visit of that length was measured, and how much talking a real 30-minute consult holds varies.
