@@ -597,8 +597,8 @@
         {
           "name": "No telemetry, licence server or cloud fallback",
           "benefit": "Nothing about the clinic or its patients is collected, and nothing phones home.",
-          "detail": "There is no analytics, crash reporting, update check, licence server or fallback to a cloud model.",
-          "evidence": "docs/network.md 'Nothing else at run time'; the product brief section 3",
+          "detail": "There is no analytics, crash reporting, licence server or fallback to a cloud model. The only automatic connection is a version check the app asks about first: if you say yes, it reads the latest version number from openbark.io once a day and sends nothing about you.",
+          "evidence": "docs/network.md 'Nothing else at run time' and R16; docs/adr/0035-asking-before-checking-for-new-versions.md; the product brief section 3",
           "status": "shipped"
         },
         {

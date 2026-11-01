@@ -2,7 +2,7 @@
     <div class="wrap">
       <h1>Privacy</h1>
       <p>{{PRODUCT}} is built so your clinic's recordings and notes stay on your own devices. This page says exactly what leaves them, and when.</p>
-      <p class="muted legal-date">Last updated 25 October 2026. ANI.ML Health Inc., Toronto, Ontario, Canada. Questions: <a href="mailto:{{CONTACT}}">{{CONTACT}}</a>.</p>
+      <p class="muted legal-date">Last updated 31 October 2026. ANI.ML Health Inc., Toronto, Ontario, Canada. Questions: <a href="mailto:{{CONTACT}}">{{CONTACT}}</a>.</p>
     </div>
   </section>
 
@@ -20,6 +20,7 @@
       <p>The {{PRODUCT}} app on a computer or an iPhone connects to the internet only for the reasons below. Each one is listed, with its exact addresses, in our <a href="https://github.com/ANI-ML/openbark/blob/main/docs/network.md">network document</a>.</p>
       <ul>
         <li><strong>Downloading models.</strong> When you choose a speech or note model, the app downloads it from Hugging Face. Hugging Face sees your device's internet address, like any download. Nothing about your patients is sent.</li>
+        <li><strong>Checking for new versions, if you turn it on.</strong> On a computer, the app asks once whether to check for new versions. If you say yes, it reads the latest version number from openbark.io once a day; nothing about you, your clinic or your patients is sent. You can also press Check for updates in Settings, About at any time. The app never downloads or installs anything by itself. Our website host sees your device's internet address, like any visit to the site. The iPhone app doesn't check: the App Store and TestFlight handle its updates.</li>
         <li><strong>Your own accounts, if you connect them.</strong> If your clinic connects its own Twilio account for phone calls, calls go through Twilio under your clinic's agreement with them. Recordings of those calls are made on your computer.</li>
       </ul>
       <p>With none of these in use, {{PRODUCT}} works fully offline.</p>

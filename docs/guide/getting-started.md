@@ -64,3 +64,13 @@ A folder that already holds other files gets an **OpenBark visits** or **OpenBar
 | Help | These walkthroughs, with videos |
 
 On a computer these are in the side menu: Record, Visits, Patients and Templates at the top, Models, Settings and Help at the bottom. On a phone the tabs are **Record**, **Visits**, **Patients** and **Settings**; Templates, Models and Help are rows in Settings, and each opens with a **Settings** back link at the top left.
+
+## New versions
+
+Once you've accepted the consent notice, OpenBark asks once: **Check for new versions?** If you choose **Yes, check daily**, it reads the latest version number from openbark.io once a day while it's open. Nothing about you, your clinic or your patients is sent. Choose **No thanks**, or just carry on without answering, and it never checks by itself.
+
+When a newer version is out, a notice says **OpenBark X.Y.Z is available**, once for each version. **What's new** opens the release notes and **Download** opens the download page on openbark.io, both in your browser. OpenBark never downloads or installs anything by itself: install the new version as you installed this one.
+
+**Settings → About** shows the version you have. **Check for updates** checks right now, even with the daily check off, and says whether you have the latest version. The switch **Check for new versions once a day** changes your answer at any time.
+
+On the iPhone, the App Store and TestFlight handle updates, so OpenBark doesn't ask or check. Every connection OpenBark can make is listed in [docs/network.md](../network.md) (this one is R16).
