@@ -14,7 +14,10 @@ use crate::{EngineError, PRODUCT_NAME};
 
 #[derive(Debug, Clone)]
 pub struct NoteOptions {
-    pub max_tokens: u32,
+    /// The drafting budget in new tokens. None (the app's): it grows with
+    /// the transcript ([`budget_for`]). A number (`openbark note
+    /// --max-tokens`) is used as given, with [`max_tokens_for`]'s rules.
+    pub max_tokens: Option<u32>,
     pub temperature: f32,
     pub seed: u32,
     /// Details entered by the clinic (patient name, reason for visit). Given
@@ -221,7 +224,7 @@ impl Default for NoteOptions {
     fn default() -> Self {
         // Low temperature: charting should be deterministic and literal.
         Self {
-            max_tokens: 4096,
+            max_tokens: None,
             temperature: 0.1,
             seed: 42,
             context: None,
@@ -293,12 +296,14 @@ const JSON_FORMATS: &str = r#"JSON formats:
 const TOOTH_FORMAT: &str = r#"- a tooth finding is {"tooth": "407", "text": "3 mm of gingival recession", "finding": "gingival_recession", "grade": null, "detail": null, "mm": 3, "planned": false, "evidence": [12]}
 "#;
 
-/// The drafting budget for a template with a tooth chart: a finding costs
-/// about 50 tokens (ADR-0021 decision 5; the context limit is 32768).
+/// The drafting budget for a template with a tooth chart, for a short visit
+/// and as the floor for a long one ([`budget_for`]): a finding costs about
+/// 50 tokens (ADR-0021 decision 5; the context limit is 32768).
 pub const CHART_MAX_TOKENS: u32 = 8192;
 
-/// The drafting budget: `default`, or [`CHART_MAX_TOKENS`] when the template
-/// has a chart and `default` is smaller.
+/// A budget given by the caller (`openbark note --max-tokens`): `default`,
+/// or [`CHART_MAX_TOKENS`] when the template has a chart and `default` is
+/// smaller, or at most [`CLIENT_MAX_TOKENS`] for a client document.
 pub fn max_tokens_for(template: &LoadedTemplate, default: u32) -> u32 {
     if template.chart().is_some() {
         default.max(CHART_MAX_TOKENS)
@@ -309,14 +314,93 @@ pub fn max_tokens_for(template: &LoadedTemplate, default: u32) -> u32 {
     }
 }
 
+/// The drafting budget for a note of a short visit, and the least a long
+/// visit's is trimmed to when its prompt leaves less room in the context.
+pub const NOTE_MAX_TOKENS: u32 = 4096;
+
 /// The drafting budget for a client document (a summary, discharge
-/// instructions): they are written to be read in a minute or two, about 250
-/// to 400 words, which with the JSON keys and the cited line numbers comes to
-/// well under 1,000 tokens. Twice that leaves room for a long visit and stops
-/// a runaway heading at half the note budget (a clinic's client summary ran
-/// on, unfinished, for most of an hour on a slow laptop). Checked against the
-/// long-visit CI job (.github/workflows/drafting.yml).
+/// instructions) of a short visit, and the least a long visit's is trimmed
+/// to. They are written to be read in a minute or two, about 250 to 400
+/// words, which with the JSON keys and the cited line numbers comes to well
+/// under 1,000 tokens.
 pub const CLIENT_MAX_TOKENS: u32 = 2048;
+
+/// The most a note draft is given, with or without a tooth chart: three
+/// times [`NOTE_MAX_TOKENS`], reached at about 24,600 characters of speech
+/// (some 30 minutes of steady talk). Still a limit, for a draft that runs on
+/// without repeating itself (`RepeatGuard` stops one that does): at the
+/// long-visit CI runner's 11 tokens a second it stops after about 19 minutes.
+pub const NOTE_MAX_TOKENS_CEILING: u32 = 12288;
+
+/// The most a client document is given: three times [`CLIENT_MAX_TOKENS`],
+/// reached at the same length of visit as [`NOTE_MAX_TOKENS_CEILING`]. A
+/// clinic's client summary once ran on, unfinished, for most of an hour on a
+/// slow laptop; this stops one at half the note's ceiling.
+pub const CLIENT_MAX_TOKENS_CEILING: u32 = 6144;
+
+/// A draft's token budget: what is asked for, and the least it may be
+/// trimmed to when the prompt leaves less room in the model's context.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Budget {
+    pub max_tokens: u32,
+    /// None: the budget is used as given, or the draft fails as too long
+    /// for the context ([`LlmError::ContextOverflow`]).
+    pub floor: Option<u32>,
+}
+
+/// The drafting budget for a visit: it grows with the characters said, from
+/// the old fixed budgets (so short visits draft as before) to a ceiling.
+///
+/// Measured on the long-visit CI job (`.github/workflows/drafting.yml`):
+/// eight synthetic consults back to back, 16 minutes, 161 transcript lines,
+/// about 13,500 characters of speech and a 7,000-token prompt, drafted by
+/// Gemma 4 E2B. Its SOAP notes ran to 3,019 to 3,572 tokens on 0.2.3, 0.2.4
+/// and main before cd52de5, then 4,063 and twice past 4,096 (not saved);
+/// its client summaries to 1,201 to 1,749, then past 2,048 three times. The
+/// model writes pretty-printed JSON (about 40% of the characters are line
+/// breaks and indents), which the grammar leaves alone (see os-llm's
+/// llama.rs). That is about 0.3 tokens per character of speech for a note
+/// and half that for a client summary, so the budget is a token for every
+/// two characters for a note ([`NOTE_MAX_TOKENS`] up to 8,192 characters,
+/// some ten minutes of steady talk; 6,750 for the CI visit, which puts the
+/// 4,096 that ran out at 61%) and one for every four for a client document
+/// (3,375 for the CI visit, 2,048 at 61%). A template with a tooth chart
+/// starts from [`CHART_MAX_TOKENS`].
+///
+/// A 60-minute visit of steady talk (about 50,000 characters) reaches the
+/// ceilings, but its prompt also takes about 19,000 to 26,000 of the
+/// context's 32,768 tokens (llama.cpp's and MLX's `max_context`), so its
+/// budget is trimmed to what the context leaves, down to the floor
+/// (`generate_guarded`). Past that, the draft fails as too long, as every
+/// visit that long did before.
+pub fn budget_for(template: &LoadedTemplate, transcript: &Transcript) -> Budget {
+    let chars: usize = transcript.segments.iter().map(|s| s.text.chars().count()).sum();
+    let chars = u32::try_from(chars).unwrap_or(u32::MAX);
+    let (floor, ceiling, chars_per_token) = if template.chart().is_some() {
+        (CHART_MAX_TOKENS, NOTE_MAX_TOKENS_CEILING, 2)
+    } else if !template.template.document.is_record() {
+        (CLIENT_MAX_TOKENS, CLIENT_MAX_TOKENS_CEILING, 4)
+    } else {
+        (NOTE_MAX_TOKENS, NOTE_MAX_TOKENS_CEILING, 2)
+    };
+    Budget { max_tokens: (chars / chars_per_token).clamp(floor, ceiling), floor: Some(floor) }
+}
+
+/// The budget a draft asks for: the caller's, or the visit's.
+fn draft_budget(template: &LoadedTemplate, transcript: &Transcript, options: &NoteOptions) -> Budget {
+    match options.max_tokens {
+        Some(n) => Budget { max_tokens: max_tokens_for(template, n), floor: None },
+        None => budget_for(template, transcript),
+    }
+}
+
+/// The budget left for a draft whose prompt took `prompt` of the context's
+/// `ctx` tokens, when that is less than asked but at least the floor.
+fn fit_to_context(budget: Budget, prompt: u32, ctx: u32) -> Option<u32> {
+    let room = ctx.saturating_sub(prompt);
+    let floor = budget.floor?;
+    (room >= floor && room < budget.max_tokens).then_some(room)
+}
 
 /// The statement line for headings that list systems (ADR-0032), only for
 /// templates with normal findings.
@@ -757,15 +841,23 @@ fn parse_output(output: &GenerateOutput) -> Result<Value, EngineError> {
 /// starts repeating itself stops early ([`EngineError::Repeating`]), one that
 /// was stopped comes back as [`LlmError::Cancelled`], and the control hears
 /// [`Phase::Generated`] before the caller checks the output.
+///
+/// A long visit's prompt can leave less room in the model's context than its
+/// budget: both backends refuse such a request before reading the prompt
+/// ([`LlmError::ContextOverflow`], with the prompt's length and the context's
+/// size), and it is asked again with the room that is left, as long as that
+/// is at least the budget's floor. The stats are the second request's, so a
+/// draft cut off at the trimmed budget says it hit its limit.
 fn generate_guarded(
     llm: &dyn LlmBackend,
     request: &GenerateRequest,
+    budget: Budget,
     on_token: &mut dyn FnMut(&str) -> bool,
 ) -> Result<GenerateOutput, EngineError> {
     let control = request.control.as_ref();
     let mut guard = RepeatGuard::default();
     let mut repeating = false;
-    let output = llm.generate(request, &mut |piece| {
+    let mut watch = |piece: &str| {
         if control.is_some_and(Control::is_cancelled) {
             return false;
         }
@@ -774,7 +866,23 @@ fn generate_guarded(
             return false;
         }
         on_token(piece)
-    })?;
+    };
+    let mut output = llm.generate(request, &mut watch);
+    if let Err(LlmError::ContextOverflow { prompt, ctx, .. }) = &output
+        && let Some(room) = fit_to_context(budget, *prompt, *ctx)
+    {
+        // Counts only: never the prompt.
+        tracing::info!(
+            prompt_tokens = *prompt,
+            context = *ctx,
+            asked = request.max_tokens,
+            max_tokens = room,
+            "drafting budget trimmed to fit the context"
+        );
+        let fitted = GenerateRequest { max_tokens: room, ..request.clone() };
+        output = llm.generate(&fitted, &mut watch);
+    }
+    let output = output?;
     if control.is_some_and(Control::is_cancelled) {
         return Err(LlmError::Cancelled.into());
     }
@@ -877,15 +985,18 @@ pub fn generate_note(
     if let Some(user) = messages.last_mut() {
         user.content = format!("{}{}", reference_message(options.reference.as_ref()), user.content);
     }
+    // Sized from the lines the draft is written from (this animal's, in a
+    // multi-pet visit).
+    let budget = draft_budget(template, &scoped, options);
     let request = GenerateRequest {
         messages,
-        max_tokens: max_tokens_for(template, options.max_tokens),
+        max_tokens: budget.max_tokens,
         temperature: options.temperature,
         seed: options.seed,
         json_schema: Some(drafting_schema_text(template)),
         control: options.control.clone(),
     };
-    let output = generate_guarded(llm, &request, on_token)?;
+    let output = generate_guarded(llm, &request, budget, on_token)?;
     let mut note: Value = parse_output(&output)?;
     crate::dental::rename_for_drafting(&mut note, false);
     // A runaway repeat ("404 normal" seventeen times) becomes one item.
@@ -959,6 +1070,9 @@ pub fn refine_note(
         None => note[sec].clone(),
     };
     let named = with_name_hints(transcript, options);
+    // The heading may be most of the note ("plan" of a long visit), so it
+    // gets the whole draft's budget, as a ceiling.
+    let budget = draft_budget(template, transcript, options);
     let generate = GenerateRequest {
         messages: with_pet(
             with_language(
@@ -975,13 +1089,13 @@ pub fn refine_note(
             options.pet.as_deref(),
             &options.other_pets,
         ),
-        max_tokens: max_tokens_for(template, options.max_tokens),
+        max_tokens: budget.max_tokens,
         temperature: options.temperature,
         seed: options.seed,
         json_schema: Some(drafting_schema_for(&schema).to_string()),
         control: options.control.clone(),
     };
-    let output = generate_guarded(llm, &generate, on_token)?;
+    let output = generate_guarded(llm, &generate, budget, on_token)?;
     let mut redrafted: Value = parse_output(&output)?;
     crate::dental::rename_for_drafting(&mut redrafted, false);
     crate::dental::merge_repeats(&mut redrafted);
@@ -1464,6 +1578,162 @@ sections:
         }
         let soap = LoadedTemplate::builtin("soap").unwrap();
         assert_eq!(max_tokens_for(&soap, 4096), 4096);
+    }
+
+    /// A visit of `lines` lines of steady talk, 84 characters each: 161 of
+    /// them are the long-visit CI job's 16 minutes (about 13,500 characters).
+    fn visit(lines: u32) -> Transcript {
+        const LINE: &str =
+            "Her weight is steady at four point two kilos and she has been eating her usual food.";
+        assert_eq!(LINE.len(), 84);
+        Transcript {
+            segments: (0..lines)
+                .map(|id| Segment {
+                    id,
+                    start: id as f32 * 6.0,
+                    end: id as f32 * 6.0 + 5.0,
+                    speaker: Some(id % 2),
+                    text: LINE.into(),
+                    hints: Vec::new(),
+                    check: None,
+                })
+                .collect(),
+        }
+    }
+
+    /// The budget grows with the visit: short visits keep the old budgets,
+    /// the CI job's 16-minute visit leaves its longest drafts well under 70%
+    /// of it, and an hour stops at the ceilings.
+    #[test]
+    fn the_budget_grows_with_the_visit() {
+        let soap = LoadedTemplate::builtin("soap").unwrap();
+        let client = LoadedTemplate::builtin("client-summary").unwrap();
+        let dental = LoadedTemplate::builtin("dental").unwrap();
+        let budget = |t: &LoadedTemplate, v: &Transcript| budget_for(t, v).max_tokens;
+        // A short visit drafts as before.
+        for v in [one_line(), visit(40)] {
+            assert_eq!(budget_for(&soap, &v), Budget { max_tokens: 4096, floor: Some(NOTE_MAX_TOKENS) });
+            assert_eq!(budget_for(&client, &v), Budget { max_tokens: 2048, floor: Some(CLIENT_MAX_TOKENS) });
+            assert_eq!(budget_for(&dental, &v), Budget { max_tokens: 8192, floor: Some(CHART_MAX_TOKENS) });
+        }
+        // 16 minutes: the most measured (4,096 and 2,048, cut off) is 61%.
+        let sixteen = visit(161);
+        assert_eq!(budget(&soap, &sixteen), 6762);
+        assert_eq!(budget(&client, &sixteen), 3381);
+        assert!(4096 * 10 < budget(&soap, &sixteen) * 7);
+        assert!(2048 * 10 < budget(&client, &sixteen) * 7);
+        assert_eq!(budget(&dental, &sixteen), CHART_MAX_TOKENS);
+        // 30 and 60 minutes: the ceilings.
+        for v in [visit(300), visit(600)] {
+            assert_eq!(budget(&soap, &v), NOTE_MAX_TOKENS_CEILING);
+            assert_eq!(budget(&client, &v), CLIENT_MAX_TOKENS_CEILING);
+            assert_eq!(budget(&dental, &v), NOTE_MAX_TOKENS_CEILING);
+        }
+        // A budget given by the caller is used as given, never trimmed.
+        let given = |n| NoteOptions { max_tokens: Some(n), ..Default::default() };
+        assert_eq!(draft_budget(&soap, &sixteen, &given(48)), Budget { max_tokens: 48, floor: None });
+        assert_eq!(draft_budget(&client, &sixteen, &given(4096)), Budget { max_tokens: 2048, floor: None });
+        assert_eq!(draft_budget(&soap, &sixteen, &NoteOptions::default()), budget_for(&soap, &sixteen));
+    }
+
+    #[test]
+    fn a_budget_shrinks_to_the_room_the_prompt_leaves() {
+        let b = Budget { max_tokens: NOTE_MAX_TOKENS_CEILING, floor: Some(NOTE_MAX_TOKENS) };
+        // An hour's 26,000-token prompt leaves 6,768 of 32,768.
+        assert_eq!(fit_to_context(b, 26_000, 32_768), Some(6_768));
+        assert_eq!(fit_to_context(b, 32_768 - 4096, 32_768), Some(4096));
+        // Less than the floor left: too long, as before.
+        assert_eq!(fit_to_context(b, 30_000, 32_768), None);
+        assert_eq!(fit_to_context(b, 40_000, 32_768), None);
+        // Room for all of it: nothing to trim.
+        assert_eq!(fit_to_context(b, 7_000, 32_768), None);
+        // No floor: never trimmed.
+        assert_eq!(fit_to_context(Budget { floor: None, ..b }, 26_000, 32_768), None);
+    }
+
+    /// Answers with `text`, from a model whose context holds `ctx` tokens,
+    /// for a prompt of `prompt` tokens: a request that doesn't fit is
+    /// refused before any token, as llama.cpp and the MLX worker refuse it.
+    struct Tight {
+        text: String,
+        prompt: u32,
+        ctx: u32,
+        asked: std::sync::Mutex<Vec<u32>>,
+    }
+
+    impl Tight {
+        fn new(text: String, prompt: u32) -> Self {
+            Self { text, prompt, ctx: 32_768, asked: Default::default() }
+        }
+
+        fn asked(&self) -> Vec<u32> {
+            self.asked.lock().unwrap().clone()
+        }
+    }
+
+    impl LlmBackend for Tight {
+        fn capabilities(&self) -> os_llm::LlmCapabilities {
+            Looping.capabilities()
+        }
+
+        fn generate(
+            &self,
+            request: &GenerateRequest,
+            on_token: &mut dyn FnMut(&str) -> bool,
+        ) -> Result<os_llm::GenerateOutput, os_llm::LlmError> {
+            self.asked.lock().unwrap().push(request.max_tokens);
+            if self.prompt + request.max_tokens > self.ctx {
+                return Err(LlmError::ContextOverflow {
+                    prompt: self.prompt,
+                    max_new: request.max_tokens,
+                    ctx: self.ctx,
+                });
+            }
+            on_token(&self.text);
+            Ok(os_llm::GenerateOutput { text: self.text.clone(), stats: Default::default() })
+        }
+    }
+
+    #[test]
+    fn a_long_visit_drafts_with_the_room_the_context_leaves() {
+        let soap = LoadedTemplate::builtin("soap").unwrap();
+        let empty = render::tests::empty_note();
+        let hour = visit(600);
+        let draft = |llm: &Tight, options: &NoteOptions| {
+            generate_note(llm, &soap, &hour, options, &mut |_| true).map(|_| ())
+        };
+        // The ceiling doesn't fit beside the prompt: asked again with the rest.
+        let llm = Tight::new(empty.to_string(), 26_000);
+        draft(&llm, &NoteOptions::default()).unwrap();
+        assert_eq!(llm.asked(), [NOTE_MAX_TOKENS_CEILING, 6_768]);
+        // Less than the floor left: the draft fails as too long, as before.
+        let llm = Tight::new(empty.to_string(), 30_000);
+        let err = draft(&llm, &NoteOptions::default()).unwrap_err();
+        assert!(matches!(err, EngineError::Llm(LlmError::ContextOverflow { .. })), "{err}");
+        assert_eq!(llm.asked(), [NOTE_MAX_TOKENS_CEILING]);
+        // A budget given by the caller is never trimmed.
+        let llm = Tight::new(empty.to_string(), 26_000);
+        let options = NoteOptions { max_tokens: Some(8000), ..Default::default() };
+        assert!(draft(&llm, &options).is_err());
+        assert_eq!(llm.asked(), [8000]);
+        // A short visit fits at once.
+        let llm = Tight::new(empty.to_string(), 7_000);
+        generate_note(&llm, &soap, &one_line(), &NoteOptions::default(), &mut |_| true).unwrap();
+        assert_eq!(llm.asked(), [NOTE_MAX_TOKENS]);
+        // Re-prompting a heading of a long visit is trimmed the same way.
+        let llm = Tight::new(empty["plan"].to_string(), 26_000);
+        refine_note(
+            &llm,
+            &soap,
+            &hour,
+            &empty,
+            "plan",
+            "Add the recheck",
+            &NoteOptions::default(),
+            &mut |_| true,
+        )
+        .unwrap();
+        assert_eq!(llm.asked(), [NOTE_MAX_TOKENS_CEILING, 6_768]);
     }
 
     #[test]

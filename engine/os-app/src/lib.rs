@@ -1537,9 +1537,9 @@ impl App {
         let secs = started.elapsed().as_secs_f64().max(0.001);
         progress(&format!("plain: {plain} tokens in {secs:.1} s ({:.1} tokens/s)", plain as f64 / secs));
         let template = LoadedTemplate::resolve("soap").map_err(|e| AppError(e.to_string()))?;
-        // The app's own limit: a tiny test model can run long in a string
-        // before it closes the note.
-        let options = NoteOptions { max_tokens: 4096, ..Default::default() };
+        // The app's own limit for a transcript this short: a tiny test model
+        // can run long in a string before it closes the note.
+        let options = NoteOptions { max_tokens: Some(4096), ..Default::default() };
         let started = std::time::Instant::now();
         let mut tokens = 0u32;
         let result = os_engine::generate_note(&*llm, &template, transcript, &options, &mut |_| {
