@@ -5,7 +5,9 @@ name: Drafting on weak computers
 # client summary must be saved, not just fail visibly. The quick job compiles
 # and lints the whole workspace and runs the UI tests, for fast feedback on a
 # branch; the long-visit job drafts a note and a client summary of a long
-# synthetic consult on two CPU threads and checks that Stop works.
+# synthetic consult on two CPU threads and checks that Stop works. Before
+# drafting it runs the setup speed check (ADR-0034) and compares its estimate
+# with the note's real time on the same runner.
 #
 # The consults are synthetic scripts (packages/eval/fixtures/scripts,
 # invented, rendered with Kokoro on the runner), so no clinic data is
@@ -170,6 +172,18 @@ jobs:
           # No runs folder yet counts as none (pipefail would end the step).
           runs() { ls "$dir/runs" 2>/dev/null | wc -l || true; }
           fail=0
+          # The setup speed check (ADR-0034), before the first draft: the
+          # check loads the model, so the draft below only reads and writes,
+          # which is what the check estimates.
+          code=$(curl -sS --max-time 900 -o "$demo/speed.json" -w '%{http_code}' -X POST -H 'x-openbark: 1' \
+            -H 'content-type: application/json' -d '{"llm":"gemma-4-e2b-it-q4_0"}' \
+            "$base/api/speed-check") || code="timeout"
+          if [ "$code" = "200" ]; then
+            summary "- Speed check: $(jq -r '"model load \(.load_ms) ms, read \(.read_tokens) tokens at \(.read_tokens_per_second * 10 | round / 10) tokens/s, wrote \(.written_tokens) tokens at \(.write_tokens_per_second * 10 | round / 10) tokens/s; long-visit note estimated at \(.long_visit_note_secs) s"' "$demo/speed.json")"
+          else
+            summary "- Speed check failed (HTTP $code): $(jq -r '.error // empty' "$demo/speed.json" 2>/dev/null)"
+            fail=1
+          fi
           # Generations the log has finished, and the budget of the last one
           # if it came after the first $1 (counts only; the log is coloured).
           gens() { grep -c "llm generation finished" "$demo/serve.log" || true; }
@@ -188,6 +202,7 @@ jobs:
               -H 'content-type: application/json' -d "{\"llm\":\"gemma-4-e2b-it-q4_0\",\"template\":\"$1\"}" \
               "$base/api/sessions/$id/notes") || code="timeout"
             secs=$(( $(date +%s) - t0 ))
+            echo "$secs" > "$demo/$1.secs"
             if [ "$code" = "200" ]; then
               summary "- $1: saved in $secs s; $(jq -r '.run.stats | "prompt \(.prompt_tokens) tokens, wrote \(.completion_tokens) tokens at \(.tokens_per_second * 10 | round / 10) tokens/s, hit the limit: \(.hit_max_tokens)"' "$demo/$1.json"), budget $(budget "$before")"
             elif [ "$code" = "timeout" ] || [ "$code" = "000" ]; then
@@ -200,6 +215,18 @@ jobs:
             fi
           }
           draft soap
+          # The speed check's estimate for this very note (its own prompt and
+          # length) against the time it took: the slowdown of a long draft.
+          if [ -s "$demo/speed.json" ] && [ -s "$demo/soap.json" ] && jq -e '.run.stats' "$demo/soap.json" > /dev/null 2>&1; then
+            python3 -I - "$demo/speed.json" "$demo/soap.json" "$(cat "$demo/soap.secs")" <<'PY' | tee -a "$GITHUB_STEP_SUMMARY" || true
+          import json, sys
+          speed, soap = (json.load(open(p)) for p in sys.argv[1:3])
+          took = float(sys.argv[3])
+          st = soap["run"]["stats"]
+          est = st["prompt_tokens"] / speed["read_tokens_per_second"] + st["completion_tokens"] / speed["write_tokens_per_second"]
+          print(f"- Speed check against the SOAP note: {est:.0f} s at the check's speeds (before the long-draft factor) for its {st['prompt_tokens']} + {st['completion_tokens']} tokens, took {took:.0f} s (ratio {took / est:.2f})")
+          PY
+          fi
           draft client-summary
           # Stop: once while the transcript is read, once while the note is written.
           stop_during() { # phase

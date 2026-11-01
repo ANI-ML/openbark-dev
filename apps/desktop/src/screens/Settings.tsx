@@ -1,4 +1,4 @@
-import { ThemeToggle } from "@openbark/ui";
+import { Button, ThemeToggle } from "@openbark/ui";
 import {
   Box,
   ChevronLeft,
@@ -674,6 +674,15 @@ function SectionBody({ section }: { section: SettingsSection }) {
               : t("Running locally. Nothing leaves this device.")}
           </p>
           <CopyDiagnostics />
+          {/* The computer's setup walkthrough again (ADR-0034). */}
+          {!ios && (
+            <div className="ask-actions">
+              <Button onClick={() => app.setSettings({ showSetup: "full" })}>
+                <Signpost size={20} aria-hidden />
+                {t("Run setup again")}
+              </Button>
+            </div>
+          )}
           <VocabularyCredits />
         </section>
       );

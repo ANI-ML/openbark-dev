@@ -135,7 +135,7 @@ async function open(v, user = null) {
     const current = JSON.parse(localStorage.getItem(key) ?? "{}");
     localStorage.setItem(
       key,
-      JSON.stringify({ ...current, consentAcknowledgedAt: "2026-10-17T20:00:00Z", uiLanguage: "en", signer: "Dr Rivera" }),
+      JSON.stringify({ ...current, consentAcknowledgedAt: "2026-10-17T20:00:00Z", setupDoneAt: "2026-10-17T20:00:00Z", uiLanguage: "en", signer: "Dr Rivera" }),
     );
     if (who) localStorage.setItem("openbark.user", JSON.stringify(who));
     else localStorage.removeItem("openbark.user");

@@ -763,6 +763,18 @@ fn cancel_draft(app: State<'_, AppState>) -> bool {
     app.cancel_draft()
 }
 
+/// The speed check (setup, ADR-0034): time the note model on invented text.
+/// Stop is `cancel_draft`.
+#[tauri::command]
+async fn speed_check(
+    handle: AppHandle,
+    app: State<'_, AppState>,
+    llm: String,
+) -> Result<os_app::SpeedCheck, String> {
+    let app = app.inner().clone();
+    work(move || app.speed_check(&llm, &TauriEvents(handle))).await
+}
+
 /// Copy diagnostics (Settings, About): the computer, the note model, the
 /// last draft's timings and the end of the log. Nothing from any visit.
 #[tauri::command]
@@ -1261,6 +1273,17 @@ fn set_speech_language(language: String) {
     os_engine::models::set_speech_language(Some(&language));
 }
 
+/// A web page in the default browser: NVIDIA's licence, a Hugging Face
+/// model's page or its token page. The WebView names the page and
+/// os_app::links builds the address, so the main window needs no opener
+/// permission of its own (capabilities/default.json).
+#[tauri::command]
+fn open_web_page(handle: AppHandle, page: String, repo: Option<String>) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let url = os_app::links::web_link(&page, repo.as_deref()).map_err(|e| e.0)?;
+    handle.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
+}
+
 /// Settings, Recording, Spoken language ("fr"); None is Auto (ADR-0033).
 #[tauri::command]
 fn set_spoken_language(language: Option<String>) {
@@ -1572,6 +1595,7 @@ pub fn run() {
         stop_recording,
         generate_note,
         cancel_draft,
+        speed_check,
         diagnostics,
         sign_note,
         confirm_chart,
@@ -1641,6 +1665,7 @@ pub fn run() {
         remove_vocabulary_term,
         set_speech_language,
         set_spoken_language,
+        open_web_page,
         set_user_admin,
         profile_summary,
         models,

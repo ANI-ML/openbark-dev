@@ -1,16 +1,18 @@
 import { Button, Sheet, Skeleton, StatusDot } from "@openbark/ui";
-import { ArrowLeft, Download, FilePlus, Search, Trash2, X } from "lucide-react";
+import { ArrowLeft, Download, FilePlus, Search, Signpost, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { fmtBytes, useApp } from "../context";
 import * as engine from "../engine";
 import { hardwareLine, useT } from "../i18n";
 import { AddLocalModelSheet } from "../components/AddLocalModelSheet";
+import { ExternalLink } from "../components/ExternalLink";
 import { GpuCard } from "../components/GpuCard";
 import { HfTokenField } from "../components/HfTokenField";
 import { MLX_CARD_ID, MlxCard } from "../components/MlxCard";
 import { ModelGuide, ModelMeaning, ModelTags } from "../components/ModelGuide";
 import { NoteModelAdvice } from "../components/NoteModelAdvice";
 import { RemoveModelDialog, rowBytes } from "../components/RemoveModelDialog";
+import { useSpeedLine } from "../components/SetupCheckCard";
 import { PHONE_STARTERS, STARTERS } from "../modelGuide";
 import { PHONE, useMediaQuery } from "../useMediaQuery";
 import { noPhoneDrafting, phoneCanDraft } from "../visits";
@@ -148,6 +150,8 @@ export function Models() {
   /** Phone width (layout only): stacked catalog rows, plain names, a quieter Browse button. */
   const narrow = useMediaQuery(PHONE);
   const label = (name: string) => (narrow ? plainModelName(name).name : name);
+  /** The last speed check of the chosen note model (ADR-0034). */
+  const speedLine = useSpeedLine();
   const rowProps = (r: engine.ModelRow) => ({
     row: r,
     progress: progress[r.id],
@@ -174,6 +178,12 @@ export function Models() {
           <h1>{t("Models")}</h1>
         </div>
         <div className="head-actions">
+          {!phone && (
+            <Button variant="ghost" onClick={() => app.setSettings({ showSetup: "full" })}>
+              <Signpost size={20} aria-hidden />
+              {t("Run setup again")}
+            </Button>
+          )}
           {!phone && (
             <Button onClick={() => setAdding(true)}>
               <FilePlus size={20} aria-hidden />
@@ -261,6 +271,11 @@ export function Models() {
                   <option value={app.settings.llm}>{app.settings.llm}</option>
                 )}
               </select>
+              {speedLine && !phone && (
+                <span className="small muted slots-speed" data-testid="speed-line">
+                  {speedLine}
+                </span>
+              )}
             </dd>
           </div>
           <div>
@@ -827,9 +842,12 @@ function HubBrowser({
                     <input type="checkbox" checked={accepted} onChange={(e) => setAccepted(e.target.checked)} />
                     <span>
                       {acceptBefore}
-                      <a href={`https://huggingface.co/${repo.repo.model.id}`} target="_blank" rel="noreferrer">
+                      <ExternalLink
+                        href={`https://huggingface.co/${repo.repo.model.id}`}
+                        page={{ page: "hf-repo", repo: repo.repo.model.id }}
+                      >
                         {t("licence on Hugging Face")}
-                      </a>
+                      </ExternalLink>
                       {acceptAfter}
                     </span>
                   </label>
@@ -985,12 +1003,12 @@ function GatedNotice({
           {manual && ` ${t("The publisher reviews requests by hand.")}`}
         </p>
         <div className="ask-actions gated-links">
-          <a className="link" href={`https://huggingface.co/${repo}`} target="_blank" rel="noreferrer">
+          <ExternalLink className="link" href={`https://huggingface.co/${repo}`} page={{ page: "hf-repo", repo }}>
             {t("Request access")}
-          </a>
-          <a className="link" href="https://huggingface.co/settings/tokens" target="_blank" rel="noreferrer">
+          </ExternalLink>
+          <ExternalLink className="link" href="https://huggingface.co/settings/tokens" page={{ page: "hf-tokens" }}>
             {t("Get a token")}
-          </a>
+          </ExternalLink>
         </div>
         <HfTokenField onChange={onToken} />
       </div>

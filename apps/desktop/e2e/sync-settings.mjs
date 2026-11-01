@@ -22,7 +22,7 @@ const problems = [];
 for (const v of variants) {
   const ctx = await browser.newContext({ viewport: v.viewport, colorScheme: v.colorScheme, isMobile: v.isMobile, hasTouch: v.hasTouch });
   await ctx.addInitScript(() => {
-    localStorage.setItem("openbark.settings", JSON.stringify({ consentAcknowledgedAt: "2026-10-17T20:00:00Z", uiLanguage: "en" }));
+    localStorage.setItem("openbark.settings", JSON.stringify({ consentAcknowledgedAt: "2026-10-17T20:00:00Z", setupDoneAt: "2026-10-17T20:00:00Z", uiLanguage: "en" }));
   });
   const page = await ctx.newPage();
   page.on("pageerror", (e) => problems.push(`${v.name}: ${e}`));

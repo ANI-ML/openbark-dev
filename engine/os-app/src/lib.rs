@@ -51,10 +51,12 @@ pub use templates::{
 mod clinic_hub;
 #[doc(hidden)]
 pub mod demo;
+pub mod links;
 pub mod logs;
 mod mic;
 mod phone;
 pub mod policy;
+mod speed;
 mod sync;
 mod templates;
 mod vocabulary;
@@ -71,6 +73,7 @@ pub use phone::{
     CALL_SAMPLE_RATES, CallEnd, CallRequest, CallStart, CallTarget, ConnectRequest, Connected, Disconnected,
     PhoneToken, PhoneView, SetupCheck, TwilioView, check_call_sample_rate,
 };
+pub use speed::SpeedCheck;
 pub use vocabulary::VocabularyView;
 
 /// Progress notifications for the UI.
@@ -385,6 +388,9 @@ pub struct Hardware {
     pub cpu_cores: Option<usize>,
     pub cpu_threads: usize,
     pub llm_threads: Option<i32>,
+    /// Where the note model writes: a graphics card, Apple silicon or the
+    /// processor ([`policy::drafts_on`]; ADR-0034).
+    pub drafts_on: policy::DraftsOn,
 }
 
 /// A phone (ADR-0018 section 10) says how much memory it has, which decides
@@ -434,6 +440,7 @@ fn probe_hardware() -> Hardware {
             cpu_threads,
             std::env::var(policy::THREADS_ENV).ok().as_deref(),
         ),
+        drafts_on: policy::drafts_on(&devices, layers),
     }
 }
 
@@ -682,6 +689,9 @@ pub struct Status {
     /// The model that writes notes unless the person picks another: Gemma 4
     /// E4B on a computer, the tier's small model on a phone.
     pub default_llm: String,
+    /// On a computer, the note model recommended for it and why (ADR-0034):
+    /// `default_llm` is its model. `None` on a phone.
+    pub recommendation: Option<policy::Recommendation>,
     /// This build can write notes (it has llama.cpp: the `inference`
     /// feature). Phone builds turn on transcription first; until one with
     /// `inference` ships, a phone doesn't offer drafting (ADR-0018 section 1).
@@ -1602,6 +1612,7 @@ impl App {
             profile: Profile::current(),
             mobile_tier: self.phone_tier().flatten().map(|t| t.ram_gb),
             default_llm: self.default_llm(),
+            recommendation: self.recommendation(),
             can_draft: cfg!(feature = "inference"),
         }
     }
@@ -1614,19 +1625,26 @@ impl App {
         })
     }
 
-    /// The default note model for this device: on a computer, Gemma 4 E4B
-    /// unless it won't fit this computer's memory, then Gemma 4 E2B
-    /// ([`policy::default_note_model`]).
+    /// The default note model for this device: on a computer, the one
+    /// [`App::recommendation`] recommends; on a phone, its tier's.
     pub fn default_llm(&self) -> String {
         match self.phone_tier() {
             Some(Some(t)) => t.default_llm.to_string(),
             Some(None) => String::new(),
-            None => {
-                let e4b = os_models::Catalog::builtin().get(policy::E4B).map_or(0, |m| m.total_size());
-                policy::default_note_model(e4b, self.hardware.gpu_memory_bytes, self.hardware.ram_bytes)
-                    .to_string()
-            }
+            None => self.recommendation().map_or_else(String::new, |r| r.model.to_string()),
         }
+    }
+
+    /// The note model recommended for this computer, and why: by memory,
+    /// where notes are written and the processor's cores
+    /// ([`policy::recommend_note_model`], ADR-0034). `None` on a phone.
+    pub fn recommendation(&self) -> Option<policy::Recommendation> {
+        if self.phone_tier().is_some() {
+            return None;
+        }
+        let hw = &self.hardware;
+        let e4b = os_models::Catalog::builtin().get(policy::E4B).map_or(0, |m| m.total_size());
+        Some(policy::recommend_note_model(e4b, hw.gpu_memory_bytes, hw.ram_bytes, hw.drafts_on, hw.cpu_cores))
     }
 
     /// The note model setup asks for on a computer: the default, unless the

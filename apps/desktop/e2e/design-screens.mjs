@@ -12,7 +12,10 @@
 // folder holds an OPENBARK-DEMO marker.
 //
 // The phone pass (the demo started with OPENBARK_PLATFORM=ios) begins with
-// the iPhone's first-run walkthrough, one screenshot per step.
+// the iPhone's first-run walkthrough, one screenshot per step. The desktop
+// pass begins with the computer's setup walkthrough (ADR-0034), one
+// screenshot per step with a real speed check, and the one-time "Check my
+// setup" card an existing install sees.
 //
 // RECORDING=1 adds a last pass in Chromium with a fake microphone, for the
 // recording screen (WebKit can't fake one). It starts a recording, so it runs
@@ -82,15 +85,24 @@ async function context(v, extra = {}) {
     deviceScaleFactor: v.deviceScaleFactor,
     permissions: extra.permissions,
   });
-  await ctx.addInitScript((firstRun) => {
-    const key = "openbark.settings";
-    const current = JSON.parse(localStorage.getItem(key) ?? "{}");
-    // A first run (the walkthrough pass) has accepted nothing yet.
-    const accepted = firstRun
-      ? { consentAcknowledgedAt: null, walkthroughDoneAt: null, showWalkthrough: false }
-      : { consentAcknowledgedAt: "2026-10-17T20:00:00Z" };
-    localStorage.setItem(key, JSON.stringify({ ...current, ...accepted, uiLanguage: "en" }));
-  }, Boolean(extra.firstRun));
+  await ctx.addInitScript(
+    ({ firstRun, setup }) => {
+      const key = "openbark.settings";
+      const current = JSON.parse(localStorage.getItem(key) ?? "{}");
+      // A first run (the walkthrough pass) has accepted nothing yet. The
+      // desktop setup passes open the walkthrough or show the card; every
+      // other pass has finished setup (ADR-0034).
+      const accepted = firstRun
+        ? { consentAcknowledgedAt: null, walkthroughDoneAt: null, showWalkthrough: false }
+        : setup === "walkthrough"
+          ? { consentAcknowledgedAt: "2026-10-17T20:00:00Z", showSetup: "full" }
+          : setup === "card"
+            ? { consentAcknowledgedAt: "2026-10-17T20:00:00Z", setupDoneAt: null, setupCardDismissedAt: null }
+            : { consentAcknowledgedAt: "2026-10-17T20:00:00Z", setupDoneAt: "2026-10-17T20:00:00Z" };
+      localStorage.setItem(key, JSON.stringify({ ...current, ...accepted, uiLanguage: "en" }));
+    },
+    { firstRun: Boolean(extra.firstRun), setup: extra.setup ?? null },
+  );
   const page = await ctx.newPage();
   // A screen that isn't there is listed as missed, never waited for forever.
   page.setDefaultTimeout(15000);
@@ -120,10 +132,77 @@ for (const v of variants.filter((x) => x.viewport.width <= 640)) {
     await shot(3);
     await page.getByRole("button", { name: "Continue" }).click();
     await shot(4);
+    await page.getByRole("button", { name: "Continue" }).click();
+    await shot(5);
     await page.getByRole("button", { name: "Later" }).click();
     await page.locator(".recorder").waitFor({ timeout: 10000 });
   } catch (e) {
     missed.push(`${v.name} walkthrough: ${String(e).split("\n")[0]}`);
+  } finally {
+    await browser?.close().catch(() => {});
+  }
+}
+
+// The computer's setup walkthrough (ADR-0034) and the existing-install card:
+// the two full-size desktop variants.
+for (const v of variants.filter((x) => x.name === "desktop-light" || x.name === "desktop-dark")) {
+  let browser = null;
+  try {
+    const opened = await context(v, { setup: "walkthrough" });
+    browser = opened.browser;
+    const page = opened.page;
+    const shot = async (n) => {
+      await page.waitForTimeout(500);
+      const file = `${v.name}-setup-${n}.png`;
+      await page.screenshot({ path: `${out}/${file}` });
+      taken.push(file);
+    };
+    const next = (name) => page.locator(".setup-walk-foot").getByRole("button", { name, exact: true }).click();
+    await page.goto(base);
+    await page.locator(".setup-walk").waitFor({ timeout: 20000 });
+    await shot("1-computer");
+    await next("Continue");
+    await page.locator(".setup-choice").first().waitFor({ timeout: 10000 });
+    await shot("2-model");
+    await next("Continue");
+    await shot("3-speech");
+    await next("Continue");
+    await shot("4-download");
+    await next("Continue");
+    await shot("5-speed");
+    // A real speed check on the runner's processor (invented text only).
+    await next("Check the speed");
+    await page.locator(".setup-walk .board").waitFor({ timeout: 10000 });
+    await page.waitForTimeout(4000);
+    await shot("5-speed-running");
+    await page.locator(".setup-result, .setup-walk .ob-notice").first().waitFor({ timeout: 300000 });
+    await shot("5-speed-result");
+    await next("Continue");
+    await shot("6-tips");
+    await next("Finish");
+    await page.locator(".setup-walk").waitFor({ state: "detached", timeout: 10000 });
+  } catch (e) {
+    missed.push(`${v.name} setup walkthrough: ${String(e).split("\n")[0]}`);
+  } finally {
+    await browser?.close().catch(() => {});
+  }
+  browser = null;
+  try {
+    const opened = await context(v, { setup: "card" });
+    browser = opened.browser;
+    const page = opened.page;
+    await page.goto(base);
+    await page.locator(".setup-check-card").waitFor({ timeout: 20000 });
+    await page.waitForTimeout(500);
+    await page.screenshot({ path: `${out}/${v.name}-setup-card.png` });
+    taken.push(`${v.name}-setup-card.png`);
+    await page.getByRole("button", { name: "Check my setup" }).click();
+    await page.locator(".setup-walk").waitFor({ timeout: 10000 });
+    await page.waitForTimeout(500);
+    await page.screenshot({ path: `${out}/${v.name}-setup-check.png` });
+    taken.push(`${v.name}-setup-check.png`);
+  } catch (e) {
+    missed.push(`${v.name} setup card: ${String(e).split("\n")[0]}`);
   } finally {
     await browser?.close().catch(() => {});
   }
