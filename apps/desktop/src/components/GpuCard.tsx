@@ -3,9 +3,8 @@ import { useEffect, useState } from "react";
 import { fmtBytes, useApp } from "../context";
 import * as engine from "../engine";
 import { useT } from "../i18n";
+import { ExternalLink, NVIDIA_LICENCE } from "./ExternalLink";
 import { RemoveModelDialog } from "./RemoveModelDialog";
-
-const NVIDIA_LICENCE = "https://docs.nvidia.com/deeplearning/cudnn/latest/reference/eula.html";
 
 /**
  * Models: speech recognition on an NVIDIA graphics card (ADR-0014). Shown
@@ -147,9 +146,9 @@ export function GpuCard() {
             <input type="checkbox" checked={accepted} onChange={(e) => setAccepted(e.target.checked)} />
             <span>
               {t("I accept NVIDIA's licence for its libraries")}{" "}
-              <a href={NVIDIA_LICENCE} target="_blank" rel="noreferrer">
+              <ExternalLink href={NVIDIA_LICENCE} page={{ page: "nvidia-licence" }}>
                 {t("(read it)")}
-              </a>
+              </ExternalLink>
             </span>
           </label>
           {onDisk && <p>{onDisk}</p>}

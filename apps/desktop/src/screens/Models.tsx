@@ -5,6 +5,7 @@ import { fmtBytes, useApp } from "../context";
 import * as engine from "../engine";
 import { hardwareLine, useT } from "../i18n";
 import { AddLocalModelSheet } from "../components/AddLocalModelSheet";
+import { ExternalLink } from "../components/ExternalLink";
 import { GpuCard } from "../components/GpuCard";
 import { HfTokenField } from "../components/HfTokenField";
 import { MLX_CARD_ID, MlxCard } from "../components/MlxCard";
@@ -841,9 +842,12 @@ function HubBrowser({
                     <input type="checkbox" checked={accepted} onChange={(e) => setAccepted(e.target.checked)} />
                     <span>
                       {acceptBefore}
-                      <a href={`https://huggingface.co/${repo.repo.model.id}`} target="_blank" rel="noreferrer">
+                      <ExternalLink
+                        href={`https://huggingface.co/${repo.repo.model.id}`}
+                        page={{ page: "hf-repo", repo: repo.repo.model.id }}
+                      >
                         {t("licence on Hugging Face")}
-                      </a>
+                      </ExternalLink>
                       {acceptAfter}
                     </span>
                   </label>
@@ -999,12 +1003,12 @@ function GatedNotice({
           {manual && ` ${t("The publisher reviews requests by hand.")}`}
         </p>
         <div className="ask-actions gated-links">
-          <a className="link" href={`https://huggingface.co/${repo}`} target="_blank" rel="noreferrer">
+          <ExternalLink className="link" href={`https://huggingface.co/${repo}`} page={{ page: "hf-repo", repo }}>
             {t("Request access")}
-          </a>
-          <a className="link" href="https://huggingface.co/settings/tokens" target="_blank" rel="noreferrer">
+          </ExternalLink>
+          <ExternalLink className="link" href="https://huggingface.co/settings/tokens" page={{ page: "hf-tokens" }}>
             {t("Get a token")}
-          </a>
+          </ExternalLink>
         </div>
         <HfTokenField onChange={onToken} />
       </div>

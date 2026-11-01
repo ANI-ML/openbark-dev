@@ -1981,6 +1981,16 @@ export const recoveryKey = () =>
 export const canReveal = isDesktop && !isPhoneShell;
 export const reveal = (path: string) => revealItemInDir(path);
 
+/** A web page the desktop opens in the default browser (os_app::links). */
+export type WebPage = { page: "nvidia-licence" } | { page: "hf-tokens" } | { page: "hf-repo"; repo: string };
+/**
+ * Open a web page in the default browser, on the desktop: the main window
+ * names the page and the engine builds the address, because the window has
+ * no opener permission of its own. Web mode uses an ordinary link instead.
+ */
+export const openWebPage = (p: WebPage) =>
+  invoke<void>("open_web_page", { page: p.page, repo: p.page === "hf-repo" ? p.repo : null });
+
 // ---- importing a recording file -------------------------------------------
 
 /**

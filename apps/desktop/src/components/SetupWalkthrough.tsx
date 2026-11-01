@@ -22,12 +22,11 @@ import {
   transferEta,
 } from "../setup";
 import { isIos } from "../visits";
+import { ExternalLink, NVIDIA_LICENCE } from "./ExternalLink";
 import { type BoardStep, ProgressBoard, type StepState } from "./ProgressBoard";
 
 type T = ReturnType<typeof useT>;
 type StepKey = "computer" | "model" | "speech" | "download" | "speed" | "tips";
-
-const NVIDIA_LICENCE = "https://docs.nvidia.com/deeplearning/cudnn/latest/reference/eula.html";
 
 /** The speed check writes for at most this long (os-app speed::WRITE_BUDGET). */
 const WRITE_BUDGET_SECS = 15;
@@ -490,9 +489,9 @@ export function SetupWalkthrough({ mode }: { mode: SetupMode }) {
                     <input type="checkbox" checked={gpuAccepted} onChange={(e) => setGpuAccepted(e.target.checked)} />
                     <span>
                       {t("I accept NVIDIA's licence for its libraries")}{" "}
-                      <a href={NVIDIA_LICENCE} target="_blank" rel="noreferrer">
+                      <ExternalLink href={NVIDIA_LICENCE} page={{ page: "nvidia-licence" }}>
                         {t("(read it)")}
-                      </a>
+                      </ExternalLink>
                     </span>
                   </label>
                 )}

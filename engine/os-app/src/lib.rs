@@ -51,6 +51,7 @@ pub use templates::{
 mod clinic_hub;
 #[doc(hidden)]
 pub mod demo;
+pub mod links;
 pub mod logs;
 mod mic;
 mod phone;
