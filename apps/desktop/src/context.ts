@@ -133,6 +133,12 @@ export interface ToastAction {
   run: () => void;
 }
 
+/** More for a toast: buttons after `action`, and how long it stays (4 seconds unless set). */
+export interface ToastOptions {
+  more?: ToastAction[];
+  ms?: number;
+}
+
 export interface Ctx {
   route: Route;
   navigate: (r: Route) => void;
@@ -140,11 +146,8 @@ export interface Ctx {
   refreshStatus: () => void;
   settings: Settings;
   setSettings: (s: Partial<Settings>) => void;
-  /**
-   * Show a toast; `action` adds a button (Undo), or buttons. `ms`: how long
-   * it stays (4 seconds unless set).
-   */
-  toast: (message: string, action?: ToastAction | ToastAction[], ms?: number) => void;
+  /** Show a toast; `action` adds a button (Undo); `options` more buttons and a longer stay. */
+  toast: (message: string, action?: ToastAction, options?: ToastOptions) => void;
   announce: (message: string) => void;
   levels: LevelSource & { push(level: number): void };
   /** The team member using the app (null single-user, or before choosing). */

@@ -16,7 +16,15 @@ import { PhoneWalkthrough, walkthroughDue } from "./components/PhoneWalkthrough"
 import { Toast } from "./components/Toast";
 import { UpdateChecks } from "./components/UpdateCheck";
 import { ROLE_LABEL, UserPicker } from "./components/UserPicker";
-import { AppContext, loadSettings, permissions, saveSettings, type Settings, type ToastAction } from "./context";
+import {
+  AppContext,
+  loadSettings,
+  permissions,
+  saveSettings,
+  type Settings,
+  type ToastAction,
+  type ToastOptions,
+} from "./context";
 import { translate } from "./i18n";
 import { loadMotionFeatures, SPRING } from "./motion";
 import { hashToRoute, routeToHash, type Route } from "./routes";
@@ -64,15 +72,12 @@ export function App() {
   );
   const [status, setStatus] = useState<engine.Status | null>(null);
   const [settings, setSettingsState] = useState<Settings>(loadSettings);
-  const [toast, setToastState] = useState<{
-    n: number;
-    message: string;
-    action?: ToastAction | ToastAction[];
-    ms?: number;
-  } | null>(null);
+  const [toast, setToastState] = useState<
+    { n: number; message: string; action?: ToastAction; options?: ToastOptions } | null
+  >(null);
   const showToast = useCallback(
-    (message: string, action?: ToastAction | ToastAction[], ms?: number) =>
-      setToastState((prev) => ({ n: (prev?.n ?? 0) + 1, message, action, ms })),
+    (message: string, action?: ToastAction, options?: ToastOptions) =>
+      setToastState((prev) => ({ n: (prev?.n ?? 0) + 1, message, action, options })),
     [],
   );
   const closeToast = useCallback(() => setToastState(null), []);
@@ -375,7 +380,14 @@ export function App() {
       {/* The toast arrives and leaves (it used to vanish); a new one waits for the old to go. */}
       <AnimatePresence mode="wait">
         {toast && (
-          <Toast key={toast.n} message={toast.message} action={toast.action} ms={toast.ms} onClose={closeToast} />
+          <Toast
+            key={toast.n}
+            message={toast.message}
+            action={toast.action}
+            more={toast.options?.more}
+            ms={toast.options?.ms}
+            onClose={closeToast}
+          />
         )}
       </AnimatePresence>
       <div className="sr-only" aria-live="polite">

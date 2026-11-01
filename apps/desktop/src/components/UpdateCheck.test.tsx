@@ -2,7 +2,7 @@ import { createLevelSource } from "@openbark/ui";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useState, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AppContext, loadSettings, type Ctx, type Settings, type ToastAction } from "../context";
+import { AppContext, loadSettings, type Ctx, type Settings, type ToastAction, type ToastOptions } from "../context";
 import * as engine from "../engine";
 import { Toast } from "./Toast";
 import { newerVersion, UPDATE_POLL_MS, UpdateChecks, UpdateSettings, updatesOffered } from "./UpdateCheck";
@@ -31,7 +31,7 @@ const view = (over: Partial<engine.UpdateView> = {}): engine.UpdateView => ({
 
 /** The settings as the app last rendered them. */
 let saved: Settings;
-const toast = vi.fn<(message: string, action?: ToastAction | ToastAction[], ms?: number) => void>();
+const toast = vi.fn<(message: string, action?: ToastAction, options?: ToastOptions) => void>();
 
 /** The app's context with real, changing settings. */
 function Shell({
@@ -230,14 +230,13 @@ describe("the notice", () => {
     checks(on);
     await settle();
     expect(toast).toHaveBeenCalledTimes(1);
-    const [message, actions, ms] = toast.mock.calls[0]!;
+    const [message, notes, options] = toast.mock.calls[0]!;
     expect(message).toBe("OpenBark 0.2.10 is available");
-    expect(Array.isArray(actions) && actions.map((a) => a.label)).toEqual(["What's new", "Download"]);
-    expect(ms).toBeGreaterThanOrEqual(10_000);
+    expect([notes?.label, ...(options?.more ?? []).map((a) => a.label)]).toEqual(["What's new", "Download"]);
+    expect(options?.ms).toBeGreaterThanOrEqual(10_000);
     expect(saved.updateNotified).toBe("0.2.10");
-    const [notes, download] = actions as ToastAction[];
     notes!.run();
-    download!.run();
+    options!.more![0]!.run();
     expect(mocked.openReleaseLink).toHaveBeenCalledWith("notes", newer);
     expect(mocked.openReleaseLink).toHaveBeenCalledWith("download", newer);
   });
@@ -278,10 +277,8 @@ describe("the notice", () => {
     render(
       <Toast
         message="OpenBark 0.2.10 is available"
-        action={[
-          { label: "What's new", run: what },
-          { label: "Download", run: download },
-        ]}
+        action={{ label: "What's new", run: what }}
+        more={[{ label: "Download", run: download }]}
         onClose={onClose}
       />,
     );

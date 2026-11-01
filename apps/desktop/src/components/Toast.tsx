@@ -18,16 +18,18 @@ import { PHONE, useMediaQuery } from "../useMediaQuery";
 export function Toast({
   message,
   action,
+  more,
   onClose,
   ms = 4000,
 }: {
   message: string;
-  /** One button (Undo), or a few (the update notice's What's new and Download). */
-  action?: ToastAction | ToastAction[];
+  action?: ToastAction;
+  /** Buttons after `action` (the update notice's Download after What's new). One press closes the toast. */
+  more?: ToastAction[];
   onClose: () => void;
   ms?: number;
 }) {
-  const actions = action === undefined ? [] : Array.isArray(action) ? action : [action];
+  const actions = [...(action ? [action] : []), ...(more ?? [])];
   const [pointer, setPointer] = useState(false);
   const [focus, setFocus] = useState(false);
   const done = useRef(false);

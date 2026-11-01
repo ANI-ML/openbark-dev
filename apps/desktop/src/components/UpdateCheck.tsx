@@ -90,11 +90,11 @@ export function useUpdateNotice() {
     if (newerVersion(view.latest, settings.updateNotified)) setSettings({ updateNotified: view.latest });
     toast(
       t("OpenBark {version} is available", { version: view.latest }),
-      [
-        { label: t("What's new"), run: () => void engine.openReleaseLink("notes", view).catch(() => {}) },
-        { label: t("Download"), run: () => void engine.openReleaseLink("download", view).catch(() => {}) },
-      ],
-      UPDATE_TOAST_MS,
+      { label: t("What's new"), run: () => void engine.openReleaseLink("notes", view).catch(() => {}) },
+      {
+        more: [{ label: t("Download"), run: () => void engine.openReleaseLink("download", view).catch(() => {}) }],
+        ms: UPDATE_TOAST_MS,
+      },
     );
   };
 }
