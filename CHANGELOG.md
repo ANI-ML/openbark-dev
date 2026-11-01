@@ -2,9 +2,23 @@
 
 All notable changes to OpenBark, newest first. Generated from `website/content/history.json` by `scripts/website-build.py`; edit that file, not this one. The same history is on the website's Version history page.
 
-## 0.2.4 (beta)
+## 0.2.5 (beta)
 
 ### Beta: Ready for clinics to try
+
+#### 2026-11-01: Normal-exam defaults you confirm, a Spoken language setting, and long visits that finish
+
+After feedback from a French-speaking clinic: templates can hold normal findings that are used only for systems not discussed, and only once you confirm them. A Spoken language setting, a fix for new custom templates, and drafting that no longer runs out of room on long visits.
+
+- Normal findings on a template heading (off unless you add them). A finding is used only for a system that wasn't discussed, is marked "Template default, not from the recording", and must be confirmed before the note can be signed. The model never sees the default text.
+- A plain warning when a heading's instruction looks like a pasted exam, in any language, with a button that moves those lines into Normal findings.
+- "null" no longer appears in notes, copies, PDFs or client documents; blank findings are left out.
+- Settings, Recording, Spoken language (desktop): Auto, English, Français, Español, Deutsch or Português. A set language is passed to the second listen. Auto behaves exactly as before.
+- Better drug-name cues in French ("comprimé", "gouttes", "matin et soir", "pendant 5 jours" and others). Suggestions only; the transcript is never changed.
+- A new custom template can be typed into, and headings added, moved and removed, before it has a name.
+- The length limit for a note grows with the length of the visit, so long visits no longer fail with "ran past its length limit".
+- French tests on synthetic consults in standard French. Not yet tested on Quebec French or real clinic recordings. (being tested)
+- Security: an updated zip library, for a published advisory.
 
 #### 2026-10-29: Drug names heard in context, your clinic's own words, and Speakers in the room
 
