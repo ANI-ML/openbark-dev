@@ -43,7 +43,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Supabase CLI (pinned, hash-checked; docs/versions.md)
         run: |
           f="supabase_${SUPABASE_CLI_VERSION}_linux_amd64.tar.gz"
@@ -71,7 +71,7 @@ jobs:
           eval "$(bash scripts/sync-local-supabase.sh env)"
           mkdir -p target/clinic-e2e
           python3 -I scripts/clinic-e2e.py | tee target/clinic-e2e/steps.log
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: success() || failure()
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -113,7 +113,7 @@ jobs:
           for c in edge_runtime auth rest db kong; do
             docker logs "supabase_${c}_openbark-sync-dev" > "target/clinic-e2e/${c}.log" 2>&1 || true
           done
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           # Synthetic accounts and logs only.
