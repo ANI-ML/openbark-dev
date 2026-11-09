@@ -31,7 +31,7 @@ repository = "https://github.com/ANI-ML/openbark"
 [workspace.dependencies]
 # OpenMP is added by os-llm on every target but iOS (ADR-0018 section 7).
 llama-cpp-2 = { version = "=0.1.160", default-features = false, features = ["common"] }
-sherpa-onnx = { version = "=1.13.8", default-features = false }
+sherpa-onnx = { version = "=2.0.1", default-features = false }
 
 anyhow = "1.0.104"
 thiserror = "2.0.21"
