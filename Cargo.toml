@@ -59,7 +59,7 @@ bzip2 = "=0.5.2"
 tar = "=0.4.46"
 # zip 9.1 (critical GHSA-m665-v7pm-7grj and the other pre-9 advisories): reading
 # only needs DEFLATE through flate2's zlib-rs, which flate2 below already uses.
-zip = { version = "=9.1.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+zip = { version = "=9.2.2", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 # MLX engine pack: CPython archive (ADR-0025); the version already in Cargo.lock.
 flate2 = "=1.1.10"
 minijinja = { version = "3.0.1", features = ["serde", "json", "loop_controls", "preserve_order"] }
@@ -96,7 +96,7 @@ http-body-util = "=0.1.5"
 # The hub's self-signed certificate (ECDSA P-256 with ring).
 rcgen = { version = "=0.14.10", default-features = false, features = ["crypto", "ring"] }
 # mDNS / DNS-SD: the hub advertises _openbark-hub._tcp, devices browse.
-mdns-sd = { version = "=0.21.5", default-features = false }
+mdns-sd = { version = "=0.21.7", default-features = false }
 # The hub computer's own addresses, for its join code (the version mdns-sd uses).
 if-addrs = "=0.15.0"
 # An IPv6-only listener beside the IPv4 one (the version tokio uses).
